@@ -100,9 +100,9 @@ end
 | Provider | CLI Binary | Description |
 | -------- | ---------- | ----------- |
 | `:claude` | `claude` | Anthropic Claude Code CLI |
-| `:cursor` | `cursor` | Cursor AI editor CLI |
+| `:cursor` | `cursor-agent` | Cursor AI editor CLI |
 | `:gemini` | `gemini` | Google Gemini CLI |
-| `:github_copilot` | `gh copilot` | GitHub Copilot CLI |
+| `:github_copilot` | `copilot` | GitHub Copilot CLI |
 | `:codex` | `codex` | OpenAI Codex CLI |
 | `:aider` | `aider` | Aider coding assistant |
 | `:opencode` | `opencode` | OpenCode CLI |
