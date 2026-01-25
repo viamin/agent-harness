@@ -1,0 +1,28 @@
+name: Continuous Integration
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Add default permissions for the workflow
+permissions:
+  contents: read
+  actions: write
+  pull-requests: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    permissions:
+      contents: write
+      actions: write
+    uses: ./.github/workflows/test.yml
+  lint:
+    permissions:
+      contents: read # For repository access
+      actions: write # For cache operations
+    uses: ./.github/workflows/lint.yml
