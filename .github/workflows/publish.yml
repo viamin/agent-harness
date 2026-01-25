@@ -1,0 +1,213 @@
+name: Release Please
+
+on:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    outputs:
+      release-created: ${{ steps.release.outputs.release_created }}
+      tag-name: ${{ steps.release.outputs.tag_name }}
+      pr-number: ${{ steps.find-pr.outputs.pr-number }}
+      pr-head-branch: ${{ steps.find-pr.outputs.pr-branch }}
+    steps:
+      - uses: googleapis/release-please-action@16a9c90856f42705d54a6fda1823352bdc62cf38
+        id: release
+      - name: Find release PR
+        id: find-pr
+        run: |
+          set -euo pipefail
+          REPO="${GITHUB_REPOSITORY}"
+          PR_JSON=$(gh pr list --repo "$REPO" --label "autorelease: pending" --json number,headRefName --limit 1 || echo '[]')
+          # Ensure jq is available (GitHub hosted runners have it by default)
+          if ! command -v jq >/dev/null 2>&1; then
+            echo "jq not found; cannot parse release PR JSON" >&2
+            PR_NUMBER=""
+            PR_BRANCH=""
+          else
+            PR_NUMBER=$(jq -r '.[0].number // ""' <<< "$PR_JSON")
+            PR_BRANCH=$(jq -r '.[0].headRefName // ""' <<< "$PR_JSON")
+          fi
+          if [ -n "$PR_NUMBER" ]; then
+            echo "Found release PR #$PR_NUMBER on branch $PR_BRANCH"
+          else
+            echo "No active release PR found (label: autorelease: pending)."
+          fi
+          echo "pr-number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "pr-branch=$PR_BRANCH" >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Assign release PR to viamin
+        if: steps.find-pr.outputs.pr-number != ''
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+        env:
+          PR_NUMBER: ${{ steps.find-pr.outputs.pr-number }}
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const prNumber = Number(process.env.PR_NUMBER);
+            if (!prNumber) {
+              console.log('Release PR number missing; skipping assignee update.');
+              return;
+            }
+            await github.rest.issues.addAssignees({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              assignees: ['viamin']
+            });
+            console.log(`Assigned release PR #${prNumber} to viamin.`);
+
+  update-coverage-badge:
+    name: Update coverage badge on release PR
+    runs-on: ubuntu-latest
+    needs: release-please
+    if: ${{ needs.release-please.outputs.pr-number != '' }}
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Checkout release PR branch
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
+        with:
+          ref: ${{ needs.release-please.outputs.pr-head-branch }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@80740b3b13bf9857e28854481ca95a84e78a2bdf
+        with:
+          bundler-cache: true
+
+      - name: Install dependencies
+        run: bundle install --jobs 4 --retry 3
+
+      - name: Run unit tests with coverage
+        env:
+          COVERAGE: "1"
+        run: bundle exec rspec spec/ --exclude-pattern "spec/system/**/*_spec.rb"
+
+      - name: Generate coverage summary & badge
+        run: bundle exec rake coverage:summary
+
+      - name: Check for coverage changes
+        id: coverage-changes
+        run: |
+          set -euo pipefail
+          CHANGES=$(git status --short -- badges/coverage.svg || true)
+          if [ -z "$CHANGES" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No coverage badge changes detected."
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            printf '%s\n' "$CHANGES"
+          fi
+
+      - name: Commit updated coverage badge to release PR (verified)
+        if: steps.coverage-changes.outputs.changed == 'true'
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+        env:
+          PR_BRANCH: ${{ needs.release-please.outputs.pr-head-branch }}
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+
+            const branch = process.env.PR_BRANCH;
+            if (!branch) {
+              core.setFailed('Release PR branch was not detected.');
+              return;
+            }
+
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+
+            let expectedHeadOid;
+            try {
+              const { data: ref } = await github.rest.git.getRef({
+                owner,
+                repo,
+                ref: `heads/${branch}`
+              });
+              expectedHeadOid = ref.object.sha;
+            } catch (error) {
+              core.setFailed(`Unable to resolve head ref for ${branch}: ${error.message}`);
+              return;
+            }
+
+            core.info(`Preparing verified commit on ${branch} at ${expectedHeadOid}`);
+
+            const badge = fs.readFileSync('badges/coverage.svg');
+
+            const mutation = `
+              mutation($input: CreateCommitOnBranchInput!) {
+                createCommitOnBranch(input: $input) {
+                  commit {
+                    oid
+                    url
+                  }
+                }
+              }
+            `;
+
+            const input = {
+              branch: {
+                repositoryNameWithOwner: `${owner}/${repo}`,
+                branchName: branch
+              },
+              message: {
+                headline: 'chore: update coverage badge'
+              },
+              fileChanges: {
+                additions: [
+                  {
+                    path: 'badges/coverage.svg',
+                    contents: badge.toString('base64')
+                  }
+                ]
+              },
+              expectedHeadOid
+            };
+
+            const result = await github.graphql(mutation, { input });
+            const commit = result.createCommitOnBranch.commit;
+            core.notice(`Created verified commit ${commit.oid} updating coverage badge (${commit.url})`);
+
+      - name: Clean up coverage artifacts
+        if: always()
+        run: rm -rf coverage
+
+  push-gem:
+    name: Push gem to RubyGems.org
+    runs-on: ubuntu-latest
+    needs: release-please
+    if: ${{ needs.release-please.outputs.release-created }}
+
+    permissions:
+      id-token: write # IMPORTANT: this permission is mandatory for trusted publishing
+      contents: write # IMPORTANT: this permission is required for `rake release` to push the release tag
+
+    steps:
+      # Set up
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
+        with:
+          persist-credentials: false
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@80740b3b13bf9857e28854481ca95a84e78a2bdf
+        with:
+          bundler-cache: true
+          ruby-version: ruby
+
+      # Release
+      - uses: rubygems/release-gem@1c162a739e8b4cb21a676e97b087e8268d8fc40b

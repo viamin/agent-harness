@@ -1,0 +1,38 @@
+name: Test
+
+on:
+  workflow_call:
+
+concurrency:
+  group: test-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@80740b3b13bf9857e28854481ca95a84e78a2bdf
+        with:
+          bundler-cache: true
+
+      - name: Install dependencies
+        run: bundle install --jobs 4 --retry 3
+
+      - name: Run unit tests with coverage
+        env:
+          COVERAGE: "1"
+        run: bundle exec rspec
+
+      - name: Generate coverage summary & badge
+        run: |
+          bundle exec rake coverage:summary
+          echo "Coverage summary and badge generated"
