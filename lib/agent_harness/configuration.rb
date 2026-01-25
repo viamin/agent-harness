@@ -19,7 +19,8 @@ module AgentHarness
   #   end
   class Configuration
     attr_accessor :logger, :log_level, :default_provider, :fallback_providers
-    attr_accessor :command_executor, :config_file_path, :default_timeout
+    attr_accessor :config_file_path, :default_timeout
+    attr_writer :command_executor
 
     attr_reader :providers, :orchestration_config, :callbacks, :custom_provider_classes
 
@@ -103,25 +104,6 @@ module AgentHarness
     # @return [void]
     def on_circuit_close(&block)
       @callbacks.register(:circuit_close, block)
-    end
-
-    # Load configuration from YAML file
-    #
-    # @param path [String] path to YAML file
-    # @return [void]
-    def load_yaml(path)
-      require_relative "configuration/yaml_loader"
-      loader = Configuration::YamlLoader.new(path)
-      loader.apply_to(self)
-    end
-
-    # Load configuration from environment variables
-    #
-    # @return [void]
-    def load_env
-      require_relative "configuration/env_loader"
-      loader = Configuration::EnvLoader.new
-      loader.apply_to(self)
     end
 
     # Validate the configuration

@@ -81,7 +81,6 @@ module AgentHarness
         retries = 0
         retry_config = @config.orchestration_config.retry_config
         max_retries = retry_config.max_attempts
-        last_error = nil
         attempted_providers = []
 
         begin
@@ -103,18 +102,15 @@ module AgentHarness
 
           response
         rescue RateLimitError => e
-          last_error = e
           @provider_manager.mark_rate_limited(provider_name, reset_at: e.reset_time)
           handle_provider_failure(e, provider_name, :switch)
           retry if should_retry?(retries += 1, max_retries)
           raise
         rescue CircuitOpenError => e
-          last_error = e
           handle_provider_failure(e, provider_name, :switch)
           retry if should_retry?(retries += 1, max_retries)
           raise
         rescue TimeoutError, ProviderError => e
-          last_error = e
           @provider_manager.record_failure(provider_name)
           handle_provider_failure(e, provider_name, :retry)
           retry if should_retry?(retries += 1, max_retries)
@@ -123,7 +119,6 @@ module AgentHarness
           # Re-raise as-is, don't wrap
           raise
         rescue => e
-          last_error = e
           @metrics.record_failure(provider_name, e)
           @provider_manager.record_failure(provider_name)
 

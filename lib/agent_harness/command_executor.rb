@@ -109,10 +109,8 @@ module AgentHarness
         Open3.popen3(env, *cmd_array) do |stdin, stdout_io, stderr_io, wait_thr|
           if stdin_data
             stdin.write(stdin_data)
-            stdin.close
-          else
-            stdin.close
           end
+          stdin.close
 
           # Read output streams
           stdout = stdout_io.read
@@ -130,10 +128,8 @@ module AgentHarness
       Open3.popen3(env, *cmd_array) do |stdin, stdout_io, stderr_io, wait_thr|
         if stdin_data
           stdin.write(stdin_data)
-          stdin.close
-        else
-          stdin.close
         end
+        stdin.close
 
         stdout = stdout_io.read
         stderr = stderr_io.read

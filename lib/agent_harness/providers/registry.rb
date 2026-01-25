@@ -95,10 +95,14 @@ module AgentHarness
       end
 
       def validate_provider_class!(klass)
-        unless klass.included_modules.include?(Adapter) ||
-            (klass.respond_to?(:provider_name) && klass.respond_to?(:available?) && klass.respond_to?(:binary_name))
-          raise ConfigurationError, "Provider class must include AgentHarness::Providers::Adapter or implement required class methods"
-        end
+        includes_adapter = klass.included_modules.include?(Adapter)
+        has_required_methods = klass.respond_to?(:provider_name) &&
+          klass.respond_to?(:available?) &&
+          klass.respond_to?(:binary_name)
+
+        return if includes_adapter || has_required_methods
+
+        raise ConfigurationError, "Provider class must include AgentHarness::Providers::Adapter or implement required class methods"
       end
 
       def ensure_builtin_providers_registered

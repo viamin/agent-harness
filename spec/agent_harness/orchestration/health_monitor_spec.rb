@@ -26,13 +26,13 @@ RSpec.describe AgentHarness::Orchestration::HealthMonitor do
 
     it "returns true when success rate is above threshold" do
       3.times { monitor.record_success(:claude) }
-      1.times { monitor.record_failure(:claude) }
+      monitor.record_failure(:claude)
 
       expect(monitor.healthy?(:claude)).to be true
     end
 
     it "returns false when success rate is below threshold" do
-      1.times { monitor.record_success(:claude) }
+      monitor.record_success(:claude)
       3.times { monitor.record_failure(:claude) }
 
       expect(monitor.healthy?(:claude)).to be false
@@ -42,7 +42,7 @@ RSpec.describe AgentHarness::Orchestration::HealthMonitor do
   describe "#metrics_for" do
     before do
       3.times { monitor.record_success(:claude) }
-      1.times { monitor.record_failure(:claude) }
+      monitor.record_failure(:claude)
     end
 
     it "returns success rate" do

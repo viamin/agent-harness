@@ -216,7 +216,7 @@ module AgentHarness
           end
 
           servers
-        rescue JSON::ParserError, StandardError
+        rescue
           []
         end
       end
