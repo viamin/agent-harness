@@ -1,5 +1,14 @@
 ## [Unreleased]
 
+## [0.2.1](https://github.com/viamin/agent-harness/compare/agent-harness/v0.2.0...agent-harness/v0.2.1) (2026-01-26)
+
+
+### Bug Fixes
+
+* add workflow to update release-please lockfile automatically ([0c01f92](https://github.com/viamin/agent-harness/commit/0c01f92b26eb7f1aa12c5a71776b889756240f1f))
+* remove extra-files configuration from release-please config ([3fa12df](https://github.com/viamin/agent-harness/commit/3fa12df710b6b6e6e0ec8f1f8da2de86bc3e8503))
+* update release-please config to include Gemfile.lock as extra file ([be91fff](https://github.com/viamin/agent-harness/commit/be91fff227cc56c0fd9850ac54a2bec09755f8d6))
+
 ## [0.2.0](https://github.com/viamin/agent-harness/compare/agent-harness-v0.1.0...agent-harness/v0.2.0) (2026-01-26)
 
 
