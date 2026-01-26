@@ -1,7 +1,7 @@
 PATH
   remote: .
   specs:
-    agent-harness (0.2.2)
+    agent-harness (0.3.0)
 
 GEM
   remote: https://rubygems.org/
