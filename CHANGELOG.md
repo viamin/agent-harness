@@ -1,5 +1,16 @@
 ## [Unreleased]
 
+## [0.2.2](https://github.com/viamin/agent-harness/compare/agent-harness/v0.2.1...agent-harness/v0.2.2) (2026-01-26)
+
+
+### Bug Fixes
+
+* add Gemfile.lock to extra-files in release-please config ([11fa4d7](https://github.com/viamin/agent-harness/commit/11fa4d7edd29e5c30ed4d074687097bc2db5d6fa))
+* add Gemfile.lock to extra-files in release-please config ([e94f431](https://github.com/viamin/agent-harness/commit/e94f431fbee36da72ce768a14ed927728e197551))
+* update .gitignore to include /vendor/bundle/ and remove Gemfile.… ([beba6aa](https://github.com/viamin/agent-harness/commit/beba6aa197363a3375df4370e891010ac56bb6b0))
+* update .gitignore to include /vendor/bundle/ and remove Gemfile.lock from release-please config ([cb15c77](https://github.com/viamin/agent-harness/commit/cb15c77b1fef400451be9542321e10f2f8d766af))
+* update agent-harness version in Gemfile.lock to 0.2.1 ([32ff4e4](https://github.com/viamin/agent-harness/commit/32ff4e4f95173fafa196345c69dd0b38b113d928))
+
 ## [0.2.1](https://github.com/viamin/agent-harness/compare/agent-harness/v0.2.0...agent-harness/v0.2.1) (2026-01-26)
 
 
