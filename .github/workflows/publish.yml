@@ -29,7 +29,6 @@ jobs:
 
     permissions:
       id-token: write # IMPORTANT: this permission is mandatory for trusted publishing
-      contents: write # IMPORTANT: this permission is required for `rake release` to push the release tag
 
     steps:
       # Set up
@@ -42,5 +41,9 @@ jobs:
           bundler-cache: true
           ruby-version: ruby
 
-      # Release
+      # Release - only push gem, skip git operations since release-please already tagged
       - uses: rubygems/release-gem@1c162a739e8b4cb21a676e97b087e8268d8fc40b
+        with:
+          release-command: |
+            bundle exec rake build
+            gem push pkg/*.gem
