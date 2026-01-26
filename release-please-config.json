@@ -5,7 +5,6 @@
       "release-type": "ruby",
       "package-name": "agent-harness",
       "version-file": "lib/agent_harness/version.rb",
-      "extra-files": ["Gemfile.lock"],
       "changelog-sections": [
         {
           "type": "feat",
