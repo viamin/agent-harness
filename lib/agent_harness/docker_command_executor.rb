@@ -21,6 +21,8 @@ module AgentHarness
     # @param logger [Logger, nil] optional logger
     # @raise [CommandExecutionError] if Docker CLI is not found on the host
     def initialize(container_id:, logger: nil)
+      raise ArgumentError, "container_id cannot be nil or empty" if container_id.nil? || container_id.empty?
+
       super(logger: logger)
       @container_id = container_id
       validate_docker!
@@ -46,7 +48,7 @@ module AgentHarness
     # @param binary [String] binary name
     # @return [String, nil] full path or nil
     def which(binary)
-      result = execute(["which", binary])
+      result = execute(["which", binary], timeout: 5)
       result.success? ? result.stdout.strip : nil
     end
 
@@ -67,17 +69,6 @@ module AgentHarness
       cmd.push(@container_id)
 
       cmd.concat(normalize_command(command))
-    end
-
-    def normalize_command(command)
-      case command
-      when Array
-        command.map(&:to_s)
-      when String
-        Shellwords.split(command)
-      else
-        raise ArgumentError, "Command must be Array or String"
-      end
     end
   end
 end

@@ -25,6 +25,18 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
       expect(executor.logger).to eq(logger)
     end
 
+    it "raises ArgumentError when container_id is nil" do
+      expect {
+        described_class.new(container_id: nil)
+      }.to raise_error(ArgumentError, /container_id cannot be nil or empty/)
+    end
+
+    it "raises ArgumentError when container_id is empty" do
+      expect {
+        described_class.new(container_id: "")
+      }.to raise_error(ArgumentError, /container_id cannot be nil or empty/)
+    end
+
     it "raises CommandExecutionError when docker CLI is not found" do
       allow(File).to receive(:executable?).with("/usr/local/bin/docker").and_return(false)
       allow(File).to receive(:executable?).with("/usr/bin/docker").and_return(false)
@@ -108,6 +120,7 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
     subject(:executor) { described_class.new(container_id: container_id) }
 
     it "returns the path when binary is found" do
+      expect(Timeout).to receive(:timeout).with(5).and_call_original
       allow(Open3).to receive(:popen3) do |_env, *_cmd, &block|
         stdin = StringIO.new
         stdout = StringIO.new("/usr/bin/ruby\n")

@@ -87,7 +87,7 @@ module AgentHarness
       !which(binary).nil?
     end
 
-    private
+    protected
 
     def normalize_command(command)
       case command
@@ -99,6 +99,8 @@ module AgentHarness
         raise ArgumentError, "Command must be Array or String"
       end
     end
+
+    private
 
     def execute_with_timeout(cmd_array, timeout:, env:, stdin_data:)
       stdout = ""
