@@ -32,7 +32,8 @@ module AgentHarness
     class Base
       include Adapter
 
-      attr_reader :config, :executor, :logger
+      attr_reader :config, :logger
+      attr_accessor :executor
 
       # Initialize the provider
       #
