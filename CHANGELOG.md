@@ -1,5 +1,13 @@
 ## [Unreleased]
 
+## [0.4.0](https://github.com/viamin/agent-harness/compare/agent-harness/v0.3.0...agent-harness/v0.4.0) (2026-02-16)
+
+
+### Features
+
+* add DockerCommandExecutor for container-based command execution ([85826e5](https://github.com/viamin/agent-harness/commit/85826e5ece76d9f073329902769093f846cfd8b7))
+* add DockerCommandExecutor for container-based command execution ([cb18f2e](https://github.com/viamin/agent-harness/commit/cb18f2e2f1d16ef52ea2ce54c51970d73fcae6c8))
+
 ## [0.3.0](https://github.com/viamin/agent-harness/compare/agent-harness-v0.2.2...agent-harness/v0.3.0) (2026-01-26)
 
 
