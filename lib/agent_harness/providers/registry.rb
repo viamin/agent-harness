@@ -95,7 +95,7 @@ module AgentHarness
       end
 
       def validate_provider_class!(klass)
-        includes_adapter = klass.included_modules.include?(Adapter)
+        includes_adapter = klass.include?(Adapter)
         has_required_methods = klass.respond_to?(:provider_name) &&
           klass.respond_to?(:available?) &&
           klass.respond_to?(:binary_name)
