@@ -89,6 +89,7 @@ end
 require_relative "agent_harness/errors"
 require_relative "agent_harness/configuration"
 require_relative "agent_harness/command_executor"
+require_relative "agent_harness/docker_command_executor"
 require_relative "agent_harness/response"
 require_relative "agent_harness/token_tracker"
 require_relative "agent_harness/error_taxonomy"
