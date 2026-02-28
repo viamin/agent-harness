@@ -246,7 +246,7 @@ module AgentHarness
       def build_command(prompt, options)
         cmd = [self.class.binary_name]
 
-        cmd += ["--print", "--output-format=text"]
+        cmd += ["--print", "--output-format=json"]
 
         # Add model if specified
         if @config.model && !@config.model.empty?
@@ -269,10 +269,18 @@ module AgentHarness
       def parse_response(result, duration:)
         output = result.stdout
         error = nil
+        tokens = nil
 
         if result.failed?
           combined = [result.stdout, result.stderr].compact.join("\n")
           error = classify_error_message(combined)
+        end
+
+        # Parse JSON output to extract result text and token usage
+        parsed = parse_json_output(output)
+        if parsed
+          output = parsed["result"] || output
+          tokens = extract_tokens(parsed)
         end
 
         Response.new(
@@ -281,6 +289,7 @@ module AgentHarness
           duration: duration,
           provider: self.class.provider_name,
           model: @config.model,
+          tokens: tokens,
           error: error
         )
       end
@@ -290,6 +299,28 @@ module AgentHarness
       end
 
       private
+
+      def parse_json_output(output)
+        return nil if output.nil? || output.empty?
+
+        JSON.parse(output)
+      rescue JSON::ParserError
+        nil
+      end
+
+      def extract_tokens(parsed)
+        usage = parsed["usage"]
+        return nil unless usage
+
+        input = usage["input_tokens"]
+        output = usage["output_tokens"]
+        return nil unless input || output
+
+        input ||= 0
+        output ||= 0
+
+        {input: input, output: output, total: input + output}
+      end
 
       def classify_error_message(message)
         msg_lower = message.downcase

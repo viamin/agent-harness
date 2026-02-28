@@ -329,7 +329,7 @@ RSpec.describe AgentHarness::Providers::Anthropic do
         it "includes print and output format flags" do
           allow(mock_executor).to receive(:execute).and_return(
             AgentHarness::CommandExecutor::Result.new(
-              stdout: "response",
+              stdout: '{"result":"response","usage":{"input_tokens":10,"output_tokens":5}}',
               stderr: "",
               exit_code: 0,
               duration: 1.0
@@ -337,7 +337,7 @@ RSpec.describe AgentHarness::Providers::Anthropic do
           )
 
           expect(mock_executor).to receive(:execute).with(
-            array_including("--print", "--output-format=text"),
+            array_including("--print", "--output-format=json"),
             anything
           )
 
@@ -347,7 +347,7 @@ RSpec.describe AgentHarness::Providers::Anthropic do
         it "includes model when configured" do
           allow(mock_executor).to receive(:execute).and_return(
             AgentHarness::CommandExecutor::Result.new(
-              stdout: "response",
+              stdout: '{"result":"response","usage":{"input_tokens":10,"output_tokens":5}}',
               stderr: "",
               exit_code: 0,
               duration: 1.0
@@ -365,7 +365,7 @@ RSpec.describe AgentHarness::Providers::Anthropic do
         it "includes dangerous mode flags when requested" do
           allow(mock_executor).to receive(:execute).and_return(
             AgentHarness::CommandExecutor::Result.new(
-              stdout: "response",
+              stdout: '{"result":"response","usage":{"input_tokens":10,"output_tokens":5}}',
               stderr: "",
               exit_code: 0,
               duration: 1.0
@@ -383,7 +383,7 @@ RSpec.describe AgentHarness::Providers::Anthropic do
         it "includes default flags from config" do
           allow(mock_executor).to receive(:execute).and_return(
             AgentHarness::CommandExecutor::Result.new(
-              stdout: "response",
+              stdout: '{"result":"response","usage":{"input_tokens":10,"output_tokens":5}}',
               stderr: "",
               exit_code: 0,
               duration: 1.0
@@ -401,7 +401,7 @@ RSpec.describe AgentHarness::Providers::Anthropic do
         it "includes prompt at the end" do
           allow(mock_executor).to receive(:execute).and_return(
             AgentHarness::CommandExecutor::Result.new(
-              stdout: "response",
+              stdout: '{"result":"response","usage":{"input_tokens":10,"output_tokens":5}}',
               stderr: "",
               exit_code: 0,
               duration: 1.0
@@ -486,6 +486,121 @@ RSpec.describe AgentHarness::Providers::Anthropic do
 
           response = provider.send_message(prompt: "Hello")
           expect(response.error).to include("Some other error occurred")
+        end
+      end
+
+      context "with token usage parsing" do
+        it "extracts token usage from JSON output" do
+          json_output = JSON.generate({
+            "result" => "Hello! How can I help?",
+            "usage" => {
+              "input_tokens" => 100,
+              "output_tokens" => 50
+            }
+          })
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: json_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq("Hello! How can I help?")
+          expect(response.tokens).to eq({input: 100, output: 50, total: 150})
+          expect(response.input_tokens).to eq(100)
+          expect(response.output_tokens).to eq(50)
+          expect(response.total_tokens).to eq(150)
+        end
+
+        it "handles JSON output without usage data" do
+          json_output = JSON.generate({
+            "result" => "Hello!"
+          })
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: json_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq("Hello!")
+          expect(response.tokens).to be_nil
+        end
+
+        it "handles non-JSON output gracefully" do
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: "plain text response",
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq("plain text response")
+          expect(response.tokens).to be_nil
+        end
+
+        it "handles JSON with cache token fields" do
+          json_output = JSON.generate({
+            "result" => "Cached response",
+            "usage" => {
+              "input_tokens" => 200,
+              "output_tokens" => 75,
+              "cache_creation_input_tokens" => 0,
+              "cache_read_input_tokens" => 50
+            }
+          })
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: json_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.5
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.tokens).to eq({input: 200, output: 75, total: 275})
+        end
+
+        it "records tokens with the global token tracker" do
+          json_output = JSON.generate({
+            "result" => "Tracked response",
+            "usage" => {
+              "input_tokens" => 50,
+              "output_tokens" => 25
+            }
+          })
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: json_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          tracker = AgentHarness.token_tracker
+          tracker.clear!
+
+          provider.send_message(prompt: "Hello")
+
+          summary = tracker.summary
+          expect(summary[:total_input_tokens]).to eq(50)
+          expect(summary[:total_output_tokens]).to eq(25)
+          expect(summary[:total_tokens]).to eq(75)
         end
       end
     end
