@@ -2,6 +2,7 @@
 
 require "json"
 require "fileutils"
+require "tempfile"
 require "time"
 
 module AgentHarness
@@ -14,10 +15,10 @@ module AgentHarness
       # Check if authentication is valid for a provider
       #
       # @param provider_name [Symbol] the provider name
-      # @return [Boolean] true if auth is valid
+      # @return [Boolean] true if auth is valid, false otherwise
       def auth_valid?(provider_name)
         status = auth_status(provider_name)
-        status[:valid]
+        !!status[:valid]
       end
 
       # Get detailed authentication status for a provider
@@ -133,12 +134,23 @@ module AgentHarness
         raise ArgumentError, "token must be provided" unless token
 
         credentials_path = claude_credentials_path
-        FileUtils.mkdir_p(File.dirname(credentials_path))
+        dir = File.dirname(credentials_path)
+        FileUtils.mkdir_p(dir)
 
         credentials = read_claude_credentials || {}
         credentials["oauth_token"] = token
 
-        File.write(credentials_path, JSON.pretty_generate(credentials))
+        # Write atomically (tempfile + rename) to avoid corruption on concurrent refreshes
+        tmpfile = Tempfile.new(".credentials", dir)
+        begin
+          tmpfile.write(JSON.pretty_generate(credentials))
+          tmpfile.close
+          File.chmod(0o600, tmpfile.path)
+          File.rename(tmpfile.path, credentials_path)
+        rescue
+          tmpfile.close!
+          raise
+        end
 
         {success: true}
       end

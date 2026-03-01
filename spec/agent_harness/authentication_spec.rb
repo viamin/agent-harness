@@ -54,6 +54,14 @@ RSpec.describe AgentHarness::Authentication do
         expect(described_class.auth_valid?(:aider)).to be true
       end
     end
+
+    context "with OAuth provider lacking auth check implementation" do
+      it "returns false instead of nil" do
+        result = described_class.auth_valid?(:cursor)
+        expect(result).to be false
+        expect(result).not_to be_nil
+      end
+    end
   end
 
   describe ".auth_status" do
@@ -181,6 +189,13 @@ RSpec.describe AgentHarness::Authentication do
         credentials = JSON.parse(File.read(credentials_path))
         expect(credentials["existing_key"]).to eq("existing_value")
         expect(credentials["oauth_token"]).to eq("new-token")
+      end
+
+      it "sets restrictive file permissions on credentials file" do
+        described_class.refresh_auth(:claude, token: "new-token")
+
+        mode = File.stat(credentials_path).mode & 0o777
+        expect(mode).to eq(0o600)
       end
     end
 

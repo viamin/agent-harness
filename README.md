@@ -312,13 +312,10 @@ This raises `NotImplementedError` for `:api_key` providers.
 
 ### Credential Refresh
 
-Accept an auth code or token and update the provider's credentials:
+Accept a new auth token and update the provider's credentials:
 
 ```ruby
 AgentHarness.refresh_auth(:claude, token: "new-oauth-token")
-# => { success: true }
-
-AgentHarness.refresh_auth(:claude, code: "auth-code-from-user")
 # => { success: true }
 ```
 
