@@ -107,12 +107,11 @@ module AgentHarness
 
     # Refresh authentication credentials for a provider
     # @param provider_name [Symbol] the provider name
-    # @param code [String, nil] OAuth authorization code
-    # @param token [String, nil] direct token to store
+    # @param token [String, nil] OAuth token to store
     # @return [Hash] result with :success key
     # @raise [NotImplementedError] if provider doesn't support credential refresh
-    def refresh_auth(provider_name, code: nil, token: nil)
-      Authentication.refresh_auth(provider_name, code: code, token: token)
+    def refresh_auth(provider_name, token: nil)
+      Authentication.refresh_auth(provider_name, token: token)
     end
   end
 end

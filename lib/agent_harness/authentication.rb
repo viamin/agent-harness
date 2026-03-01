@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
 require "json"
+require "fileutils"
+require "time"
 
 module AgentHarness
   # Authentication management for CLI agent providers
@@ -59,15 +61,14 @@ module AgentHarness
 
       # Refresh authentication credentials for a provider
       #
-      # For OAuth providers, accepts an auth code from the OAuth flow.
+      # For OAuth providers, stores a token directly.
       # For API key providers, raises NotImplementedError.
       #
       # @param provider_name [Symbol] the provider name
-      # @param code [String, nil] OAuth authorization code
-      # @param token [String, nil] direct token to store
+      # @param token [String, nil] OAuth token to store
       # @return [Hash] result with :success key
       # @raise [NotImplementedError] if provider doesn't support credential refresh
-      def refresh_auth(provider_name, code: nil, token: nil)
+      def refresh_auth(provider_name, token: nil)
         provider_name = provider_name.to_sym
         provider = resolve_provider(provider_name)
 
@@ -78,7 +79,7 @@ module AgentHarness
 
         case provider_name
         when :claude, :anthropic
-          refresh_claude_auth(code: code, token: token)
+          refresh_claude_auth(token: token)
         else
           raise NotImplementedError,
             "Credential refresh is not yet implemented for provider #{provider_name}"
@@ -118,7 +119,7 @@ module AgentHarness
         if provider.auth_type == :api_key
           {valid: true, expires_at: nil, error: nil}
         else
-          {valid: false, expires_at: nil, error: "Auth status check not implemented for #{provider_name}"}
+          {valid: nil, expires_at: nil, error: "Auth status check not implemented for #{provider_name}"}
         end
       rescue ProviderNotFoundError => e
         {valid: false, expires_at: nil, error: e.message}
@@ -128,21 +129,14 @@ module AgentHarness
         "https://claude.ai/oauth/authorize"
       end
 
-      def refresh_claude_auth(code: nil, token: nil)
-        unless code || token
-          raise ArgumentError, "Either code or token must be provided"
-        end
+      def refresh_claude_auth(token: nil)
+        raise ArgumentError, "token must be provided" unless token
 
         credentials_path = claude_credentials_path
         FileUtils.mkdir_p(File.dirname(credentials_path))
 
         credentials = read_claude_credentials || {}
-
-        if token
-          credentials["oauth_token"] = token
-        elsif code
-          credentials["oauth_code"] = code
-        end
+        credentials["oauth_token"] = token
 
         File.write(credentials_path, JSON.pretty_generate(credentials))
 
@@ -154,7 +148,7 @@ module AgentHarness
         return nil unless File.exist?(path)
 
         JSON.parse(File.read(path))
-      rescue JSON::ParserError
+      rescue JSON::ParserError, Errno::ENOENT, Errno::EACCES
         nil
       end
 

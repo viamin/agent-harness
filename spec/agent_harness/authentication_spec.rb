@@ -155,20 +155,13 @@ RSpec.describe AgentHarness::Authentication do
         expect(credentials["oauth_token"]).to eq("new-token")
       end
 
-      it "stores an auth code in credentials" do
-        described_class.refresh_auth(:claude, code: "auth-code-123")
-
-        credentials = JSON.parse(File.read(credentials_path))
-        expect(credentials["oauth_code"]).to eq("auth-code-123")
-      end
-
       it "returns success" do
         result = described_class.refresh_auth(:claude, token: "new-token")
         expect(result[:success]).to be true
       end
 
-      it "raises ArgumentError without code or token" do
-        expect { described_class.refresh_auth(:claude) }.to raise_error(ArgumentError, /code or token/)
+      it "raises ArgumentError without token" do
+        expect { described_class.refresh_auth(:claude) }.to raise_error(ArgumentError, /token must be provided/)
       end
 
       it "creates credentials directory if missing" do

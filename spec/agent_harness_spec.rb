@@ -71,8 +71,8 @@ RSpec.describe AgentHarness do
 
   describe ".refresh_auth" do
     it "delegates to Authentication module" do
-      expect(AgentHarness::Authentication).to receive(:refresh_auth).with(:claude, code: "abc", token: nil).and_return({success: true})
-      expect(AgentHarness.refresh_auth(:claude, code: "abc")).to eq({success: true})
+      expect(AgentHarness::Authentication).to receive(:refresh_auth).with(:claude, token: "abc").and_return({success: true})
+      expect(AgentHarness.refresh_auth(:claude, token: "abc")).to eq({success: true})
     end
   end
 end
