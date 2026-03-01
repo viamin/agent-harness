@@ -83,6 +83,12 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
       end
     end
 
+    describe "#auth_type" do
+      it "returns :oauth" do
+        expect(provider.auth_type).to eq(:oauth)
+      end
+    end
+
     describe "#error_patterns" do
       it "includes auth patterns" do
         patterns = provider.error_patterns

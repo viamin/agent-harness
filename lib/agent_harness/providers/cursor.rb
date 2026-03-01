@@ -114,6 +114,10 @@ module AgentHarness
         fetch_mcp_servers_cli || fetch_mcp_servers_config
       end
 
+      def auth_type
+        :oauth
+      end
+
       def error_patterns
         {
           rate_limited: [
@@ -265,7 +269,7 @@ module AgentHarness
         when :rate_limited
           raise RateLimitError.new(error.message, original_error: error)
         when :auth_expired
-          raise AuthenticationError.new(error.message, original_error: error)
+          raise AuthenticationError.new(error.message, provider: self.class.provider_name, original_error: error)
         when :timeout
           raise TimeoutError.new(error.message, original_error: error)
         else

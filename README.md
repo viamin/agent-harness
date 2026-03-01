@@ -227,6 +227,9 @@ AgentHarness.token_tracker.summary
 ```ruby
 begin
   response = AgentHarness.send_message("Hello")
+rescue AgentHarness::AuthenticationError => e
+  puts "Auth failed for provider: #{e.provider}"
+  # Optionally trigger re-auth flow (see Authentication Management below)
 rescue AgentHarness::TimeoutError => e
   puts "Request timed out"
 rescue AgentHarness::RateLimitError => e
@@ -252,6 +255,74 @@ AgentHarness::ErrorTaxonomy.retryable?(category)
 AgentHarness::ErrorTaxonomy.action_for(category)
 # => :switch_provider
 ```
+
+## Authentication Management
+
+AgentHarness can detect authentication failures and manage credentials for CLI agents.
+
+### Auth Type
+
+Providers declare their authentication type:
+
+```ruby
+provider = AgentHarness.provider(:claude)
+provider.auth_type
+# => :oauth  (token-based auth that can expire)
+
+provider = AgentHarness.provider(:aider)
+provider.auth_type
+# => :api_key  (static API key, no refresh needed)
+```
+
+### Auth Status Check
+
+Pre-flight check auth before starting a run:
+
+```ruby
+AgentHarness.auth_valid?(:claude)
+# => true/false
+
+AgentHarness.auth_status(:claude)
+# => { valid: false, expires_at: <Time>, error: "Session expired" }
+```
+
+### Auth Error Detection
+
+When a CLI agent fails due to expired or invalid authentication, `send_message` raises `AuthenticationError` with the provider name:
+
+```ruby
+begin
+  AgentHarness.send_message("Hello", provider: :claude)
+rescue AgentHarness::AuthenticationError => e
+  puts e.provider  # => :claude
+  puts e.message   # => "oauth token expired"
+end
+```
+
+### OAuth URL Generation
+
+For OAuth providers, get the URL the user should visit to start the login flow:
+
+```ruby
+AgentHarness.auth_url(:claude)
+# => "https://claude.ai/oauth/authorize"
+```
+
+This raises `NotImplementedError` for `:api_key` providers.
+
+### Credential Refresh
+
+Accept an auth code or token and update the provider's credentials:
+
+```ruby
+AgentHarness.refresh_auth(:claude, token: "new-oauth-token")
+# => { success: true }
+
+AgentHarness.refresh_auth(:claude, code: "auth-code-from-user")
+# => { success: true }
+```
+
+This raises `NotImplementedError` for `:api_key` providers. Credential file paths respect the `CLAUDE_CONFIG_DIR` environment variable.
 
 ## Development
 

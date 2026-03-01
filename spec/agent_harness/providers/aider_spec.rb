@@ -61,5 +61,11 @@ RSpec.describe AgentHarness::Providers::Aider do
         expect(flags).to eq(["--restore-chat-history", "session-123"])
       end
     end
+
+    describe "#auth_type" do
+      it "returns :api_key" do
+        expect(provider.auth_type).to eq(:api_key)
+      end
+    end
   end
 end

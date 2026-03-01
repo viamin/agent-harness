@@ -46,4 +46,33 @@ RSpec.describe AgentHarness do
       expect(AgentHarness.token_tracker).to be_a(AgentHarness::TokenTracker)
     end
   end
+
+  describe ".auth_valid?" do
+    it "delegates to Authentication module" do
+      expect(AgentHarness::Authentication).to receive(:auth_valid?).with(:claude).and_return(true)
+      expect(AgentHarness.auth_valid?(:claude)).to be true
+    end
+  end
+
+  describe ".auth_status" do
+    it "delegates to Authentication module" do
+      status = {valid: true, expires_at: nil, error: nil}
+      expect(AgentHarness::Authentication).to receive(:auth_status).with(:claude).and_return(status)
+      expect(AgentHarness.auth_status(:claude)).to eq(status)
+    end
+  end
+
+  describe ".auth_url" do
+    it "delegates to Authentication module" do
+      expect(AgentHarness::Authentication).to receive(:auth_url).with(:claude).and_return("https://example.com")
+      expect(AgentHarness.auth_url(:claude)).to eq("https://example.com")
+    end
+  end
+
+  describe ".refresh_auth" do
+    it "delegates to Authentication module" do
+      expect(AgentHarness::Authentication).to receive(:refresh_auth).with(:claude, code: "abc", token: nil).and_return({success: true})
+      expect(AgentHarness.refresh_auth(:claude, code: "abc")).to eq({success: true})
+    end
+  end
 end

@@ -101,6 +101,11 @@ module AgentHarness
           @provider_manager.record_success(provider_name)
 
           response
+        rescue AuthenticationError => e
+          @provider_manager.record_failure(provider_name)
+          handle_provider_failure(e, provider_name, :switch)
+          retry if should_retry?(retries += 1, max_retries)
+          raise
         rescue RateLimitError => e
           @provider_manager.mark_rate_limited(provider_name, reset_at: e.reset_time)
           handle_provider_failure(e, provider_name, :switch)

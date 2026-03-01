@@ -106,6 +106,10 @@ module AgentHarness
         ["--resume", session_id]
       end
 
+      def auth_type
+        :oauth
+      end
+
       def error_patterns
         {
           auth_expired: [

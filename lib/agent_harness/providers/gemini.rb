@@ -92,6 +92,10 @@ module AgentHarness
         }
       end
 
+      def auth_type
+        :oauth
+      end
+
       def error_patterns
         {
           rate_limited: [

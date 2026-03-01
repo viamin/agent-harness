@@ -93,6 +93,12 @@ RSpec.describe AgentHarness::Providers::Adapter do
       end
     end
 
+    describe "#auth_type" do
+      it "returns :api_key by default" do
+        expect(adapter.auth_type).to eq(:api_key)
+      end
+    end
+
     describe "#supports_mcp?" do
       it "returns false by default" do
         expect(adapter.supports_mcp?).to be false
