@@ -104,8 +104,10 @@ module AgentHarness
         rescue AuthenticationError => e
           # For authentication errors, do not switch providers or retry.
           # Surface the error so callers can perform re-authentication flows.
+          # Deliberately skip @provider_manager.record_failure to avoid tripping
+          # the circuit breaker — auth failures are credential issues, not
+          # provider health issues.
           @metrics.record_failure(provider_name, e)
-          @provider_manager.record_failure(provider_name)
           raise
         rescue RateLimitError => e
           @provider_manager.mark_rate_limited(provider_name, reset_at: e.reset_time)

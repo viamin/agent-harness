@@ -118,6 +118,34 @@ RSpec.describe AgentHarness::Orchestration::Conductor, "#send_message" do
     end
   end
 
+  describe "authentication error" do
+    before do
+      allow(mock_provider).to receive(:send_message).and_raise(
+        AgentHarness::AuthenticationError.new("session expired", provider: :test_provider)
+      )
+    end
+
+    it "raises AuthenticationError without retrying" do
+      expect(mock_provider).to receive(:send_message).once
+      expect { conductor.send_message("Hello") }.to raise_error(AgentHarness::AuthenticationError)
+    end
+
+    it "does not switch providers" do
+      expect(mock_provider_manager).not_to receive(:switch_provider)
+      expect { conductor.send_message("Hello") }.to raise_error(AgentHarness::AuthenticationError)
+    end
+
+    it "does not record provider failure to avoid tripping circuit breaker" do
+      expect(mock_provider_manager).not_to receive(:record_failure)
+      expect { conductor.send_message("Hello") }.to raise_error(AgentHarness::AuthenticationError)
+    end
+
+    it "records failure in metrics" do
+      expect { conductor.send_message("Hello") }.to raise_error(AgentHarness::AuthenticationError)
+      expect(conductor.metrics.summary[:total_failures]).to be >= 1
+    end
+  end
+
   describe "generic error with switch" do
     before do
       # Use generic error which triggers switch strategy (not caught by specific handlers)

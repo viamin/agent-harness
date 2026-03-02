@@ -147,7 +147,7 @@ module AgentHarness
 
         credentials_path = claude_credentials_path
         dir = File.dirname(credentials_path)
-        FileUtils.mkdir_p(dir)
+        FileUtils.mkdir_p(dir, mode: 0o700)
 
         lock_path = "#{credentials_path}.lock"
         File.open(lock_path, File::RDWR | File::CREAT, 0o600) do |lock|
