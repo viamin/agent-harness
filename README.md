@@ -286,9 +286,11 @@ AgentHarness.auth_status(:claude)
 # => { valid: false, expires_at: <Time>, error: "Session expired" }
 ```
 
+For providers without a built-in auth check (including `:api_key` providers), `auth_valid?` returns `false` and `auth_status` returns an error indicating the check is not implemented. Custom providers can implement an `auth_status` instance method to provide their own check.
+
 ### Auth Error Detection
 
-When a CLI agent fails due to expired or invalid authentication, `send_message` raises `AuthenticationError` with the provider name:
+When a CLI agent fails due to expired or invalid authentication, `send_message` raises `AuthenticationError` with the provider name. Authentication errors are always surfaced directly to the caller (never auto-switched to another provider) so your application can trigger the appropriate re-auth flow:
 
 ```ruby
 begin
@@ -296,6 +298,7 @@ begin
 rescue AgentHarness::AuthenticationError => e
   puts e.provider  # => :claude
   puts e.message   # => "oauth token expired"
+  # Trigger re-authentication flow for the specific provider
 end
 ```
 

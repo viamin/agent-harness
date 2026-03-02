@@ -50,8 +50,8 @@ RSpec.describe AgentHarness::Authentication do
     end
 
     context "with API key provider" do
-      it "returns true" do
-        expect(described_class.auth_valid?(:aider)).to be true
+      it "returns false when no provider-specific check is implemented" do
+        expect(described_class.auth_valid?(:aider)).to be false
       end
     end
 
@@ -171,10 +171,11 @@ RSpec.describe AgentHarness::Authentication do
     end
 
     context "for API key provider" do
-      it "returns valid status" do
+      it "returns not-implemented status when no provider-specific check exists" do
         status = described_class.auth_status(:aider)
-        expect(status[:valid]).to be true
+        expect(status[:valid]).to be false
         expect(status[:expires_at]).to be_nil
+        expect(status[:error]).to include("not implemented")
       end
     end
   end

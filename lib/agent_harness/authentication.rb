@@ -123,8 +123,14 @@ module AgentHarness
       # Generic auth status for non-Claude providers
       def generic_auth_status(provider_name)
         provider = resolve_provider(provider_name)
+
+        # Prefer a provider-specific auth_status hook when available
+        if provider.respond_to?(:auth_status)
+          return provider.auth_status
+        end
+
         if provider.auth_type == :api_key
-          {valid: true, expires_at: nil, error: nil}
+          {valid: false, expires_at: nil, error: "Auth status check not implemented for api_key providers"}
         else
           {valid: false, expires_at: nil, error: "Auth status check not implemented for #{provider_name}"}
         end

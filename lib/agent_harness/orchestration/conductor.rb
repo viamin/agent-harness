@@ -102,9 +102,10 @@ module AgentHarness
 
           response
         rescue AuthenticationError => e
+          # For authentication errors, do not switch providers or retry.
+          # Surface the error so callers can perform re-authentication flows.
+          @metrics.record_failure(provider_name, e)
           @provider_manager.record_failure(provider_name)
-          handle_provider_failure(e, provider_name, :switch)
-          retry if should_retry?(retries += 1, max_retries)
           raise
         rescue RateLimitError => e
           @provider_manager.mark_rate_limited(provider_name, reset_at: e.reset_time)
