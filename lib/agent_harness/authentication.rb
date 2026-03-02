@@ -102,7 +102,8 @@ module AgentHarness
         return {valid: false, expires_at: nil, error: "No credentials found"} unless credentials
 
         # Check if the credentials file has a token
-        if credentials["oauth_token"] || credentials["apiKey"]
+        token = credentials["oauth_token"] || credentials["apiKey"]
+        if token.is_a?(String) && !token.strip.empty?
           expires_at = parse_expiry(credentials["expiresAt"] || credentials["expires_at"])
           if expires_at && expires_at < Time.now
             {valid: false, expires_at: expires_at, error: "Session expired"}
@@ -120,7 +121,7 @@ module AgentHarness
         if provider.auth_type == :api_key
           {valid: true, expires_at: nil, error: nil}
         else
-          {valid: nil, expires_at: nil, error: "Auth status check not implemented for #{provider_name}"}
+          {valid: false, expires_at: nil, error: "Auth status check not implemented for #{provider_name}"}
         end
       rescue ProviderNotFoundError => e
         {valid: false, expires_at: nil, error: e.message}
@@ -131,7 +132,7 @@ module AgentHarness
       end
 
       def refresh_claude_auth(token: nil)
-        raise ArgumentError, "token must be provided" unless token
+        raise ArgumentError, "token must be a non-empty string" unless token.is_a?(String) && !token.empty?
 
         credentials_path = claude_credentials_path
         dir = File.dirname(credentials_path)

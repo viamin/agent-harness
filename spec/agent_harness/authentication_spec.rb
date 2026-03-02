@@ -103,6 +103,26 @@ RSpec.describe AgentHarness::Authentication do
         expect(status[:error]).to eq("No authentication token found")
       end
 
+      it "returns invalid status with empty string oauth_token" do
+        File.write(credentials_path, JSON.generate({
+          "oauth_token" => ""
+        }))
+
+        status = described_class.auth_status(:claude)
+        expect(status[:valid]).to be false
+        expect(status[:error]).to eq("No authentication token found")
+      end
+
+      it "returns invalid status with blank apiKey" do
+        File.write(credentials_path, JSON.generate({
+          "apiKey" => "   "
+        }))
+
+        status = described_class.auth_status(:claude)
+        expect(status[:valid]).to be false
+        expect(status[:error]).to eq("No authentication token found")
+      end
+
       it "handles apiKey credential format" do
         File.write(credentials_path, JSON.generate({
           "apiKey" => "sk-ant-test"
@@ -169,7 +189,11 @@ RSpec.describe AgentHarness::Authentication do
       end
 
       it "raises ArgumentError without token" do
-        expect { described_class.refresh_auth(:claude) }.to raise_error(ArgumentError, /token must be provided/)
+        expect { described_class.refresh_auth(:claude) }.to raise_error(ArgumentError, /token must be a non-empty string/)
+      end
+
+      it "raises ArgumentError with empty string token" do
+        expect { described_class.refresh_auth(:claude, token: "") }.to raise_error(ArgumentError, /token must be a non-empty string/)
       end
 
       it "creates credentials directory if missing" do
