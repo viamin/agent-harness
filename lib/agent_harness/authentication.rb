@@ -143,7 +143,8 @@ module AgentHarness
         dir = File.dirname(credentials_path)
         FileUtils.mkdir_p(dir)
 
-        credentials = read_claude_credentials || {}
+        credentials = read_claude_credentials
+        credentials = {} unless credentials.is_a?(Hash)
         credentials["oauth_token"] = token.strip
 
         # Write atomically (tempfile + rename) to avoid corruption on concurrent refreshes
