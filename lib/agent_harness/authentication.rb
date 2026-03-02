@@ -149,20 +149,25 @@ module AgentHarness
         dir = File.dirname(credentials_path)
         FileUtils.mkdir_p(dir)
 
-        credentials = read_claude_credentials
-        credentials = {} unless credentials.is_a?(Hash)
-        credentials["oauth_token"] = token.strip
+        lock_path = "#{credentials_path}.lock"
+        File.open(lock_path, File::RDWR | File::CREAT, 0o600) do |lock|
+          lock.flock(File::LOCK_EX)
 
-        # Write atomically (tempfile + rename) to avoid corruption on concurrent refreshes
-        tmpfile = Tempfile.new(".credentials", dir)
-        begin
-          tmpfile.write(JSON.pretty_generate(credentials))
-          tmpfile.close
-          File.chmod(0o600, tmpfile.path)
-          File.rename(tmpfile.path, credentials_path)
-        rescue
-          tmpfile.close!
-          raise
+          credentials = read_claude_credentials
+          credentials = {} unless credentials.is_a?(Hash)
+          credentials["oauth_token"] = token.strip
+
+          # Write under a file lock using tempfile + rename to avoid corruption and lost updates on concurrent refreshes
+          tmpfile = Tempfile.new(".credentials", dir)
+          begin
+            tmpfile.write(JSON.pretty_generate(credentials))
+            tmpfile.close
+            File.chmod(0o600, tmpfile.path)
+            File.rename(tmpfile.path, credentials_path)
+          rescue
+            tmpfile.close!
+            raise
+          end
         end
 
         {success: true}
