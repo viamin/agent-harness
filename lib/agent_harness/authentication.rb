@@ -62,11 +62,14 @@ module AgentHarness
 
       # Refresh authentication credentials for a provider
       #
-      # For OAuth providers, stores a token directly.
+      # For OAuth providers, stores a pre-exchanged token directly.
+      # This method accepts a token (not an authorization code) because
+      # the OAuth code-exchange flow is provider-specific and should be
+      # handled by the caller or a CLI login command before calling this.
       # For API key providers, raises NotImplementedError.
       #
       # @param provider_name [Symbol] the provider name
-      # @param token [String, nil] OAuth token to store
+      # @param token [String] OAuth token to store (must be non-blank)
       # @return [Hash] result with :success key
       # @raise [NotImplementedError] if provider doesn't support credential refresh
       def refresh_auth(provider_name, token: nil)
@@ -101,9 +104,11 @@ module AgentHarness
         credentials = read_claude_credentials
         return {valid: false, expires_at: nil, error: "No credentials found"} unless credentials
 
-        # Check if the credentials file has a token
-        token = credentials["oauth_token"] || credentials["apiKey"]
-        if token.is_a?(String) && !token.strip.empty?
+        # Check if the credentials file has a token, preferring a non-blank oauth_token over apiKey
+        oauth_token = credentials["oauth_token"]
+        api_key = credentials["apiKey"]
+        token = [oauth_token, api_key].find { |t| t.is_a?(String) && !t.strip.empty? }
+        if token
           expires_at = parse_expiry(credentials["expiresAt"] || credentials["expires_at"])
           if expires_at && expires_at < Time.now
             {valid: false, expires_at: expires_at, error: "Session expired"}
@@ -132,14 +137,14 @@ module AgentHarness
       end
 
       def refresh_claude_auth(token: nil)
-        raise ArgumentError, "token must be a non-empty string" unless token.is_a?(String) && !token.empty?
+        raise ArgumentError, "token must be a non-empty string" unless token.is_a?(String) && !token.strip.empty?
 
         credentials_path = claude_credentials_path
         dir = File.dirname(credentials_path)
         FileUtils.mkdir_p(dir)
 
         credentials = read_claude_credentials || {}
-        credentials["oauth_token"] = token
+        credentials["oauth_token"] = token.strip
 
         # Write atomically (tempfile + rename) to avoid corruption on concurrent refreshes
         tmpfile = Tempfile.new(".credentials", dir)
