@@ -161,12 +161,23 @@ RSpec.describe AgentHarness::Authentication do
         expect(status[:valid]).to be true
       end
 
-      it "handles invalid JSON in credentials file" do
+      it "returns specific error for invalid JSON in credentials file" do
         File.write(credentials_path, "not json")
 
         status = described_class.auth_status(:claude)
         expect(status[:valid]).to be false
-        expect(status[:error]).to eq("No credentials found")
+        expect(status[:error]).to include("Invalid JSON")
+      end
+
+      it "returns specific error for permission denied on credentials file" do
+        File.write(credentials_path, JSON.generate({"oauth_token" => "test"}))
+        File.chmod(0o000, credentials_path)
+
+        status = described_class.auth_status(:claude)
+        expect(status[:valid]).to be false
+        expect(status[:error]).to include("Permission denied")
+      ensure
+        File.chmod(0o644, credentials_path)
       end
     end
 

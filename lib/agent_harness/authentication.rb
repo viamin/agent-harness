@@ -126,6 +126,8 @@ module AgentHarness
         else
           {valid: false, expires_at: nil, error: "No authentication token found"}
         end
+      rescue IOError, JSON::ParserError => e
+        {valid: false, expires_at: nil, error: e.message}
       end
 
       # Generic auth status for non-Claude providers
@@ -189,8 +191,13 @@ module AgentHarness
         return nil unless File.exist?(path)
 
         JSON.parse(File.read(path))
-      rescue JSON::ParserError, Errno::ENOENT, Errno::EACCES
+      rescue Errno::ENOENT
+        # File was removed between the existence check and the read; treat as missing
         nil
+      rescue Errno::EACCES => e
+        raise IOError, "Permission denied when reading Claude credentials at #{path}: #{e.message}"
+      rescue JSON::ParserError => e
+        raise JSON::ParserError, "Invalid JSON in Claude credentials at #{path}: #{e.message}"
       end
 
       def claude_credentials_path
