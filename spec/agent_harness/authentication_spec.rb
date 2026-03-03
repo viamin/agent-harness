@@ -247,6 +247,25 @@ RSpec.describe AgentHarness::Authentication do
         expect(credentials["oauth_token"]).to eq("new-token")
       end
 
+      it "clears expiry metadata so refreshed tokens are not treated as expired" do
+        File.write(credentials_path, JSON.generate({
+          "oauth_token" => "old-token",
+          "expiresAt" => (Time.now - 3600).to_i,
+          "expires_at" => (Time.now - 3600).iso8601
+        }))
+
+        described_class.refresh_auth(:claude, token: "new-token")
+
+        credentials = JSON.parse(File.read(credentials_path))
+        expect(credentials["oauth_token"]).to eq("new-token")
+        expect(credentials).not_to have_key("expiresAt")
+        expect(credentials).not_to have_key("expires_at")
+
+        # Verify auth_status now reports valid after refresh
+        status = described_class.auth_status(:claude)
+        expect(status[:valid]).to be true
+      end
+
       it "sets restrictive file permissions on credentials file" do
         described_class.refresh_auth(:claude, token: "new-token")
 

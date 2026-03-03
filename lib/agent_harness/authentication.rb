@@ -156,6 +156,9 @@ module AgentHarness
           credentials = read_claude_credentials
           credentials = {} unless credentials.is_a?(Hash)
           credentials["oauth_token"] = token.strip
+          # Clear any existing expiry metadata so refreshed tokens are not treated as expired
+          credentials.delete("expiresAt")
+          credentials.delete("expires_at")
 
           # Write under a file lock using tempfile + rename to avoid corruption and lost updates on concurrent refreshes
           tmpfile = Tempfile.new(".credentials", dir)

@@ -315,12 +315,14 @@ This raises `NotImplementedError` for `:api_key` providers.
 
 ### Credential Refresh
 
-Accept a new auth token and update the provider's credentials:
+Accept a pre-exchanged OAuth token and update the provider's stored credentials. The OAuth authorization code exchange is provider-specific and should be handled by your application or CLI login command before calling this method:
 
 ```ruby
 AgentHarness.refresh_auth(:claude, token: "new-oauth-token")
 # => { success: true }
 ```
+
+Any existing expiry metadata in the credentials file is cleared on refresh so that `auth_valid?` returns `true` immediately after a successful refresh.
 
 This raises `NotImplementedError` for `:api_key` providers. Credential file paths respect the `CLAUDE_CONFIG_DIR` environment variable.
 
