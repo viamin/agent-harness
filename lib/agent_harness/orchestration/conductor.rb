@@ -102,10 +102,13 @@ module AgentHarness
 
           response
         rescue AuthenticationError => e
-          # For authentication errors, do not switch providers or retry.
-          # Surface the error so callers can perform re-authentication flows.
-          # Deliberately skip @provider_manager.record_failure to avoid tripping
-          # the circuit breaker — auth failures are credential issues, not
+          # Authentication errors are intentionally NOT retried or switched.
+          # Unlike transient provider errors, auth failures indicate expired
+          # or invalid credentials that require user re-authentication — switching
+          # to another provider would mask the real problem. The error is surfaced
+          # directly so callers can trigger a re-auth flow (e.g. via Authentication.refresh_auth).
+          # We also skip @provider_manager.record_failure to avoid tripping the
+          # circuit breaker, since auth failures are credential issues, not
           # provider health issues.
           @metrics.record_failure(provider_name, e)
           raise
