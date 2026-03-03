@@ -16,7 +16,7 @@ module AgentHarness
       },
       auth_expired: {
         description: "Authentication failed or expired",
-        action: :switch_provider,
+        action: :reauthenticate,
         retryable: false
       },
       quota_exceeded: {

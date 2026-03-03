@@ -64,7 +64,7 @@ RSpec.describe AgentHarness::ErrorTaxonomy do
   describe ".action_for" do
     it "returns correct action for each category" do
       expect(described_class.action_for(:rate_limited)).to eq(:switch_provider)
-      expect(described_class.action_for(:auth_expired)).to eq(:switch_provider)
+      expect(described_class.action_for(:auth_expired)).to eq(:reauthenticate)
       expect(described_class.action_for(:transient)).to eq(:retry_with_backoff)
       expect(described_class.action_for(:permanent)).to eq(:escalate)
     end
