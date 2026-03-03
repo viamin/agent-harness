@@ -102,6 +102,14 @@ module AgentHarness
         {}
       end
 
+      # Authentication type for this provider
+      #
+      # @return [Symbol] :oauth for token-based auth that can expire,
+      #   :api_key for static API key auth
+      def auth_type
+        :api_key
+      end
+
       # Check if provider supports MCP
       #
       # @return [Boolean] true if MCP is supported

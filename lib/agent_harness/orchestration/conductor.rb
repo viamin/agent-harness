@@ -101,6 +101,17 @@ module AgentHarness
           @provider_manager.record_success(provider_name)
 
           response
+        rescue AuthenticationError => e
+          # Authentication errors are intentionally NOT retried or switched.
+          # Unlike transient provider errors, auth failures indicate expired
+          # or invalid credentials that require user re-authentication — switching
+          # to another provider would mask the real problem. The error is surfaced
+          # directly so callers can trigger a re-auth flow (e.g. via Authentication.refresh_auth).
+          # We also skip @provider_manager.record_failure to avoid tripping the
+          # circuit breaker, since auth failures are credential issues, not
+          # provider health issues.
+          @metrics.record_failure(provider_name, e)
+          raise
         rescue RateLimitError => e
           @provider_manager.mark_rate_limited(provider_name, reset_at: e.reset_time)
           handle_provider_failure(e, provider_name, :switch)

@@ -165,6 +165,12 @@ RSpec.describe AgentHarness::Providers::Cursor do
       end
     end
 
+    describe "#auth_type" do
+      it "returns :oauth" do
+        expect(provider.auth_type).to eq(:oauth)
+      end
+    end
+
     describe "#error_patterns" do
       it "includes rate limit patterns" do
         patterns = provider.error_patterns
@@ -262,6 +268,13 @@ RSpec.describe AgentHarness::Providers::Cursor do
         it "raises AuthenticationError for auth errors" do
           allow(mock_executor).to receive(:execute).and_raise(StandardError.new("unauthorized"))
           expect { provider.send_message(prompt: "Hello") }.to raise_error(AgentHarness::AuthenticationError)
+        end
+
+        it "includes provider name in AuthenticationError" do
+          allow(mock_executor).to receive(:execute).and_raise(StandardError.new("unauthorized"))
+          expect { provider.send_message(prompt: "Hello") }.to raise_error(AgentHarness::AuthenticationError) do |error|
+            expect(error.provider).to eq(:cursor)
+          end
         end
 
         it "raises ProviderError for generic errors" do

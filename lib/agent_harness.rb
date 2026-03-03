@@ -82,6 +82,37 @@ module AgentHarness
     def provider(name)
       conductor.provider_manager.get_provider(name)
     end
+
+    # Check if authentication is valid for a provider
+    # @param provider_name [Symbol] the provider name
+    # @return [Boolean] true if auth is valid
+    def auth_valid?(provider_name)
+      Authentication.auth_valid?(provider_name)
+    end
+
+    # Get detailed authentication status for a provider
+    # @param provider_name [Symbol] the provider name
+    # @return [Hash] status with :valid, :expires_at, :error keys
+    def auth_status(provider_name)
+      Authentication.auth_status(provider_name)
+    end
+
+    # Generate an OAuth URL for a provider
+    # @param provider_name [Symbol] the provider name
+    # @return [String] the OAuth authorization URL
+    # @raise [NotImplementedError] if provider doesn't support OAuth
+    def auth_url(provider_name)
+      Authentication.auth_url(provider_name)
+    end
+
+    # Refresh authentication credentials for a provider
+    # @param provider_name [Symbol] the provider name
+    # @param token [String, nil] OAuth token to store
+    # @return [Hash] result with :success key
+    # @raise [NotImplementedError] if provider doesn't support credential refresh
+    def refresh_auth(provider_name, token: nil)
+      Authentication.refresh_auth(provider_name, token: token)
+    end
   end
 end
 
@@ -93,6 +124,7 @@ require_relative "agent_harness/docker_command_executor"
 require_relative "agent_harness/response"
 require_relative "agent_harness/token_tracker"
 require_relative "agent_harness/error_taxonomy"
+require_relative "agent_harness/authentication"
 
 # Provider layer
 require_relative "agent_harness/providers/registry"

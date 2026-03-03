@@ -235,6 +235,12 @@ RSpec.describe AgentHarness::Providers::Anthropic do
       end
     end
 
+    describe "#auth_type" do
+      it "returns :oauth" do
+        expect(provider.auth_type).to eq(:oauth)
+      end
+    end
+
     describe "#error_patterns" do
       it "includes rate limit patterns" do
         patterns = provider.error_patterns
@@ -245,6 +251,21 @@ RSpec.describe AgentHarness::Providers::Anthropic do
       it "includes auth patterns" do
         patterns = provider.error_patterns
         expect(patterns[:auth_expired]).not_to be_empty
+      end
+
+      it "matches session expired errors" do
+        patterns = provider.error_patterns[:auth_expired]
+        expect(patterns.any? { |p| p.match?("session expired") }).to be true
+      end
+
+      it "matches not logged in errors" do
+        patterns = provider.error_patterns[:auth_expired]
+        expect(patterns.any? { |p| p.match?("not logged in") }).to be true
+      end
+
+      it "matches login required errors" do
+        patterns = provider.error_patterns[:auth_expired]
+        expect(patterns.any? { |p| p.match?("login required") }).to be true
       end
 
       it "includes quota patterns" do
@@ -486,6 +507,18 @@ RSpec.describe AgentHarness::Providers::Anthropic do
 
           response = provider.send_message(prompt: "Hello")
           expect(response.error).to include("Some other error occurred")
+        end
+      end
+
+      context "with auth error raising" do
+        it "raises AuthenticationError with provider when executor raises auth error" do
+          allow(mock_executor).to receive(:execute).and_raise(
+            StandardError.new("oauth token expired")
+          )
+
+          expect { provider.send_message(prompt: "Hello") }.to raise_error(AgentHarness::AuthenticationError) do |error|
+            expect(error.provider).to eq(:claude)
+          end
         end
       end
 

@@ -76,6 +76,16 @@ RSpec.describe AgentHarness do
       it "inherits from Error" do
         expect(described_class.new).to be_a(AgentHarness::Error)
       end
+
+      it "stores provider" do
+        error = described_class.new("auth failed", provider: :claude)
+        expect(error.provider).to eq(:claude)
+      end
+
+      it "defaults provider to nil" do
+        error = described_class.new("auth failed")
+        expect(error.provider).to be_nil
+      end
     end
 
     describe AgentHarness::ConfigurationError do

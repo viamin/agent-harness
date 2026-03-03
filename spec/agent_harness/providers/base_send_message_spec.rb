@@ -146,6 +146,12 @@ RSpec.describe AgentHarness::Providers::Base, "#send_message" do
     it "raises AuthenticationError" do
       expect { provider.send_message(prompt: "Hello") }.to raise_error(AgentHarness::AuthenticationError)
     end
+
+    it "includes provider name in AuthenticationError" do
+      expect { provider.send_message(prompt: "Hello") }.to raise_error(AgentHarness::AuthenticationError) do |error|
+        expect(error.provider).to eq(:test_provider)
+      end
+    end
   end
 
   describe "generic error handling" do

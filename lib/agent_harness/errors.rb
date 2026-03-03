@@ -45,7 +45,14 @@ module AgentHarness
   end
 
   # Authentication errors
-  class AuthenticationError < Error; end
+  class AuthenticationError < Error
+    attr_reader :provider
+
+    def initialize(message = nil, provider: nil, **kwargs)
+      @provider = provider
+      super(message, **kwargs)
+    end
+  end
 
   # Configuration errors
   class ConfigurationError < Error; end

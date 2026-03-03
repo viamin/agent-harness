@@ -184,6 +184,10 @@ module AgentHarness
         ["--dangerously-skip-permissions"]
       end
 
+      def auth_type
+        :oauth
+      end
+
       def error_patterns
         {
           rate_limited: [
@@ -198,7 +202,11 @@ module AgentHarness
             /authentication.*error/i,
             /invalid.*api.*key/i,
             /unauthorized/i,
-            /401/
+            /401/,
+            /session.*expired/i,
+            /not.*logged.*in/i,
+            /login.*required/i,
+            /credentials.*expired/i
           ],
           quota_exceeded: [
             /quota.*exceeded/i,

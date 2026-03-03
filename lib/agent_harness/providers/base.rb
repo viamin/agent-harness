@@ -179,7 +179,11 @@ module AgentHarness
         when :rate_limited
           RateLimitError.new(original_error.message, original_error: original_error)
         when :auth_expired
-          AuthenticationError.new(original_error.message, original_error: original_error)
+          AuthenticationError.new(
+            original_error.message,
+            provider: self.class.provider_name,
+            original_error: original_error
+          )
         when :timeout
           TimeoutError.new(original_error.message, original_error: original_error)
         else
