@@ -1,5 +1,31 @@
 ## [Unreleased]
 
+## [0.5.0](https://github.com/viamin/agent-harness/compare/agent-harness/v0.4.0...agent-harness/v0.5.0) (2026-03-03)
+
+
+### Features
+
+* parse token usage from Claude CLI JSON output ([a0e6d7c](https://github.com/viamin/agent-harness/commit/a0e6d7cafb5f5b74806a44d3d4f487e87fdfa05e)), closes [#19](https://github.com/viamin/agent-harness/issues/19)
+* support authentication error detection and token refresh for CLI agents ([83f2c71](https://github.com/viamin/agent-harness/commit/83f2c71c555483322c8a19d8a6ae195bd7720296)), closes [#20](https://github.com/viamin/agent-harness/issues/20)
+
+
+### Bug Fixes
+
+* add file lock to refresh_claude_auth to prevent lost-update races ([eb00e19](https://github.com/viamin/agent-harness/commit/eb00e1935dcd574f952ea37c263e9794de23f9a7))
+* address code review feedback for authentication module ([6d11067](https://github.com/viamin/agent-harness/commit/6d1106743c79f5ae4c3a98f078e4c4d4c93db465))
+* address code review feedback for resolve_provider and conductor docs ([5975b3b](https://github.com/viamin/agent-harness/commit/5975b3b8e087f681b57cc9935499e0691f865360))
+* address PR review feedback for auth error handling ([70d7ea7](https://github.com/viamin/agent-harness/commit/70d7ea7eb4d13fd80d7c2724af57053a6dea9972))
+* address PR review feedback for authentication module ([b098682](https://github.com/viamin/agent-harness/commit/b098682448104a833a3e50c89531bcb838910b52))
+* address PR review feedback for token handling in authentication ([03398b9](https://github.com/viamin/agent-harness/commit/03398b9be4b43c12c31694d8c7864dfde891da29))
+* address remaining PR review feedback for auth behavior ([893b549](https://github.com/viamin/agent-harness/commit/893b549bb080345bb1c0dfe718bb1840ff2a1f5e))
+* align ErrorTaxonomy auth_expired action with Conductor behavior ([7697637](https://github.com/viamin/agent-harness/commit/76976375708f56c4fbcaf635bebafd8da9f35de1))
+* clear expiry metadata on token refresh and align docs with API ([9bba06e](https://github.com/viamin/agent-harness/commit/9bba06e00c7b65722afef4b4492ec777e65578e0))
+* correct method for checking module inclusion in provider validation ([4cf57fc](https://github.com/viamin/agent-harness/commit/4cf57fcebed92261e065aa6cf526f1f3851f57e7))
+* differentiate credential read errors instead of returning generic nil ([cada3c5](https://github.com/viamin/agent-harness/commit/cada3c5404144b4eaf122d5dbe5f023eb30e5d95))
+* guard against non-Hash JSON in refresh_claude_auth credentials ([74e1301](https://github.com/viamin/agent-harness/commit/74e1301ec7835f929bd43dc15f4a87e62bcf7237))
+* remove accidentally committed bundler binstubs ([8207ef0](https://github.com/viamin/agent-harness/commit/8207ef0df67add5d1db8f3af9ef495c0b832d0b6))
+* validate tokens are non-empty strings in authentication module ([55a12e4](https://github.com/viamin/agent-harness/commit/55a12e45616839079afe509e079c771a1a71a1a5))
+
 ## [0.4.0](https://github.com/viamin/agent-harness/compare/agent-harness/v0.3.0...agent-harness/v0.4.0) (2026-02-16)
 
 
