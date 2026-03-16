@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "timeout"
+
 module AgentHarness
   # Performs health checks on configured providers
   #
@@ -21,7 +23,7 @@ module AgentHarness
       #
       # @param timeout [Integer] timeout in seconds for each check
       # @return [Array<Hash>] health status for each provider
-      def check_all(timeout: DEFAULT_TIMEOUT)
+      def check_all(timeout: configured_timeout)
         registry = Providers::Registry.instance
         provider_names = registry.all
 
@@ -33,10 +35,80 @@ module AgentHarness
       # @param provider_name [Symbol, String] the provider name
       # @param timeout [Integer] timeout in seconds
       # @return [Hash] health status with :name, :status, :message, :latency_ms keys
-      def check(provider_name, timeout: DEFAULT_TIMEOUT)
-        provider_name = provider_name.to_sym
+      def check(provider_name, timeout: configured_timeout)
+        name = normalize_name(provider_name)
         start_time = monotonic_now
 
+        Timeout.timeout(timeout) do
+          perform_check(name, start_time)
+        end
+      rescue Timeout::Error
+        build_result(
+          name: name,
+          status: "error",
+          message: "Health check timed out after #{timeout}s",
+          start_time: start_time || monotonic_now
+        )
+      rescue => e
+        build_result(
+          name: name,
+          status: "error",
+          message: e.message,
+          start_time: start_time || monotonic_now
+        )
+      end
+
+      # Format health check results for CLI output
+      #
+      # @param results [Array<Hash>] health check results
+      # @return [String] formatted output
+      def format_results(results)
+        lines = ["Checking providers..."]
+
+        results.each do |result|
+          name = result[:name].to_s.ljust(16)
+          case result[:status]
+          when "ok"
+            latency = result[:latency_ms] ? "(#{result[:latency_ms]}ms)" : ""
+            lines << "  ✓ #{name} OK #{latency}".rstrip
+          when "degraded"
+            lines << "  ~ #{name} #{result[:message]}"
+          else
+            lines << "  ✗ #{name} #{result[:message]}"
+          end
+        end
+
+        failed = results.count { |r| r[:status] == "error" }
+        degraded = results.count { |r| r[:status] == "degraded" }
+        total = results.size
+
+        lines << ""
+        summary_parts = []
+        summary_parts << "#{failed} failed" if failed > 0
+        summary_parts << "#{degraded} degraded" if degraded > 0
+
+        lines << if summary_parts.any?
+          "#{total} providers checked: #{summary_parts.join(", ")}."
+        else
+          "All #{total} providers healthy."
+        end
+
+        lines.join("\n")
+      end
+
+      private
+
+      def configured_timeout
+        AgentHarness.configuration.orchestration_config.health_check_config.timeout
+      end
+
+      def normalize_name(provider_name)
+        provider_name.to_sym
+      rescue NoMethodError
+        :unknown
+      end
+
+      def perform_check(provider_name, start_time)
         # Step 1: Check provider is registered
         registry = Providers::Registry.instance
         unless registry.registered?(provider_name)
@@ -100,51 +172,12 @@ module AgentHarness
           message: "Authenticated successfully",
           start_time: start_time
         )
-      rescue => e
-        build_result(
-          name: provider_name,
-          status: "error",
-          message: e.message,
-          start_time: start_time || monotonic_now
-        )
       end
-
-      # Format health check results for CLI output
-      #
-      # @param results [Array<Hash>] health check results
-      # @return [String] formatted output
-      def format_results(results)
-        lines = ["Checking providers..."]
-
-        results.each do |result|
-          name = result[:name].to_s.ljust(16)
-          if result[:status] == "ok"
-            latency = result[:latency_ms] ? "(#{result[:latency_ms]}ms)" : ""
-            lines << "  ✓ #{name} OK #{latency}".rstrip
-          else
-            lines << "  ✗ #{name} #{result[:message]}"
-          end
-        end
-
-        failed = results.count { |r| r[:status] != "ok" }
-        total = results.size
-
-        lines << ""
-        lines << if failed > 0
-          "#{failed} of #{total} providers failed."
-        else
-          "All #{total} providers healthy."
-        end
-
-        lines.join("\n")
-      end
-
-      private
 
       def build_result(name:, status:, message:, start_time:)
         latency = ((monotonic_now - start_time) * 1000).round
         {
-          name: name.to_sym,
+          name: name,
           status: status,
           message: message,
           latency_ms: latency

@@ -214,6 +214,29 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
         expect(result[:message]).to eq("Unexpected failure")
       end
     end
+
+    context "when the check exceeds the timeout" do
+      before do
+        allow(Timeout).to receive(:timeout).and_raise(Timeout::Error)
+      end
+
+      it "returns error status with timeout message" do
+        result = described_class.check(:claude, timeout: 2)
+
+        expect(result[:status]).to eq("error")
+        expect(result[:message]).to include("timed out")
+        expect(result[:message]).to include("2s")
+      end
+    end
+
+    context "when provider_name is nil" do
+      it "returns error status with a safe name" do
+        result = described_class.check(nil)
+
+        expect(result[:name]).to eq(:unknown)
+        expect(result[:status]).to eq("error")
+      end
+    end
   end
 
   describe ".check_all" do
@@ -312,13 +335,27 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
       expect(output).to include("✗")
       expect(output).to include("anthropic")
       expect(output).to include("Invalid API key")
-      expect(output).to include("1 of 1 providers failed.")
+      expect(output).to include("1 failed")
+    end
+
+    it "formats degraded results with tilde markers" do
+      results = [
+        {name: :gemini, status: "degraded", message: "Endpoint unreachable", latency_ms: 200}
+      ]
+
+      output = described_class.format_results(results)
+
+      expect(output).to include("~")
+      expect(output).to include("gemini")
+      expect(output).to include("Endpoint unreachable")
+      expect(output).to include("1 degraded")
     end
 
     it "formats mixed results correctly" do
       results = [
         {name: :openai, status: "ok", message: "Authenticated successfully", latency_ms: 120},
-        {name: :anthropic, status: "error", message: "Invalid API key", latency_ms: nil}
+        {name: :anthropic, status: "error", message: "Invalid API key", latency_ms: nil},
+        {name: :gemini, status: "degraded", message: "Endpoint unreachable", latency_ms: 50}
       ]
 
       output = described_class.format_results(results)
@@ -326,7 +363,9 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
       expect(output).to include("Checking providers...")
       expect(output).to include("✓")
       expect(output).to include("✗")
-      expect(output).to include("1 of 2 providers failed.")
+      expect(output).to include("~")
+      expect(output).to include("1 failed")
+      expect(output).to include("1 degraded")
     end
 
     it "handles nil latency for ok results" do

@@ -115,17 +115,17 @@ module AgentHarness
     end
 
     # Check health of all configured providers
-    # @param timeout [Integer] timeout in seconds for each check
+    # @param timeout [Integer] timeout in seconds for each check (defaults to configured value)
     # @return [Array<Hash>] health status for each provider
-    def check_providers(timeout: ProviderHealthCheck::DEFAULT_TIMEOUT)
+    def check_providers(timeout: configuration.orchestration_config.health_check_config.timeout)
       ProviderHealthCheck.check_all(timeout: timeout)
     end
 
     # Check health of a single provider
     # @param provider_name [Symbol] the provider name
-    # @param timeout [Integer] timeout in seconds
+    # @param timeout [Integer] timeout in seconds (defaults to configured value)
     # @return [Hash] health status with :name, :status, :message, :latency_ms
-    def check_provider(provider_name, timeout: ProviderHealthCheck::DEFAULT_TIMEOUT)
+    def check_provider(provider_name, timeout: configuration.orchestration_config.health_check_config.timeout)
       ProviderHealthCheck.check(provider_name, timeout: timeout)
     end
   end
