@@ -113,6 +113,21 @@ module AgentHarness
     def refresh_auth(provider_name, token: nil)
       Authentication.refresh_auth(provider_name, token: token)
     end
+
+    # Check health of all configured providers
+    # @param timeout [Integer] timeout in seconds for each check
+    # @return [Array<Hash>] health status for each provider
+    def check_providers(timeout: ProviderHealthCheck::DEFAULT_TIMEOUT)
+      ProviderHealthCheck.check_all(timeout: timeout)
+    end
+
+    # Check health of a single provider
+    # @param provider_name [Symbol] the provider name
+    # @param timeout [Integer] timeout in seconds
+    # @return [Hash] health status with :name, :status, :message, :latency_ms
+    def check_provider(provider_name, timeout: ProviderHealthCheck::DEFAULT_TIMEOUT)
+      ProviderHealthCheck.check(provider_name, timeout: timeout)
+    end
   end
 end
 
@@ -125,6 +140,7 @@ require_relative "agent_harness/response"
 require_relative "agent_harness/token_tracker"
 require_relative "agent_harness/error_taxonomy"
 require_relative "agent_harness/authentication"
+require_relative "agent_harness/provider_health_check"
 
 # Provider layer
 require_relative "agent_harness/providers/registry"
