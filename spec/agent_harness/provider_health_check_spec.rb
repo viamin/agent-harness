@@ -318,6 +318,16 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
       expect(results).to be_an(Array)
     end
 
+    it "skips disabled providers" do
+      AgentHarness.configure do |config|
+        config.provider(:provider_b) { |p| p.enabled = false }
+      end
+
+      results = described_class.check_all
+      names = results.map { |r| r[:name] }
+      expect(names).to contain_exactly(:provider_a)
+    end
+
     it "falls back to all registered providers when none are configured" do
       AgentHarness.reset!
       results = described_class.check_all

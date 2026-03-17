@@ -24,7 +24,7 @@ module AgentHarness
       # @param timeout [Integer] timeout in seconds for each check
       # @return [Array<Hash>] health status for each provider
       def check_all(timeout: configured_timeout)
-        provider_names = AgentHarness.configuration.providers.keys
+        provider_names = enabled_provider_names
         provider_names = Providers::Registry.instance.all if provider_names.empty?
 
         provider_names.map { |name| check(name, timeout: timeout) }
@@ -97,6 +97,10 @@ module AgentHarness
       end
 
       private
+
+      def enabled_provider_names
+        AgentHarness.configuration.providers.select { |_name, config| config.enabled }.keys
+      end
 
       def configured_timeout
         timeout = AgentHarness.configuration.orchestration_config.health_check_config.timeout
