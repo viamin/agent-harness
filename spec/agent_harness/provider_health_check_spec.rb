@@ -279,6 +279,12 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
     before do
       registry.register(:provider_a, provider_class_a)
       registry.register(:provider_b, provider_class_b)
+
+      AgentHarness.configure do |config|
+        config.provider(:provider_a) { |p| p.enabled = true }
+        config.provider(:provider_b) { |p| p.enabled = true }
+      end
+
       allow(AgentHarness::Authentication).to receive(:auth_status)
         .and_return({valid: false, expires_at: nil, error: "Not configured"})
       allow(AgentHarness::Authentication).to receive(:auth_status)
@@ -286,12 +292,15 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
         .and_return({valid: true, expires_at: nil, error: nil})
     end
 
-    it "returns results for all registered providers" do
+    after do
+      AgentHarness.reset!
+    end
+
+    it "returns results for all configured providers" do
       results = described_class.check_all
 
       names = results.map { |r| r[:name] }
-      expect(names).to include(:provider_a, :provider_b)
-      expect(results.size).to be >= 2
+      expect(names).to contain_exactly(:provider_a, :provider_b)
     end
 
     it "includes both passing and failing providers" do
@@ -307,6 +316,14 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
     it "accepts a timeout parameter" do
       results = described_class.check_all(timeout: 10)
       expect(results).to be_an(Array)
+    end
+
+    it "falls back to all registered providers when none are configured" do
+      AgentHarness.reset!
+      results = described_class.check_all
+
+      names = results.map { |r| r[:name] }
+      expect(names).to include(:provider_a, :provider_b)
     end
   end
 
@@ -400,11 +417,20 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
 
     before do
       registry.register(:test_provider, provider_class)
+
+      AgentHarness.configure do |config|
+        config.provider(:test_provider) { |p| p.enabled = true }
+      end
+
       allow(AgentHarness::Authentication).to receive(:auth_status)
         .and_return({valid: false, expires_at: nil, error: "Not configured"})
       allow(AgentHarness::Authentication).to receive(:auth_status)
         .with(:test_provider)
         .and_return({valid: true, expires_at: nil, error: nil})
+    end
+
+    after do
+      AgentHarness.reset!
     end
 
     it "exposes check_providers on the module" do
