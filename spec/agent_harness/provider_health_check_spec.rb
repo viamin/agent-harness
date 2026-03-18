@@ -229,6 +229,36 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
       end
     end
 
+    context "when timeout is nil or non-positive" do
+      before do
+        registry.register(:test_provider, Class.new(AgentHarness::Providers::Base) {
+          class << self
+            def provider_name = :test_provider
+            def binary_name = "test-cli"
+            def available? = false
+          end
+        })
+      end
+
+      it "falls back to configured timeout when nil is passed" do
+        result = described_class.check(:test_provider, timeout: nil)
+        expect(result[:status]).to eq("error")
+        expect(result[:message]).not_to include("timed out")
+      end
+
+      it "falls back to configured timeout when zero is passed" do
+        result = described_class.check(:test_provider, timeout: 0)
+        expect(result[:status]).to eq("error")
+        expect(result[:message]).not_to include("timed out")
+      end
+
+      it "falls back to configured timeout when negative value is passed" do
+        result = described_class.check(:test_provider, timeout: -1)
+        expect(result[:status]).to eq("error")
+        expect(result[:message]).not_to include("timed out")
+      end
+    end
+
     context "when provider_name is nil" do
       it "returns error status with a safe name" do
         result = described_class.check(nil)
@@ -326,6 +356,16 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
       results = described_class.check_all
       names = results.map { |r| r[:name] }
       expect(names).to contain_exactly(:provider_a)
+    end
+
+    it "returns empty results when all configured providers are disabled" do
+      AgentHarness.configure do |config|
+        config.provider(:provider_a) { |p| p.enabled = false }
+        config.provider(:provider_b) { |p| p.enabled = false }
+      end
+
+      results = described_class.check_all
+      expect(results).to be_empty
     end
 
     it "falls back to all registered providers when none are configured" do
