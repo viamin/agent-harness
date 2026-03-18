@@ -231,13 +231,13 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
 
     context "when timeout is nil or non-positive" do
       before do
-        registry.register(:test_provider, Class.new(AgentHarness::Providers::Base) {
+        registry.register(:test_provider, Class.new(AgentHarness::Providers::Base) do
           class << self
             def provider_name = :test_provider
             def binary_name = "test-cli"
             def available? = false
           end
-        })
+        end)
       end
 
       it "falls back to configured timeout when nil is passed" do
