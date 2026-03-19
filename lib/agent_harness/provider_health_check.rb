@@ -193,6 +193,7 @@ module AgentHarness
         validation = provider_instance.validate_config
         unless validation[:valid]
           errors_msg = Array(validation[:errors]).join(", ")
+          errors_msg = "check provider configuration" if errors_msg.empty?
           return build_result(
             name: provider_name,
             status: "degraded",

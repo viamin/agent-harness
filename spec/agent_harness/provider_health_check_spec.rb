@@ -165,6 +165,45 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
       end
     end
 
+    context "when provider config validation fails with nil errors" do
+      let(:provider_class) do
+        Class.new(AgentHarness::Providers::Base) do
+          class << self
+            def provider_name
+              :test_provider
+            end
+
+            def binary_name
+              "test-cli"
+            end
+
+            def available?
+              true
+            end
+          end
+
+          def validate_config
+            {valid: false, errors: nil}
+          end
+        end
+      end
+
+      before do
+        registry.register(:test_provider, provider_class)
+        allow(AgentHarness::Authentication).to receive(:auth_status)
+          .with(:test_provider)
+          .and_return({valid: true, expires_at: nil, error: nil})
+      end
+
+      it "returns degraded status with a fallback message" do
+        result = described_class.check(:test_provider)
+
+        expect(result[:name]).to eq(:test_provider)
+        expect(result[:status]).to eq("degraded")
+        expect(result[:message]).to eq("Configuration issues: check provider configuration")
+      end
+    end
+
     context "when all checks pass" do
       let(:provider_class) do
         Class.new(AgentHarness::Providers::Base) do

@@ -117,8 +117,10 @@ module AgentHarness
     # Check health of all configured providers.
     #
     # These methods provide the library-level foundation for provider health
-    # checks. API endpoint (e.g. GET /providers/status) and CLI flag wiring
-    # are planned as a follow-up; see the issue tracker for details.
+    # checks (registration, CLI availability, auth, health, and config).
+    # API endpoint (e.g. GET /providers/status) and CLI flag wiring are
+    # planned as a follow-up; this PR partially addresses #24 — the issue
+    # should remain open until the endpoint/CLI integration is complete.
     #
     # @param timeout [Integer] timeout in seconds for each check (defaults to configured value)
     # @return [Array<Hash>] health status for each provider
