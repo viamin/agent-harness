@@ -267,13 +267,52 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
           .and_return({valid: false, expires_at: nil, error: "Auth status check not implemented for test_provider"})
       end
 
-      it "returns degraded status instead of error" do
+      it "returns degraded status but continues through health and config checks" do
         result = described_class.check(:test_provider)
 
         expect(result[:name]).to eq(:test_provider)
         expect(result[:status]).to eq("degraded")
         expect(result[:message]).to include("not implemented")
-        expect(result[:message]).to include("skipped")
+        expect(result[:message]).to include("health and config checks passed")
+      end
+    end
+
+    context "when auth is not implemented but health check fails" do
+      let(:provider_class) do
+        Class.new(AgentHarness::Providers::Base) do
+          class << self
+            def provider_name
+              :test_provider
+            end
+
+            def binary_name
+              "test-cli"
+            end
+
+            def available?
+              true
+            end
+          end
+
+          def health_status
+            {healthy: false, message: "Endpoint unreachable"}
+          end
+        end
+      end
+
+      before do
+        registry.register(:test_provider, provider_class)
+        allow(AgentHarness::Authentication).to receive(:auth_status)
+          .with(:test_provider)
+          .and_return({valid: false, expires_at: nil, error: "Auth status check not implemented for test_provider"})
+      end
+
+      it "surfaces the health check failure instead of just auth degraded" do
+        result = described_class.check(:test_provider)
+
+        expect(result[:name]).to eq(:test_provider)
+        expect(result[:status]).to eq("degraded")
+        expect(result[:message]).to eq("Endpoint unreachable")
       end
     end
 
@@ -530,6 +569,14 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
       output = described_class.format_results(results)
 
       expect(output).to include("All 2 providers healthy.")
+    end
+
+    it "handles empty results with explicit message" do
+      output = described_class.format_results([])
+
+      expect(output).to include("Checking providers...")
+      expect(output).to include("No providers checked.")
+      expect(output).not_to include("All 0")
     end
 
     it "handles nil latency for ok results" do

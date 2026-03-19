@@ -114,7 +114,12 @@ module AgentHarness
       Authentication.refresh_auth(provider_name, token: token)
     end
 
-    # Check health of all configured providers
+    # Check health of all configured providers.
+    #
+    # These methods provide the library-level foundation for provider health
+    # checks. API endpoint (e.g. GET /providers/status) and CLI flag wiring
+    # are planned as a follow-up; see the issue tracker for details.
+    #
     # @param timeout [Integer] timeout in seconds for each check (defaults to configured value)
     # @return [Array<Hash>] health status for each provider
     def check_providers(timeout: nil)

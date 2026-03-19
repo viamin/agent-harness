@@ -69,6 +69,12 @@ module AgentHarness
       def format_results(results)
         lines = ["Checking providers..."]
 
+        if results.empty?
+          lines << ""
+          lines << "No providers checked."
+          return lines.join("\n")
+        end
+
         results.each do |result|
           name = result[:name].to_s.ljust(16)
           case result[:status]
@@ -150,23 +156,20 @@ module AgentHarness
         # Step 3: Check authentication
         # Treat "not implemented" auth status as degraded rather than error,
         # since most built-in providers don't implement auth_status hooks.
+        # In either case, continue to steps 4/5 so health and config issues
+        # are still surfaced for providers that lack an auth_status hook.
         auth = Authentication.auth_status(provider_name)
+        auth_degraded = false
         unless auth[:valid]
-          if auth_not_implemented?(auth)
+          unless auth_not_implemented?(auth)
             return build_result(
               name: provider_name,
-              status: "degraded",
-              message: "Auth status check not implemented; skipped",
+              status: "error",
+              message: auth[:error] || "Authentication failed",
               start_time: start_time
             )
           end
-
-          return build_result(
-            name: provider_name,
-            status: "error",
-            message: auth[:error] || "Authentication failed",
-            start_time: start_time
-          )
+          auth_degraded = true
         end
 
         # Step 4: Check provider-level health (e.g., endpoint reachability)
@@ -194,6 +197,16 @@ module AgentHarness
             name: provider_name,
             status: "degraded",
             message: "Configuration issues: #{errors_msg}",
+            start_time: start_time
+          )
+        end
+
+        # If auth was not implemented but health/config passed, report degraded
+        if auth_degraded
+          return build_result(
+            name: provider_name,
+            status: "degraded",
+            message: "Auth status check not implemented; health and config checks passed",
             start_time: start_time
           )
         end
