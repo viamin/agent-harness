@@ -346,6 +346,7 @@ puts AgentHarness::ProviderHealthCheck.format_results(results)
 ```
 
 Each result is a hash with keys:
+
 - `:name` — provider name (Symbol)
 - `:status` — `"ok"` (all checks passed), `"degraded"` (partial issues such as unimplemented auth status), or `"error"` (provider unavailable or authentication failed)
 - `:message` — human-readable description
