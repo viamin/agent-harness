@@ -10,3 +10,6 @@
 
 # rspec failure tracking
 .rspec_status
+
+# Build artifacts
+mkmf.log
