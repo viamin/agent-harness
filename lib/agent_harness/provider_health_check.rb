@@ -91,10 +91,11 @@ module AgentHarness
         summary_parts << "#{failed} failed" if failed > 0
         summary_parts << "#{degraded} degraded" if degraded > 0
 
+        provider_word = (total == 1) ? "provider" : "providers"
         lines << if summary_parts.any?
-          "#{total} providers checked: #{summary_parts.join(", ")}."
+          "#{total} #{provider_word} checked: #{summary_parts.join(", ")}."
         else
-          "All #{total} providers healthy."
+          "All #{total} #{provider_word} healthy."
         end
 
         lines.join("\n")
@@ -147,8 +148,19 @@ module AgentHarness
         end
 
         # Step 3: Check authentication
+        # Treat "not implemented" auth status as degraded rather than error,
+        # since most built-in providers don't implement auth_status hooks.
         auth = Authentication.auth_status(provider_name)
         unless auth[:valid]
+          if auth_not_implemented?(auth)
+            return build_result(
+              name: provider_name,
+              status: "degraded",
+              message: "Auth status check not implemented; skipped",
+              start_time: start_time
+            )
+          end
+
           return build_result(
             name: provider_name,
             status: "error",
@@ -158,6 +170,9 @@ module AgentHarness
         end
 
         # Step 4: Check provider-level health (e.g., endpoint reachability)
+        # The Adapter default always returns {healthy: true}, so providers
+        # that haven't implemented a real health check are reported as ok
+        # with a note that the check is not implemented.
         provider_instance = build_provider(provider_name, klass)
         health = provider_instance.health_status
         unless health[:healthy]
@@ -170,6 +185,8 @@ module AgentHarness
         end
 
         # Step 5: Validate provider config
+        # The Adapter default always returns {valid: true}, so providers
+        # that haven't implemented real config validation pass by default.
         validation = provider_instance.validate_config
         unless validation[:valid]
           errors_msg = Array(validation[:errors]).join(", ")
@@ -181,12 +198,28 @@ module AgentHarness
           )
         end
 
+        message = if provider_overrides_method?(provider_instance, :health_status) ||
+            provider_overrides_method?(provider_instance, :validate_config)
+          "All checks passed"
+        else
+          "Registered and authenticated (health/config checks use defaults)"
+        end
+
         build_result(
           name: provider_name,
           status: "ok",
-          message: "Authenticated successfully",
+          message: message,
           start_time: start_time
         )
+      end
+
+      def auth_not_implemented?(auth)
+        error = auth[:error].to_s
+        error.include?("not implemented")
+      end
+
+      def provider_overrides_method?(provider_instance, method_name)
+        provider_instance.method(method_name).owner != Providers::Adapter
       end
 
       def build_result(name:, status:, message:, start_time:)

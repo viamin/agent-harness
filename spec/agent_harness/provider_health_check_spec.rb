@@ -196,9 +196,84 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
 
         expect(result[:name]).to eq(:test_provider)
         expect(result[:status]).to eq("ok")
-        expect(result[:message]).to eq("Authenticated successfully")
+        expect(result[:message]).to include("Registered and authenticated")
         expect(result[:latency_ms]).to be_a(Integer)
         expect(result[:latency_ms]).to be >= 0
+      end
+    end
+
+    context "when provider overrides health_status" do
+      let(:provider_class) do
+        Class.new(AgentHarness::Providers::Base) do
+          class << self
+            def provider_name
+              :test_provider
+            end
+
+            def binary_name
+              "test-cli"
+            end
+
+            def available?
+              true
+            end
+          end
+
+          def health_status
+            {healthy: true, message: "Endpoint reachable"}
+          end
+        end
+      end
+
+      before do
+        registry.register(:test_provider, provider_class)
+        allow(AgentHarness::Authentication).to receive(:auth_status)
+          .with(:test_provider)
+          .and_return({valid: true, expires_at: nil, error: nil})
+      end
+
+      it "returns ok with 'All checks passed' message" do
+        result = described_class.check(:test_provider)
+
+        expect(result[:name]).to eq(:test_provider)
+        expect(result[:status]).to eq("ok")
+        expect(result[:message]).to eq("All checks passed")
+      end
+    end
+
+    context "when auth status check is not implemented" do
+      let(:provider_class) do
+        Class.new(AgentHarness::Providers::Base) do
+          class << self
+            def provider_name
+              :test_provider
+            end
+
+            def binary_name
+              "test-cli"
+            end
+
+            def available?
+              true
+            end
+          end
+        end
+      end
+
+      before do
+        registry.register(:test_provider, provider_class)
+        allow(AgentHarness::Authentication).to receive(:auth_status)
+          .with(:test_provider)
+          .and_return({valid: false, expires_at: nil, error: "Auth status check not implemented for test_provider"})
+      end
+
+      it "returns degraded status instead of error" do
+        result = described_class.check(:test_provider)
+
+        expect(result[:name]).to eq(:test_provider)
+        expect(result[:status]).to eq("degraded")
+        expect(result[:message]).to include("not implemented")
+        expect(result[:message]).to include("skipped")
       end
     end
 
@@ -389,7 +464,7 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
       expect(output).to include("openai")
       expect(output).to include("OK")
       expect(output).to include("120ms")
-      expect(output).to include("All 1 providers healthy.")
+      expect(output).to include("All 1 provider healthy.")
     end
 
     it "formats failed results with X marks" do
@@ -433,6 +508,28 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
       expect(output).to include("~")
       expect(output).to include("1 failed")
       expect(output).to include("1 degraded")
+    end
+
+    it "uses singular 'provider' when only one result" do
+      results = [
+        {name: :openai, status: "error", message: "Failed", latency_ms: 50}
+      ]
+
+      output = described_class.format_results(results)
+
+      expect(output).to include("1 provider checked")
+      expect(output).not_to include("providers checked")
+    end
+
+    it "uses plural 'providers' when multiple results" do
+      results = [
+        {name: :openai, status: "ok", message: "OK", latency_ms: 50},
+        {name: :claude, status: "ok", message: "OK", latency_ms: 50}
+      ]
+
+      output = described_class.format_results(results)
+
+      expect(output).to include("All 2 providers healthy.")
     end
 
     it "handles nil latency for ok results" do
@@ -488,12 +585,14 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
       expect(results).to be_an(Array)
       test_result = results.find { |r| r[:name] == :test_provider }
       expect(test_result[:status]).to eq("ok")
+      expect(test_result[:message]).to include("Registered and authenticated")
     end
 
     it "exposes check_provider on the module" do
       result = AgentHarness.check_provider(:test_provider)
       expect(result[:name]).to eq(:test_provider)
       expect(result[:status]).to eq("ok")
+      expect(result[:message]).to include("Registered and authenticated")
     end
   end
 end
