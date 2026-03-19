@@ -54,10 +54,14 @@ module AgentHarness
           start_time: start_time || monotonic_now
         )
       rescue => e
+        # Return a generic message to avoid leaking sensitive details
+        # (e.g., tokens embedded in exception messages). Log the full
+        # exception for debugging when a logger is configured.
+        AgentHarness.logger&.error("ProviderHealthCheck error for #{name}: #{e.class}: #{e.message}")
         build_result(
           name: name,
           status: "error",
-          message: e.message,
+          message: "Health check failed: #{e.class}",
           start_time: start_time || monotonic_now
         )
       end

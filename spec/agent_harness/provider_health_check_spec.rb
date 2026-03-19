@@ -360,11 +360,12 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
         allow(AgentHarness::Providers::Registry).to receive(:instance).and_raise(RuntimeError, "Unexpected failure")
       end
 
-      it "returns error status with the exception message" do
+      it "returns error status with a sanitized message (class only, no raw details)" do
         result = described_class.check(:claude)
 
         expect(result[:status]).to eq("error")
-        expect(result[:message]).to eq("Unexpected failure")
+        expect(result[:message]).to eq("Health check failed: RuntimeError")
+        expect(result[:message]).not_to include("Unexpected failure")
       end
     end
 
@@ -419,6 +420,30 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
         expect(result[:name]).to eq(:unknown)
         expect(result[:status]).to eq("error")
       end
+    end
+  end
+
+  describe ".configured_timeout" do
+    after do
+      AgentHarness.reset!
+    end
+
+    it "honors a user-specified timeout from configuration" do
+      AgentHarness.configure do |config|
+        config.orchestration do |o|
+          o.health_check do |h|
+            h.timeout = 10
+          end
+        end
+      end
+
+      # Use a provider that will fail fast (unregistered) so we can inspect
+      # the timeout value that gets embedded in a Timeout::Error message.
+      allow(Timeout).to receive(:timeout).and_raise(Timeout::Error)
+
+      result = described_class.check(:nonexistent)
+      expect(result[:status]).to eq("error")
+      expect(result[:message]).to include("10s")
     end
   end
 
