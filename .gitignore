@@ -13,3 +13,4 @@
 
 # Build artifacts
 mkmf.log
+/.gems/
