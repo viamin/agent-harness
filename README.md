@@ -326,6 +326,36 @@ Any existing expiry metadata in the credentials file is cleared on refresh so th
 
 This raises `NotImplementedError` for `:api_key` providers. Credential file paths respect the `CLAUDE_CONFIG_DIR` environment variable.
 
+## Provider Health Checks
+
+Pre-flight check that configured providers are registered and authenticated. Reachability and configuration validation depend on provider-specific `health_status` and `validate_config` overrides; providers that don't implement these use safe defaults (healthy / valid).
+
+> **Note:** These methods provide the library-level API. CLI flag (`--check-providers`) and HTTP endpoint (`GET /providers/status`) integration are not yet implemented and are tracked separately.
+
+```ruby
+# Check all enabled providers
+results = AgentHarness.check_providers
+results.each do |r|
+  puts "#{r[:name]}: #{r[:status]} - #{r[:message]} (#{r[:latency_ms]}ms)"
+end
+
+# Check a single provider
+result = AgentHarness.check_provider(:claude)
+puts result[:status]  # => "ok", "degraded", or "error"
+
+# Formatted CLI output
+puts AgentHarness::ProviderHealthCheck.format_results(results)
+```
+
+Each result is a hash with keys:
+
+- `:name` — provider name (Symbol)
+- `:status` — `"ok"` (all checks passed), `"degraded"` (partial issues such as unimplemented auth status), or `"error"` (provider unavailable or authentication failed)
+- `:message` — human-readable description
+- `:latency_ms` — time taken for the check in milliseconds
+
+Health checks run five steps per provider: registration, CLI availability, authentication, provider health status, and configuration validation. The default timeout per provider is configurable via `orchestration.health_check.timeout` (default: 5 seconds).
+
 ## Development
 
 ```bash

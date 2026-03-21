@@ -221,12 +221,13 @@ module AgentHarness
 
   # Health check configuration
   class HealthCheckConfig
-    attr_accessor :enabled, :interval, :failure_threshold
+    attr_accessor :enabled, :interval, :failure_threshold, :timeout
 
     def initialize
       @enabled = true
       @interval = 60 # 1 minute
       @failure_threshold = 3
+      @timeout = 5 # seconds per provider check
     end
   end
 
