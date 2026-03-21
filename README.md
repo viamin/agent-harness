@@ -328,7 +328,9 @@ This raises `NotImplementedError` for `:api_key` providers. Credential file path
 
 ## Provider Health Checks
 
-Pre-flight check that configured providers are registered and authenticated. Reachability and configuration validation depend on provider-specific `health_status` and `validate_config` overrides; providers that don't implement these use safe defaults (healthy / valid):
+Pre-flight check that configured providers are registered and authenticated. Reachability and configuration validation depend on provider-specific `health_status` and `validate_config` overrides; providers that don't implement these use safe defaults (healthy / valid).
+
+> **Note:** These methods provide the library-level API. CLI flag (`--check-providers`) and HTTP endpoint (`GET /providers/status`) integration are not yet implemented and are tracked separately.
 
 ```ruby
 # Check all enabled providers

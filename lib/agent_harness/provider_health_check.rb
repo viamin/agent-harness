@@ -53,11 +53,23 @@ module AgentHarness
           message: "Health check timed out after #{timeout}s",
           start_time: start_time || monotonic_now
         )
+      rescue NotImplementedError => e
+        # NotImplementedError inherits from ScriptError, not StandardError,
+        # so it must be rescued explicitly. Its messages are safe internal
+        # setup errors (e.g., missing provider methods) that help users
+        # diagnose configuration problems.
+        AgentHarness.logger&.error("ProviderHealthCheck error for #{name}: #{e.class}")
+        build_result(
+          name: name,
+          status: "error",
+          message: "Health check failed: #{e.class}: #{e.message}",
+          start_time: start_time || monotonic_now
+        )
       rescue => e
         # Return a generic message to avoid leaking sensitive details
-        # (e.g., tokens embedded in exception messages). Log the full
-        # exception for debugging when a logger is configured.
-        AgentHarness.logger&.error("ProviderHealthCheck error for #{name}: #{e.class}: #{e.message}")
+        # (e.g., tokens embedded in exception messages). Log only the
+        # exception class (not the message) to avoid leaking secrets.
+        AgentHarness.logger&.error("ProviderHealthCheck error for #{name}: #{e.class}")
         build_result(
           name: name,
           status: "error",

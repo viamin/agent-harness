@@ -367,6 +367,30 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
         expect(result[:message]).to eq("Health check failed: RuntimeError")
         expect(result[:message]).not_to include("Unexpected failure")
       end
+
+      it "logs only the exception class without the message" do
+        require "logger"
+        logger = instance_double(Logger, error: nil)
+        allow(AgentHarness).to receive(:logger).and_return(logger)
+
+        described_class.check(:claude)
+
+        expect(logger).to have_received(:error).with("ProviderHealthCheck error for claude: RuntimeError")
+      end
+    end
+
+    context "when a NotImplementedError occurs" do
+      before do
+        allow(AgentHarness::Providers::Registry).to receive(:instance)
+          .and_raise(NotImplementedError, "provider must implement #health_status")
+      end
+
+      it "includes the exception message for easier diagnosis" do
+        result = described_class.check(:claude)
+
+        expect(result[:status]).to eq("error")
+        expect(result[:message]).to eq("Health check failed: NotImplementedError: provider must implement #health_status")
+      end
     end
 
     context "when the check exceeds the timeout" do
