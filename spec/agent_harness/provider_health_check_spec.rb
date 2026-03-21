@@ -316,6 +316,76 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
       end
     end
 
+    context "when auth status returns explicit implemented: false flag" do
+      let(:provider_class) do
+        Class.new(AgentHarness::Providers::Base) do
+          class << self
+            def provider_name
+              :test_provider
+            end
+
+            def binary_name
+              "test-cli"
+            end
+
+            def available?
+              true
+            end
+          end
+        end
+      end
+
+      before do
+        registry.register(:test_provider, provider_class)
+        allow(AgentHarness::Authentication).to receive(:auth_status)
+          .with(:test_provider)
+          .and_return({valid: false, expires_at: nil, implemented: false, error: nil})
+      end
+
+      it "returns degraded status via explicit flag" do
+        result = described_class.check(:test_provider)
+
+        expect(result[:name]).to eq(:test_provider)
+        expect(result[:status]).to eq("degraded")
+        expect(result[:message]).to include("not implemented")
+      end
+    end
+
+    context "when auth status returns explicit reason: :not_implemented flag" do
+      let(:provider_class) do
+        Class.new(AgentHarness::Providers::Base) do
+          class << self
+            def provider_name
+              :test_provider
+            end
+
+            def binary_name
+              "test-cli"
+            end
+
+            def available?
+              true
+            end
+          end
+        end
+      end
+
+      before do
+        registry.register(:test_provider, provider_class)
+        allow(AgentHarness::Authentication).to receive(:auth_status)
+          .with(:test_provider)
+          .and_return({valid: false, expires_at: nil, reason: :not_implemented, error: nil})
+      end
+
+      it "returns degraded status via explicit reason flag" do
+        result = described_class.check(:test_provider)
+
+        expect(result[:name]).to eq(:test_provider)
+        expect(result[:status]).to eq("degraded")
+        expect(result[:message]).to include("not implemented")
+      end
+    end
+
     context "when auth is not implemented but health check fails" do
       let(:provider_class) do
         Class.new(AgentHarness::Providers::Base) do

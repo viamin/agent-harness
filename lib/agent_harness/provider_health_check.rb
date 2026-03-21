@@ -16,7 +16,9 @@ module AgentHarness
   #   result = AgentHarness::ProviderHealthCheck.check(:claude)
   #   puts result[:status] # => "ok", "error", or "degraded"
   class ProviderHealthCheck
-    DEFAULT_TIMEOUT = 5
+    # Single source of truth: derive the fallback from HealthCheckConfig's default
+    # so that the timeout isn't duplicated here and in configuration.rb.
+    DEFAULT_TIMEOUT = HealthCheckConfig.new.timeout
 
     class << self
       # Check health of all configured providers
@@ -244,6 +246,14 @@ module AgentHarness
       end
 
       def auth_not_implemented?(auth)
+        # Prefer explicit flags over brittle string matching on error messages.
+        # This keeps backward compatibility with existing callers that only set :error,
+        # while allowing newer callers to pass structured reasons.
+        if auth.respond_to?(:[])
+          return true if auth.key?(:implemented) && auth[:implemented] == false
+          return true if auth.key?(:reason) && auth[:reason] == :not_implemented
+        end
+
         error = auth[:error].to_s
         error.include?("not implemented")
       end
