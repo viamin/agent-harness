@@ -430,7 +430,7 @@ RSpec.describe AgentHarness::Providers::Anthropic do
           )
 
           expect(mock_executor).to receive(:execute).with(
-            array_including("--prompt", "Hello world"),
+            end_with("Hello world"),
             anything
           )
 
