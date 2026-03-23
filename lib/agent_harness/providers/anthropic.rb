@@ -269,7 +269,7 @@ module AgentHarness
         # Add custom flags from config
         cmd += @config.default_flags if @config.default_flags&.any?
 
-        cmd += ["--prompt", prompt]
+        cmd << prompt
 
         cmd
       end
