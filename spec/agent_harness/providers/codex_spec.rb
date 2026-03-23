@@ -51,5 +51,55 @@ RSpec.describe AgentHarness::Providers::Codex do
         expect(provider.session_flags(nil)).to eq([])
       end
     end
+
+    describe "#send_message" do
+      let(:mock_executor) { instance_double(AgentHarness::CommandExecutor) }
+      let(:provider) { described_class.new(executor: mock_executor) }
+      let(:success_result) do
+        AgentHarness::CommandExecutor::Result.new(
+          stdout: "response",
+          stderr: "",
+          exit_code: 0,
+          duration: 1.0
+        )
+      end
+
+      it "builds command with exec subcommand and positional prompt" do
+        allow(mock_executor).to receive(:execute).and_return(success_result)
+
+        expect(mock_executor).to receive(:execute).with(
+          ["codex", "exec", "Hello"],
+          anything
+        )
+
+        provider.send_message(prompt: "Hello")
+      end
+
+      it "includes session flags when session is provided" do
+        allow(mock_executor).to receive(:execute).and_return(success_result)
+
+        expect(mock_executor).to receive(:execute).with(
+          ["codex", "exec", "--session", "session-123", "Hello"],
+          anything
+        )
+
+        provider.send_message(prompt: "Hello", session: "session-123")
+      end
+
+      it "returns a Response object" do
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "response output",
+            stderr: "",
+            exit_code: 0,
+            duration: 1.5
+          )
+        )
+
+        response = provider.send_message(prompt: "Hello")
+        expect(response).to be_a(AgentHarness::Response)
+        expect(response.output).to eq("response output")
+      end
+    end
   end
 end
