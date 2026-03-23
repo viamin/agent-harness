@@ -81,13 +81,13 @@ module AgentHarness
       protected
 
       def build_command(prompt, options)
-        cmd = [self.class.binary_name]
+        cmd = [self.class.binary_name, "exec"]
 
         if options[:session]
           cmd += session_flags(options[:session])
         end
 
-        cmd += ["--prompt", prompt]
+        cmd << prompt
 
         cmd
       end
