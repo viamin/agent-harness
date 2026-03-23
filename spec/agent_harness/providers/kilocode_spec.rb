@@ -8,8 +8,8 @@ RSpec.describe AgentHarness::Providers::Kilocode do
   end
 
   describe ".binary_name" do
-    it "returns kilocode" do
-      expect(described_class.binary_name).to eq("kilocode")
+    it "returns kilo" do
+      expect(described_class.binary_name).to eq("kilo")
     end
   end
 
