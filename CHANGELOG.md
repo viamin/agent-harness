@@ -1,5 +1,15 @@
 ## [Unreleased]
 
+## [0.5.1](https://github.com/viamin/agent-harness/compare/agent-harness/v0.5.0...agent-harness/v0.5.1) (2026-03-24)
+
+
+### Bug Fixes
+
+* 30: fix(codex): use 'codex exec' subcommand instead of --prompt ([#35](https://github.com/viamin/agent-harness/issues/35)) ([1093a23](https://github.com/viamin/agent-harness/commit/1093a23dd001a7ea3caf13306d284fe3b5b976c5))
+* **anthropic:** use positional argument instead of --prompt for Claude CLI ([4ba59bd](https://github.com/viamin/agent-harness/commit/4ba59bd55394cf9ff1d1994ce787e0e285725b93)), closes [#29](https://github.com/viamin/agent-harness/issues/29)
+* **kilocode:** use 'kilo run' subcommand instead of --prompt flag ([f850f54](https://github.com/viamin/agent-harness/commit/f850f54cfac595fe910298303beb373c7bc68376))
+* **test:** use correct RSpec matcher `end_with` instead of `ending_with` ([3a9d68b](https://github.com/viamin/agent-harness/commit/3a9d68b90a0e788683a382303108ebe28cc24e63))
+
 ## [0.5.0](https://github.com/viamin/agent-harness/compare/agent-harness/v0.4.0...agent-harness/v0.5.0) (2026-03-03)
 
 
