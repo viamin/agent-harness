@@ -157,6 +157,7 @@ require_relative "agent_harness/providers/cursor"
 require_relative "agent_harness/providers/gemini"
 require_relative "agent_harness/providers/github_copilot"
 require_relative "agent_harness/providers/kilocode"
+require_relative "agent_harness/providers/mistral_vibe"
 require_relative "agent_harness/providers/opencode"
 
 # Orchestration layer

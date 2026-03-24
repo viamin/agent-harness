@@ -123,6 +123,7 @@ module AgentHarness
         register_if_available(:opencode, "agent_harness/providers/opencode", :Opencode)
         register_if_available(:kilocode, "agent_harness/providers/kilocode", :Kilocode)
         register_if_available(:aider, "agent_harness/providers/aider", :Aider)
+        register_if_available(:mistral_vibe, "agent_harness/providers/mistral_vibe", :MistralVibe)
       end
 
       def register_if_available(name, require_path, class_name, aliases: [])
