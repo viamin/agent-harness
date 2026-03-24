@@ -54,7 +54,7 @@ RSpec.describe AgentHarness::Providers::Codex do
 
     describe "#send_message" do
       let(:mock_executor) { instance_double(AgentHarness::CommandExecutor) }
-      let(:provider) { described_class.new(executor: mock_executor) }
+      subject(:provider) { described_class.new(executor: mock_executor) }
       let(:success_result) do
         AgentHarness::CommandExecutor::Result.new(
           stdout: "response",
@@ -65,23 +65,19 @@ RSpec.describe AgentHarness::Providers::Codex do
       end
 
       it "builds command with exec subcommand and positional prompt" do
-        allow(mock_executor).to receive(:execute).and_return(success_result)
-
         expect(mock_executor).to receive(:execute).with(
           ["codex", "exec", "Hello"],
           anything
-        )
+        ).and_return(success_result)
 
         provider.send_message(prompt: "Hello")
       end
 
       it "includes session flags when session is provided" do
-        allow(mock_executor).to receive(:execute).and_return(success_result)
-
         expect(mock_executor).to receive(:execute).with(
           ["codex", "exec", "--session", "session-123", "Hello"],
           anything
-        )
+        ).and_return(success_result)
 
         provider.send_message(prompt: "Hello", session: "session-123")
       end
