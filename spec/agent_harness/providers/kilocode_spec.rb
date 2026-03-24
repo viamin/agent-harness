@@ -35,7 +35,11 @@ RSpec.describe AgentHarness::Providers::Kilocode do
   end
 
   describe "instance" do
-    subject(:provider) { described_class.new }
+    let(:mock_executor) do
+      instance_double(AgentHarness::CommandExecutor)
+    end
+
+    subject(:provider) { described_class.new(executor: mock_executor) }
 
     describe "#name" do
       it "returns kilocode" do
@@ -55,6 +59,26 @@ RSpec.describe AgentHarness::Providers::Kilocode do
         expect(caps[:streaming]).to be false
         expect(caps[:mcp]).to be false
         expect(caps[:dangerous_mode]).to be false
+      end
+    end
+
+    describe "#send_message" do
+      it "executes kilo run with the prompt" do
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "response",
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        expect(mock_executor).to receive(:execute).with(
+          ["kilo", "run", "Hello"],
+          anything
+        )
+
+        provider.send_message(prompt: "Hello")
       end
     end
   end
