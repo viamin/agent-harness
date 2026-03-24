@@ -12,7 +12,7 @@ module AgentHarness
         end
 
         def binary_name
-          "kilocode"
+          "kilo"
         end
 
         def available?
@@ -60,8 +60,8 @@ module AgentHarness
       protected
 
       def build_command(prompt, options)
-        cmd = [self.class.binary_name]
-        cmd += ["--prompt", prompt]
+        cmd = [self.class.binary_name, "run"]
+        cmd << prompt
         cmd
       end
 
