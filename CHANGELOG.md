@@ -1,5 +1,12 @@
 ## [Unreleased]
 
+## [0.5.2](https://github.com/viamin/agent-harness/compare/agent-harness/v0.5.1...agent-harness/v0.5.2) (2026-03-24)
+
+
+### Bug Fixes
+
+* **opencode:** use 'opencode run' subcommand instead of --prompt flag ([56fbc4f](https://github.com/viamin/agent-harness/commit/56fbc4f4b7ed312cba1d71d357561d44c93a55e1))
+
 ## [0.5.1](https://github.com/viamin/agent-harness/compare/agent-harness/v0.5.0...agent-harness/v0.5.1) (2026-03-24)
 
 
