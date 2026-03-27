@@ -170,7 +170,13 @@ module AgentHarness
       def build_command(prompt, options)
         cmd = [self.class.binary_name, "exec"]
 
-        cmd += @config.default_flags if @config.default_flags&.any?
+        flags = @config.default_flags
+        if flags
+          unless flags.is_a?(Array)
+            raise ArgumentError, "Codex configuration error: default_flags must be an array of strings"
+          end
+          cmd += flags if flags.any?
+        end
 
         if options[:session]
           cmd += session_flags(options[:session])
@@ -191,7 +197,10 @@ module AgentHarness
         path = codex_config_path
         return nil unless File.exist?(path)
 
-        JSON.parse(File.read(path))
+        parsed = JSON.parse(File.read(path))
+        return nil unless parsed.is_a?(Hash)
+
+        parsed
       rescue Errno::ENOENT
         nil
       rescue Errno::EACCES => e

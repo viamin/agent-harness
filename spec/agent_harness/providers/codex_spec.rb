@@ -85,6 +85,21 @@ RSpec.describe AgentHarness::Providers::Codex do
         provider.send_message(prompt: "Hello", session: "session-123")
       end
 
+      context "with non-Array default_flags" do
+        let(:config_with_string_flags) do
+          AgentHarness::ProviderConfig.new(:codex).tap do |c|
+            c.default_flags = "--quiet"
+          end
+        end
+        let(:provider_with_string_flags) { described_class.new(config: config_with_string_flags, executor: mock_executor) }
+
+        it "raises an error" do
+          expect { provider_with_string_flags.send_message(prompt: "Hello") }.to raise_error(
+            AgentHarness::ProviderError, /default_flags must be an array/
+          )
+        end
+      end
+
       context "with default_flags configured" do
         let(:config_with_flags) do
           AgentHarness::ProviderConfig.new(:codex).tap do |c|
@@ -228,6 +243,18 @@ RSpec.describe AgentHarness::Providers::Codex do
         end
       end
 
+      context "with non-Hash JSON in config file" do
+        before do
+          File.write(config_path, JSON.generate(["not", "a", "hash"]))
+        end
+
+        it "returns invalid with no credentials message" do
+          status = provider.auth_status
+          expect(status[:valid]).to be false
+          expect(status[:error]).to include("No OpenAI API key")
+        end
+      end
+
       context "with empty key in config file" do
         before do
           File.write(config_path, JSON.generate({"api_key" => ""}))
@@ -326,6 +353,24 @@ RSpec.describe AgentHarness::Providers::Codex do
           result = provider.validate_config
           expect(result[:valid]).to be true
           expect(result[:errors]).to be_empty
+        end
+      end
+
+      context "with non-Array default_flags" do
+        let(:bad_executor) { instance_double(AgentHarness::CommandExecutor) }
+        let(:config_with_string_flags) do
+          AgentHarness::ProviderConfig.new(:codex).tap do |c|
+            c.default_flags = "--verbose"
+          end
+        end
+        let(:provider_with_string_flags) do
+          described_class.new(config: config_with_string_flags, executor: bad_executor)
+        end
+
+        it "returns invalid" do
+          result = provider_with_string_flags.validate_config
+          expect(result[:valid]).to be false
+          expect(result[:errors].first).to include("must be an array")
         end
       end
 

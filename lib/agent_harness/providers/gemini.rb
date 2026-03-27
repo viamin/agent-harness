@@ -194,7 +194,13 @@ module AgentHarness
           cmd += ["--model", @config.model]
         end
 
-        cmd += @config.default_flags if @config.default_flags&.any?
+        flags = @config.default_flags
+        if flags
+          unless flags.is_a?(Array)
+            raise ArgumentError, "Gemini configuration error: default_flags must be an array of strings"
+          end
+          cmd += flags if flags.any?
+        end
 
         cmd += ["--prompt", prompt]
 
@@ -211,7 +217,10 @@ module AgentHarness
         path = gemini_credentials_path
         return nil unless File.exist?(path)
 
-        JSON.parse(File.read(path))
+        parsed = JSON.parse(File.read(path))
+        return nil unless parsed.is_a?(Hash)
+
+        parsed
       rescue Errno::ENOENT
         nil
       rescue Errno::EACCES => e

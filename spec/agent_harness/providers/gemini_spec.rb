@@ -200,6 +200,21 @@ RSpec.describe AgentHarness::Providers::Gemini do
         provider.send_message(prompt: "Hello")
       end
 
+      context "with non-Array default_flags" do
+        let(:config) do
+          AgentHarness::ProviderConfig.new(:gemini).tap do |c|
+            c.model = "gemini-1.5-pro"
+            c.default_flags = "--verbose"
+          end
+        end
+
+        it "raises an error" do
+          expect { provider.send_message(prompt: "Hello") }.to raise_error(
+            AgentHarness::ProviderError, /default_flags must be an array/
+          )
+        end
+      end
+
       context "without model configured" do
         let(:config) { AgentHarness::ProviderConfig.new(:gemini) }
 
@@ -376,6 +391,18 @@ RSpec.describe AgentHarness::Providers::Gemini do
         end
       end
 
+      context "with non-Hash JSON in credentials file" do
+        before do
+          File.write(credentials_path, JSON.generate(["not", "a", "hash"]))
+        end
+
+        it "returns invalid with no credentials message" do
+          status = provider.auth_status
+          expect(status[:valid]).to be false
+          expect(status[:error]).to include("No Gemini credentials")
+        end
+      end
+
       context "with oauth_token key instead of access_token" do
         before do
           File.write(credentials_path, JSON.generate({
@@ -472,6 +499,20 @@ RSpec.describe AgentHarness::Providers::Gemini do
         it "returns valid" do
           result = provider.validate_config
           expect(result[:valid]).to be true
+        end
+      end
+
+      context "with non-Array default_flags" do
+        let(:config) do
+          AgentHarness::ProviderConfig.new(:gemini).tap do |c|
+            c.default_flags = "--verbose"
+          end
+        end
+
+        it "returns invalid" do
+          result = provider.validate_config
+          expect(result[:valid]).to be false
+          expect(result[:errors].first).to include("must be an array")
         end
       end
 
