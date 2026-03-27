@@ -1,5 +1,8 @@
 # frozen_string_literal: true
 
+require "fileutils"
+require "tmpdir"
+
 RSpec.describe AgentHarness::Providers::Gemini do
   describe ".provider_name" do
     it "returns :gemini" do
@@ -197,6 +200,21 @@ RSpec.describe AgentHarness::Providers::Gemini do
         provider.send_message(prompt: "Hello")
       end
 
+      context "with non-Array default_flags" do
+        let(:config) do
+          AgentHarness::ProviderConfig.new(:gemini).tap do |c|
+            c.model = "gemini-1.5-pro"
+            c.default_flags = "--verbose"
+          end
+        end
+
+        it "raises an error" do
+          expect { provider.send_message(prompt: "Hello") }.to raise_error(
+            AgentHarness::ProviderError, /default_flags must be an array/
+          )
+        end
+      end
+
       context "without model configured" do
         let(:config) { AgentHarness::ProviderConfig.new(:gemini) }
 
@@ -222,6 +240,293 @@ RSpec.describe AgentHarness::Providers::Gemini do
           )
 
           provider.send_message(prompt: "Hello")
+        end
+      end
+    end
+
+    describe "#auth_status" do
+      let(:tmp_dir) { Dir.mktmpdir }
+      let(:credentials_path) { File.join(tmp_dir, "credentials.json") }
+
+      before do
+        allow(ENV).to receive(:[]).and_call_original
+        allow(ENV).to receive(:[]).with("GEMINI_CONFIG_DIR").and_return(tmp_dir)
+        allow(ENV).to receive(:[]).with("GEMINI_API_KEY").and_return(nil)
+        allow(ENV).to receive(:[]).with("GOOGLE_API_KEY").and_return(nil)
+      end
+
+      after do
+        FileUtils.rm_rf(tmp_dir)
+      end
+
+      context "with GEMINI_API_KEY set" do
+        before do
+          allow(ENV).to receive(:[]).with("GEMINI_API_KEY").and_return("AIza-test-key")
+        end
+
+        it "returns valid with api_key auth method" do
+          status = provider.auth_status
+          expect(status[:valid]).to be true
+          expect(status[:auth_method]).to eq(:api_key)
+        end
+      end
+
+      context "with GOOGLE_API_KEY set" do
+        before do
+          allow(ENV).to receive(:[]).with("GOOGLE_API_KEY").and_return("AIza-test-key")
+        end
+
+        it "returns valid with api_key auth method" do
+          status = provider.auth_status
+          expect(status[:valid]).to be true
+          expect(status[:auth_method]).to eq(:api_key)
+        end
+      end
+
+      context "with blank GEMINI_API_KEY" do
+        before do
+          allow(ENV).to receive(:[]).with("GEMINI_API_KEY").and_return("   ")
+        end
+
+        it "does not treat blank key as valid" do
+          status = provider.auth_status
+          expect(status[:valid]).to be false
+        end
+
+        context "when GOOGLE_API_KEY is set" do
+          before do
+            allow(ENV).to receive(:[]).with("GOOGLE_API_KEY").and_return("AIza-fallback-key")
+          end
+
+          it "falls back to GOOGLE_API_KEY" do
+            status = provider.auth_status
+            expect(status[:valid]).to be true
+            expect(status[:auth_method]).to eq(:api_key)
+          end
+        end
+      end
+
+      context "with valid OAuth credentials file" do
+        before do
+          File.write(credentials_path, JSON.generate({
+            "access_token" => "ya29.test-token",
+            "expires_at" => (Time.now + 3600).to_i
+          }))
+        end
+
+        it "returns valid with oauth auth method" do
+          status = provider.auth_status
+          expect(status[:valid]).to be true
+          expect(status[:auth_method]).to eq(:oauth)
+          expect(status[:expires_at]).to be_a(Time)
+        end
+      end
+
+      context "with expired OAuth credentials" do
+        before do
+          File.write(credentials_path, JSON.generate({
+            "access_token" => "ya29.expired-token",
+            "expires_at" => (Time.now - 3600).to_i
+          }))
+        end
+
+        it "returns invalid with expiry error" do
+          status = provider.auth_status
+          expect(status[:valid]).to be false
+          expect(status[:error]).to include("expired")
+          expect(status[:error]).to include("gemini auth login")
+        end
+      end
+
+      context "with no credentials" do
+        it "returns invalid with helpful message" do
+          status = provider.auth_status
+          expect(status[:valid]).to be false
+          expect(status[:error]).to include("No Gemini credentials")
+          expect(status[:error]).to include("GEMINI_API_KEY")
+          expect(status[:error]).to include("GOOGLE_API_KEY")
+        end
+      end
+
+      context "with empty token in credentials file" do
+        before do
+          File.write(credentials_path, JSON.generate({
+            "access_token" => ""
+          }))
+        end
+
+        it "returns invalid" do
+          status = provider.auth_status
+          expect(status[:valid]).to be false
+          expect(status[:error]).to include("No authentication token")
+        end
+      end
+
+      context "with invalid JSON in credentials file" do
+        before do
+          File.write(credentials_path, "not json")
+        end
+
+        it "returns invalid with JSON error" do
+          status = provider.auth_status
+          expect(status[:valid]).to be false
+          expect(status[:error]).to include("Invalid JSON")
+        end
+      end
+
+      context "with permission denied on credentials file" do
+        before do
+          File.write(credentials_path, JSON.generate({"access_token" => "test"}))
+          File.chmod(0o000, credentials_path)
+        end
+
+        after do
+          File.chmod(0o644, credentials_path)
+        end
+
+        it "returns invalid with permission error" do
+          status = provider.auth_status
+          expect(status[:valid]).to be false
+          expect(status[:error]).to include("Permission denied")
+        end
+      end
+
+      context "with non-Hash JSON in credentials file" do
+        before do
+          File.write(credentials_path, JSON.generate(["not", "a", "hash"]))
+        end
+
+        it "returns invalid with no credentials message" do
+          status = provider.auth_status
+          expect(status[:valid]).to be false
+          expect(status[:error]).to include("No Gemini credentials")
+        end
+      end
+
+      context "with oauth_token key instead of access_token" do
+        before do
+          File.write(credentials_path, JSON.generate({
+            "oauth_token" => "ya29.test-token"
+          }))
+        end
+
+        it "returns valid" do
+          status = provider.auth_status
+          expect(status[:valid]).to be true
+        end
+      end
+    end
+
+    describe "#health_status" do
+      let(:tmp_gemini_config_dir) { Dir.mktmpdir }
+
+      after do
+        FileUtils.remove_entry(tmp_gemini_config_dir) if tmp_gemini_config_dir && Dir.exist?(tmp_gemini_config_dir)
+      end
+
+      before do
+        allow(ENV).to receive(:[]).and_call_original
+        allow(ENV).to receive(:[]).with("GEMINI_API_KEY").and_return("test-key")
+        allow(ENV).to receive(:[]).with("GOOGLE_API_KEY").and_return(nil)
+        allow(ENV).to receive(:[]).with("GEMINI_CONFIG_DIR").and_return(tmp_gemini_config_dir)
+      end
+
+      context "when CLI is available and authenticated" do
+        before do
+          allow(described_class).to receive(:available?).and_return(true)
+        end
+
+        it "returns healthy" do
+          status = provider.health_status
+          expect(status[:healthy]).to be true
+          expect(status[:message]).to include("available and authenticated")
+        end
+      end
+
+      context "when CLI is not available" do
+        before do
+          allow(described_class).to receive(:available?).and_return(false)
+        end
+
+        it "returns unhealthy" do
+          status = provider.health_status
+          expect(status[:healthy]).to be false
+          expect(status[:message]).to include("not found in PATH")
+        end
+      end
+
+      context "when not authenticated" do
+        before do
+          allow(described_class).to receive(:available?).and_return(true)
+          allow(ENV).to receive(:[]).with("GEMINI_API_KEY").and_return(nil)
+          allow(ENV).to receive(:[]).with("GOOGLE_API_KEY").and_return(nil)
+        end
+
+        it "returns unhealthy with auth error" do
+          status = provider.health_status
+          expect(status[:healthy]).to be false
+          expect(status[:message]).to include("No Gemini credentials")
+        end
+      end
+    end
+
+    describe "#validate_config" do
+      context "with valid model" do
+        it "returns valid" do
+          result = provider.validate_config
+          expect(result[:valid]).to be true
+          expect(result[:errors]).to be_empty
+        end
+      end
+
+      context "with unrecognized model" do
+        let(:config) do
+          AgentHarness::ProviderConfig.new(:gemini).tap do |c|
+            c.model = "gpt-4"
+          end
+        end
+
+        it "returns invalid with error" do
+          result = provider.validate_config
+          expect(result[:valid]).to be false
+          expect(result[:errors].first).to include("Unrecognized model")
+        end
+      end
+
+      context "with no model configured" do
+        let(:config) { AgentHarness::ProviderConfig.new(:gemini) }
+
+        it "returns valid" do
+          result = provider.validate_config
+          expect(result[:valid]).to be true
+        end
+      end
+
+      context "with non-Array default_flags" do
+        let(:config) do
+          AgentHarness::ProviderConfig.new(:gemini).tap do |c|
+            c.default_flags = "--verbose"
+          end
+        end
+
+        it "returns invalid" do
+          result = provider.validate_config
+          expect(result[:valid]).to be false
+          expect(result[:errors].first).to include("must be an array")
+        end
+      end
+
+      context "with non-string default_flags" do
+        let(:config) do
+          AgentHarness::ProviderConfig.new(:gemini).tap do |c|
+            c.default_flags = ["--verbose", 123]
+          end
+        end
+
+        it "returns invalid" do
+          result = provider.validate_config
+          expect(result[:valid]).to be false
+          expect(result[:errors].first).to include("non-string")
         end
       end
     end

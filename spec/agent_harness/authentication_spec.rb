@@ -189,6 +189,97 @@ RSpec.describe AgentHarness::Authentication do
         expect(status[:error]).to include("not implemented")
       end
     end
+
+    context "for Gemini provider" do
+      let(:gemini_tmp_dir) { Dir.mktmpdir }
+      let(:gemini_credentials_path) { File.join(gemini_tmp_dir, "credentials.json") }
+
+      before do
+        allow(ENV).to receive(:[]).with("GEMINI_CONFIG_DIR").and_return(gemini_tmp_dir)
+        allow(ENV).to receive(:[]).with("GEMINI_API_KEY").and_return(nil)
+        allow(ENV).to receive(:[]).with("GOOGLE_API_KEY").and_return(nil)
+      end
+
+      after do
+        FileUtils.rm_rf(gemini_tmp_dir)
+      end
+
+      it "returns valid when GEMINI_API_KEY is set" do
+        allow(ENV).to receive(:[]).with("GEMINI_API_KEY").and_return("AIza-test")
+
+        status = described_class.auth_status(:gemini)
+        expect(status[:valid]).to be true
+      end
+
+      it "returns valid when OAuth credentials exist" do
+        File.write(gemini_credentials_path, JSON.generate({
+          "access_token" => "ya29.test-token",
+          "expires_at" => (Time.now + 3600).to_i
+        }))
+
+        status = described_class.auth_status(:gemini)
+        expect(status[:valid]).to be true
+      end
+
+      it "returns invalid when no credentials found" do
+        status = described_class.auth_status(:gemini)
+        expect(status[:valid]).to be false
+        expect(status[:error]).to include("No Gemini credentials")
+      end
+
+      it "returns invalid when credentials are expired" do
+        File.write(gemini_credentials_path, JSON.generate({
+          "access_token" => "ya29.expired",
+          "expires_at" => (Time.now - 3600).to_i
+        }))
+
+        status = described_class.auth_status(:gemini)
+        expect(status[:valid]).to be false
+        expect(status[:error]).to include("expired")
+      end
+    end
+
+    context "for Codex provider" do
+      let(:codex_tmp_dir) { Dir.mktmpdir }
+      let(:codex_config_path) { File.join(codex_tmp_dir, "config.json") }
+
+      before do
+        allow(ENV).to receive(:[]).with("OPENAI_API_KEY").and_return(nil)
+        allow(ENV).to receive(:[]).with("CODEX_CONFIG_DIR").and_return(codex_tmp_dir)
+      end
+
+      after do
+        FileUtils.rm_rf(codex_tmp_dir)
+      end
+
+      it "returns valid when OPENAI_API_KEY is set" do
+        allow(ENV).to receive(:[]).with("OPENAI_API_KEY").and_return("sk-test-key")
+
+        status = described_class.auth_status(:codex)
+        expect(status[:valid]).to be true
+      end
+
+      it "returns valid when config file has API key" do
+        File.write(codex_config_path, JSON.generate({"api_key" => "sk-config-key"}))
+
+        status = described_class.auth_status(:codex)
+        expect(status[:valid]).to be true
+      end
+
+      it "returns invalid when no credentials found" do
+        status = described_class.auth_status(:codex)
+        expect(status[:valid]).to be false
+        expect(status[:error]).to include("No OpenAI API key")
+      end
+
+      it "returns invalid when OPENAI_API_KEY has wrong format" do
+        allow(ENV).to receive(:[]).with("OPENAI_API_KEY").and_return("invalid-format")
+
+        status = described_class.auth_status(:codex)
+        expect(status[:valid]).to be false
+        expect(status[:error]).to include("does not appear to be a valid")
+      end
+    end
   end
 
   describe ".auth_url" do
