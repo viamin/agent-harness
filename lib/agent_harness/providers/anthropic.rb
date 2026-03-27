@@ -400,6 +400,7 @@ module AgentHarness
 
       def write_mcp_config_file(mcp_servers, working_dir: nil)
         require "tempfile"
+        require "tmpdir"
         require "securerandom"
 
         config = build_claude_mcp_config(mcp_servers)
