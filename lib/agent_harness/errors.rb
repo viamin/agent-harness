@@ -57,6 +57,20 @@ module AgentHarness
   # Configuration errors
   class ConfigurationError < Error; end
 
+  # MCP-specific errors
+  class McpConfigurationError < ConfigurationError; end
+
+  class McpUnsupportedError < ProviderError
+    attr_reader :provider
+
+    def initialize(message = nil, provider: nil, **kwargs)
+      @provider = provider
+      super(message, **kwargs)
+    end
+  end
+
+  class McpTransportUnsupportedError < McpUnsupportedError; end
+
   # Orchestration errors
   class NoProvidersAvailableError < Error
     attr_reader :attempted_providers, :errors

@@ -176,6 +176,17 @@ module AgentHarness
         true
       end
 
+      def supported_mcp_transports
+        %w[stdio http sse]
+      end
+
+      def build_mcp_flags(mcp_servers, working_dir: nil)
+        return [] if mcp_servers.empty?
+
+        config_path = write_mcp_config_file(mcp_servers, working_dir: working_dir)
+        ["--mcp-config", config_path]
+      end
+
       def supports_dangerous_mode?
         true
       end
@@ -264,6 +275,11 @@ module AgentHarness
         # Add dangerous mode if requested
         if options[:dangerous_mode] && supports_dangerous_mode?
           cmd += dangerous_mode_flags
+        end
+
+        # Add MCP server flags
+        if options[:mcp_servers]&.any?
+          cmd += build_mcp_flags(options[:mcp_servers])
         end
 
         # Add custom flags from config
@@ -374,6 +390,34 @@ module AgentHarness
         end
 
         servers
+      end
+
+      def write_mcp_config_file(mcp_servers, working_dir: nil)
+        require "tempfile"
+
+        config = build_claude_mcp_config(mcp_servers)
+        dir = working_dir || Dir.tmpdir
+        file = Tempfile.new(["agent_harness_mcp_", ".json"], dir)
+        file.write(JSON.generate(config))
+        file.close
+        file.path
+      end
+
+      def build_claude_mcp_config(mcp_servers)
+        servers = {}
+        mcp_servers.each do |server|
+          h = if server.stdio?
+            entry = {command: server.command.first}
+            remaining_args = server.command[1..] + server.args
+            entry[:args] = remaining_args unless remaining_args.empty?
+            entry
+          else
+            {url: server.url}
+          end
+          h[:env] = server.env unless server.env.empty?
+          servers[server.name] = h
+        end
+        {mcpServers: servers}
       end
 
       def log_debug(action, **context)
