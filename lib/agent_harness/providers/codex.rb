@@ -170,6 +170,8 @@ module AgentHarness
       def build_command(prompt, options)
         cmd = [self.class.binary_name, "exec"]
 
+        cmd += @config.default_flags if @config.default_flags&.any?
+
         if options[:session]
           cmd += session_flags(options[:session])
         end

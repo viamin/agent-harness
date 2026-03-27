@@ -85,6 +85,24 @@ RSpec.describe AgentHarness::Providers::Codex do
         provider.send_message(prompt: "Hello", session: "session-123")
       end
 
+      context "with default_flags configured" do
+        let(:config_with_flags) do
+          AgentHarness::ProviderConfig.new(:codex).tap do |c|
+            c.default_flags = ["--quiet", "--no-color"]
+          end
+        end
+        let(:provider_with_flags) { described_class.new(config: config_with_flags, executor: mock_executor) }
+
+        it "includes default_flags in the command" do
+          expect(mock_executor).to receive(:execute).with(
+            ["codex", "exec", "--quiet", "--no-color", "Hello"],
+            anything
+          ).and_return(success_result)
+
+          provider_with_flags.send_message(prompt: "Hello")
+        end
+      end
+
       it "returns a Response object" do
         allow(mock_executor).to receive(:execute).and_return(
           AgentHarness::CommandExecutor::Result.new(
