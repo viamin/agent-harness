@@ -277,6 +277,18 @@ RSpec.describe AgentHarness::Providers::Gemini do
           status = provider.auth_status
           expect(status[:valid]).to be false
         end
+
+        context "when GOOGLE_API_KEY is set" do
+          before do
+            allow(ENV).to receive(:[]).with("GOOGLE_API_KEY").and_return("AIza-fallback-key")
+          end
+
+          it "falls back to GOOGLE_API_KEY" do
+            status = provider.auth_status
+            expect(status[:valid]).to be true
+            expect(status[:auth_method]).to eq(:api_key)
+          end
+        end
       end
 
       context "with valid OAuth credentials file" do

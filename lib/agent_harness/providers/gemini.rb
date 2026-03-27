@@ -124,8 +124,8 @@ module AgentHarness
       end
 
       def auth_status
-        api_key = ENV["GEMINI_API_KEY"] || ENV["GOOGLE_API_KEY"]
-        if api_key && !api_key.strip.empty?
+        api_key = [ENV["GEMINI_API_KEY"], ENV["GOOGLE_API_KEY"]].find { |key| key && !key.strip.empty? }
+        if api_key
           return {valid: true, expires_at: nil, error: nil, auth_method: :api_key}
         end
 
@@ -216,8 +216,8 @@ module AgentHarness
         nil
       rescue Errno::EACCES => e
         raise IOError, "Permission denied reading Gemini credentials at #{path}: #{e.message}"
-      rescue JSON::ParserError => e
-        raise JSON::ParserError, "Invalid JSON in Gemini credentials at #{path}: #{e.message}"
+      rescue JSON::ParserError
+        raise JSON::ParserError, "Invalid JSON in Gemini credentials at #{path}"
       end
 
       def gemini_credentials_path

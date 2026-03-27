@@ -194,8 +194,8 @@ module AgentHarness
         nil
       rescue Errno::EACCES => e
         raise IOError, "Permission denied reading Codex config at #{path}: #{e.message}"
-      rescue JSON::ParserError => e
-        raise JSON::ParserError, "Invalid JSON in Codex config at #{path}: #{e.message}"
+      rescue JSON::ParserError
+        raise JSON::ParserError, "Invalid JSON in Codex config at #{path}"
       end
 
       def codex_config_path
