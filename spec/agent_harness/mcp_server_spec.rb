@@ -59,7 +59,7 @@ RSpec.describe AgentHarness::McpServer do
         )
       end
 
-      it "is http" do
+      it "treats sse as http" do
         expect(server.http?).to be true
         expect(server.stdio?).to be false
       end
