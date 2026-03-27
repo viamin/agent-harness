@@ -400,6 +400,12 @@ module AgentHarness
         file = Tempfile.new(["agent_harness_mcp_", ".json"], dir)
         file.write(JSON.generate(config))
         file.close
+
+        # Hold a reference so the Tempfile is not garbage-collected (and
+        # therefore deleted) before the CLI process reads it.
+        @mcp_config_tempfiles ||= []
+        @mcp_config_tempfiles << file
+
         file.path
       end
 
