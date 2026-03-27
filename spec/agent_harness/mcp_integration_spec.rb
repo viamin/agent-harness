@@ -265,6 +265,16 @@ RSpec.describe "MCP Server Integration" do
         provider.send_message(prompt: "Hello", mcp_servers: {name: "fs", transport: "stdio"})
       }.to raise_error(AgentHarness::McpConfigurationError, /mcp_servers must be an Array/)
     end
+
+    it "raises McpConfigurationError for duplicate server names" do
+      servers = [
+        {name: "filesystem", transport: "stdio", command: ["npx", "server"]},
+        {name: "filesystem", transport: "http", url: "http://localhost:3000/mcp"}
+      ]
+      expect {
+        provider.send_message(prompt: "Hello", mcp_servers: servers)
+      }.to raise_error(AgentHarness::McpConfigurationError, /Duplicate MCP server names.*filesystem/)
+    end
   end
 
   describe "Cursor provider MCP validation" do
@@ -369,6 +379,31 @@ RSpec.describe "MCP Server Integration" do
 
       expect(config_path).to start_with("/tmp/agent_harness_mcp_")
       expect(config_path).to end_with(".json")
+    end
+
+    it "cleans up container config files after execution" do
+      allow(docker_executor).to receive(:is_a?).with(AgentHarness::DockerCommandExecutor).and_return(true)
+
+      container_path = nil
+      call_count = 0
+      allow(docker_executor).to receive(:execute) do |cmd, **_opts|
+        call_count += 1
+        if call_count == 1
+          # First call: writing config file
+          write_result
+        elsif cmd.first == "rm"
+          # Third call: cleanup
+          container_path = cmd[2]
+          write_result
+        else
+          # Second call: actual command
+          success_result
+        end
+      end
+
+      provider.send_message(prompt: "Hello", mcp_servers: mcp_servers)
+
+      expect(container_path).to start_with("/tmp/agent_harness_mcp_")
     end
   end
 

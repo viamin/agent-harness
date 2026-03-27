@@ -172,6 +172,14 @@ module AgentHarness
           end
         end
 
+        # Ensure MCP server names are unique to avoid silent overwrites downstream
+        names = normalized.map(&:name)
+        duplicate_names = names.group_by { |n| n }.select { |_, v| v.size > 1 }.keys
+        unless duplicate_names.empty?
+          raise McpConfigurationError,
+            "Duplicate MCP server names detected: #{duplicate_names.join(", ")}"
+        end
+
         options.merge(mcp_servers: normalized)
       end
 

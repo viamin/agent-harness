@@ -408,6 +408,7 @@ module AgentHarness
         if @executor.is_a?(DockerCommandExecutor)
           # When running inside a Docker container, write the config file
           # inside the container so the CLI process can read it.
+          # Track the path so cleanup_mcp_tempfiles! can remove it after execution.
           container_path = "/tmp/agent_harness_mcp_#{SecureRandom.hex(8)}.json"
           result = @executor.execute(
             ["sh", "-c", "cat > #{container_path}"],
@@ -418,6 +419,10 @@ module AgentHarness
             raise McpConfigurationError,
               "Failed to write MCP config inside container: #{result.stderr}"
           end
+
+          @mcp_docker_config_paths ||= []
+          @mcp_docker_config_paths << container_path
+
           container_path
         else
           dir = working_dir || Dir.tmpdir
@@ -453,15 +458,24 @@ module AgentHarness
       end
 
       def cleanup_mcp_tempfiles!
-        return unless @mcp_config_tempfiles
-
-        @mcp_config_tempfiles.each do |file|
-          file.close unless file.closed?
-          file.unlink
-        rescue
-          nil
+        if @mcp_config_tempfiles
+          @mcp_config_tempfiles.each do |file|
+            file.close unless file.closed?
+            file.unlink
+          rescue
+            nil
+          end
+          @mcp_config_tempfiles = nil
         end
-        @mcp_config_tempfiles = nil
+
+        if @mcp_docker_config_paths
+          @mcp_docker_config_paths.each do |path|
+            @executor.execute(["rm", "-f", path], timeout: 5)
+          rescue
+            nil
+          end
+          @mcp_docker_config_paths = nil
+        end
       end
 
       def log_debug(action, **context)
