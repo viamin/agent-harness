@@ -1,5 +1,12 @@
 ## [Unreleased]
 
+## [0.5.4](https://github.com/viamin/agent-harness/compare/agent-harness/v0.5.3...agent-harness/v0.5.4) (2026-03-27)
+
+
+### Bug Fixes
+
+* 44: feat(mcp): add first-class MCP server configuration to request execution ([#45](https://github.com/viamin/agent-harness/issues/45)) ([454cd9b](https://github.com/viamin/agent-harness/commit/454cd9be1c4bcd2eb92a4ca6f81cc012d4ce1f8c))
+
 ## [0.5.3](https://github.com/viamin/agent-harness/compare/agent-harness/v0.5.2...agent-harness/v0.5.3) (2026-03-27)
 
 
