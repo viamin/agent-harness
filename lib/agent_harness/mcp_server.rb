@@ -47,7 +47,16 @@ module AgentHarness
     # @param hash [Hash] server definition
     # @return [McpServer]
     def self.from_hash(hash)
-      hash = hash.transform_keys(&:to_sym)
+      unless hash.is_a?(Hash)
+        raise McpConfigurationError, "MCP server definition must be a Hash, got #{hash.class}"
+      end
+
+      begin
+        hash = hash.transform_keys(&:to_sym)
+      rescue NoMethodError, TypeError => e
+        raise McpConfigurationError, "MCP server hash contains invalid keys: #{e.message}"
+      end
+
       new(
         name: hash[:name],
         transport: hash[:transport],
@@ -88,8 +97,24 @@ module AgentHarness
           "Invalid MCP transport '#{@transport}' for server '#{@name}'. Valid transports: #{VALID_TRANSPORTS.join(", ")}"
       end
 
+      validate_args!
+      validate_env!
       validate_stdio! if stdio?
       validate_http! if http?
+    end
+
+    def validate_args!
+      return if @args.is_a?(Array) && @args.all? { |a| a.is_a?(String) }
+
+      raise McpConfigurationError,
+        "MCP server '#{@name}' args must be an Array of Strings"
+    end
+
+    def validate_env!
+      return if @env.is_a?(Hash) && @env.keys.all? { |k| k.is_a?(String) } && @env.values.all? { |v| v.is_a?(String) }
+
+      raise McpConfigurationError,
+        "MCP server '#{@name}' env must be a Hash with String keys and values"
     end
 
     def validate_stdio!

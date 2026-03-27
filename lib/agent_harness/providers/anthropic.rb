@@ -172,6 +172,12 @@ module AgentHarness
         }
       end
 
+      def send_message(prompt:, **options)
+        super
+      ensure
+        cleanup_mcp_tempfiles!
+      end
+
       def supports_mcp?
         true
       end
@@ -277,7 +283,7 @@ module AgentHarness
           cmd += dangerous_mode_flags
         end
 
-        # Add MCP server flags
+        # Add MCP server flags (validated/normalized by Base#send_message)
         if options[:mcp_servers]&.any?
           cmd += build_mcp_flags(options[:mcp_servers])
         end
@@ -421,6 +427,7 @@ module AgentHarness
 
           # Hold a reference so the Tempfile is not garbage-collected (and
           # therefore deleted) before the CLI process reads it.
+          # Cleaned up by cleanup_mcp_tempfiles! after execution.
           @mcp_config_tempfiles ||= []
           @mcp_config_tempfiles << file
 
@@ -443,6 +450,18 @@ module AgentHarness
           servers[server.name] = h
         end
         {mcpServers: servers}
+      end
+
+      def cleanup_mcp_tempfiles!
+        return unless @mcp_config_tempfiles
+
+        @mcp_config_tempfiles.each do |file|
+          file.close unless file.closed?
+          file.unlink
+        rescue
+          nil
+        end
+        @mcp_config_tempfiles = nil
       end
 
       def log_debug(action, **context)

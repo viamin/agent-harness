@@ -47,17 +47,18 @@ RSpec.describe "MCP Server Integration" do
       end
 
       it "generates a valid MCP config file" do
-        config_path = nil
+        config_content = nil
         allow(mock_executor).to receive(:execute) do |cmd, **_opts|
           idx = cmd.index("--mcp-config")
-          config_path = cmd[idx + 1] if idx
+          if idx
+            config_content = JSON.parse(File.read(cmd[idx + 1]))
+          end
           success_result
         end
 
         provider.send_message(prompt: "Hello", mcp_servers: mcp_servers)
 
-        expect(config_path).not_to be_nil
-        config_content = JSON.parse(File.read(config_path))
+        expect(config_content).not_to be_nil
         expect(config_content).to have_key("mcpServers")
         expect(config_content["mcpServers"]).to have_key("filesystem")
 
@@ -88,17 +89,18 @@ RSpec.describe "MCP Server Integration" do
       end
 
       it "generates config with url for HTTP servers" do
-        config_path = nil
+        config_content = nil
         allow(mock_executor).to receive(:execute) do |cmd, **_opts|
           idx = cmd.index("--mcp-config")
-          config_path = cmd[idx + 1] if idx
+          if idx
+            config_content = JSON.parse(File.read(cmd[idx + 1]))
+          end
           success_result
         end
 
         provider.send_message(prompt: "Hello", mcp_servers: mcp_servers)
 
-        expect(config_path).not_to be_nil
-        config_content = JSON.parse(File.read(config_path))
+        expect(config_content).not_to be_nil
         pw_config = config_content["mcpServers"]["playwright"]
         expect(pw_config["url"]).to eq("http://mcp-playwright:3000/mcp")
         expect(pw_config).not_to have_key("command")
@@ -122,16 +124,18 @@ RSpec.describe "MCP Server Integration" do
       end
 
       it "includes both servers in config" do
-        config_path = nil
+        config_content = nil
         allow(mock_executor).to receive(:execute) do |cmd, **_opts|
           idx = cmd.index("--mcp-config")
-          config_path = cmd[idx + 1] if idx
+          if idx
+            config_content = JSON.parse(File.read(cmd[idx + 1]))
+          end
           success_result
         end
 
         provider.send_message(prompt: "Hello", mcp_servers: mcp_servers)
 
-        config_content = JSON.parse(File.read(config_path))
+        expect(config_content).not_to be_nil
         expect(config_content["mcpServers"].keys).to contain_exactly("filesystem", "playwright")
       end
     end
@@ -150,6 +154,48 @@ RSpec.describe "MCP Server Integration" do
 
         response = provider.send_message(prompt: "Hello", mcp_servers: servers)
         expect(response.success?).to be true
+      end
+    end
+
+    context "tempfile cleanup" do
+      let(:mcp_servers) do
+        [
+          {
+            name: "filesystem",
+            transport: "stdio",
+            command: ["npx", "server"]
+          }
+        ]
+      end
+
+      it "cleans up MCP config tempfiles after execution" do
+        config_path = nil
+        allow(mock_executor).to receive(:execute) do |cmd, **_opts|
+          idx = cmd.index("--mcp-config")
+          config_path = cmd[idx + 1] if idx
+          success_result
+        end
+
+        provider.send_message(prompt: "Hello", mcp_servers: mcp_servers)
+
+        expect(config_path).not_to be_nil
+        expect(File.exist?(config_path)).to be false
+      end
+
+      it "cleans up tempfiles even when execution raises" do
+        config_path = nil
+        allow(mock_executor).to receive(:execute) do |cmd, **_opts|
+          idx = cmd.index("--mcp-config")
+          config_path = cmd[idx + 1] if idx
+          raise StandardError, "execution failed"
+        end
+
+        expect {
+          provider.send_message(prompt: "Hello", mcp_servers: mcp_servers)
+        }.to raise_error(AgentHarness::ProviderError)
+
+        expect(config_path).not_to be_nil
+        expect(File.exist?(config_path)).to be false
       end
     end
 
@@ -236,6 +282,15 @@ RSpec.describe "MCP Server Integration" do
       expect {
         provider.send_message(prompt: "Hello", mcp_servers: ["invalid"])
       }.to raise_error(AgentHarness::McpConfigurationError, /must be a Hash or McpServer/)
+    end
+
+    it "raises McpUnsupportedError for request-time MCP servers (empty transports)" do
+      mcp_servers = [
+        {name: "fs", transport: "stdio", command: ["npx", "server"]}
+      ]
+      expect {
+        provider.send_message(prompt: "Hello", mcp_servers: mcp_servers)
+      }.to raise_error(AgentHarness::McpUnsupportedError, /does not support request-time MCP/)
     end
   end
 

@@ -135,6 +135,30 @@ RSpec.describe AgentHarness::McpServer do
         described_class.new(name: "test", transport: "http", url: "http://x", command: ["test"])
       }.to raise_error(AgentHarness::McpConfigurationError, /should not have a command/)
     end
+
+    it "raises when args is not an Array" do
+      expect {
+        described_class.new(name: "test", transport: "stdio", command: ["test"], args: "--flag")
+      }.to raise_error(AgentHarness::McpConfigurationError, /args must be an Array of Strings/)
+    end
+
+    it "raises when args contains non-strings" do
+      expect {
+        described_class.new(name: "test", transport: "stdio", command: ["test"], args: [123])
+      }.to raise_error(AgentHarness::McpConfigurationError, /args must be an Array of Strings/)
+    end
+
+    it "raises when env is not a Hash" do
+      expect {
+        described_class.new(name: "test", transport: "stdio", command: ["test"], env: "DEBUG=1")
+      }.to raise_error(AgentHarness::McpConfigurationError, /env must be a Hash/)
+    end
+
+    it "raises when env has non-string values" do
+      expect {
+        described_class.new(name: "test", transport: "stdio", command: ["test"], env: {"DEBUG" => 1})
+      }.to raise_error(AgentHarness::McpConfigurationError, /env must be a Hash with String keys and values/)
+    end
   end
 
   describe ".from_hash" do
@@ -159,6 +183,18 @@ RSpec.describe AgentHarness::McpServer do
       )
       expect(server.name).to eq("web")
       expect(server.url).to eq("http://localhost:3000")
+    end
+
+    it "raises McpConfigurationError for non-hash input" do
+      expect {
+        described_class.from_hash("not a hash")
+      }.to raise_error(AgentHarness::McpConfigurationError, /must be a Hash/)
+    end
+
+    it "raises McpConfigurationError when keys cannot be symbolized" do
+      expect {
+        described_class.from_hash(123 => "value")
+      }.to raise_error(AgentHarness::McpConfigurationError, /invalid keys/)
     end
   end
 

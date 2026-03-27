@@ -156,6 +156,14 @@ module AgentHarness
         end
 
         supported = supported_mcp_transports
+
+        if supported.empty?
+          raise McpUnsupportedError.new(
+            "Provider '#{self.class.provider_name}' does not support request-time MCP servers",
+            provider: self.class.provider_name
+          )
+        end
+
         mcp_servers.each do |server|
           next if supported.include?(server.transport)
 
