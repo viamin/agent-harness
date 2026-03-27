@@ -136,6 +136,18 @@ RSpec.describe AgentHarness::McpServer do
       }.to raise_error(AgentHarness::McpConfigurationError, /should not have a command/)
     end
 
+    it "raises when args are provided for http transport" do
+      expect {
+        described_class.new(name: "test", transport: "http", url: "http://x", args: ["--flag"])
+      }.to raise_error(AgentHarness::McpConfigurationError, /should not have args/)
+    end
+
+    it "raises when args are provided for sse transport" do
+      expect {
+        described_class.new(name: "test", transport: "sse", url: "http://x", args: ["--flag"])
+      }.to raise_error(AgentHarness::McpConfigurationError, /should not have args/)
+    end
+
     it "raises when args is not an Array" do
       expect {
         described_class.new(name: "test", transport: "stdio", command: ["test"], args: "--flag")

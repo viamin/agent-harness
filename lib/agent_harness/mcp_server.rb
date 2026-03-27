@@ -101,6 +101,7 @@ module AgentHarness
       validate_env!
       validate_stdio! if stdio?
       validate_http! if http?
+      validate_no_stdio_only_fields_on_http! if http?
     end
 
     def validate_args!
@@ -144,6 +145,13 @@ module AgentHarness
 
       raise McpConfigurationError,
         "MCP server '#{@name}' with #{@transport} transport should not have a command"
+    end
+
+    def validate_no_stdio_only_fields_on_http!
+      return if @args.empty?
+
+      raise McpConfigurationError,
+        "MCP server '#{@name}' with #{@transport} transport should not have args (args are only valid for stdio)"
     end
   end
 end

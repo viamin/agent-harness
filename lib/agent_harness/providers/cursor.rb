@@ -109,6 +109,14 @@ module AgentHarness
         true
       end
 
+      # Cursor supports MCP for fetching existing server configurations (via
+      # fetch_mcp_servers) but does not support injecting request-time MCP
+      # servers into CLI invocations. Returning an empty list causes
+      # validate_mcp_servers! to raise McpUnsupportedError with a clear message.
+      def supported_mcp_transports
+        []
+      end
+
       def fetch_mcp_servers
         # Try CLI first, then config file
         fetch_mcp_servers_cli || fetch_mcp_servers_config
