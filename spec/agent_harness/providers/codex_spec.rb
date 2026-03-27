@@ -252,10 +252,16 @@ RSpec.describe AgentHarness::Providers::Codex do
     end
 
     describe "#health_status" do
+      let(:tmp_codex_config_dir) { Dir.mktmpdir }
+
       before do
         allow(ENV).to receive(:[]).and_call_original
         allow(ENV).to receive(:[]).with("OPENAI_API_KEY").and_return("sk-test-key")
-        allow(ENV).to receive(:[]).with("CODEX_CONFIG_DIR").and_return(Dir.mktmpdir)
+        allow(ENV).to receive(:[]).with("CODEX_CONFIG_DIR").and_return(tmp_codex_config_dir)
+      end
+
+      after do
+        FileUtils.remove_entry(tmp_codex_config_dir) if tmp_codex_config_dir && Dir.exist?(tmp_codex_config_dir)
       end
 
       context "when CLI is available and authenticated" do

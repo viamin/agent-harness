@@ -317,6 +317,7 @@ RSpec.describe AgentHarness::Providers::Gemini do
           expect(status[:valid]).to be false
           expect(status[:error]).to include("No Gemini credentials")
           expect(status[:error]).to include("GEMINI_API_KEY")
+          expect(status[:error]).to include("GOOGLE_API_KEY")
         end
       end
 
@@ -378,11 +379,17 @@ RSpec.describe AgentHarness::Providers::Gemini do
     end
 
     describe "#health_status" do
+      let(:tmp_gemini_config_dir) { Dir.mktmpdir }
+
+      after do
+        FileUtils.remove_entry(tmp_gemini_config_dir) if tmp_gemini_config_dir && Dir.exist?(tmp_gemini_config_dir)
+      end
+
       before do
         allow(ENV).to receive(:[]).and_call_original
         allow(ENV).to receive(:[]).with("GEMINI_API_KEY").and_return("test-key")
         allow(ENV).to receive(:[]).with("GOOGLE_API_KEY").and_return(nil)
-        allow(ENV).to receive(:[]).with("GEMINI_CONFIG_DIR").and_return(Dir.mktmpdir)
+        allow(ENV).to receive(:[]).with("GEMINI_CONFIG_DIR").and_return(tmp_gemini_config_dir)
       end
 
       context "when CLI is available and authenticated" do

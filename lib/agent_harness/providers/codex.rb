@@ -123,11 +123,15 @@ module AgentHarness
         if credentials
           key = credentials["api_key"] || credentials["apiKey"] || credentials["OPENAI_API_KEY"]
           if key.is_a?(String) && !key.strip.empty?
-            return {valid: true, expires_at: nil, error: nil, auth_method: :config_file}
+            if key.strip.start_with?("sk-")
+              return {valid: true, expires_at: nil, error: nil, auth_method: :config_file}
+            else
+              return {valid: false, expires_at: nil, error: "Config file API key is set but does not appear to be a valid OpenAI API key"}
+            end
           end
         end
 
-        {valid: false, expires_at: nil, error: "No OpenAI API key found. Set OPENAI_API_KEY or configure in ~/.codex/config.json"}
+        {valid: false, expires_at: nil, error: "No OpenAI API key found. Set OPENAI_API_KEY or configure in #{codex_config_path}"}
       rescue IOError, JSON::ParserError => e
         {valid: false, expires_at: nil, error: e.message}
       end
@@ -148,9 +152,14 @@ module AgentHarness
       def validate_config
         errors = []
 
-        if @config.default_flags&.any?
-          invalid = @config.default_flags.reject { |f| f.is_a?(String) }
-          errors << "default_flags contains non-string values" if invalid.any?
+        flags = @config.default_flags
+        unless flags.nil?
+          if flags.is_a?(Array)
+            invalid = flags.reject { |f| f.is_a?(String) }
+            errors << "default_flags contains non-string values" if invalid.any?
+          else
+            errors << "default_flags must be an array of strings"
+          end
         end
 
         {valid: errors.empty?, errors: errors}

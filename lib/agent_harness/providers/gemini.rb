@@ -130,7 +130,7 @@ module AgentHarness
         end
 
         credentials = read_gemini_credentials
-        return {valid: false, expires_at: nil, error: "No Gemini credentials found. Run 'gemini auth login' or set GEMINI_API_KEY"} unless credentials
+        return {valid: false, expires_at: nil, error: "No Gemini credentials found. Run 'gemini auth login' or set GEMINI_API_KEY or GOOGLE_API_KEY"} unless credentials
 
         token = credentials["access_token"] || credentials["oauth_token"]
         unless token.is_a?(String) && !token.strip.empty?
@@ -163,15 +163,23 @@ module AgentHarness
       def validate_config
         errors = []
 
-        if @config.model && !@config.model.empty?
-          unless self.class.supports_model_family?(@config.model)
-            errors << "Unrecognized model '#{@config.model}'. Expected a Gemini model (e.g., gemini-2.0-flash, gemini-2.5-pro)"
+        model = @config.model
+        if !model.nil? && !model.is_a?(String)
+          errors << "model must be a string"
+        elsif model.is_a?(String) && !model.empty?
+          unless self.class.supports_model_family?(model)
+            errors << "Unrecognized model '#{model}'. Expected a Gemini model (e.g., gemini-2.0-flash, gemini-2.5-pro)"
           end
         end
 
-        if @config.default_flags&.any?
-          invalid = @config.default_flags.reject { |f| f.is_a?(String) }
-          errors << "default_flags contains non-string values" if invalid.any?
+        flags = @config.default_flags
+        unless flags.nil?
+          if flags.is_a?(Array)
+            invalid = flags.reject { |f| f.is_a?(String) }
+            errors << "default_flags contains non-string values" if invalid.any?
+          else
+            errors << "default_flags must be an array of strings"
+          end
         end
 
         {valid: errors.empty?, errors: errors}
