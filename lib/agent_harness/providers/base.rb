@@ -63,6 +63,10 @@ module AgentHarness
       def send_message(prompt:, **options)
         log_debug("send_message_start", prompt_length: prompt.length, options: options.keys)
 
+        # Normalize and validate MCP servers
+        options = normalize_mcp_servers(options)
+        validate_mcp_servers!(options[:mcp_servers]) if options[:mcp_servers]&.any?
+
         # Build command
         command = build_command(prompt, options)
 
@@ -83,6 +87,8 @@ module AgentHarness
         log_debug("send_message_complete", duration: duration, tokens: response.tokens)
 
         response
+      rescue McpConfigurationError, McpUnsupportedError, McpTransportUnsupportedError
+        raise
       rescue => e
         handle_error(e, prompt: prompt, options: options)
       end
@@ -144,6 +150,38 @@ module AgentHarness
       end
 
       private
+
+      def normalize_mcp_servers(options)
+        servers = options[:mcp_servers]
+        return options if servers.nil?
+
+        unless servers.is_a?(Array)
+          raise McpConfigurationError,
+            "mcp_servers must be an Array of Hash or McpServer, got #{servers.class}"
+        end
+
+        return options if servers.empty?
+
+        normalized = servers.map do |server|
+          if server.is_a?(McpServer)
+            server
+          elsif server.is_a?(Hash)
+            McpServer.from_hash(server)
+          else
+            raise McpConfigurationError, "MCP server must be a Hash or McpServer, got #{server.class}"
+          end
+        end
+
+        # Ensure MCP server names are unique to avoid silent overwrites downstream
+        names = normalized.map(&:name)
+        duplicate_names = names.group_by { |n| n }.select { |_, v| v.size > 1 }.keys
+        unless duplicate_names.empty?
+          raise McpConfigurationError,
+            "Duplicate MCP server names detected: #{duplicate_names.join(", ")}"
+        end
+
+        options.merge(mcp_servers: normalized)
+      end
 
       def execute_with_timeout(command, timeout:, env:)
         @executor.execute(command, timeout: timeout, env: env)

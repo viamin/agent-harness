@@ -124,6 +124,58 @@ module AgentHarness
         []
       end
 
+      # Supported MCP transport types for this provider
+      #
+      # @return [Array<String>] supported transports (e.g. ["stdio", "http"])
+      def supported_mcp_transports
+        []
+      end
+
+      # Build provider-specific MCP flags/arguments for CLI invocation
+      #
+      # @param mcp_servers [Array<McpServer>] MCP server definitions
+      # @param working_dir [String, nil] working directory for temp files
+      # @return [Array<String>] CLI flags to append to the command
+      def build_mcp_flags(mcp_servers, working_dir: nil)
+        []
+      end
+
+      # Validate that this provider can handle the given MCP servers
+      #
+      # @param mcp_servers [Array<McpServer>] MCP server definitions
+      # @raise [McpUnsupportedError] if MCP is not supported
+      # @raise [McpTransportUnsupportedError] if a transport is not supported
+      def validate_mcp_servers!(mcp_servers)
+        return if mcp_servers.nil? || mcp_servers.empty?
+
+        unless supports_mcp?
+          raise McpUnsupportedError.new(
+            "Provider '#{self.class.provider_name}' does not support MCP servers",
+            provider: self.class.provider_name
+          )
+        end
+
+        supported = supported_mcp_transports
+
+        if supported.empty?
+          raise McpUnsupportedError.new(
+            "Provider '#{self.class.provider_name}' does not support request-time MCP servers",
+            provider: self.class.provider_name
+          )
+        end
+
+        mcp_servers.each do |server|
+          next if supported.include?(server.transport)
+
+          raise McpTransportUnsupportedError.new(
+            "Provider '#{self.class.provider_name}' does not support MCP transport " \
+            "'#{server.transport}' (server: '#{server.name}'). " \
+            "Supported transports: #{supported.join(", ")}",
+            provider: self.class.provider_name
+          )
+        end
+      end
+
       # Check if provider supports dangerous mode
       #
       # @return [Boolean] true if dangerous mode is supported

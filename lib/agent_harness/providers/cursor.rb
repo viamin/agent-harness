@@ -109,6 +109,14 @@ module AgentHarness
         true
       end
 
+      # Cursor supports MCP for fetching existing server configurations (via
+      # fetch_mcp_servers) but does not support injecting request-time MCP
+      # servers into CLI invocations. Returning an empty list causes
+      # validate_mcp_servers! to raise McpUnsupportedError with a clear message.
+      def supported_mcp_transports
+        []
+      end
+
       def fetch_mcp_servers
         # Try CLI first, then config file
         fetch_mcp_servers_cli || fetch_mcp_servers_config
@@ -142,6 +150,10 @@ module AgentHarness
       def send_message(prompt:, **options)
         log_debug("send_message_start", prompt_length: prompt.length, options: options.keys)
 
+        # Normalize and validate MCP servers (same as Base#send_message)
+        options = normalize_mcp_servers(options)
+        validate_mcp_servers!(options[:mcp_servers]) if options[:mcp_servers]&.any?
+
         # Build command (without prompt in args - we send via stdin)
         command = [self.class.binary_name, "-p"]
 
@@ -162,6 +174,8 @@ module AgentHarness
         log_debug("send_message_complete", duration: duration)
 
         response
+      rescue McpConfigurationError, McpUnsupportedError, McpTransportUnsupportedError
+        raise
       rescue => e
         handle_error(e, prompt: prompt, options: options)
       end
