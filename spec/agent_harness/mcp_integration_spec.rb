@@ -213,6 +213,108 @@ RSpec.describe "MCP Server Integration" do
         provider.send_message(prompt: "Hello", mcp_servers: ["invalid"])
       }.to raise_error(AgentHarness::McpConfigurationError, /must be a Hash or McpServer/)
     end
+
+    it "raises McpConfigurationError when mcp_servers is not an Array" do
+      expect {
+        provider.send_message(prompt: "Hello", mcp_servers: {name: "fs", transport: "stdio"})
+      }.to raise_error(AgentHarness::McpConfigurationError, /mcp_servers must be an Array/)
+    end
+  end
+
+  describe "Cursor provider MCP validation" do
+    let(:config) { AgentHarness::ProviderConfig.new(:cursor) }
+    let(:mock_executor) { instance_double(AgentHarness::CommandExecutor) }
+    let(:provider) { AgentHarness::Providers::Cursor.new(config: config, executor: mock_executor) }
+
+    it "raises McpConfigurationError for non-array mcp_servers" do
+      expect {
+        provider.send_message(prompt: "Hello", mcp_servers: {name: "fs", transport: "stdio"})
+      }.to raise_error(AgentHarness::McpConfigurationError, /mcp_servers must be an Array/)
+    end
+
+    it "raises McpConfigurationError for non-hash/non-McpServer elements" do
+      expect {
+        provider.send_message(prompt: "Hello", mcp_servers: ["invalid"])
+      }.to raise_error(AgentHarness::McpConfigurationError, /must be a Hash or McpServer/)
+    end
+  end
+
+  describe "Docker executor MCP config file" do
+    let(:config) do
+      AgentHarness::ProviderConfig.new(:claude).tap do |c|
+        c.model = "claude-3-5-sonnet"
+      end
+    end
+
+    let(:docker_executor) do
+      instance_double(AgentHarness::DockerCommandExecutor)
+    end
+
+    let(:provider) { AgentHarness::Providers::Anthropic.new(config: config, executor: docker_executor) }
+
+    let(:success_result) do
+      AgentHarness::CommandExecutor::Result.new(
+        stdout: '{"result":"response","usage":{"input_tokens":10,"output_tokens":5}}',
+        stderr: "",
+        exit_code: 0,
+        duration: 1.0
+      )
+    end
+
+    let(:write_result) do
+      AgentHarness::CommandExecutor::Result.new(
+        stdout: "",
+        stderr: "",
+        exit_code: 0,
+        duration: 0.1
+      )
+    end
+
+    let(:mcp_servers) do
+      [
+        {
+          name: "filesystem",
+          transport: "stdio",
+          command: ["npx", "server"]
+        }
+      ]
+    end
+
+    it "writes config file inside the container" do
+      allow(docker_executor).to receive(:is_a?).with(AgentHarness::DockerCommandExecutor).and_return(true)
+      allow(docker_executor).to receive(:execute).and_return(success_result)
+
+      expect(docker_executor).to receive(:execute).with(
+        array_including("sh", "-c"),
+        hash_including(stdin_data: a_string_including("mcpServers"), timeout: 5)
+      ).and_return(write_result)
+
+      provider.send_message(prompt: "Hello", mcp_servers: mcp_servers)
+    end
+
+    it "uses a container path for --mcp-config" do
+      allow(docker_executor).to receive(:is_a?).with(AgentHarness::DockerCommandExecutor).and_return(true)
+
+      config_path = nil
+      call_count = 0
+      allow(docker_executor).to receive(:execute) do |cmd, **_opts|
+        call_count += 1
+        if call_count == 1
+          # First call is writing the config file
+          write_result
+        else
+          # Second call is the actual command
+          idx = cmd.index("--mcp-config")
+          config_path = cmd[idx + 1] if idx
+          success_result
+        end
+      end
+
+      provider.send_message(prompt: "Hello", mcp_servers: mcp_servers)
+
+      expect(config_path).to start_with("/tmp/agent_harness_mcp_")
+      expect(config_path).to end_with(".json")
+    end
   end
 
   describe "container execution compatibility" do

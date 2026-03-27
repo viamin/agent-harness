@@ -394,19 +394,38 @@ module AgentHarness
 
       def write_mcp_config_file(mcp_servers, working_dir: nil)
         require "tempfile"
+        require "securerandom"
 
         config = build_claude_mcp_config(mcp_servers)
-        dir = working_dir || Dir.tmpdir
-        file = Tempfile.new(["agent_harness_mcp_", ".json"], dir)
-        file.write(JSON.generate(config))
-        file.close
+        config_json = JSON.generate(config)
 
-        # Hold a reference so the Tempfile is not garbage-collected (and
-        # therefore deleted) before the CLI process reads it.
-        @mcp_config_tempfiles ||= []
-        @mcp_config_tempfiles << file
+        if @executor.is_a?(DockerCommandExecutor)
+          # When running inside a Docker container, write the config file
+          # inside the container so the CLI process can read it.
+          container_path = "/tmp/agent_harness_mcp_#{SecureRandom.hex(8)}.json"
+          result = @executor.execute(
+            ["sh", "-c", "cat > #{container_path}"],
+            stdin_data: config_json,
+            timeout: 5
+          )
+          unless result.success?
+            raise McpConfigurationError,
+              "Failed to write MCP config inside container: #{result.stderr}"
+          end
+          container_path
+        else
+          dir = working_dir || Dir.tmpdir
+          file = Tempfile.new(["agent_harness_mcp_", ".json"], dir)
+          file.write(config_json)
+          file.close
 
-        file.path
+          # Hold a reference so the Tempfile is not garbage-collected (and
+          # therefore deleted) before the CLI process reads it.
+          @mcp_config_tempfiles ||= []
+          @mcp_config_tempfiles << file
+
+          file.path
+        end
       end
 
       def build_claude_mcp_config(mcp_servers)

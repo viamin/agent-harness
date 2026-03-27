@@ -153,7 +153,14 @@ module AgentHarness
 
       def normalize_mcp_servers(options)
         servers = options[:mcp_servers]
-        return options if servers.nil? || servers.empty?
+        return options if servers.nil?
+
+        unless servers.is_a?(Array)
+          raise McpConfigurationError,
+            "mcp_servers must be an Array of Hash or McpServer, got #{servers.class}"
+        end
+
+        return options if servers.empty?
 
         normalized = servers.map do |server|
           if server.is_a?(McpServer)
