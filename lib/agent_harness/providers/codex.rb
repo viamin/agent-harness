@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "json"
+
 module AgentHarness
   module Providers
     # OpenAI Codex CLI provider
@@ -78,6 +80,82 @@ module AgentHarness
         ["--session", session_id]
       end
 
+      def error_patterns
+        {
+          rate_limited: [
+            /rate.?limit/i,
+            /too.?many.?requests/i,
+            /429/
+          ],
+          auth_expired: [
+            /invalid.*api.*key/i,
+            /unauthorized/i,
+            /authentication/i,
+            /401/,
+            /incorrect.*api.*key/i
+          ],
+          quota_exceeded: [
+            /quota.*exceeded/i,
+            /insufficient.*quota/i,
+            /billing/i
+          ],
+          transient: [
+            /timeout/i,
+            /connection.*reset/i,
+            /service.*unavailable/i,
+            /503/,
+            /502/
+          ]
+        }
+      end
+
+      def auth_status
+        api_key = ENV["OPENAI_API_KEY"]
+        if api_key && !api_key.strip.empty?
+          if api_key.strip.start_with?("sk-")
+            return {valid: true, expires_at: nil, error: nil, auth_method: :api_key}
+          else
+            return {valid: false, expires_at: nil, error: "OPENAI_API_KEY is set but does not appear to be a valid OpenAI API key"}
+          end
+        end
+
+        credentials = read_codex_credentials
+        if credentials
+          key = credentials["api_key"] || credentials["apiKey"] || credentials["OPENAI_API_KEY"]
+          if key.is_a?(String) && !key.strip.empty?
+            return {valid: true, expires_at: nil, error: nil, auth_method: :config_file}
+          end
+        end
+
+        {valid: false, expires_at: nil, error: "No OpenAI API key found. Set OPENAI_API_KEY or configure in ~/.codex/config.json"}
+      rescue IOError, JSON::ParserError => e
+        {valid: false, expires_at: nil, error: e.message}
+      end
+
+      def health_status
+        unless self.class.available?
+          return {healthy: false, message: "Codex CLI not found in PATH. Install from https://github.com/openai/codex"}
+        end
+
+        auth = auth_status
+        unless auth[:valid]
+          return {healthy: false, message: auth[:error]}
+        end
+
+        {healthy: true, message: "Codex CLI available and authenticated"}
+      end
+
+      def validate_config
+        errors = []
+
+        if @config.default_flags&.any?
+          invalid = @config.default_flags.reject { |f| f.is_a?(String) }
+          errors << "default_flags contains non-string values" if invalid.any?
+        end
+
+        {valid: errors.empty?, errors: errors}
+      end
+
       protected
 
       def build_command(prompt, options)
@@ -94,6 +172,26 @@ module AgentHarness
 
       def default_timeout
         300
+      end
+
+      private
+
+      def read_codex_credentials
+        path = codex_config_path
+        return nil unless File.exist?(path)
+
+        JSON.parse(File.read(path))
+      rescue Errno::ENOENT
+        nil
+      rescue Errno::EACCES => e
+        raise IOError, "Permission denied reading Codex config at #{path}: #{e.message}"
+      rescue JSON::ParserError => e
+        raise JSON::ParserError, "Invalid JSON in Codex config at #{path}: #{e.message}"
+      end
+
+      def codex_config_path
+        config_dir = ENV["CODEX_CONFIG_DIR"] || File.expand_path("~/.codex")
+        File.join(config_dir, "config.json")
       end
     end
   end
