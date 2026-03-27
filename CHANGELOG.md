@@ -1,5 +1,12 @@
 ## [Unreleased]
 
+## [0.5.3](https://github.com/viamin/agent-harness/compare/agent-harness/v0.5.2...agent-harness/v0.5.3) (2026-03-27)
+
+
+### Bug Fixes
+
+* 41: Add provider-specific health/auth checks for Gemini and Codex ([#42](https://github.com/viamin/agent-harness/issues/42)) ([be95135](https://github.com/viamin/agent-harness/commit/be9513534e55aa3df9c0885b6e3580a3b146eb93))
+
 ## [0.5.2](https://github.com/viamin/agent-harness/compare/agent-harness/v0.5.1...agent-harness/v0.5.2) (2026-03-24)
 
 
