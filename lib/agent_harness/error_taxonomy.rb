@@ -39,6 +39,11 @@ module AgentHarness
         action: :retry_with_backoff,
         retryable: true
       },
+      sandbox_failure: {
+        description: "Sandbox setup failed",
+        action: :escalate,
+        retryable: false
+      },
       unknown: {
         description: "Unknown error",
         action: :retry_with_backoff,
