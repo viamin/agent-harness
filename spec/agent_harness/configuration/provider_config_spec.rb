@@ -28,8 +28,9 @@ RSpec.describe AgentHarness::ProviderConfig do
     end
 
     it "merges externally_sandboxed" do
-      config.merge!(externally_sandboxed: true)
+      config.merge!(externally_sandboxed: true, priority: 5)
       expect(config.externally_sandboxed).to be true
+      expect(config.priority).to eq(5)
     end
 
     it "returns self" do
