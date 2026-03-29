@@ -1,5 +1,13 @@
 ## [Unreleased]
 
+## [0.5.5](https://github.com/viamin/agent-harness/compare/agent-harness/v0.5.4...agent-harness/v0.5.5) (2026-03-29)
+
+
+### Bug Fixes
+
+* 47: Audit provider-specific execution semantics so downstream apps do not hardcode CLI quirks ([#50](https://github.com/viamin/agent-harness/issues/50)) ([2d9a972](https://github.com/viamin/agent-harness/commit/2d9a972a78273901535ae44998c32292899b82ec))
+* 48: Handle Codex sandbox mode for externally sandboxed container execution ([#49](https://github.com/viamin/agent-harness/issues/49)) ([5b6ba3f](https://github.com/viamin/agent-harness/commit/5b6ba3f9f517bb027670ead384feddd2c0f99edb))
+
 ## [0.5.4](https://github.com/viamin/agent-harness/compare/agent-harness/v0.5.3...agent-harness/v0.5.4) (2026-03-27)
 
 
