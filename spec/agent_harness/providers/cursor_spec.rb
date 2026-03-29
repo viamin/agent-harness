@@ -370,12 +370,16 @@ RSpec.describe AgentHarness::Providers::Cursor do
     end
 
     describe "#execution_semantics" do
-      it "reports prompt_delivery as :stdin" do
-        expect(provider.execution_semantics[:prompt_delivery]).to eq(:stdin)
-      end
-
-      it "reports non_interactive_flag as -p" do
-        expect(provider.execution_semantics[:non_interactive_flag]).to eq("-p")
+      it "returns the full provider contract" do
+        semantics = provider.execution_semantics
+        expect(semantics[:prompt_delivery]).to eq(:stdin)
+        expect(semantics[:output_format]).to eq(:text)
+        expect(semantics[:sandbox_aware]).to be false
+        expect(semantics[:uses_subcommand]).to be false
+        expect(semantics[:non_interactive_flag]).to eq("-p")
+        expect(semantics[:legitimate_exit_codes]).to eq([0])
+        expect(semantics[:stderr_is_diagnostic]).to be true
+        expect(semantics[:parses_rate_limit_reset]).to be false
       end
     end
   end

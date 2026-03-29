@@ -639,16 +639,16 @@ RSpec.describe AgentHarness::Providers::Anthropic do
     end
 
     describe "#execution_semantics" do
-      it "reports output_format as :json" do
-        expect(provider.execution_semantics[:output_format]).to eq(:json)
-      end
-
-      it "reports non_interactive_flag as --print" do
-        expect(provider.execution_semantics[:non_interactive_flag]).to eq("--print")
-      end
-
-      it "reports sandbox_aware as true" do
-        expect(provider.execution_semantics[:sandbox_aware]).to be true
+      it "returns the full provider contract" do
+        semantics = provider.execution_semantics
+        expect(semantics[:prompt_delivery]).to eq(:arg)
+        expect(semantics[:output_format]).to eq(:json)
+        expect(semantics[:sandbox_aware]).to be true
+        expect(semantics[:uses_subcommand]).to be false
+        expect(semantics[:non_interactive_flag]).to eq("--print")
+        expect(semantics[:legitimate_exit_codes]).to eq([0])
+        expect(semantics[:stderr_is_diagnostic]).to be true
+        expect(semantics[:parses_rate_limit_reset]).to be false
       end
     end
   end
