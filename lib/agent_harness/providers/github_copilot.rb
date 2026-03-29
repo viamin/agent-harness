@@ -89,10 +89,6 @@ module AgentHarness
         }
       end
 
-      def supports_dangerous_mode?
-        true
-      end
-
       def dangerous_mode_flags
         ["--allow-all-tools"]
       end

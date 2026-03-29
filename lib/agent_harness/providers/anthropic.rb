@@ -193,10 +193,6 @@ module AgentHarness
         ["--mcp-config", config_path]
       end
 
-      def supports_dangerous_mode?
-        true
-      end
-
       def dangerous_mode_flags
         ["--dangerously-skip-permissions"]
       end

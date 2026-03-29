@@ -103,6 +103,29 @@ RSpec.describe AgentHarness::Providers::Base do
     end
   end
 
+  describe "#parse_response" do
+    let(:result) { instance_double("Result", stdout: "output", stderr: "", exit_code: 0) }
+
+    it "sets legitimate_exit_codes in response metadata" do
+      response = provider.send(:parse_response, result, duration: 1.0)
+      expect(response.metadata[:legitimate_exit_codes]).to eq([0])
+    end
+
+    it "treats a non-zero legitimate exit code as success" do
+      provider_with_codes = Class.new(test_provider_class) do
+        def execution_semantics
+          super.merge(legitimate_exit_codes: [0, 1])
+        end
+      end.new
+
+      non_zero_result = instance_double("Result", stdout: "done", stderr: "", exit_code: 1)
+      response = provider_with_codes.send(:parse_response, non_zero_result, duration: 1.0)
+
+      expect(response.error).to be_nil
+      expect(response.success?).to be true
+    end
+  end
+
   describe "#sandboxed_environment?" do
     it "returns false with standard CommandExecutor" do
       expect(provider.sandboxed_environment?).to be false

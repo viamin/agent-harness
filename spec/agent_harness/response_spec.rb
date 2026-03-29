@@ -40,6 +40,22 @@ RSpec.describe AgentHarness::Response do
       expect(response.success?).to be false
     end
 
+    it "returns true for a non-zero exit code listed in legitimate_exit_codes metadata" do
+      response = described_class.new(
+        output: "ok", exit_code: 1, duration: 1.0, provider: :claude,
+        metadata: {legitimate_exit_codes: [0, 1]}
+      )
+      expect(response.success?).to be true
+    end
+
+    it "returns false for a non-zero exit code not listed in legitimate_exit_codes metadata" do
+      response = described_class.new(
+        output: "error", exit_code: 2, duration: 1.0, provider: :claude,
+        metadata: {legitimate_exit_codes: [0, 1]}
+      )
+      expect(response.success?).to be false
+    end
+
     it "returns false when there is an error" do
       response = described_class.new(
         output: "error", exit_code: 0, duration: 1.0, provider: :claude, error: "Something went wrong"

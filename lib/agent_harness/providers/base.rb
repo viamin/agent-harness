@@ -195,7 +195,10 @@ module AgentHarness
           duration: duration,
           provider: self.class.provider_name,
           model: @config.model,
-          error: error
+          error: error,
+          metadata: {
+            legitimate_exit_codes: legitimate
+          }
         )
       end
 
