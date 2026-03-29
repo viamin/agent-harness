@@ -55,6 +55,28 @@ RSpec.describe AgentHarness::Providers::Codex do
       end
     end
 
+    describe "#supports_dangerous_mode?" do
+      it "returns true" do
+        expect(provider.supports_dangerous_mode?).to be true
+      end
+    end
+
+    describe "#dangerous_mode_flags" do
+      it "returns --full-auto" do
+        expect(provider.dangerous_mode_flags).to eq(["--full-auto"])
+      end
+    end
+
+    describe "#execution_semantics" do
+      it "reports sandbox_aware as true" do
+        expect(provider.execution_semantics[:sandbox_aware]).to be true
+      end
+
+      it "reports uses_subcommand as true" do
+        expect(provider.execution_semantics[:uses_subcommand]).to be true
+      end
+    end
+
     describe "#send_message" do
       let(:mock_executor) { instance_double(AgentHarness::CommandExecutor) }
       subject(:provider) { described_class.new(executor: mock_executor) }
@@ -83,6 +105,32 @@ RSpec.describe AgentHarness::Providers::Codex do
         ).and_return(success_result)
 
         provider.send_message(prompt: "Hello", session: "session-123")
+      end
+
+      context "when running inside a Docker container" do
+        let(:docker_executor) { instance_double(AgentHarness::DockerCommandExecutor) }
+        subject(:provider) { described_class.new(executor: docker_executor) }
+
+        it "includes --full-auto to skip nested sandboxing" do
+          allow(docker_executor).to receive(:is_a?).with(AgentHarness::DockerCommandExecutor).and_return(true)
+          expect(docker_executor).to receive(:execute).with(
+            ["codex", "exec", "--full-auto", "Hello"],
+            anything
+          ).and_return(success_result)
+
+          provider.send_message(prompt: "Hello")
+        end
+      end
+
+      context "when dangerous_mode is requested" do
+        it "includes --full-auto" do
+          expect(mock_executor).to receive(:execute).with(
+            ["codex", "exec", "--full-auto", "Hello"],
+            anything
+          ).and_return(success_result)
+
+          provider.send_message(prompt: "Hello", dangerous_mode: true)
+        end
       end
 
       context "with non-Array default_flags" do

@@ -107,6 +107,16 @@ module AgentHarness
         name.capitalize
       end
 
+      # Whether the provider is running inside a sandboxed (Docker) environment
+      #
+      # Providers can use this to adjust execution flags, e.g. skipping
+      # nested sandboxing when already inside a container.
+      #
+      # @return [Boolean] true when the executor is a DockerCommandExecutor
+      def sandboxed_environment?
+        @executor.is_a?(DockerCommandExecutor)
+      end
+
       protected
 
       # Build CLI command - override in subclasses
@@ -128,17 +138,27 @@ module AgentHarness
 
       # Parse CLI output into Response - override in subclasses
       #
+      # Combines stdout and stderr for error classification so provider-
+      # specific error messages are detected regardless of which stream
+      # they appear on.
+      #
       # @param result [CommandExecutor::Result] execution result
       # @param duration [Float] execution duration
       # @return [Response] parsed response
       def parse_response(result, duration:)
+        error = nil
+        if result.failed?
+          combined = [result.stdout, result.stderr].compact.reject(&:empty?).join("\n")
+          error = combined.empty? ? result.stderr : combined
+        end
+
         Response.new(
           output: result.stdout,
           exit_code: result.exit_code,
           duration: duration,
           provider: self.class.provider_name,
           model: @config.model,
-          error: result.failed? ? result.stderr : nil
+          error: error
         )
       end
 

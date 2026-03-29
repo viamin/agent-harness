@@ -87,4 +87,17 @@ RSpec.describe AgentHarness::Providers::Base do
       expect(provider.error_patterns).to eq({})
     end
   end
+
+  describe "#sandboxed_environment?" do
+    it "returns false with standard CommandExecutor" do
+      expect(provider.sandboxed_environment?).to be false
+    end
+
+    it "returns true with DockerCommandExecutor" do
+      docker_executor = instance_double(AgentHarness::DockerCommandExecutor)
+      allow(docker_executor).to receive(:is_a?).with(AgentHarness::DockerCommandExecutor).and_return(true)
+      docker_provider = test_provider_class.new(executor: docker_executor)
+      expect(docker_provider.sandboxed_environment?).to be true
+    end
+  end
 end

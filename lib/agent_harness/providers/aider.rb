@@ -71,6 +71,48 @@ module AgentHarness
         }
       end
 
+      def error_patterns
+        {
+          rate_limited: [
+            /rate.?limit/i,
+            /too.?many.?requests/i,
+            /429/
+          ],
+          auth_expired: [
+            /invalid.*api.*key/i,
+            /unauthorized/i,
+            /authentication/i,
+            /incorrect.*api.*key/i
+          ],
+          quota_exceeded: [
+            /quota.*exceeded/i,
+            /insufficient.*quota/i,
+            /billing/i
+          ],
+          transient: [
+            /timeout/i,
+            /connection.*reset/i,
+            /connection.*error/i,
+            /service.*unavailable/i,
+            /503/,
+            /502/
+          ]
+        }
+      end
+
+      def execution_semantics
+        {
+          prompt_delivery: :flag,
+          output_format: :text,
+          sandbox_aware: false,
+          uses_subcommand: false,
+          non_interactive_flag: "--yes",
+          legitimate_exit_codes: [0],
+          stderr_is_diagnostic: true,
+          parses_rate_limit_reset: false
+        }
+      end
+
       def supports_sessions?
         true
       end

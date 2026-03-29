@@ -79,5 +79,25 @@ RSpec.describe AgentHarness::Providers::Opencode do
         provider.send_message(prompt: "Hello")
       end
     end
+
+    describe "#error_patterns" do
+      it "includes rate limit patterns" do
+        expect(provider.error_patterns[:rate_limited]).not_to be_empty
+      end
+
+      it "includes auth patterns" do
+        expect(provider.error_patterns[:auth_expired]).not_to be_empty
+      end
+
+      it "includes transient patterns" do
+        expect(provider.error_patterns[:transient]).not_to be_empty
+      end
+    end
+
+    describe "#execution_semantics" do
+      it "reports uses_subcommand as true" do
+        expect(provider.execution_semantics[:uses_subcommand]).to be true
+      end
+    end
   end
 end

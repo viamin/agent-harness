@@ -67,7 +67,28 @@ module AgentHarness
           tool_use: true,
           json_mode: false,
           mcp: false,
-          dangerous_mode: false
+          dangerous_mode: true
+        }
+      end
+
+      def supports_dangerous_mode?
+        true
+      end
+
+      def dangerous_mode_flags
+        ["--full-auto"]
+      end
+
+      def execution_semantics
+        {
+          prompt_delivery: :arg,
+          output_format: :text,
+          sandbox_aware: true,
+          uses_subcommand: true,
+          non_interactive_flag: nil,
+          legitimate_exit_codes: [0],
+          stderr_is_diagnostic: true,
+          parses_rate_limit_reset: false
         }
       end
 
@@ -169,6 +190,13 @@ module AgentHarness
 
       def build_command(prompt, options)
         cmd = [self.class.binary_name, "exec"]
+
+        # When running inside an already-sandboxed Docker container, Codex's
+        # own sandboxing conflicts with the outer sandbox. Use --full-auto to
+        # skip nested sandboxing while keeping full tool access.
+        if sandboxed_environment? || options[:dangerous_mode]
+          cmd += dangerous_mode_flags
+        end
 
         flags = @config.default_flags
         if flags

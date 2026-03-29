@@ -150,5 +150,34 @@ RSpec.describe AgentHarness::Providers::Adapter do
         expect(status[:message]).to eq("OK")
       end
     end
+
+    describe "#execution_semantics" do
+      it "returns a hash with required keys" do
+        semantics = adapter.execution_semantics
+        expect(semantics).to be_a(Hash)
+        expect(semantics).to have_key(:prompt_delivery)
+        expect(semantics).to have_key(:output_format)
+        expect(semantics).to have_key(:sandbox_aware)
+        expect(semantics).to have_key(:uses_subcommand)
+        expect(semantics).to have_key(:non_interactive_flag)
+        expect(semantics).to have_key(:legitimate_exit_codes)
+        expect(semantics).to have_key(:stderr_is_diagnostic)
+        expect(semantics).to have_key(:parses_rate_limit_reset)
+      end
+
+      it "returns sensible defaults" do
+        semantics = adapter.execution_semantics
+        expect(semantics[:prompt_delivery]).to eq(:arg)
+        expect(semantics[:output_format]).to eq(:text)
+        expect(semantics[:sandbox_aware]).to be false
+        expect(semantics[:legitimate_exit_codes]).to eq([0])
+      end
+    end
+
+    describe "#parse_rate_limit_reset" do
+      it "returns nil by default" do
+        expect(adapter.parse_rate_limit_reset("rate limit exceeded")).to be_nil
+      end
+    end
   end
 end

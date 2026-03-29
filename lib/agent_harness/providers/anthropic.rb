@@ -205,6 +205,19 @@ module AgentHarness
         :oauth
       end
 
+      def execution_semantics
+        {
+          prompt_delivery: :arg,
+          output_format: :json,
+          sandbox_aware: true,
+          uses_subcommand: false,
+          non_interactive_flag: "--print",
+          legitimate_exit_codes: [0],
+          stderr_is_diagnostic: true,
+          parses_rate_limit_reset: false
+        }
+      end
+
       def error_patterns
         {
           rate_limited: [

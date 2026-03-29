@@ -59,6 +59,41 @@ module AgentHarness
         }
       end
 
+      def error_patterns
+        {
+          rate_limited: [
+            /rate.?limit/i,
+            /too.?many.?requests/i,
+            /429/
+          ],
+          auth_expired: [
+            /invalid.*api.*key/i,
+            /unauthorized/i,
+            /authentication/i
+          ],
+          transient: [
+            /timeout/i,
+            /connection.*error/i,
+            /service.*unavailable/i,
+            /503/,
+            /502/
+          ]
+        }
+      end
+
+      def execution_semantics
+        {
+          prompt_delivery: :arg,
+          output_format: :text,
+          sandbox_aware: false,
+          uses_subcommand: true,
+          non_interactive_flag: nil,
+          legitimate_exit_codes: [0],
+          stderr_is_diagnostic: true,
+          parses_rate_limit_reset: false
+        }
+      end
+
       protected
 
       def build_command(prompt, options)
