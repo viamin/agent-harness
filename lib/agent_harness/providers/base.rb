@@ -32,6 +32,34 @@ module AgentHarness
     class Base
       include Adapter
 
+      # Common error patterns shared across providers that use standard
+      # HTTP-style error responses. Providers with unique patterns (e.g.
+      # Anthropic, GitHub Copilot) override error_patterns entirely.
+      COMMON_ERROR_PATTERNS = {
+        rate_limited: [
+          /rate.?limit/i,
+          /too.?many.?requests/i,
+          /429/
+        ],
+        auth_expired: [
+          /invalid.*api.*key/i,
+          /unauthorized/i,
+          /authentication/i
+        ],
+        quota_exceeded: [
+          /quota.*exceeded/i,
+          /insufficient.*quota/i,
+          /billing/i
+        ],
+        transient: [
+          /timeout/i,
+          /connection.*error/i,
+          /service.*unavailable/i,
+          /503/,
+          /502/
+        ]
+      }.tap { |patterns| patterns.each_value(&:freeze) }.freeze
+
       attr_reader :config, :logger
       attr_accessor :executor
 
@@ -107,6 +135,16 @@ module AgentHarness
         name.capitalize
       end
 
+      # Whether the provider is running inside a sandboxed (Docker) environment
+      #
+      # Providers can use this to adjust execution flags, e.g. skipping
+      # nested sandboxing when already inside a container.
+      #
+      # @return [Boolean] true when the executor is a DockerCommandExecutor
+      def sandboxed_environment?
+        @executor.is_a?(DockerCommandExecutor)
+      end
+
       protected
 
       # Build CLI command - override in subclasses
@@ -128,17 +166,39 @@ module AgentHarness
 
       # Parse CLI output into Response - override in subclasses
       #
+      # Combines stdout and stderr for error classification so that
+      # provider-specific error messages are captured regardless of
+      # which stream they appear on.
+      #
       # @param result [CommandExecutor::Result] execution result
       # @param duration [Float] execution duration
       # @return [Response] parsed response
       def parse_response(result, duration:)
+        error = nil
+        # Use execution_semantics[:legitimate_exit_codes] so providers can
+        # declare additional non-error exit codes beyond zero.
+        legitimate = execution_semantics[:legitimate_exit_codes] || [0]
+        unless legitimate.include?(result.exit_code)
+          # Concatenate non-empty streams so error patterns can match
+          # regardless of which stream the provider writes to.
+          combined = [result.stderr, result.stdout]
+            .map { |s| s.to_s.strip }
+            .reject(&:empty?)
+            .join("\n")
+
+          error = combined unless combined.empty?
+        end
+
         Response.new(
           output: result.stdout,
           exit_code: result.exit_code,
           duration: duration,
           provider: self.class.provider_name,
           model: @config.model,
-          error: result.failed? ? result.stderr : nil
+          error: error,
+          metadata: {
+            legitimate_exit_codes: legitimate
+          }
         )
       end
 

@@ -40,9 +40,13 @@ module AgentHarness
 
     # Check if the response indicates success
     #
-    # @return [Boolean] true if exit_code is 0 and no error
+    # A response is successful when its exit code is among the provider's
+    # legitimate exit codes (defaults to [0]) and no error was detected.
+    #
+    # @return [Boolean] true if exit_code is legitimate and no error
     def success?
-      @exit_code == 0 && @error.nil?
+      legitimate = @metadata[:legitimate_exit_codes] || [0]
+      legitimate.include?(@exit_code) && @error.nil?
     end
 
     # Check if the response indicates failure

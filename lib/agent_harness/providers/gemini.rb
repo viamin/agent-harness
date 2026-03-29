@@ -99,6 +99,19 @@ module AgentHarness
         :oauth
       end
 
+      def execution_semantics
+        {
+          prompt_delivery: :flag,
+          output_format: :text,
+          sandbox_aware: false,
+          uses_subcommand: false,
+          non_interactive_flag: nil,
+          legitimate_exit_codes: [0],
+          stderr_is_diagnostic: true,
+          parses_rate_limit_reset: false
+        }
+      end
+
       def error_patterns
         {
           rate_limited: [

@@ -89,10 +89,6 @@ module AgentHarness
         }
       end
 
-      def supports_dangerous_mode?
-        true
-      end
-
       def dangerous_mode_flags
         ["--allow-all-tools"]
       end
@@ -108,6 +104,19 @@ module AgentHarness
 
       def auth_type
         :oauth
+      end
+
+      def execution_semantics
+        {
+          prompt_delivery: :flag,
+          output_format: :text,
+          sandbox_aware: false,
+          uses_subcommand: false,
+          non_interactive_flag: nil,
+          legitimate_exit_codes: [0],
+          stderr_is_diagnostic: true,
+          parses_rate_limit_reset: false
+        }
       end
 
       def error_patterns

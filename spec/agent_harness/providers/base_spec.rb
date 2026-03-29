@@ -87,4 +87,55 @@ RSpec.describe AgentHarness::Providers::Base do
       expect(provider.error_patterns).to eq({})
     end
   end
+
+  describe "COMMON_ERROR_PATTERNS" do
+    it "is defined on the Base class" do
+      expect(described_class::COMMON_ERROR_PATTERNS).to be_a(Hash)
+    end
+
+    it "includes rate_limited, auth_expired, quota_exceeded, and transient categories" do
+      patterns = described_class::COMMON_ERROR_PATTERNS
+      expect(patterns.keys).to contain_exactly(:rate_limited, :auth_expired, :quota_exceeded, :transient)
+    end
+
+    it "is frozen to prevent accidental mutation" do
+      expect(described_class::COMMON_ERROR_PATTERNS).to be_frozen
+    end
+  end
+
+  describe "#parse_response" do
+    let(:result) { instance_double("Result", stdout: "output", stderr: "", exit_code: 0) }
+
+    it "sets legitimate_exit_codes in response metadata" do
+      response = provider.send(:parse_response, result, duration: 1.0)
+      expect(response.metadata[:legitimate_exit_codes]).to eq([0])
+    end
+
+    it "treats a non-zero legitimate exit code as success" do
+      provider_with_codes = Class.new(test_provider_class) do
+        def execution_semantics
+          super.merge(legitimate_exit_codes: [0, 1])
+        end
+      end.new
+
+      non_zero_result = instance_double("Result", stdout: "done", stderr: "", exit_code: 1)
+      response = provider_with_codes.send(:parse_response, non_zero_result, duration: 1.0)
+
+      expect(response.error).to be_nil
+      expect(response.success?).to be true
+    end
+  end
+
+  describe "#sandboxed_environment?" do
+    it "returns false with standard CommandExecutor" do
+      expect(provider.sandboxed_environment?).to be false
+    end
+
+    it "returns true with DockerCommandExecutor" do
+      docker_executor = instance_double(AgentHarness::DockerCommandExecutor)
+      allow(docker_executor).to receive(:is_a?).with(AgentHarness::DockerCommandExecutor).and_return(true)
+      docker_provider = test_provider_class.new(executor: docker_executor)
+      expect(docker_provider.sandboxed_environment?).to be true
+    end
+  end
 end

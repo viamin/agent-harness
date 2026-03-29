@@ -218,6 +218,38 @@ module AgentHarness
       def health_status
         {healthy: true, message: "OK"}
       end
+
+      # Execution semantics for this provider
+      #
+      # Returns a hash describing provider-specific execution behavior so
+      # downstream apps do not need to hardcode CLI quirks. This metadata
+      # can be used to select the right flags and interpret output.
+      #
+      # @return [Hash] execution semantics
+      def execution_semantics
+        {
+          prompt_delivery: :arg,       # :arg, :stdin, or :flag
+          output_format: :text,        # :text or :json
+          sandbox_aware: false,        # adjusts behavior inside containers
+          uses_subcommand: false,      # e.g. "codex exec", "opencode run"
+          non_interactive_flag: nil,   # flag to suppress interactive prompts
+          legitimate_exit_codes: [0],  # exit codes that are NOT errors
+          stderr_is_diagnostic: true,  # stderr may contain non-error output
+          parses_rate_limit_reset: false # can extract Retry-After from output
+        }
+      end
+
+      # Parse a rate-limit reset time from provider output
+      #
+      # Providers that include rate-limit reset information in their error
+      # output can override this to extract it, so the orchestration layer
+      # can schedule retries accurately.
+      #
+      # @param output [String] combined stdout+stderr from the CLI
+      # @return [Time, nil] when the rate limit resets, or nil if unknown
+      def parse_rate_limit_reset(output)
+        nil
+      end
     end
   end
 end

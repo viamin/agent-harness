@@ -193,16 +193,25 @@ module AgentHarness
         ["--mcp-config", config_path]
       end
 
-      def supports_dangerous_mode?
-        true
-      end
-
       def dangerous_mode_flags
         ["--dangerously-skip-permissions"]
       end
 
       def auth_type
         :oauth
+      end
+
+      def execution_semantics
+        {
+          prompt_delivery: :arg,
+          output_format: :json,
+          sandbox_aware: true,
+          uses_subcommand: false,
+          non_interactive_flag: "--print",
+          legitimate_exit_codes: [0],
+          stderr_is_diagnostic: true,
+          parses_rate_limit_reset: false
+        }
       end
 
       def error_patterns

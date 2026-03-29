@@ -75,6 +75,19 @@ module AgentHarness
         ["--full-auto"]
       end
 
+      def execution_semantics
+        {
+          prompt_delivery: :arg,
+          output_format: :text,
+          sandbox_aware: true,
+          uses_subcommand: true,
+          non_interactive_flag: nil,
+          legitimate_exit_codes: [0],
+          stderr_is_diagnostic: true,
+          parses_rate_limit_reset: false
+        }
+      end
+
       def supports_sessions?
         true
       end
@@ -85,37 +98,15 @@ module AgentHarness
       end
 
       def error_patterns
-        {
-          rate_limited: [
-            /rate.?limit/i,
-            /too.?many.?requests/i,
-            /429/
-          ],
-          auth_expired: [
-            /invalid.*api.*key/i,
-            /unauthorized/i,
-            /authentication/i,
-            /401/,
-            /incorrect.*api.*key/i
-          ],
-          quota_exceeded: [
-            /quota.*exceeded/i,
-            /insufficient.*quota/i,
-            /billing/i
-          ],
-          transient: [
-            /timeout/i,
-            /connection.*reset/i,
-            /service.*unavailable/i,
-            /503/,
-            /502/
-          ],
+        COMMON_ERROR_PATTERNS.merge(
+          auth_expired: COMMON_ERROR_PATTERNS[:auth_expired] + [/401/, /incorrect.*api.*key/i],
+          transient: COMMON_ERROR_PATTERNS[:transient] + [/connection.*reset/i],
           sandbox_failure: [
             /bwrap.*no permissions/i,
             /no permissions to create a new namespace/i,
             /unprivileged.*namespace/i
           ]
-        }
+        )
       end
 
       def auth_status
@@ -196,16 +187,20 @@ module AgentHarness
       def build_command(prompt, options)
         cmd = [self.class.binary_name, "exec"]
 
+        # When running inside an already-sandboxed Docker container, Codex's
+        # own sandboxing conflicts with the outer sandbox. Use --full-auto to
+        # skip nested sandboxing while keeping full tool access.
+        # Also applies when dangerous_mode is explicitly requested.
+        if sandboxed_environment? || options[:dangerous_mode]
+          cmd += dangerous_mode_flags
+        end
+
         flags = @config.default_flags
         if flags
           unless flags.is_a?(Array)
             raise ArgumentError, "Codex configuration error: default_flags must be an array of strings"
           end
           cmd += flags if flags.any?
-        end
-
-        if options[:dangerous_mode] && supports_dangerous_mode?
-          cmd += dangerous_mode_flags
         end
 
         if externally_sandboxed?(options)

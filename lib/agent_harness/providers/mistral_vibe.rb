@@ -59,6 +59,23 @@ module AgentHarness
         }
       end
 
+      def error_patterns
+        COMMON_ERROR_PATTERNS
+      end
+
+      def execution_semantics
+        {
+          prompt_delivery: :arg,
+          output_format: :text,
+          sandbox_aware: false,
+          uses_subcommand: true,
+          non_interactive_flag: nil,
+          legitimate_exit_codes: [0],
+          stderr_is_diagnostic: true,
+          parses_rate_limit_reset: false
+        }
+      end
+
       protected
 
       def build_command(prompt, options)

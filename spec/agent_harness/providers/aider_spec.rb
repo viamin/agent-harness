@@ -67,5 +67,37 @@ RSpec.describe AgentHarness::Providers::Aider do
         expect(provider.auth_type).to eq(:api_key)
       end
     end
+
+    describe "#error_patterns" do
+      it "includes rate limit patterns" do
+        patterns = provider.error_patterns
+        expect(patterns[:rate_limited]).not_to be_empty
+      end
+
+      it "includes auth patterns" do
+        patterns = provider.error_patterns
+        expect(patterns[:auth_expired]).not_to be_empty
+      end
+
+      it "includes quota patterns" do
+        patterns = provider.error_patterns
+        expect(patterns[:quota_exceeded]).not_to be_empty
+      end
+
+      it "includes transient patterns" do
+        patterns = provider.error_patterns
+        expect(patterns[:transient]).not_to be_empty
+      end
+    end
+
+    describe "#execution_semantics" do
+      it "reports prompt delivery as :flag" do
+        expect(provider.execution_semantics[:prompt_delivery]).to eq(:flag)
+      end
+
+      it "reports non_interactive_flag as --yes" do
+        expect(provider.execution_semantics[:non_interactive_flag]).to eq("--yes")
+      end
+    end
   end
 end
