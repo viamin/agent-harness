@@ -104,7 +104,12 @@ module AgentHarness
       def error_patterns
         COMMON_ERROR_PATTERNS.merge(
           auth_expired: COMMON_ERROR_PATTERNS[:auth_expired] + [/401/, /incorrect.*api.*key/i],
-          transient: COMMON_ERROR_PATTERNS[:transient] + [/connection.*reset/i]
+          transient: COMMON_ERROR_PATTERNS[:transient] + [/connection.*reset/i],
+          sandbox_failure: [
+            /bwrap.*no permissions/i,
+            /no permissions to create a new namespace/i,
+            /unprivileged.*namespace/i
+          ]
         )
       end
 
@@ -166,12 +171,30 @@ module AgentHarness
 
       protected
 
+      def parse_response(result, duration:)
+        response = super
+
+        if response.success? && sandbox_failure_detected?(result.stderr)
+          return Response.new(
+            output: result.stdout,
+            exit_code: 1,
+            duration: duration,
+            provider: self.class.provider_name,
+            model: @config.model,
+            error: "Sandbox failure detected: #{result.stderr.strip}"
+          )
+        end
+
+        response
+      end
+
       def build_command(prompt, options)
         cmd = [self.class.binary_name, "exec"]
 
         # When running inside an already-sandboxed Docker container, Codex's
         # own sandboxing conflicts with the outer sandbox. Use --full-auto to
         # skip nested sandboxing while keeping full tool access.
+        # Also applies when dangerous_mode is explicitly requested.
         if sandboxed_environment? || options[:dangerous_mode]
           cmd += dangerous_mode_flags
         end
@@ -182,6 +205,10 @@ module AgentHarness
             raise ArgumentError, "Codex configuration error: default_flags must be an array of strings"
           end
           cmd += flags if flags.any?
+        end
+
+        if externally_sandboxed?(options)
+          cmd += sandbox_bypass_flags
         end
 
         if options[:session]
@@ -198,6 +225,24 @@ module AgentHarness
       end
 
       private
+
+      def externally_sandboxed?(options)
+        if options.key?(:externally_sandboxed)
+          !!options[:externally_sandboxed]
+        else
+          !!@config.externally_sandboxed
+        end
+      end
+
+      def sandbox_failure_detected?(stderr)
+        return false if stderr.nil? || stderr.empty?
+
+        error_patterns[:sandbox_failure].any? { |pattern| stderr.match?(pattern) }
+      end
+
+      def sandbox_bypass_flags
+        ["--sandbox", "none"]
+      end
 
       def read_codex_credentials
         path = codex_config_path

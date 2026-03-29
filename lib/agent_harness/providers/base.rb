@@ -34,7 +34,7 @@ module AgentHarness
 
       # Common error patterns shared across providers that use standard
       # HTTP-style error responses. Providers with unique patterns (e.g.
-      # Anthropic, GithubCopilot) override error_patterns entirely.
+      # Anthropic, GitHub Copilot) override error_patterns entirely.
       COMMON_ERROR_PATTERNS = {
         rate_limited: [
           /rate.?limit/i,
@@ -58,7 +58,7 @@ module AgentHarness
           /503/,
           /502/
         ]
-      }.freeze
+      }.tap { |patterns| patterns.each_value(&:freeze) }.freeze
 
       attr_reader :config, :logger
       attr_accessor :executor
@@ -175,7 +175,10 @@ module AgentHarness
       # @return [Response] parsed response
       def parse_response(result, duration:)
         error = nil
-        if result.failed?
+        # Use execution_semantics[:legitimate_exit_codes] so providers can
+        # declare additional non-error exit codes beyond zero.
+        legitimate = execution_semantics[:legitimate_exit_codes] || [0]
+        unless legitimate.include?(result.exit_code)
           # Concatenate non-empty streams so error patterns can match
           # regardless of which stream the provider writes to.
           combined = [result.stderr, result.stdout]
