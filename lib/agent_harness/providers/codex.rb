@@ -67,8 +67,16 @@ module AgentHarness
           tool_use: true,
           json_mode: false,
           mcp: false,
-          dangerous_mode: false
+          dangerous_mode: true
         }
+      end
+
+      def supports_dangerous_mode?
+        true
+      end
+
+      def dangerous_mode_flags
+        ["--full-auto"]
       end
 
       def supports_sessions?
@@ -105,6 +113,11 @@ module AgentHarness
             /service.*unavailable/i,
             /503/,
             /502/
+          ],
+          sandbox_failure: [
+            /bwrap.*no permissions/i,
+            /no permissions to create a new namespace/i,
+            /unprivileged.*namespace/i
           ]
         }
       end
@@ -178,6 +191,14 @@ module AgentHarness
           cmd += flags if flags.any?
         end
 
+        if options[:dangerous_mode] && supports_dangerous_mode?
+          cmd += dangerous_mode_flags
+        end
+
+        if externally_sandboxed?(options)
+          cmd += sandbox_bypass_flags
+        end
+
         if options[:session]
           cmd += session_flags(options[:session])
         end
@@ -192,6 +213,14 @@ module AgentHarness
       end
 
       private
+
+      def externally_sandboxed?(options)
+        options[:externally_sandboxed] == true || @config.externally_sandboxed == true
+      end
+
+      def sandbox_bypass_flags
+        ["--sandbox", "none"]
+      end
 
       def read_codex_credentials
         path = codex_config_path

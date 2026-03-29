@@ -132,6 +132,69 @@ RSpec.describe AgentHarness::Providers::Codex do
         expect(response).to be_a(AgentHarness::Response)
         expect(response.output).to eq("response output")
       end
+
+      context "with dangerous_mode option" do
+        it "includes --full-auto flag" do
+          expect(mock_executor).to receive(:execute).with(
+            ["codex", "exec", "--full-auto", "Hello"],
+            anything
+          ).and_return(success_result)
+
+          provider.send_message(prompt: "Hello", dangerous_mode: true)
+        end
+      end
+
+      context "with externally_sandboxed option" do
+        it "includes --sandbox none flags" do
+          expect(mock_executor).to receive(:execute).with(
+            ["codex", "exec", "--sandbox", "none", "Hello"],
+            anything
+          ).and_return(success_result)
+
+          provider.send_message(prompt: "Hello", externally_sandboxed: true)
+        end
+      end
+
+      context "with externally_sandboxed config" do
+        let(:sandboxed_config) do
+          AgentHarness::ProviderConfig.new(:codex).tap do |c|
+            c.externally_sandboxed = true
+          end
+        end
+        let(:sandboxed_provider) { described_class.new(config: sandboxed_config, executor: mock_executor) }
+
+        it "includes --sandbox none flags from config" do
+          expect(mock_executor).to receive(:execute).with(
+            ["codex", "exec", "--sandbox", "none", "Hello"],
+            anything
+          ).and_return(success_result)
+
+          sandboxed_provider.send_message(prompt: "Hello")
+        end
+      end
+
+      context "with both dangerous_mode and externally_sandboxed" do
+        it "includes both flag sets" do
+          expect(mock_executor).to receive(:execute).with(
+            ["codex", "exec", "--full-auto", "--sandbox", "none", "Hello"],
+            anything
+          ).and_return(success_result)
+
+          provider.send_message(prompt: "Hello", dangerous_mode: true, externally_sandboxed: true)
+        end
+      end
+    end
+
+    describe "#supports_dangerous_mode?" do
+      it "returns true" do
+        expect(provider.supports_dangerous_mode?).to be true
+      end
+    end
+
+    describe "#dangerous_mode_flags" do
+      it "returns the full-auto flag" do
+        expect(provider.dangerous_mode_flags).to eq(["--full-auto"])
+      end
     end
 
     describe "#error_patterns" do
@@ -148,6 +211,12 @@ RSpec.describe AgentHarness::Providers::Codex do
       it "includes quota patterns" do
         patterns = provider.error_patterns
         expect(patterns[:quota_exceeded]).not_to be_empty
+      end
+
+      it "includes sandbox failure patterns" do
+        patterns = provider.error_patterns
+        expect(patterns[:sandbox_failure]).not_to be_empty
+        expect(patterns[:sandbox_failure].any? { |p| "bwrap: No permissions to create a new namespace" =~ p }).to be true
       end
     end
 
