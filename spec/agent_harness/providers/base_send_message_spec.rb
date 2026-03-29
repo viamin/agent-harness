@@ -112,6 +112,65 @@ RSpec.describe AgentHarness::Providers::Base, "#send_message" do
     end
   end
 
+  describe "combined stdout+stderr error classification" do
+    it "combines stderr and stdout when both are present" do
+      allow(mock_executor).to receive(:execute).and_return(
+        AgentHarness::CommandExecutor::Result.new(
+          stdout: "stdout error detail",
+          stderr: "stderr error detail",
+          exit_code: 1,
+          duration: 1.0
+        )
+      )
+
+      response = provider.send_message(prompt: "Hello")
+      expect(response.error).to include("stderr error detail")
+      expect(response.error).to include("stdout error detail")
+    end
+
+    it "uses only stdout when stderr is empty" do
+      allow(mock_executor).to receive(:execute).and_return(
+        AgentHarness::CommandExecutor::Result.new(
+          stdout: "stdout-only error",
+          stderr: "",
+          exit_code: 1,
+          duration: 1.0
+        )
+      )
+
+      response = provider.send_message(prompt: "Hello")
+      expect(response.error).to eq("stdout-only error")
+    end
+
+    it "uses only stderr when stdout is empty" do
+      allow(mock_executor).to receive(:execute).and_return(
+        AgentHarness::CommandExecutor::Result.new(
+          stdout: "",
+          stderr: "stderr-only error",
+          exit_code: 1,
+          duration: 1.0
+        )
+      )
+
+      response = provider.send_message(prompt: "Hello")
+      expect(response.error).to eq("stderr-only error")
+    end
+
+    it "returns nil error when both streams are empty" do
+      allow(mock_executor).to receive(:execute).and_return(
+        AgentHarness::CommandExecutor::Result.new(
+          stdout: "",
+          stderr: "",
+          exit_code: 1,
+          duration: 1.0
+        )
+      )
+
+      response = provider.send_message(prompt: "Hello")
+      expect(response.error).to be_nil
+    end
+  end
+
   describe "timeout handling" do
     before do
       allow(mock_executor).to receive(:execute).and_raise(

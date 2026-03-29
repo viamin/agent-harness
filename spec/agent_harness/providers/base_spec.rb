@@ -88,6 +88,21 @@ RSpec.describe AgentHarness::Providers::Base do
     end
   end
 
+  describe "COMMON_ERROR_PATTERNS" do
+    it "is defined on the Base class" do
+      expect(described_class::COMMON_ERROR_PATTERNS).to be_a(Hash)
+    end
+
+    it "includes rate_limited, auth_expired, quota_exceeded, and transient categories" do
+      patterns = described_class::COMMON_ERROR_PATTERNS
+      expect(patterns.keys).to contain_exactly(:rate_limited, :auth_expired, :quota_exceeded, :transient)
+    end
+
+    it "is frozen to prevent accidental mutation" do
+      expect(described_class::COMMON_ERROR_PATTERNS).to be_frozen
+    end
+  end
+
   describe "#sandboxed_environment?" do
     it "returns false with standard CommandExecutor" do
       expect(provider.sandboxed_environment?).to be false

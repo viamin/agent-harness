@@ -72,32 +72,10 @@ module AgentHarness
       end
 
       def error_patterns
-        {
-          rate_limited: [
-            /rate.?limit/i,
-            /too.?many.?requests/i,
-            /429/
-          ],
-          auth_expired: [
-            /invalid.*api.*key/i,
-            /unauthorized/i,
-            /authentication/i,
-            /incorrect.*api.*key/i
-          ],
-          quota_exceeded: [
-            /quota.*exceeded/i,
-            /insufficient.*quota/i,
-            /billing/i
-          ],
-          transient: [
-            /timeout/i,
-            /connection.*reset/i,
-            /connection.*error/i,
-            /service.*unavailable/i,
-            /503/,
-            /502/
-          ]
-        }
+        COMMON_ERROR_PATTERNS.merge(
+          auth_expired: COMMON_ERROR_PATTERNS[:auth_expired] + [/incorrect.*api.*key/i],
+          transient: COMMON_ERROR_PATTERNS[:transient] + [/connection.*reset/i]
+        )
       end
 
       def execution_semantics

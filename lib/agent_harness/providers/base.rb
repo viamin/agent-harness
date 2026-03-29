@@ -32,6 +32,34 @@ module AgentHarness
     class Base
       include Adapter
 
+      # Common error patterns shared across providers that use standard
+      # HTTP-style error responses. Providers with unique patterns (e.g.
+      # Anthropic, GithubCopilot) override error_patterns entirely.
+      COMMON_ERROR_PATTERNS = {
+        rate_limited: [
+          /rate.?limit/i,
+          /too.?many.?requests/i,
+          /429/
+        ],
+        auth_expired: [
+          /invalid.*api.*key/i,
+          /unauthorized/i,
+          /authentication/i
+        ],
+        quota_exceeded: [
+          /quota.*exceeded/i,
+          /insufficient.*quota/i,
+          /billing/i
+        ],
+        transient: [
+          /timeout/i,
+          /connection.*error/i,
+          /service.*unavailable/i,
+          /503/,
+          /502/
+        ]
+      }.freeze
+
       attr_reader :config, :logger
       attr_accessor :executor
 
@@ -138,8 +166,9 @@ module AgentHarness
 
       # Parse CLI output into Response - override in subclasses
       #
-      # Prefers stderr for error messages; falls back to stdout when stderr
-      # is empty so provider-specific errors are still captured.
+      # Combines stdout and stderr for error classification so that
+      # provider-specific error messages are captured regardless of
+      # which stream they appear on.
       #
       # @param result [CommandExecutor::Result] execution result
       # @param duration [Float] execution duration
@@ -147,15 +176,14 @@ module AgentHarness
       def parse_response(result, duration:)
         error = nil
         if result.failed?
-          stderr = result.stderr.to_s
-          stdout = result.stdout.to_s
+          # Concatenate non-empty streams so error patterns can match
+          # regardless of which stream the provider writes to.
+          combined = [result.stderr, result.stdout]
+            .map { |s| s.to_s.strip }
+            .reject(&:empty?)
+            .join("\n")
 
-          # Prefer stderr for error messages; fall back to stdout if stderr is empty.
-          if !stderr.strip.empty?
-            error = stderr
-          elsif !stdout.strip.empty?
-            error = stdout
-          end
+          error = combined unless combined.empty?
         end
 
         Response.new(
