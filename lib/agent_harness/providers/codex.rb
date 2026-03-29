@@ -180,6 +180,23 @@ module AgentHarness
 
       protected
 
+      def parse_response(result, duration:)
+        response = super
+
+        if response.success? && sandbox_failure_detected?(result.stderr)
+          return Response.new(
+            output: result.stdout,
+            exit_code: result.exit_code,
+            duration: duration,
+            provider: self.class.provider_name,
+            model: @config.model,
+            error: "Sandbox failure detected: #{result.stderr.strip}"
+          )
+        end
+
+        response
+      end
+
       def build_command(prompt, options)
         cmd = [self.class.binary_name, "exec"]
 
@@ -215,7 +232,17 @@ module AgentHarness
       private
 
       def externally_sandboxed?(options)
-        options[:externally_sandboxed] == true || @config.externally_sandboxed == true
+        if options.key?(:externally_sandboxed)
+          options[:externally_sandboxed] == true
+        else
+          @config.externally_sandboxed == true
+        end
+      end
+
+      def sandbox_failure_detected?(stderr)
+        return false if stderr.nil? || stderr.empty?
+
+        error_patterns[:sandbox_failure].any? { |pattern| stderr.match?(pattern) }
       end
 
       def sandbox_bypass_flags

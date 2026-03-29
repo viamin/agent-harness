@@ -183,6 +183,42 @@ RSpec.describe AgentHarness::Providers::Codex do
           provider.send_message(prompt: "Hello", dangerous_mode: true, externally_sandboxed: true)
         end
       end
+
+      context "with externally_sandboxed: false overriding config" do
+        let(:sandboxed_config) do
+          AgentHarness::ProviderConfig.new(:codex).tap do |c|
+            c.externally_sandboxed = true
+          end
+        end
+        let(:sandboxed_provider) { described_class.new(config: sandboxed_config, executor: mock_executor) }
+
+        it "does not include --sandbox none when per-call option is false" do
+          expect(mock_executor).to receive(:execute).with(
+            ["codex", "exec", "Hello"],
+            anything
+          ).and_return(success_result)
+
+          sandboxed_provider.send_message(prompt: "Hello", externally_sandboxed: false)
+        end
+      end
+
+      context "when sandbox failure is detected in stderr with exit_code 0" do
+        it "returns a failed response" do
+          sandbox_failure_result = AgentHarness::CommandExecutor::Result.new(
+            stdout: "",
+            stderr: "bwrap: No permissions to create a new namespace",
+            exit_code: 0,
+            duration: 1.0
+          )
+
+          allow(mock_executor).to receive(:execute).and_return(sandbox_failure_result)
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response).to be_a(AgentHarness::Response)
+          expect(response.success?).to be false
+          expect(response.error).to include("Sandbox failure detected")
+        end
+      end
     end
 
     describe "#supports_dangerous_mode?" do
