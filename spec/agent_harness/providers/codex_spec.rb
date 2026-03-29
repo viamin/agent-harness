@@ -216,6 +216,7 @@ RSpec.describe AgentHarness::Providers::Codex do
           response = provider.send_message(prompt: "Hello")
           expect(response).to be_a(AgentHarness::Response)
           expect(response.success?).to be false
+          expect(response.exit_code).not_to eq(0)
           expect(response.error).to include("Sandbox failure detected")
         end
       end

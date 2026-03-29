@@ -186,7 +186,7 @@ module AgentHarness
         if response.success? && sandbox_failure_detected?(result.stderr)
           return Response.new(
             output: result.stdout,
-            exit_code: result.exit_code,
+            exit_code: 1,
             duration: duration,
             provider: self.class.provider_name,
             model: @config.model,
