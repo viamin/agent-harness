@@ -229,9 +229,9 @@ module AgentHarness
 
       def externally_sandboxed?(options)
         if options.key?(:externally_sandboxed)
-          options[:externally_sandboxed] == true
+          !!options[:externally_sandboxed]
         else
-          @config.externally_sandboxed == true
+          !!@config.externally_sandboxed
         end
       end
 
