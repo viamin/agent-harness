@@ -138,9 +138,8 @@ module AgentHarness
 
       # Parse CLI output into Response - override in subclasses
       #
-      # Combines stdout and stderr for error classification so provider-
-      # specific error messages are detected regardless of which stream
-      # they appear on.
+      # Prefers stderr for error messages; falls back to stdout when stderr
+      # is empty so provider-specific errors are still captured.
       #
       # @param result [CommandExecutor::Result] execution result
       # @param duration [Float] execution duration
@@ -148,8 +147,15 @@ module AgentHarness
       def parse_response(result, duration:)
         error = nil
         if result.failed?
-          combined = [result.stdout, result.stderr].compact.reject(&:empty?).join("\n")
-          error = combined.empty? ? result.stderr : combined
+          stderr = result.stderr.to_s
+          stdout = result.stdout.to_s
+
+          # Prefer stderr for error messages; fall back to stdout if stderr is empty.
+          if !stderr.strip.empty?
+            error = stderr
+          elsif !stdout.strip.empty?
+            error = stdout
+          end
         end
 
         Response.new(

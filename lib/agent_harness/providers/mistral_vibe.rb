@@ -71,6 +71,11 @@ module AgentHarness
             /unauthorized/i,
             /authentication/i
           ],
+          quota_exceeded: [
+            /quota.*exceeded/i,
+            /insufficient.*quota/i,
+            /billing/i
+          ],
           transient: [
             /timeout/i,
             /connection.*error/i,

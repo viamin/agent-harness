@@ -637,5 +637,19 @@ RSpec.describe AgentHarness::Providers::Anthropic do
         end
       end
     end
+
+    describe "#execution_semantics" do
+      it "reports output_format as :json" do
+        expect(provider.execution_semantics[:output_format]).to eq(:json)
+      end
+
+      it "reports non_interactive_flag as --print" do
+        expect(provider.execution_semantics[:non_interactive_flag]).to eq("--print")
+      end
+
+      it "reports sandbox_aware as true" do
+        expect(provider.execution_semantics[:sandbox_aware]).to be true
+      end
+    end
   end
 end

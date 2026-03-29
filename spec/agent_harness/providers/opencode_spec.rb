@@ -89,6 +89,10 @@ RSpec.describe AgentHarness::Providers::Opencode do
         expect(provider.error_patterns[:auth_expired]).not_to be_empty
       end
 
+      it "includes quota patterns" do
+        expect(provider.error_patterns[:quota_exceeded]).not_to be_empty
+      end
+
       it "includes transient patterns" do
         expect(provider.error_patterns[:transient]).not_to be_empty
       end

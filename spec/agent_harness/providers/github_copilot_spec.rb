@@ -95,5 +95,15 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         expect(patterns[:auth_expired]).not_to be_empty
       end
     end
+
+    describe "#execution_semantics" do
+      it "reports prompt_delivery as :flag" do
+        expect(provider.execution_semantics[:prompt_delivery]).to eq(:flag)
+      end
+
+      it "reports sandbox_aware as false" do
+        expect(provider.execution_semantics[:sandbox_aware]).to be false
+      end
+    end
   end
 end

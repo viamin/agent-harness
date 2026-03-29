@@ -222,8 +222,8 @@ module AgentHarness
       # Execution semantics for this provider
       #
       # Returns a hash describing provider-specific execution behavior so
-      # downstream apps do not need to hardcode CLI quirks. The harness
-      # uses this internally to select the right flags and interpret output.
+      # downstream apps do not need to hardcode CLI quirks. This metadata
+      # can be used to select the right flags and interpret output.
       #
       # @return [Hash] execution semantics
       def execution_semantics

@@ -368,5 +368,15 @@ RSpec.describe AgentHarness::Providers::Cursor do
         end
       end
     end
+
+    describe "#execution_semantics" do
+      it "reports prompt_delivery as :stdin" do
+        expect(provider.execution_semantics[:prompt_delivery]).to eq(:stdin)
+      end
+
+      it "reports non_interactive_flag as -p" do
+        expect(provider.execution_semantics[:non_interactive_flag]).to eq("-p")
+      end
+    end
   end
 end
