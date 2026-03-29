@@ -14,6 +14,7 @@ RSpec.describe AgentHarness::ProviderConfig do
       expect(config.priority).to eq(10)
       expect(config.models).to eq([])
       expect(config.default_flags).to eq([])
+      expect(config.externally_sandboxed).to be false
     end
   end
 
@@ -24,6 +25,11 @@ RSpec.describe AgentHarness::ProviderConfig do
       expect(config.enabled).to be false
       expect(config.timeout).to eq(600)
       expect(config.model).to eq("sonnet")
+    end
+
+    it "merges externally_sandboxed" do
+      config.merge!(externally_sandboxed: true)
+      expect(config.externally_sandboxed).to be true
     end
 
     it "returns self" do

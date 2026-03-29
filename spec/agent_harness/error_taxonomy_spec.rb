@@ -67,6 +67,7 @@ RSpec.describe AgentHarness::ErrorTaxonomy do
       expect(described_class.action_for(:auth_expired)).to eq(:reauthenticate)
       expect(described_class.action_for(:transient)).to eq(:retry_with_backoff)
       expect(described_class.action_for(:permanent)).to eq(:escalate)
+      expect(described_class.action_for(:sandbox_failure)).to eq(:escalate)
     end
 
     it "returns escalate for unknown categories" do
@@ -85,6 +86,7 @@ RSpec.describe AgentHarness::ErrorTaxonomy do
       expect(described_class.retryable?(:rate_limited)).to be false
       expect(described_class.retryable?(:auth_expired)).to be false
       expect(described_class.retryable?(:permanent)).to be false
+      expect(described_class.retryable?(:sandbox_failure)).to be false
     end
   end
 
@@ -102,7 +104,7 @@ RSpec.describe AgentHarness::ErrorTaxonomy do
   describe ".categories" do
     it "returns all category names" do
       categories = described_class.categories
-      expect(categories).to include(:rate_limited, :auth_expired, :transient, :permanent)
+      expect(categories).to include(:rate_limited, :auth_expired, :transient, :permanent, :sandbox_failure)
     end
   end
 end
