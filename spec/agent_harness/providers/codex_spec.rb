@@ -145,7 +145,7 @@ RSpec.describe AgentHarness::Providers::Codex do
       end
 
       context "with externally_sandboxed option" do
-        it "includes --sandbox none flags" do
+        it "includes --sandbox none flag" do
           expect(mock_executor).to receive(:execute).with(
             ["codex", "exec", "--sandbox", "none", "Hello"],
             anything
@@ -163,7 +163,7 @@ RSpec.describe AgentHarness::Providers::Codex do
         end
         let(:sandboxed_provider) { described_class.new(config: sandboxed_config, executor: mock_executor) }
 
-        it "includes --sandbox none flags from config" do
+        it "includes --sandbox none flag from config" do
           expect(mock_executor).to receive(:execute).with(
             ["codex", "exec", "--sandbox", "none", "Hello"],
             anything
