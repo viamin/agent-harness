@@ -172,6 +172,20 @@ module AgentHarness
         }
       end
 
+      def configuration_capabilities
+        {
+          model: {
+            configurable: true,
+            source: :discovered
+          },
+          base_url: {
+            configurable: false
+          },
+          auth_modes: [:oauth],
+          openai_compatible: false
+        }
+      end
+
       def send_message(prompt:, **options)
         super
       ensure

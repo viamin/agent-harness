@@ -239,6 +239,36 @@ module AgentHarness
         }
       end
 
+      # Provider configuration capabilities for app-driven setup UIs
+      #
+      # Returns metadata describing which configuration fields this provider
+      # supports, so applications can build generic provider-entry setup flows
+      # without hardcoding per-provider knowledge.
+      #
+      # @return [Hash] configuration capabilities metadata
+      #   - :model [Hash] model selection configuration
+      #     - :configurable [Boolean] whether model can be configured
+      #     - :source [Symbol] :static (fixed list), :discovered (from CLI), or :any (free-form string)
+      #   - :base_url [Hash] custom API endpoint configuration
+      #     - :configurable [Boolean] whether base URL can be set
+      #     - :label [String] human-readable label for the field
+      #     - :hint [String] description or placeholder for the field
+      #   - :auth_modes [Array<Symbol>] supported authentication modes (e.g. :api_key, :oauth)
+      #   - :openai_compatible [Boolean] whether the provider can operate through an OpenAI-compatible endpoint
+      def configuration_capabilities
+        {
+          model: {
+            configurable: false,
+            source: :static
+          },
+          base_url: {
+            configurable: false
+          },
+          auth_modes: [auth_type],
+          openai_compatible: false
+        }
+      end
+
       # Parse a rate-limit reset time from provider output
       #
       # Providers that include rate-limit reset information in their error

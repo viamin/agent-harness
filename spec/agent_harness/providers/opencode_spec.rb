@@ -103,5 +103,28 @@ RSpec.describe AgentHarness::Providers::Opencode do
         expect(provider.execution_semantics[:uses_subcommand]).to be true
       end
     end
+
+    describe "#configuration_capabilities" do
+      it "supports free-form model configuration" do
+        config_caps = provider.configuration_capabilities
+        expect(config_caps[:model][:configurable]).to be true
+        expect(config_caps[:model][:source]).to eq(:any)
+      end
+
+      it "supports base_url configuration" do
+        config_caps = provider.configuration_capabilities
+        expect(config_caps[:base_url][:configurable]).to be true
+        expect(config_caps[:base_url][:label]).to be_a(String)
+        expect(config_caps[:base_url][:hint]).to be_a(String)
+      end
+
+      it "uses api_key auth mode" do
+        expect(provider.configuration_capabilities[:auth_modes]).to eq([:api_key])
+      end
+
+      it "is openai_compatible" do
+        expect(provider.configuration_capabilities[:openai_compatible]).to be true
+      end
+    end
   end
 end

@@ -382,5 +382,25 @@ RSpec.describe AgentHarness::Providers::Cursor do
         expect(semantics[:parses_rate_limit_reset]).to be false
       end
     end
+
+    describe "#configuration_capabilities" do
+      it "supports model configuration from a static list" do
+        config_caps = provider.configuration_capabilities
+        expect(config_caps[:model][:configurable]).to be true
+        expect(config_caps[:model][:source]).to eq(:static)
+      end
+
+      it "does not support base_url configuration" do
+        expect(provider.configuration_capabilities[:base_url][:configurable]).to be false
+      end
+
+      it "uses oauth auth mode" do
+        expect(provider.configuration_capabilities[:auth_modes]).to eq([:oauth])
+      end
+
+      it "is not openai_compatible" do
+        expect(provider.configuration_capabilities[:openai_compatible]).to be false
+      end
+    end
   end
 end

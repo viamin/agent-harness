@@ -174,6 +174,39 @@ RSpec.describe AgentHarness::Providers::Adapter do
       end
     end
 
+    describe "#configuration_capabilities" do
+      it "returns a hash with required keys" do
+        config_caps = adapter.configuration_capabilities
+        expect(config_caps).to be_a(Hash)
+        expect(config_caps).to have_key(:model)
+        expect(config_caps).to have_key(:base_url)
+        expect(config_caps).to have_key(:auth_modes)
+        expect(config_caps).to have_key(:openai_compatible)
+      end
+
+      it "returns model configuration metadata" do
+        model = adapter.configuration_capabilities[:model]
+        expect(model).to have_key(:configurable)
+        expect(model).to have_key(:source)
+        expect(model[:configurable]).to be false
+        expect(model[:source]).to eq(:static)
+      end
+
+      it "returns base_url configuration metadata" do
+        base_url = adapter.configuration_capabilities[:base_url]
+        expect(base_url).to have_key(:configurable)
+        expect(base_url[:configurable]).to be false
+      end
+
+      it "returns auth_modes from auth_type" do
+        expect(adapter.configuration_capabilities[:auth_modes]).to eq([:api_key])
+      end
+
+      it "defaults openai_compatible to false" do
+        expect(adapter.configuration_capabilities[:openai_compatible]).to be false
+      end
+    end
+
     describe "#parse_rate_limit_reset" do
       it "returns nil by default" do
         expect(adapter.parse_rate_limit_reset("rate limit exceeded")).to be_nil

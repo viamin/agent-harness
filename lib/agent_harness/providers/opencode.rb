@@ -59,6 +59,22 @@ module AgentHarness
         }
       end
 
+      def configuration_capabilities
+        {
+          model: {
+            configurable: true,
+            source: :any
+          },
+          base_url: {
+            configurable: true,
+            label: "API Base URL",
+            hint: "OpenAI-compatible endpoint URL (e.g. https://openrouter.ai/api/v1)"
+          },
+          auth_modes: [:api_key],
+          openai_compatible: true
+        }
+      end
+
       def error_patterns
         COMMON_ERROR_PATTERNS
       end

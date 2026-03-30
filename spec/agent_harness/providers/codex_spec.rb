@@ -546,5 +546,23 @@ RSpec.describe AgentHarness::Providers::Codex do
         end
       end
     end
+
+    describe "#configuration_capabilities" do
+      it "does not support model configuration" do
+        expect(provider.configuration_capabilities[:model][:configurable]).to be false
+      end
+
+      it "does not support base_url configuration" do
+        expect(provider.configuration_capabilities[:base_url][:configurable]).to be false
+      end
+
+      it "uses api_key auth mode" do
+        expect(provider.configuration_capabilities[:auth_modes]).to eq([:api_key])
+      end
+
+      it "is not openai_compatible" do
+        expect(provider.configuration_capabilities[:openai_compatible]).to be false
+      end
+    end
   end
 end

@@ -95,6 +95,20 @@ module AgentHarness
         }
       end
 
+      def configuration_capabilities
+        {
+          model: {
+            configurable: true,
+            source: :static
+          },
+          base_url: {
+            configurable: false
+          },
+          auth_modes: %i[oauth api_key],
+          openai_compatible: false
+        }
+      end
+
       def auth_type
         :oauth
       end

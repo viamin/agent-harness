@@ -122,6 +122,20 @@ module AgentHarness
         fetch_mcp_servers_cli || fetch_mcp_servers_config
       end
 
+      def configuration_capabilities
+        {
+          model: {
+            configurable: true,
+            source: :static
+          },
+          base_url: {
+            configurable: false
+          },
+          auth_modes: [:oauth],
+          openai_compatible: false
+        }
+      end
+
       def auth_type
         :oauth
       end

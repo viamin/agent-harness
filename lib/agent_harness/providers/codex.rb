@@ -71,6 +71,20 @@ module AgentHarness
         }
       end
 
+      def configuration_capabilities
+        {
+          model: {
+            configurable: false,
+            source: :static
+          },
+          base_url: {
+            configurable: false
+          },
+          auth_modes: [:api_key],
+          openai_compatible: false
+        }
+      end
+
       def dangerous_mode_flags
         ["--full-auto"]
       end

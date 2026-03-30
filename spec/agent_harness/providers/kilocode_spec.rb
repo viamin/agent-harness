@@ -105,5 +105,14 @@ RSpec.describe AgentHarness::Providers::Kilocode do
         expect(provider.execution_semantics[:uses_subcommand]).to be true
       end
     end
+
+    describe "#configuration_capabilities" do
+      it "uses the default configuration capabilities" do
+        config_caps = provider.configuration_capabilities
+        expect(config_caps[:model][:configurable]).to be false
+        expect(config_caps[:base_url][:configurable]).to be false
+        expect(config_caps[:openai_compatible]).to be false
+      end
+    end
   end
 end
