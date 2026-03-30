@@ -57,7 +57,7 @@ RSpec.describe AgentHarness::Providers::Gemini do
         schema = provider.configuration_schema
         model_field = schema[:fields].find { |f| f[:name] == :model }
         expect(model_field).not_to be_nil
-        expect(model_field[:accepts_arbitrary]).to be false
+        expect(model_field[:accepts_arbitrary]).to be true
       end
 
       it "supports both api_key and oauth auth modes" do

@@ -95,6 +95,11 @@ RSpec.describe AgentHarness::Providers::Adapter do
         expect(adapter.configuration_schema[:auth_modes]).to eq([:api_key])
       end
 
+      it "derives auth_modes from auth_type" do
+        allow(adapter).to receive(:auth_type).and_return(:oauth)
+        expect(adapter.configuration_schema[:auth_modes]).to eq([:oauth])
+      end
+
       it "returns false for openai_compatible by default" do
         expect(adapter.configuration_schema[:openai_compatible]).to be false
       end

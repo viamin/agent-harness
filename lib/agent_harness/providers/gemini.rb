@@ -92,7 +92,7 @@ module AgentHarness
               label: "Model",
               required: false,
               hint: "Gemini model to use (e.g. gemini-2.5-pro, gemini-2.0-flash)",
-              accepts_arbitrary: false
+              accepts_arbitrary: true
             }
           ],
           auth_modes: [:api_key, :oauth],

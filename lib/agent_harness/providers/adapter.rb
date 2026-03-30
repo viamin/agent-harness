@@ -91,7 +91,7 @@ module AgentHarness
       def configuration_schema
         {
           fields: [],
-          auth_modes: [:api_key],
+          auth_modes: [auth_type],
           openai_compatible: false
         }
       end

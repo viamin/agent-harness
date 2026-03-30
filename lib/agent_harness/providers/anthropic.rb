@@ -168,7 +168,7 @@ module AgentHarness
               type: :string,
               label: "Model",
               required: false,
-              hint: "Claude model to use (e.g. claude-sonnet-4-20250514)",
+              hint: "Claude model to use (e.g. claude-3-5-sonnet-20241022)",
               accepts_arbitrary: false
             }
           ],
