@@ -59,6 +59,23 @@ module AgentHarness
         "Aider"
       end
 
+      def configuration_schema
+        {
+          fields: [
+            {
+              name: :model,
+              type: :string,
+              label: "Model",
+              required: false,
+              hint: "Model identifier (supports OpenAI, Anthropic, and other model names)",
+              accepts_arbitrary: true
+            }
+          ],
+          auth_modes: [:api_key],
+          openai_compatible: false
+        }
+      end
+
       def capabilities
         {
           streaming: true,

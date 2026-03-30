@@ -53,6 +53,20 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
       end
     end
 
+    describe "#configuration_schema" do
+      it "has no configurable fields" do
+        expect(provider.configuration_schema[:fields]).to be_empty
+      end
+
+      it "uses oauth auth mode" do
+        expect(provider.configuration_schema[:auth_modes]).to eq([:oauth])
+      end
+
+      it "is not openai compatible" do
+        expect(provider.configuration_schema[:openai_compatible]).to be false
+      end
+    end
+
     describe "#supports_dangerous_mode?" do
       it "returns true" do
         expect(provider.supports_dangerous_mode?).to be true

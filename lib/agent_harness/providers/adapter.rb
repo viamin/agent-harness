@@ -75,9 +75,30 @@ module AgentHarness
       # @option options [Integer] :timeout timeout in seconds
       # @option options [String] :session session identifier
       # @option options [Boolean] :dangerous_mode skip permission checks
+      # @option options [ProviderRuntime, Hash, nil] :provider_runtime per-request
+      #   runtime overrides (model, base_url, api_provider, env, flags, metadata).
+      #   For providers that delegate to Providers::Base#send_message, a plain Hash
+      #   is automatically coerced into a ProviderRuntime. Providers that override
+      #   #send_message directly are responsible for handling this option.
       # @return [Response] response object with output and metadata
       def send_message(prompt:, **options)
         raise NotImplementedError, "#{self.class} must implement #send_message"
+      end
+
+      # Provider configuration schema for app-driven setup UIs
+      #
+      # Returns metadata describing the configurable fields, supported
+      # authentication modes, and backend compatibility for this provider.
+      # Applications use this to build generic provider-entry forms without
+      # hardcoding provider-specific knowledge.
+      #
+      # @return [Hash] with :fields, :auth_modes, :openai_compatible keys
+      def configuration_schema
+        {
+          fields: [],
+          auth_modes: [auth_type],
+          openai_compatible: false
+        }
       end
 
       # Provider capabilities

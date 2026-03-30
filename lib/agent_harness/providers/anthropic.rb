@@ -160,6 +160,23 @@ module AgentHarness
         "Anthropic Claude CLI"
       end
 
+      def configuration_schema
+        {
+          fields: [
+            {
+              name: :model,
+              type: :string,
+              label: "Model",
+              required: false,
+              hint: "Claude model to use (e.g. claude-3-5-sonnet-20241022)",
+              accepts_arbitrary: false
+            }
+          ],
+          auth_modes: [:oauth],
+          openai_compatible: false
+        }
+      end
+
       def capabilities
         {
           streaming: true,
