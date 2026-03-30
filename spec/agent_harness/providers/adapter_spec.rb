@@ -78,6 +78,28 @@ RSpec.describe AgentHarness::Providers::Adapter do
       end
     end
 
+    describe "#configuration_schema" do
+      it "returns a hash with required keys" do
+        schema = adapter.configuration_schema
+        expect(schema).to be_a(Hash)
+        expect(schema).to have_key(:fields)
+        expect(schema).to have_key(:auth_modes)
+        expect(schema).to have_key(:openai_compatible)
+      end
+
+      it "returns empty fields by default" do
+        expect(adapter.configuration_schema[:fields]).to eq([])
+      end
+
+      it "returns api_key auth mode by default" do
+        expect(adapter.configuration_schema[:auth_modes]).to eq([:api_key])
+      end
+
+      it "returns false for openai_compatible by default" do
+        expect(adapter.configuration_schema[:openai_compatible]).to be false
+      end
+    end
+
     describe "#capabilities" do
       it "returns default capabilities" do
         caps = adapter.capabilities

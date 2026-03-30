@@ -38,6 +38,23 @@ RSpec.describe AgentHarness::Providers::Codex do
       end
     end
 
+    describe "#configuration_schema" do
+      it "includes a model field" do
+        schema = provider.configuration_schema
+        model_field = schema[:fields].find { |f| f[:name] == :model }
+        expect(model_field).not_to be_nil
+        expect(model_field[:accepts_arbitrary]).to be false
+      end
+
+      it "reports openai_compatible as true" do
+        expect(provider.configuration_schema[:openai_compatible]).to be true
+      end
+
+      it "uses api_key auth mode" do
+        expect(provider.configuration_schema[:auth_modes]).to eq([:api_key])
+      end
+    end
+
     describe "#supports_sessions?" do
       it "returns true" do
         expect(provider.supports_sessions?).to be true

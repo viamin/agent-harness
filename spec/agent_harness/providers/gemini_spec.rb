@@ -49,6 +49,27 @@ RSpec.describe AgentHarness::Providers::Gemini do
     end
   end
 
+  describe "instance" do
+    subject(:provider) { described_class.new }
+
+    describe "#configuration_schema" do
+      it "includes a model field" do
+        schema = provider.configuration_schema
+        model_field = schema[:fields].find { |f| f[:name] == :model }
+        expect(model_field).not_to be_nil
+        expect(model_field[:accepts_arbitrary]).to be false
+      end
+
+      it "supports both api_key and oauth auth modes" do
+        expect(provider.configuration_schema[:auth_modes]).to eq([:api_key, :oauth])
+      end
+
+      it "is not openai compatible" do
+        expect(provider.configuration_schema[:openai_compatible]).to be false
+      end
+    end
+  end
+
   describe ".discover_models" do
     let(:mock_executor) { instance_double(AgentHarness::CommandExecutor) }
 

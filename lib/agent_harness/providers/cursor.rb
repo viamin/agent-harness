@@ -93,6 +93,23 @@ module AgentHarness
         "Cursor AI"
       end
 
+      def configuration_schema
+        {
+          fields: [
+            {
+              name: :model,
+              type: :string,
+              label: "Model",
+              required: false,
+              hint: "Model to use (e.g. claude-3.5-sonnet, gpt-4o)",
+              accepts_arbitrary: false
+            }
+          ],
+          auth_modes: [:oauth],
+          openai_compatible: false
+        }
+      end
+
       def capabilities
         {
           streaming: false,

@@ -83,6 +83,23 @@ module AgentHarness
         "Google Gemini"
       end
 
+      def configuration_schema
+        {
+          fields: [
+            {
+              name: :model,
+              type: :string,
+              label: "Model",
+              required: false,
+              hint: "Gemini model to use (e.g. gemini-2.5-pro, gemini-2.0-flash)",
+              accepts_arbitrary: false
+            }
+          ],
+          auth_modes: [:api_key, :oauth],
+          openai_compatible: false
+        }
+      end
+
       def capabilities
         {
           streaming: true,

@@ -52,6 +52,28 @@ RSpec.describe AgentHarness::Providers::Opencode do
       end
     end
 
+    describe "#configuration_schema" do
+      it "includes model and base_url fields" do
+        schema = provider.configuration_schema
+        field_names = schema[:fields].map { |f| f[:name] }
+        expect(field_names).to include(:model, :base_url)
+      end
+
+      it "marks model as accepting arbitrary values" do
+        schema = provider.configuration_schema
+        model_field = schema[:fields].find { |f| f[:name] == :model }
+        expect(model_field[:accepts_arbitrary]).to be true
+      end
+
+      it "reports openai_compatible as true" do
+        expect(provider.configuration_schema[:openai_compatible]).to be true
+      end
+
+      it "uses api_key auth mode" do
+        expect(provider.configuration_schema[:auth_modes]).to eq([:api_key])
+      end
+    end
+
     describe "#capabilities" do
       it "returns minimal capabilities" do
         caps = provider.capabilities

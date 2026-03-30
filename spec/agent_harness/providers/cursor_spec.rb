@@ -49,6 +49,27 @@ RSpec.describe AgentHarness::Providers::Cursor do
     end
   end
 
+  describe "instance configuration_schema" do
+    subject(:provider) { described_class.new }
+
+    describe "#configuration_schema" do
+      it "includes a model field" do
+        schema = provider.configuration_schema
+        model_field = schema[:fields].find { |f| f[:name] == :model }
+        expect(model_field).not_to be_nil
+        expect(model_field[:accepts_arbitrary]).to be false
+      end
+
+      it "uses oauth auth mode" do
+        expect(provider.configuration_schema[:auth_modes]).to eq([:oauth])
+      end
+
+      it "is not openai compatible" do
+        expect(provider.configuration_schema[:openai_compatible]).to be false
+      end
+    end
+  end
+
   describe ".supports_model_family?" do
     it "returns true for supported model families" do
       expect(described_class.supports_model_family?("claude-3-5-sonnet")).to be true

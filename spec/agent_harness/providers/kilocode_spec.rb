@@ -53,6 +53,15 @@ RSpec.describe AgentHarness::Providers::Kilocode do
       end
     end
 
+    describe "#configuration_schema" do
+      it "returns defaults with no configurable fields" do
+        schema = provider.configuration_schema
+        expect(schema[:fields]).to be_empty
+        expect(schema[:auth_modes]).to eq([:api_key])
+        expect(schema[:openai_compatible]).to be false
+      end
+    end
+
     describe "#capabilities" do
       it "returns minimal capabilities" do
         caps = provider.capabilities

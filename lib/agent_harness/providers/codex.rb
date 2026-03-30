@@ -59,6 +59,23 @@ module AgentHarness
         "OpenAI Codex CLI"
       end
 
+      def configuration_schema
+        {
+          fields: [
+            {
+              name: :model,
+              type: :string,
+              label: "Model",
+              required: false,
+              hint: "Model identifier to use",
+              accepts_arbitrary: false
+            }
+          ],
+          auth_modes: [:api_key],
+          openai_compatible: true
+        }
+      end
+
       def capabilities
         {
           streaming: false,
