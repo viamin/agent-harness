@@ -81,6 +81,28 @@ RSpec.describe AgentHarness::ProviderRuntime do
       expect(runtime.flags).to be_frozen
       expect(runtime.metadata).to be_frozen
     end
+
+    it "does not freeze the caller's flags array" do
+      caller_flags = ["--verbose"]
+      described_class.new(flags: caller_flags)
+      expect(caller_flags).not_to be_frozen
+    end
+
+    it "does not freeze the caller's metadata hash" do
+      caller_metadata = {tier: "premium"}
+      described_class.new(metadata: caller_metadata)
+      expect(caller_metadata).not_to be_frozen
+    end
+
+    it "raises ArgumentError when env is not a Hash" do
+      expect { described_class.new(env: "bad") }
+        .to raise_error(ArgumentError, /env must be a Hash/)
+    end
+
+    it "raises ArgumentError when metadata is not a Hash" do
+      expect { described_class.new(metadata: "bad") }
+        .to raise_error(ArgumentError, /metadata must be a Hash/)
+    end
   end
 
   describe ".from_hash" do
@@ -111,6 +133,11 @@ RSpec.describe AgentHarness::ProviderRuntime do
       expect(runtime.model).to be_nil
       expect(runtime.env).to eq({})
       expect(runtime.flags).to eq([])
+    end
+
+    it "raises ArgumentError when given a non-Hash" do
+      expect { described_class.from_hash("bad") }
+        .to raise_error(ArgumentError, /expected a Hash/)
     end
   end
 

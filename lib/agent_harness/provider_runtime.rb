@@ -38,7 +38,11 @@ module AgentHarness
       @base_url = base_url
       @api_provider = api_provider
 
-      normalized_env = (env || {}).each_with_object({}) do |(key, value), acc|
+      env_hash = env || {}
+      unless env_hash.is_a?(Hash)
+        raise ArgumentError, "env must be a Hash (got #{env_hash.class})"
+      end
+      normalized_env = env_hash.each_with_object({}) do |(key, value), acc|
         string_key = key.to_s
         unless value.is_a?(String)
           raise ArgumentError, "env value for #{string_key.inspect} must be a String (got #{value.class})"
@@ -47,7 +51,7 @@ module AgentHarness
       end
       @env = normalized_env.freeze
 
-      normalized_flags = Array(flags)
+      normalized_flags = Array(flags).dup
       normalized_flags.each_with_index do |flag, index|
         unless flag.is_a?(String)
           raise ArgumentError,
@@ -56,7 +60,11 @@ module AgentHarness
       end
       @flags = normalized_flags.freeze
 
-      @metadata = (metadata || {}).freeze
+      metadata_hash = metadata || {}
+      unless metadata_hash.is_a?(Hash)
+        raise ArgumentError, "metadata must be a Hash (got #{metadata_hash.class})"
+      end
+      @metadata = metadata_hash.dup.freeze
 
       freeze
     end
@@ -66,6 +74,8 @@ module AgentHarness
     # @param hash [Hash] runtime attributes
     # @return [ProviderRuntime]
     def self.from_hash(hash)
+      raise ArgumentError, "expected a Hash, got #{hash.class}" unless hash.is_a?(Hash)
+
       new(
         model: hash[:model] || hash["model"],
         base_url: hash[:base_url] || hash["base_url"],
