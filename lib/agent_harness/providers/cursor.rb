@@ -227,10 +227,7 @@ module AgentHarness
       end
 
       def build_env(options)
-        runtime = options[:provider_runtime]
-        return {} unless runtime
-
-        runtime.env.dup
+        super
       end
 
       def default_timeout
