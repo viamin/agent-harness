@@ -112,9 +112,13 @@ module AgentHarness
         result = execute_with_timeout(command, timeout: timeout, env: build_env(options))
         duration = Time.now - start_time
 
-        # Parse response — use runtime model for the response when provided
+        # Parse response
         response = parse_response(result, duration: duration)
         runtime = options[:provider_runtime]
+        # Runtime model is a per-request override and always takes precedence
+        # over both the config-level model and whatever parse_response returned.
+        # This is intentional: callers use runtime overrides to route a single
+        # provider instance through different backends on each request.
         if runtime&.model
           response = Response.new(
             output: response.output,

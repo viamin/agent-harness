@@ -192,8 +192,11 @@ module AgentHarness
         result = @executor.execute(command, timeout: timeout, stdin_data: prompt, env: env)
         duration = Time.now - start_time
 
-        # Parse response — use runtime model for the response when provided
+        # Parse response
         response = parse_response(result, duration: duration)
+        # Runtime model is a per-request override and always takes precedence
+        # over both the config-level model and whatever parse_response returned.
+        # See Base#send_message for rationale.
         if runtime&.model
           response = Response.new(
             output: response.output,

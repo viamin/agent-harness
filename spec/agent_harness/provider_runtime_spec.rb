@@ -162,7 +162,7 @@ RSpec.describe AgentHarness::ProviderRuntime do
     end
 
     it "coerces a Hash into a ProviderRuntime" do
-      result = described_class.wrap(model: "gpt-5", base_url: "https://example.com")
+      result = described_class.wrap({model: "gpt-5", base_url: "https://example.com"})
       expect(result).to be_a(described_class)
       expect(result.model).to eq("gpt-5")
       expect(result.base_url).to eq("https://example.com")
