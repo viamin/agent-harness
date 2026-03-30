@@ -192,6 +192,78 @@ RSpec.describe "ProviderRuntime integration" do
     end
   end
 
+  describe AgentHarness::Providers::Cursor do
+    let(:provider) { described_class.new(executor: mock_executor) }
+
+    it "passes runtime env vars to the executor" do
+      runtime = AgentHarness::ProviderRuntime.new(
+        env: {"CUSTOM_KEY" => "custom_value"}
+      )
+
+      expect(mock_executor).to receive(:execute).with(
+        anything,
+        hash_including(env: hash_including("CUSTOM_KEY" => "custom_value"))
+      ).and_return(success_result)
+
+      provider.send_message(prompt: "Hello", provider_runtime: runtime)
+    end
+
+    it "works without a provider_runtime" do
+      expect(mock_executor).to receive(:execute).with(
+        anything,
+        hash_including(env: {})
+      ).and_return(success_result)
+
+      provider.send_message(prompt: "Hello")
+    end
+
+    it "coerces a plain Hash into a ProviderRuntime" do
+      expect(mock_executor).to receive(:execute).with(
+        anything,
+        hash_including(env: hash_including("MY_VAR" => "value"))
+      ).and_return(success_result)
+
+      provider.send_message(
+        prompt: "Hello",
+        provider_runtime: {env: {"MY_VAR" => "value"}}
+      )
+    end
+
+    it "appends runtime flags to the command" do
+      runtime = AgentHarness::ProviderRuntime.new(flags: ["--verbose"])
+
+      expect(mock_executor).to receive(:execute).with(
+        ["cursor-agent", "-p", "--verbose"],
+        anything
+      ).and_return(success_result)
+
+      provider.send_message(prompt: "Hello", provider_runtime: runtime)
+    end
+
+    it "sets model on response from runtime when response model is nil" do
+      runtime = AgentHarness::ProviderRuntime.new(model: "gpt-5-turbo")
+
+      allow(mock_executor).to receive(:execute).and_return(success_result)
+
+      response = provider.send_message(prompt: "Hello", provider_runtime: runtime)
+      expect(response.model).to eq("gpt-5-turbo")
+    end
+
+    it "still sends prompt via stdin" do
+      runtime = AgentHarness::ProviderRuntime.new(
+        env: {"CUSTOM_KEY" => "value"},
+        flags: ["--debug"]
+      )
+
+      expect(mock_executor).to receive(:execute).with(
+        ["cursor-agent", "-p", "--debug"],
+        hash_including(stdin_data: "Hello", env: hash_including("CUSTOM_KEY" => "value"))
+      ).and_return(success_result)
+
+      provider.send_message(prompt: "Hello", provider_runtime: runtime)
+    end
+  end
+
   describe AgentHarness::Providers::Codex do
     let(:provider) { described_class.new(executor: mock_executor) }
 

@@ -171,23 +171,41 @@ module AgentHarness
       def send_message(prompt:, **options)
         log_debug("send_message_start", prompt_length: prompt.length, options: options.keys)
 
+        # Coerce provider_runtime from Hash if needed (same as Base#send_message)
+        options = normalize_provider_runtime(options)
+        runtime = options[:provider_runtime]
+
         # Normalize and validate MCP servers (same as Base#send_message)
         options = normalize_mcp_servers(options)
         validate_mcp_servers!(options[:mcp_servers]) if options[:mcp_servers]&.any?
 
         # Build command (without prompt in args - we send via stdin)
         command = [self.class.binary_name, "-p"]
+        command.concat(runtime.flags) if runtime&.flags&.any?
 
         # Calculate timeout
         timeout = options[:timeout] || @config.timeout || default_timeout
 
         # Execute command with prompt on stdin
+        env = build_env(options)
         start_time = Time.now
-        result = @executor.execute(command, timeout: timeout, stdin_data: prompt)
+        result = @executor.execute(command, timeout: timeout, stdin_data: prompt, env: env)
         duration = Time.now - start_time
 
-        # Parse response
+        # Parse response — use runtime model for the response when provided
         response = parse_response(result, duration: duration)
+        if runtime&.model && response.model.nil?
+          response = Response.new(
+            output: response.output,
+            exit_code: response.exit_code,
+            duration: response.duration,
+            provider: response.provider,
+            model: runtime.model,
+            tokens: response.tokens,
+            metadata: response.metadata,
+            error: response.error
+          )
+        end
 
         # Track tokens
         track_tokens(response) if response.tokens
@@ -209,7 +227,10 @@ module AgentHarness
       end
 
       def build_env(options)
-        {}
+        runtime = options[:provider_runtime]
+        return {} unless runtime
+
+        runtime.env.dup
       end
 
       def default_timeout
