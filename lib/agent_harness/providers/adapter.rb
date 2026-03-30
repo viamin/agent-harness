@@ -80,6 +80,22 @@ module AgentHarness
         raise NotImplementedError, "#{self.class} must implement #send_message"
       end
 
+      # Provider configuration schema for app-driven setup UIs
+      #
+      # Returns metadata describing the configurable fields, supported
+      # authentication modes, and backend compatibility for this provider.
+      # Applications use this to build generic provider-entry forms without
+      # hardcoding provider-specific knowledge.
+      #
+      # @return [Hash] with :fields, :auth_modes, :openai_compatible keys
+      def configuration_schema
+        {
+          fields: [],
+          auth_modes: [auth_type],
+          openai_compatible: false
+        }
+      end
+
       # Provider capabilities
       #
       # @return [Hash] capability flags

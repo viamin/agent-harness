@@ -203,6 +203,23 @@ RSpec.describe AgentHarness::Providers::Anthropic do
       end
     end
 
+    describe "#configuration_schema" do
+      it "includes a model field" do
+        schema = provider.configuration_schema
+        model_field = schema[:fields].find { |f| f[:name] == :model }
+        expect(model_field).not_to be_nil
+        expect(model_field[:accepts_arbitrary]).to be false
+      end
+
+      it "uses oauth auth mode" do
+        expect(provider.configuration_schema[:auth_modes]).to eq([:oauth])
+      end
+
+      it "is not openai compatible" do
+        expect(provider.configuration_schema[:openai_compatible]).to be false
+      end
+    end
+
     describe "#capabilities" do
       it "includes expected capabilities" do
         caps = provider.capabilities

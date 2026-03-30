@@ -93,6 +93,14 @@ module AgentHarness
         "Cursor AI"
       end
 
+      def configuration_schema
+        {
+          fields: [],
+          auth_modes: [:oauth],
+          openai_compatible: false
+        }
+      end
+
       def capabilities
         {
           streaming: false,

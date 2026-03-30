@@ -77,6 +77,14 @@ module AgentHarness
         "GitHub Copilot CLI"
       end
 
+      def configuration_schema
+        {
+          fields: [],
+          auth_modes: [:oauth],
+          openai_compatible: false
+        }
+      end
+
       def capabilities
         {
           streaming: false,

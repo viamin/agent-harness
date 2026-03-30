@@ -52,6 +52,21 @@ RSpec.describe AgentHarness::Providers::Opencode do
       end
     end
 
+    describe "#configuration_schema" do
+      it "has no configurable fields" do
+        schema = provider.configuration_schema
+        expect(schema[:fields]).to eq([])
+      end
+
+      it "reports openai_compatible as true" do
+        expect(provider.configuration_schema[:openai_compatible]).to be true
+      end
+
+      it "uses api_key auth mode" do
+        expect(provider.configuration_schema[:auth_modes]).to eq([:api_key])
+      end
+    end
+
     describe "#capabilities" do
       it "returns minimal capabilities" do
         caps = provider.capabilities
