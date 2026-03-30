@@ -92,6 +92,8 @@ module AgentHarness
               label: "Model",
               required: false,
               hint: "Gemini model to use (e.g. gemini-2.5-pro, gemini-2.0-flash)",
+              # accepts_arbitrary is true because supports_model_family? accepts
+              # any string starting with "gemini-", not just discovered models.
               accepts_arbitrary: true
             }
           ],
