@@ -1,5 +1,13 @@
 ## [Unreleased]
 
+## [0.5.6](https://github.com/viamin/agent-harness/compare/agent-harness/v0.5.5...agent-harness/v0.5.6) (2026-03-30)
+
+
+### Bug Fixes
+
+* 53: Expose provider configuration capabilities for app-driven provider setup UIs ([#57](https://github.com/viamin/agent-harness/issues/57)) ([6aa6a02](https://github.com/viamin/agent-harness/commit/6aa6a02da14feefcad8761302d5fa8b5642a57fe))
+* 54: Add per-request provider runtime overrides for CLI-backed providers ([#55](https://github.com/viamin/agent-harness/issues/55)) ([407467a](https://github.com/viamin/agent-harness/commit/407467a6965a01494e2c4590680b2bb9ddac6dce))
+
 ## [0.5.5](https://github.com/viamin/agent-harness/compare/agent-harness/v0.5.4...agent-harness/v0.5.5) (2026-03-29)
 
 
