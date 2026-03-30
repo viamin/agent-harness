@@ -100,6 +100,33 @@ RSpec.describe "ProviderRuntime integration" do
       expect(response.model).to eq("gpt-5-turbo")
     end
 
+    it "records runtime model in token tracking when config model is nil" do
+      runtime = AgentHarness::ProviderRuntime.new(model: "gpt-5-turbo")
+
+      # Build a response with tokens so track_tokens is invoked
+      token_response = AgentHarness::Response.new(
+        output: "ok",
+        exit_code: 0,
+        duration: 1.0,
+        provider: :test_runtime,
+        model: nil,
+        tokens: {input: 10, output: 20, total: 30}
+      )
+
+      allow(mock_executor).to receive(:execute).and_return(success_result)
+      allow(provider).to receive(:parse_response).and_return(token_response)
+
+      tracker = instance_double(AgentHarness::TokenTracker)
+      allow(AgentHarness).to receive(:token_tracker).and_return(tracker)
+      allow(tracker).to receive(:record)
+
+      provider.send_message(prompt: "Hello", provider_runtime: runtime)
+
+      expect(tracker).to have_received(:record).with(
+        hash_including(model: "gpt-5-turbo")
+      )
+    end
+
     it "keeps config model when runtime model is nil" do
       config = AgentHarness::ProviderConfig.new(:test_runtime)
       config.model = "config-model"

@@ -284,7 +284,7 @@ module AgentHarness
 
         AgentHarness.token_tracker.record(
           provider: self.class.provider_name,
-          model: @config.model,
+          model: response.model || @config.model,
           input_tokens: response.tokens[:input] || 0,
           output_tokens: response.tokens[:output] || 0,
           total_tokens: response.tokens[:total]

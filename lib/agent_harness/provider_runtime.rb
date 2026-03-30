@@ -37,7 +37,14 @@ module AgentHarness
       @model = model
       @base_url = base_url
       @api_provider = api_provider
-      @env = env.transform_keys(&:to_s).freeze
+      normalized_env = env.each_with_object({}) do |(key, value), acc|
+        string_key = key.to_s
+        unless value.is_a?(String)
+          raise ArgumentError, "env value for #{string_key.inspect} must be a String (got #{value.class})"
+        end
+        acc[string_key] = value
+      end
+      @env = normalized_env.freeze
       @flags = Array(flags).freeze
       @metadata = metadata.freeze
 

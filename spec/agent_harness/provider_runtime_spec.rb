@@ -35,6 +35,16 @@ RSpec.describe AgentHarness::ProviderRuntime do
       expect(runtime.env).to eq("MY_VAR" => "val")
     end
 
+    it "raises ArgumentError for non-String env values" do
+      expect { described_class.new(env: {"PORT" => 3000}) }
+        .to raise_error(ArgumentError, /env value for "PORT" must be a String \(got Integer\)/)
+    end
+
+    it "raises ArgumentError for boolean env values" do
+      expect { described_class.new(env: {"DEBUG" => true}) }
+        .to raise_error(ArgumentError, /env value for "DEBUG" must be a String/)
+    end
+
     it "freezes the instance" do
       runtime = described_class.new(model: "gpt-5")
       expect(runtime).to be_frozen
