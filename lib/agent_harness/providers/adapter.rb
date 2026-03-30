@@ -75,6 +75,9 @@ module AgentHarness
       # @option options [Integer] :timeout timeout in seconds
       # @option options [String] :session session identifier
       # @option options [Boolean] :dangerous_mode skip permission checks
+      # @option options [ProviderRuntime, Hash, nil] :provider_runtime per-request
+      #   runtime overrides (model, base_url, api_provider, env, flags, metadata).
+      #   A plain Hash is automatically coerced into a ProviderRuntime.
       # @return [Response] response object with output and metadata
       def send_message(prompt:, **options)
         raise NotImplementedError, "#{self.class} must implement #send_message"

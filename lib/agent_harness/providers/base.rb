@@ -87,9 +87,15 @@ module AgentHarness
       #
       # @param prompt [String] the prompt to send
       # @param options [Hash] additional options
+      # @option options [ProviderRuntime, Hash, nil] :provider_runtime per-request
+      #   runtime overrides (model, base_url, api_provider, env, flags, metadata).
+      #   A plain Hash is automatically coerced into a ProviderRuntime.
       # @return [Response] the response
       def send_message(prompt:, **options)
         log_debug("send_message_start", prompt_length: prompt.length, options: options.keys)
+
+        # Coerce provider_runtime from Hash if needed
+        options = normalize_provider_runtime(options)
 
         # Normalize and validate MCP servers
         options = normalize_mcp_servers(options)
@@ -106,8 +112,21 @@ module AgentHarness
         result = execute_with_timeout(command, timeout: timeout, env: build_env(options))
         duration = Time.now - start_time
 
-        # Parse response
+        # Parse response — use runtime model for the response when provided
         response = parse_response(result, duration: duration)
+        runtime = options[:provider_runtime]
+        if runtime&.model && response.model.nil?
+          response = Response.new(
+            output: response.output,
+            exit_code: response.exit_code,
+            duration: response.duration,
+            provider: response.provider,
+            model: runtime.model,
+            tokens: response.tokens,
+            metadata: response.metadata,
+            error: response.error
+          )
+        end
 
         # Track tokens
         track_tokens(response) if response.tokens
@@ -158,10 +177,16 @@ module AgentHarness
 
       # Build environment variables - override in subclasses
       #
+      # Provider subclasses should call +super+ and merge their own env vars
+      # so that ProviderRuntime env overrides are always included.
+      #
       # @param options [Hash] options
       # @return [Hash] environment variables
       def build_env(options)
-        {}
+        runtime = options[:provider_runtime]
+        return {} unless runtime
+
+        runtime.env.dup
       end
 
       # Parse CLI output into Response - override in subclasses
@@ -210,6 +235,13 @@ module AgentHarness
       end
 
       private
+
+      def normalize_provider_runtime(options)
+        raw = options[:provider_runtime]
+        return options if raw.nil? || raw.is_a?(ProviderRuntime)
+
+        options.merge(provider_runtime: ProviderRuntime.wrap(raw))
+      end
 
       def normalize_mcp_servers(options)
         servers = options[:mcp_servers]
