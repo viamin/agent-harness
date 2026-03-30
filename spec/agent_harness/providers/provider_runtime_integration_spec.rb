@@ -137,6 +137,19 @@ RSpec.describe "ProviderRuntime integration" do
       response = provider_with_model.send_message(prompt: "Hello", provider_runtime: {})
       expect(response.model).to eq("config-model")
     end
+
+    it "prefers runtime model over config model when both are set" do
+      config = AgentHarness::ProviderConfig.new(:test_runtime)
+      config.model = "config-model"
+      provider_with_model = test_provider_class.new(config: config, executor: mock_executor)
+
+      runtime = AgentHarness::ProviderRuntime.new(model: "runtime-model")
+
+      allow(mock_executor).to receive(:execute).and_return(success_result)
+
+      response = provider_with_model.send_message(prompt: "Hello", provider_runtime: runtime)
+      expect(response.model).to eq("runtime-model")
+    end
   end
 
   describe AgentHarness::Providers::Opencode do

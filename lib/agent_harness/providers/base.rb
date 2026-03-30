@@ -115,7 +115,7 @@ module AgentHarness
         # Parse response — use runtime model for the response when provided
         response = parse_response(result, duration: duration)
         runtime = options[:provider_runtime]
-        if runtime&.model && response.model.nil?
+        if runtime&.model
           response = Response.new(
             output: response.output,
             exit_code: response.exit_code,
