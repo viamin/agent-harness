@@ -55,6 +55,16 @@ RSpec.describe AgentHarness::ProviderRuntime do
       expect(runtime.metadata).to eq({})
     end
 
+    it "raises ArgumentError when flags is not an Array" do
+      expect { described_class.new(flags: "--verbose") }
+        .to raise_error(ArgumentError, /flags must be an Array \(got String\)/)
+    end
+
+    it "coerces nil flags to empty array" do
+      runtime = described_class.new(flags: nil)
+      expect(runtime.flags).to eq([])
+    end
+
     it "raises ArgumentError for non-String flags" do
       expect { described_class.new(flags: ["--verbose", 42]) }
         .to raise_error(ArgumentError, /flags must be an Array of Strings.*index 1.*42/)

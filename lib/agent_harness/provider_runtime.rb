@@ -51,7 +51,11 @@ module AgentHarness
       end
       @env = normalized_env.freeze
 
-      normalized_flags = Array(flags).dup
+      normalized_flags = flags || []
+      unless normalized_flags.is_a?(Array)
+        raise ArgumentError, "flags must be an Array (got #{normalized_flags.class})"
+      end
+      normalized_flags = normalized_flags.dup
       normalized_flags.each_with_index do |flag, index|
         unless flag.is_a?(String)
           raise ArgumentError,
