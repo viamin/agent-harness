@@ -53,11 +53,9 @@ RSpec.describe AgentHarness::Providers::Cursor do
     subject(:provider) { described_class.new }
 
     describe "#configuration_schema" do
-      it "includes a model field" do
+      it "has no configurable fields" do
         schema = provider.configuration_schema
-        model_field = schema[:fields].find { |f| f[:name] == :model }
-        expect(model_field).not_to be_nil
-        expect(model_field[:accepts_arbitrary]).to be false
+        expect(schema[:fields]).to eq([])
       end
 
       it "uses oauth auth mode" do

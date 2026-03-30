@@ -49,23 +49,7 @@ module AgentHarness
 
       def configuration_schema
         {
-          fields: [
-            {
-              name: :model,
-              type: :string,
-              label: "Model",
-              required: false,
-              hint: "Model identifier (any valid model string accepted by the backend)",
-              accepts_arbitrary: true
-            },
-            {
-              name: :base_url,
-              type: :url,
-              label: "Base URL",
-              required: false,
-              hint: "Custom API base URL (e.g. an OpenRouter or other OpenAI-compatible endpoint)"
-            }
-          ],
+          fields: [],
           auth_modes: [:api_key],
           openai_compatible: true
         }

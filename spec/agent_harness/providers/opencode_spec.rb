@@ -53,16 +53,9 @@ RSpec.describe AgentHarness::Providers::Opencode do
     end
 
     describe "#configuration_schema" do
-      it "includes model and base_url fields" do
+      it "has no configurable fields" do
         schema = provider.configuration_schema
-        field_names = schema[:fields].map { |f| f[:name] }
-        expect(field_names).to include(:model, :base_url)
-      end
-
-      it "marks model as accepting arbitrary values" do
-        schema = provider.configuration_schema
-        model_field = schema[:fields].find { |f| f[:name] == :model }
-        expect(model_field[:accepts_arbitrary]).to be true
+        expect(schema[:fields]).to eq([])
       end
 
       it "reports openai_compatible as true" do

@@ -61,16 +61,7 @@ module AgentHarness
 
       def configuration_schema
         {
-          fields: [
-            {
-              name: :model,
-              type: :string,
-              label: "Model",
-              required: false,
-              hint: "Model identifier to use",
-              accepts_arbitrary: false
-            }
-          ],
+          fields: [],
           auth_modes: [:api_key],
           openai_compatible: true
         }
