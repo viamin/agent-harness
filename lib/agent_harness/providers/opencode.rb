@@ -88,8 +88,23 @@ module AgentHarness
 
       def build_command(prompt, options)
         cmd = [self.class.binary_name, "run"]
+
+        runtime = options[:provider_runtime]
+        if runtime
+          cmd += runtime.flags unless runtime.flags.empty?
+        end
+
         cmd << prompt
         cmd
+      end
+
+      def build_env(options)
+        env = super
+        runtime = options[:provider_runtime]
+        return env unless runtime
+
+        env["OPENAI_BASE_URL"] = runtime.base_url if runtime.base_url
+        env
       end
 
       def default_timeout
