@@ -45,6 +45,26 @@ RSpec.describe AgentHarness::ProviderRuntime do
         .to raise_error(ArgumentError, /env value for "DEBUG" must be a String/)
     end
 
+    it "coerces nil env to empty hash" do
+      runtime = described_class.new(env: nil)
+      expect(runtime.env).to eq({})
+    end
+
+    it "coerces nil metadata to empty hash" do
+      runtime = described_class.new(metadata: nil)
+      expect(runtime.metadata).to eq({})
+    end
+
+    it "raises ArgumentError for non-String flags" do
+      expect { described_class.new(flags: ["--verbose", 42]) }
+        .to raise_error(ArgumentError, /flags must be an Array of Strings.*index 1.*42/)
+    end
+
+    it "raises ArgumentError when flags contain a Hash" do
+      expect { described_class.new(flags: [{key: "val"}]) }
+        .to raise_error(ArgumentError, /flags must be an Array of Strings/)
+    end
+
     it "freezes the instance" do
       runtime = described_class.new(model: "gpt-5")
       expect(runtime).to be_frozen

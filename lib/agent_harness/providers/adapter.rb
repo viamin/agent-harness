@@ -77,7 +77,9 @@ module AgentHarness
       # @option options [Boolean] :dangerous_mode skip permission checks
       # @option options [ProviderRuntime, Hash, nil] :provider_runtime per-request
       #   runtime overrides (model, base_url, api_provider, env, flags, metadata).
-      #   A plain Hash is automatically coerced into a ProviderRuntime.
+      #   For providers that delegate to Providers::Base#send_message, a plain Hash
+      #   is automatically coerced into a ProviderRuntime. Providers that override
+      #   #send_message directly are responsible for handling this option.
       # @return [Response] response object with output and metadata
       def send_message(prompt:, **options)
         raise NotImplementedError, "#{self.class} must implement #send_message"
