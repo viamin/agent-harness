@@ -252,7 +252,9 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
 
         expect(result[:name]).to eq(:test_provider)
         expect(result[:status]).to eq("ok")
-        expect(result[:message]).to include("Registered and authenticated")
+        expect(result[:message]).to eq(
+          "Registered, authenticated, and smoke test passed (health/config checks use defaults)"
+        )
         expect(result[:check]).to eq(:smoke_test)
         expect(result[:latency_ms]).to be_a(Integer)
         expect(result[:latency_ms]).to be >= 0
@@ -337,8 +339,7 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
 
         expect(result[:name]).to eq(:test_provider)
         expect(result[:status]).to eq("degraded")
-        expect(result[:message]).to include("not implemented")
-        expect(result[:message]).to include("health and config checks passed")
+        expect(result[:message]).to eq("Auth status check not implemented; health, config, and smoke tests passed")
       end
     end
 
@@ -377,7 +378,7 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
 
         expect(result[:name]).to eq(:test_provider)
         expect(result[:status]).to eq("degraded")
-        expect(result[:message]).to include("not implemented")
+        expect(result[:message]).to eq("Auth status check not implemented; health, config, and smoke tests passed")
       end
     end
 
@@ -416,7 +417,7 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
 
         expect(result[:name]).to eq(:test_provider)
         expect(result[:status]).to eq("degraded")
-        expect(result[:message]).to include("not implemented")
+        expect(result[:message]).to eq("Auth status check not implemented; health, config, and smoke tests passed")
       end
     end
 
@@ -926,14 +927,18 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
       expect(results).to be_an(Array)
       test_result = results.find { |r| r[:name] == :test_provider }
       expect(test_result[:status]).to eq("ok")
-      expect(test_result[:message]).to include("Registered and authenticated")
+      expect(test_result[:message]).to eq(
+        "Registered, authenticated, and smoke test passed (health/config checks use defaults)"
+      )
     end
 
     it "exposes check_provider on the module" do
       result = AgentHarness.check_provider(:test_provider)
       expect(result[:name]).to eq(:test_provider)
       expect(result[:status]).to eq("ok")
-      expect(result[:message]).to include("Registered and authenticated")
+      expect(result[:message]).to eq(
+        "Registered, authenticated, and smoke test passed (health/config checks use defaults)"
+      )
     end
 
     it "exposes smoke_test_contract on the module" do

@@ -261,7 +261,7 @@ module AgentHarness
           return build_result(
             name: provider_name,
             status: "degraded",
-            message: "Auth status check not implemented; health and config checks passed",
+            message: "Auth status check not implemented; health, config, and smoke tests passed",
             start_time: start_time,
             error_category: :authentication,
             check: :authentication
@@ -272,7 +272,7 @@ module AgentHarness
             provider_overrides_method?(provider_instance, :validate_config)
           "All checks passed"
         else
-          "Registered and authenticated (health/config checks use defaults)"
+          "Registered, authenticated, and smoke test passed (health/config checks use defaults)"
         end
 
         build_result(
