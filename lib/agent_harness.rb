@@ -83,6 +83,15 @@ module AgentHarness
       conductor.provider_manager.get_provider(name)
     end
 
+    # Returns install metadata for a provider CLI when the provider exposes it.
+    #
+    # @param provider_name [Symbol, String] the provider name
+    # @param version [String, nil] optional explicit CLI version override
+    # @return [Hash, nil] installation metadata
+    def provider_install_contract(provider_name, version: nil)
+      provider_installation_contract(provider_name, **(version ? {version: version} : {}))
+    end
+
     # Get the installation contract for a provider CLI.
     #
     # @param name [Symbol, String] the provider name

@@ -90,6 +90,16 @@ RSpec.describe AgentHarness::Providers::Registry do
       expect(contract[:default_version]).to eq("7.1.3")
     end
 
+    it "falls back to the legacy provider install contract API when needed" do
+      contract = registry.installation_contract(:gemini, version: "0.35.3")
+
+      expect(contract).to include(
+        provider: :gemini,
+        package_name: "@google/gemini-cli",
+        resolved_version: "0.35.3"
+      )
+    end
+
     it "forwards target selection options to the provider" do
       contract = registry.installation_contract(:kilocode, version: "7.1.3")
 
