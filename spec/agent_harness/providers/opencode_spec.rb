@@ -58,6 +58,24 @@ RSpec.describe AgentHarness::Providers::Opencode do
       }.to raise_error(ArgumentError, /Unsupported OpenCode CLI version "not-a-version"/)
     end
 
+    it "rejects nil versions with the provider-specific error" do
+      expect {
+        described_class.installation_contract(version: nil)
+      }.to raise_error(ArgumentError, /Unsupported OpenCode CLI version nil/)
+    end
+
+    it "rejects blank versions with the provider-specific error" do
+      expect {
+        described_class.installation_contract(version: "")
+      }.to raise_error(ArgumentError, /Unsupported OpenCode CLI version ""/)
+    end
+
+    it "rejects non-string versions with the provider-specific error" do
+      expect {
+        described_class.installation_contract(version: 1.3)
+      }.to raise_error(ArgumentError, /Unsupported OpenCode CLI version 1\.3/)
+    end
+
     it "deep-freezes nested contract values" do
       contract = described_class.installation_contract
 
@@ -91,6 +109,12 @@ RSpec.describe AgentHarness::Providers::Opencode do
       expect {
         described_class.install_command(version: "not-a-version")
       }.to raise_error(ArgumentError, /Unsupported OpenCode CLI version "not-a-version"/)
+    end
+
+    it "rejects nil version overrides with the provider-specific error" do
+      expect {
+        described_class.install_command(version: nil)
+      }.to raise_error(ArgumentError, /Unsupported OpenCode CLI version nil/)
     end
   end
 
