@@ -166,21 +166,26 @@ The Kilocode runtime adapter expects the `kilo` binary and executes prompts via
 `kilo run ...`, so the install contract and runtime behavior stay aligned in
 tests.
 
-Providers with fixed install metadata can also be queried through the generic
-API:
+Providers that expose installation contracts can also be queried through the
+generic API:
 
 ```ruby
-codex_install = AgentHarness.installation_contract(:codex)
+opencode_install = AgentHarness.installation_contract(:opencode)
 
-codex_install
+opencode_install
 # => {
 #      source: :npm,
-#      package_name: "@openai/codex",
-#      version: "0.116.0",
-#      binary_name: "codex",
-#      install_command: ["npm", "install", "-g", "--ignore-scripts", "@openai/codex@0.116.0"]
+#      package_name: "opencode-ai",
+#      version: "1.3.2",
+#      version_requirement: [">= 1.3.2", "< 1.4.0"],
+#      binary_name: "opencode",
+#      install_command: ["npm", "install", "-g", "--ignore-scripts", "opencode-ai@1.3.2"]
 #    }
 ```
+
+For providers with install contracts, the metadata tracks the CLI version
+supported by the current `agent-harness` release, and the runtime adapter
+tests assert that the expected binary remains aligned with that contract.
 
 ### Custom Providers
 

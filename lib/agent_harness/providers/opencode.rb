@@ -6,6 +6,15 @@ module AgentHarness
     #
     # Provides integration with the OpenCode CLI tool.
     class Opencode < Base
+      CLI_PACKAGE = "opencode-ai"
+      SUPPORTED_CLI_VERSION = "1.3.2"
+      SUPPORTED_CLI_REQUIREMENT = Gem::Requirement.new(">= #{SUPPORTED_CLI_VERSION}", "< 1.4.0").freeze
+      INSTALL_COMMAND_PREFIX = ["npm", "install", "-g", "--ignore-scripts"].freeze
+      SUPPORTED_CLI_VERSIONS = [SUPPORTED_CLI_VERSION].freeze
+      VERSION_REQUIREMENT_STRINGS = SUPPORTED_CLI_REQUIREMENT.requirements
+        .map { |op, ver| "#{op} #{ver}".freeze }
+        .freeze
+
       class << self
         def provider_name
           :opencode
@@ -37,7 +46,61 @@ module AgentHarness
           return [] unless available?
           []
         end
+
+        def installation_contract(version: SUPPORTED_CLI_VERSION)
+          normalized_version = normalize_install_version(version)
+          return DEFAULT_INSTALLATION_CONTRACT if normalized_version == SUPPORTED_CLI_VERSION
+
+          build_installation_contract(normalized_version)
+        end
+
+        def install_command(version: SUPPORTED_CLI_VERSION)
+          installation_contract(version: version)[:install_command]
+        end
+
+        private
+
+        def build_installation_contract(version)
+          package = "#{CLI_PACKAGE}@#{version}".freeze
+          install_command = (INSTALL_COMMAND_PREFIX + [package]).freeze
+
+          contract = {
+            source: :npm,
+            package: package,
+            package_name: CLI_PACKAGE,
+            version: version,
+            version_requirement: VERSION_REQUIREMENT_STRINGS,
+            binary_name: binary_name,
+            install_command_prefix: INSTALL_COMMAND_PREFIX,
+            install_command: install_command,
+            supported_versions: SUPPORTED_CLI_VERSIONS
+          }
+
+          contract.each_value do |value|
+            value.freeze if value.is_a?(String)
+          end
+          contract.freeze
+        end
+
+        def normalize_install_version(version)
+          raise ArgumentError, unsupported_version_message(version) unless version.is_a?(String) && !version.strip.empty?
+
+          normalized_version = version.strip
+          parsed_version = Gem::Version.new(normalized_version)
+          return normalized_version if SUPPORTED_CLI_REQUIREMENT.satisfied_by?(parsed_version)
+
+          raise ArgumentError, unsupported_version_message(version)
+        rescue ArgumentError
+          raise ArgumentError, unsupported_version_message(version)
+        end
+
+        def unsupported_version_message(version)
+          "Unsupported OpenCode CLI version #{version.inspect}; " \
+            "supported versions must satisfy #{SUPPORTED_CLI_REQUIREMENT}"
+        end
       end
+
+      DEFAULT_INSTALLATION_CONTRACT = build_installation_contract(SUPPORTED_CLI_VERSION)
 
       def name
         "opencode"
@@ -87,7 +150,7 @@ module AgentHarness
       protected
 
       def build_command(prompt, options)
-        cmd = [self.class.binary_name, "run"]
+        cmd = [self.class.installation_contract[:binary_name], "run"]
 
         runtime = options[:provider_runtime]
         if runtime
