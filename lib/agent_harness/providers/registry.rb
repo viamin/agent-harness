@@ -79,6 +79,34 @@ module AgentHarness
         @providers.select { |_, klass| klass.available? }.keys
       end
 
+      # Fetch installation metadata for a provider.
+      #
+      # @param name [Symbol, String] the provider name
+      # @param options [Hash] optional target selection (for example, `version:`)
+      # @return [Hash, nil] provider installation contract, or nil when the
+      #   registered provider class does not define `.installation_contract`
+      # @raise [ConfigurationError] if provider not found
+      def installation_contract(name, **options)
+        provider_class = get(name)
+        return nil unless provider_class.respond_to?(:installation_contract)
+
+        provider_class.installation_contract(**options)
+      end
+
+      # Get installation metadata for all providers that expose it.
+      #
+      # @return [Hash<Symbol, Hash>] installation contracts keyed by provider
+      def installation_contracts
+        ensure_builtin_providers_registered
+
+        @providers.each_with_object({}) do |(name, klass), contracts|
+          next unless klass.respond_to?(:installation_contract)
+
+          contract = klass.installation_contract
+          contracts[name] = contract if contract
+        end
+      end
+
       # Reset registry (useful for testing)
       #
       # @return [void]

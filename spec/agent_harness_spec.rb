@@ -47,6 +47,26 @@ RSpec.describe AgentHarness do
     end
   end
 
+  describe ".provider_installation_contract" do
+    it "delegates to the provider registry" do
+      contract = {binary_name: "kilo"}
+
+      expect(AgentHarness::Providers::Registry.instance)
+        .to receive(:installation_contract).with(:kilocode).and_return(contract)
+
+      expect(AgentHarness.provider_installation_contract(:kilocode)).to eq(contract)
+    end
+
+    it "forwards target selection options to the provider registry" do
+      contract = {binary_name: "kilo", default_version: "7.1.3"}
+
+      expect(AgentHarness::Providers::Registry.instance)
+        .to receive(:installation_contract).with(:kilocode, version: "7.1.3").and_return(contract)
+
+      expect(AgentHarness.provider_installation_contract(:kilocode, version: "7.1.3")).to eq(contract)
+    end
+  end
+
   describe ".auth_valid?" do
     it "delegates to Authentication module" do
       expect(AgentHarness::Authentication).to receive(:auth_valid?).with(:claude).and_return(true)
@@ -73,32 +93,81 @@ RSpec.describe AgentHarness do
       end
     end
 
-    it "delegates to the registered provider class" do
+    after do
+      AgentHarness::Providers::Registry.instance.reset!
+    end
+
+    it "delegates to the provider installation API" do
       contract = {provider: :gemini}
-      expect(AgentHarness::Providers::Registry.instance).to receive(:get).with(:gemini).and_return(AgentHarness::Providers::Gemini)
-      expect(AgentHarness::Providers::Gemini).to receive(:install_contract).and_return(contract)
+
+      expect(AgentHarness).to receive(:provider_installation_contract).with(:gemini).and_return(contract)
 
       expect(AgentHarness.provider_install_contract(:gemini)).to eq(contract)
     end
 
     it "passes through an explicit version override" do
       contract = {provider: :gemini, resolved_version: "0.35.3"}
-      expect(AgentHarness::Providers::Registry.instance).to receive(:get).with(:gemini).and_return(AgentHarness::Providers::Gemini)
-      expect(AgentHarness::Providers::Gemini).to receive(:install_contract).with(version: "0.35.3").and_return(contract)
+
+      expect(AgentHarness).to receive(:provider_installation_contract).with(:gemini, version: "0.35.3").and_return(contract)
 
       expect(AgentHarness.provider_install_contract(:gemini, version: "0.35.3")).to eq(contract)
     end
 
     it "returns nil when the provider has no install contract and version is supplied" do
-      expect(AgentHarness::Providers::Registry.instance).to receive(:get).with(:no_contract).and_return(provider_without_contract)
+      expect(AgentHarness::Providers::Registry.instance)
+        .to receive(:installation_contract).with(:no_contract, version: "0.35.3").and_return(nil)
 
       expect(AgentHarness.provider_install_contract(:no_contract, version: "0.35.3")).to be_nil
     end
 
     it "returns nil when the provider has no install contract and no version is supplied" do
-      expect(AgentHarness::Providers::Registry.instance).to receive(:get).with(:no_contract).and_return(provider_without_contract)
+      expect(AgentHarness::Providers::Registry.instance)
+        .to receive(:installation_contract).with(:no_contract).and_return(nil)
 
       expect(AgentHarness.provider_install_contract(:no_contract)).to be_nil
+    end
+
+    it "returns nil for a registry-accepted provider class without adapter install APIs" do
+      AgentHarness::Providers::Registry.instance.register(:no_contract, provider_without_contract)
+
+      expect(AgentHarness.provider_install_contract(:no_contract)).to be_nil
+      expect(AgentHarness.provider_install_contract(:no_contract, version: "0.35.3")).to be_nil
+    end
+  end
+
+  describe ".installation_contract" do
+    it "returns provider install metadata" do
+      contract = AgentHarness.installation_contract(:codex)
+
+      expect(contract).to include(
+        source: :npm,
+        package_name: "@openai/codex",
+        binary_name: "codex"
+      )
+    end
+
+    it "raises ConfigurationError for an unknown provider" do
+      expect {
+        AgentHarness.installation_contract(:nonexistent_provider_xyz)
+      }.to raise_error(AgentHarness::ConfigurationError, /Unknown provider/)
+    end
+
+    it "forwards target selection options to the provider registry" do
+      contract = {binary_name: "kilo", default_version: "7.1.3"}
+
+      expect(AgentHarness::Providers::Registry.instance)
+        .to receive(:installation_contract).with(:kilocode, version: "7.1.3").and_return(contract)
+
+      expect(AgentHarness.installation_contract(:kilocode, version: "7.1.3")).to eq(contract)
+    end
+  end
+
+  describe ".installation_contracts" do
+    it "returns all registered provider installation contracts" do
+      contracts = AgentHarness.installation_contracts
+
+      expect(contracts).to include(:codex)
+      expect(contracts).to include(:gemini)
     end
   end
 

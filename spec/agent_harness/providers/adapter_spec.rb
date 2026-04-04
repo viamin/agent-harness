@@ -31,6 +31,90 @@ RSpec.describe AgentHarness::Providers::Adapter do
   end
 
   let(:adapter) { adapter_class.new }
+  let(:installing_adapter_class) do
+    Class.new do
+      include AgentHarness::Providers::Adapter
+
+      class << self
+        def provider_name
+          :installing_adapter
+        end
+
+        def available?
+          true
+        end
+
+        def binary_name
+          "installer"
+        end
+
+        def installation_contract
+          {
+            package: "@scope/pkg@1.0.0",
+            package_name: "@scope/pkg",
+            install_command_prefix: ["npm", "install", "-g"],
+            install_command: ["npm", "install", "-g", "@scope/pkg@1.0.0"]
+          }
+        end
+      end
+    end
+  end
+
+  let(:package_only_installing_adapter_class) do
+    Class.new do
+      include AgentHarness::Providers::Adapter
+
+      class << self
+        def provider_name
+          :package_only_installing_adapter
+        end
+
+        def available?
+          true
+        end
+
+        def binary_name
+          "installer"
+        end
+
+        def installation_contract
+          {
+            package: "@scope/pkg@1.0.0",
+            install_command_prefix: ["npm", "install", "-g"],
+            install_command: ["npm", "install", "-g", "@scope/pkg@1.0.0"]
+          }
+        end
+      end
+    end
+  end
+
+  let(:legacy_install_contract_adapter_class) do
+    Class.new do
+      include AgentHarness::Providers::Adapter
+
+      class << self
+        def provider_name
+          :legacy_install_contract_adapter
+        end
+
+        def available?
+          true
+        end
+
+        def binary_name
+          "legacy-installer"
+        end
+
+        def install_contract(version: "1.0.0")
+          {
+            package_name: "@scope/legacy-installer",
+            binary_name: binary_name,
+            resolved_version: version
+          }
+        end
+      end
+    end
+  end
 
   describe "ClassMethods" do
     describe ".provider_name" do
@@ -76,6 +160,53 @@ RSpec.describe AgentHarness::Providers::Adapter do
     describe ".discover_models" do
       it "returns empty array by default" do
         expect(adapter_class.discover_models).to eq([])
+      end
+    end
+
+    describe ".installation_contract" do
+      it "returns nil by default" do
+        expect(adapter_class.installation_contract).to be_nil
+      end
+
+      it "ignores forwarded keyword arguments by default" do
+        expect(adapter_class.installation_contract(version: "1.2.3")).to be_nil
+      end
+
+      it "falls back to the legacy install_contract API" do
+        expect(legacy_install_contract_adapter_class.installation_contract).to include(
+          package_name: "@scope/legacy-installer",
+          resolved_version: "1.0.0"
+        )
+      end
+
+      it "forwards the version option to the legacy install_contract API" do
+        expect(legacy_install_contract_adapter_class.installation_contract(version: "2.3.4")).to include(
+          resolved_version: "2.3.4"
+        )
+      end
+    end
+
+    describe ".install_command" do
+      it "returns nil by default" do
+        expect(adapter_class.install_command).to be_nil
+      end
+
+      it "returns the contract install_command when no override is provided" do
+        expect(installing_adapter_class.install_command).to eq(
+          ["npm", "install", "-g", "@scope/pkg@1.0.0"]
+        )
+      end
+
+      it "builds an explicit version override from package_name" do
+        expect(installing_adapter_class.install_command(version: "1.2.3")).to eq(
+          ["npm", "install", "-g", "@scope/pkg@1.2.3"]
+        )
+      end
+
+      it "raises when version override is requested without package_name" do
+        expect {
+          package_only_installing_adapter_class.install_command(version: "1.2.3")
+        }.to raise_error(ArgumentError, /must define :package_name/)
       end
     end
   end

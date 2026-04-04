@@ -78,6 +78,104 @@ RSpec.describe AgentHarness::Providers::Registry do
     end
   end
 
+  describe "#installation_contract" do
+    it "returns install metadata for builtin providers that expose it" do
+      contract = registry.installation_contract(:kilocode)
+
+      expect(contract[:source]).to eq({
+        type: :npm,
+        package: "@kilocode/cli"
+      })
+      expect(contract[:binary_name]).to eq("kilo")
+      expect(contract[:default_version]).to eq("7.1.3")
+    end
+
+    it "falls back to the legacy provider install contract API when needed" do
+      contract = registry.installation_contract(:gemini, version: "0.35.3")
+
+      expect(contract).to include(
+        provider: :gemini,
+        package_name: "@google/gemini-cli",
+        resolved_version: "0.35.3"
+      )
+    end
+
+    it "forwards target selection options to the provider" do
+      contract = registry.installation_contract(:kilocode, version: "7.1.3")
+
+      expect(contract[:install_command]).to eq(
+        ["npm", "install", "-g", "--ignore-scripts", "@kilocode/cli@7.1.3"]
+      )
+    end
+
+    it "returns nil for registered providers without installation contract support" do
+      provider_without_install_contract = Class.new do
+        def self.provider_name
+          :legacy_provider
+        end
+
+        def self.available?
+          true
+        end
+
+        def self.binary_name
+          "legacy"
+        end
+      end
+
+      registry.register(:legacy_provider, provider_without_install_contract)
+
+      expect(registry.installation_contract(:legacy_provider)).to be_nil
+    end
+
+    it "returns install metadata for providers with a generic contract" do
+      contract = registry.installation_contract(:codex)
+
+      expect(contract).to include(
+        source: :npm,
+        package_name: "@openai/codex",
+        binary_name: "codex"
+      )
+    end
+
+    it "raises ConfigurationError for unknown providers" do
+      expect {
+        registry.installation_contract(:nonexistent_provider_xyz)
+      }.to raise_error(AgentHarness::ConfigurationError, /Unknown provider/)
+    end
+
+    it "returns nil for a registered provider without install metadata" do
+      registry.register(:test, Class.new do
+        def self.provider_name = :test
+        def self.available? = true
+        def self.binary_name = "test"
+      end)
+
+      expect(registry.installation_contract(:test)).to be_nil
+    end
+  end
+
+  describe "#installation_contracts" do
+    it "returns providers with installation contracts" do
+      contracts = registry.installation_contracts
+
+      expect(contracts).to include(:codex)
+      expect(contracts[:codex][:install_command]).to eq(
+        ["npm", "install", "-g", "--ignore-scripts", "@openai/codex@0.116.0"]
+      )
+    end
+
+    it "skips registered providers without install metadata" do
+      registry.register(:test, Class.new do
+        def self.provider_name = :test
+        def self.available? = true
+        def self.binary_name = "test"
+      end)
+
+      expect(registry.installation_contracts).not_to include(:test)
+    end
+  end
+
   describe "#reset!" do
     it "clears all registrations" do
       registry.send(:ensure_builtin_providers_registered)
