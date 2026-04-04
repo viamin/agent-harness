@@ -124,7 +124,8 @@ end
 # Ask the harness which Claude CLI install contract it supports
 contract = AgentHarness.install_contract(:claude)
 puts contract[:install][:command]
-puts contract[:install][:post_install_binary_path]
+post_install_path = contract[:install][:post_install_binary_path]
+puts File.expand_path(post_install_path)
 puts contract[:supported_versions][:default]
 
 # List all registered providers

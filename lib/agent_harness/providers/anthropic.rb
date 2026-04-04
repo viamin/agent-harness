@@ -39,7 +39,8 @@ module AgentHarness
             install: {
               strategy: :shell,
               source: "official",
-              command: "curl -fsSL https://claude.ai/install.sh | bash",
+              command: "tmp_script=$(mktemp) && trap 'rm -f \"$tmp_script\"' EXIT && curl -fsSL https://claude.ai/install.sh -o \"$tmp_script\" && bash \"$tmp_script\"",
+              warning: "Review the downloaded installer before execution and verify any published checksum or signature metadata when available.",
               post_install_binary_path: local_binary_path
             },
             supported_versions: {

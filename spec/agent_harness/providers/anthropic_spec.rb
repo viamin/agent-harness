@@ -22,7 +22,12 @@ RSpec.describe AgentHarness::Providers::Anthropic do
       expect(contract[:binary_name]).to eq("claude")
       expect(contract[:binary_paths]).to include("/usr/local/bin/claude", local_binary_path, "claude")
       expect(contract.dig(:install, :strategy)).to eq(:shell)
-      expect(contract.dig(:install, :command)).to eq("curl -fsSL https://claude.ai/install.sh | bash")
+      expect(contract.dig(:install, :command)).to eq(
+        "tmp_script=$(mktemp) && trap 'rm -f \"$tmp_script\"' EXIT && curl -fsSL https://claude.ai/install.sh -o \"$tmp_script\" && bash \"$tmp_script\""
+      )
+      expect(contract.dig(:install, :warning)).to eq(
+        "Review the downloaded installer before execution and verify any published checksum or signature metadata when available."
+      )
       expect(contract.dig(:install, :post_install_binary_path)).to eq(local_binary_path)
       expect(contract.dig(:supported_versions, :default)).to eq("latest")
       expect(contract.dig(:supported_versions, :requirement)).to eq("latest")
