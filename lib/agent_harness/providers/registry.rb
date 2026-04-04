@@ -93,6 +93,20 @@ module AgentHarness
         provider_class.installation_contract(**options)
       end
 
+      # Get installation metadata for all providers that expose it.
+      #
+      # @return [Hash<Symbol, Hash>] installation contracts keyed by provider
+      def installation_contracts
+        ensure_builtin_providers_registered
+
+        @providers.each_with_object({}) do |(name, klass), contracts|
+          next unless klass.respond_to?(:installation_contract)
+
+          contract = klass.installation_contract
+          contracts[name] = contract if contract
+        end
+      end
+
       # Reset registry (useful for testing)
       #
       # @return [void]

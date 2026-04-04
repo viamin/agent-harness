@@ -44,6 +44,20 @@ RSpec.describe AgentHarness::Providers::Kilocode do
     end
   end
 
+  describe ".install_command" do
+    it "returns the install command for the default supported version" do
+      expect(described_class.install_command).to eq(
+        ["npm", "install", "-g", "--ignore-scripts", "@kilocode/cli@7.1.3"]
+      )
+    end
+
+    it "supports an explicit supported version" do
+      expect(described_class.install_command(version: "7.1.3")).to eq(
+        ["npm", "install", "-g", "--ignore-scripts", "@kilocode/cli@7.1.3"]
+      )
+    end
+  end
+
   describe ".firewall_requirements" do
     it "returns empty arrays" do
       requirements = described_class.firewall_requirements

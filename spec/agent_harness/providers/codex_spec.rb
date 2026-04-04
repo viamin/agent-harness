@@ -16,6 +16,54 @@ RSpec.describe AgentHarness::Providers::Codex do
     end
   end
 
+  describe ".installation_contract" do
+    it "exposes Codex CLI install metadata" do
+      contract = described_class.installation_contract
+
+      expect(contract).to include(
+        source: :npm,
+        package_name: "@openai/codex",
+        version: "0.116.0",
+        binary_name: "codex"
+      )
+      expect(contract[:package]).to eq("@openai/codex@0.116.0")
+      expect(contract[:supported_versions]).to eq(["0.116.0"])
+      expect(contract[:version_requirement]).to eq([">= 0.116.0", "< 0.117.0"])
+      expect(contract[:install_command]).to eq(
+        ["npm", "install", "-g", "--ignore-scripts", "@openai/codex@0.116.0"]
+      )
+    end
+
+    it "keeps the runtime binary aligned with the install contract" do
+      contract = described_class.installation_contract
+
+      expect(contract[:binary_name]).to eq(described_class.binary_name)
+    end
+
+    it "deep-freezes nested contract values" do
+      contract = described_class.installation_contract
+
+      expect { contract[:install_command_prefix] << "codex" }.to raise_error(FrozenError)
+      expect { contract[:install_command] << "codex" }.to raise_error(FrozenError)
+      expect { contract[:supported_versions] << "0.115.0" }.to raise_error(FrozenError)
+      expect { contract[:version_requirement] << ">= 0.115.0" }.to raise_error(FrozenError)
+    end
+  end
+
+  describe ".install_command" do
+    it "builds the default install command from the contract" do
+      expect(described_class.install_command).to eq(
+        ["npm", "install", "-g", "--ignore-scripts", "@openai/codex@0.116.0"]
+      )
+    end
+
+    it "supports explicit version overrides" do
+      expect(described_class.install_command(version: "0.115.0")).to eq(
+        ["npm", "install", "-g", "--ignore-scripts", "@openai/codex@0.115.0"]
+      )
+    end
+  end
+
   describe ".firewall_requirements" do
     it "returns required domains" do
       requirements = described_class.firewall_requirements

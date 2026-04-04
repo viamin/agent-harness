@@ -66,14 +66,33 @@ module AgentHarness
 
         # Installation contract for this provider's CLI.
         #
-        # Returns metadata that downstream apps can use to provision the
-        # provider CLI without hardcoding package names, versions, or binary
-        # expectations outside agent-harness.
+        # Downstream apps can use this metadata to provision the provider CLI
+        # without hardcoding package names, versions, or binary expectations
+        # outside agent-harness.
         #
         # @return [Hash, nil] install metadata, or nil when no first-class
         #   installation contract is defined for the provider
-        def installation_contract
+        def installation_contract(**_options)
           nil
+        end
+
+        # Build the install command from the provider installation contract.
+        #
+        # @param version [String, nil] optional explicit version override
+        # @return [Array<String>, nil] install command argv or nil when the
+        #   provider has no install contract
+        def install_command(version: nil)
+          contract = installation_contract
+          return nil unless contract
+
+          return contract[:install_command] unless version
+
+          package_name = contract[:package_name]
+          unless package_name
+            raise ArgumentError, "installation_contract must define :package_name when overriding version"
+          end
+
+          Array(contract[:install_command_prefix]) + ["#{package_name}@#{version}"]
         end
       end
 

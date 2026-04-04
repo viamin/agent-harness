@@ -56,6 +56,10 @@ module AgentHarness
           }
         end
 
+        def install_command(version: DEFAULT_VERSION)
+          installation_contract(version: version)[:install_command]
+        end
+
         private
 
         def validate_install_version!(version)
