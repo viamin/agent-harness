@@ -40,6 +40,16 @@ RSpec.describe AgentHarness::Providers::Registry do
       expect(registry.registered?(:t)).to be true
       expect(registry.registered?(:testing)).to be true
     end
+
+    it "replaces stale aliases when a provider is re-registered" do
+      registry.register(:test, mock_provider, aliases: [:t, :testing])
+      registry.register(:test, mock_provider, aliases: [:renamed])
+
+      expect(registry.registered?(:t)).to be false
+      expect(registry.registered?(:testing)).to be false
+      expect(registry.registered?(:renamed)).to be true
+      expect(registry.provider_metadata(:test)[:aliases]).to eq([:renamed])
+    end
   end
 
   describe "#get" do

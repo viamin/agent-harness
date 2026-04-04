@@ -34,10 +34,13 @@ module AgentHarness
         name = name.to_sym
         validate_provider_class!(klass)
 
-        @providers[name] = klass
-        @provider_aliases[name] = aliases.map(&:to_sym)
+        unregister_aliases_for(name)
 
-        aliases.each do |alias_name|
+        @providers[name] = klass
+        normalized_aliases = aliases.map(&:to_sym).uniq
+        @provider_aliases[name] = normalized_aliases
+
+        normalized_aliases.each do |alias_name|
           @aliases[alias_name.to_sym] = name
         end
 
@@ -153,6 +156,15 @@ module AgentHarness
 
       def resolve_alias(name)
         @aliases[name] || name
+      end
+
+      def unregister_aliases_for(name)
+        previous_aliases = @provider_aliases[name]
+        return if previous_aliases.nil? || previous_aliases.empty?
+
+        previous_aliases.each do |alias_name|
+          @aliases.delete(alias_name)
+        end
       end
 
       def validate_provider_class!(klass)
