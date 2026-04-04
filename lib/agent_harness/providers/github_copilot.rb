@@ -116,7 +116,7 @@ module AgentHarness
 
       def execution_semantics
         {
-          prompt_delivery: :argument,
+          prompt_delivery: :arg,
           output_format: :text,
           sandbox_aware: false,
           uses_subcommand: true,

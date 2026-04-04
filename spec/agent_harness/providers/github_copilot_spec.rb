@@ -8,7 +8,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
   end
 
   describe ".binary_name" do
-    it "returns copilot" do
+    it "returns github-copilot-cli" do
       expect(described_class.binary_name).to eq("github-copilot-cli")
     end
   end
@@ -113,7 +113,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
     describe "#execution_semantics" do
       it "returns the full provider contract" do
         semantics = provider.execution_semantics
-        expect(semantics[:prompt_delivery]).to eq(:argument)
+        expect(semantics[:prompt_delivery]).to eq(:arg)
         expect(semantics[:output_format]).to eq(:text)
         expect(semantics[:sandbox_aware]).to be false
         expect(semantics[:uses_subcommand]).to be true
