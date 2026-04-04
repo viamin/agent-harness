@@ -88,6 +88,34 @@ RSpec.describe AgentHarness::Providers::Adapter do
     end
   end
 
+  let(:legacy_install_contract_adapter_class) do
+    Class.new do
+      include AgentHarness::Providers::Adapter
+
+      class << self
+        def provider_name
+          :legacy_install_contract_adapter
+        end
+
+        def available?
+          true
+        end
+
+        def binary_name
+          "legacy-installer"
+        end
+
+        def install_contract(version: "1.0.0")
+          {
+            package_name: "@scope/legacy-installer",
+            binary_name: binary_name,
+            resolved_version: version
+          }
+        end
+      end
+    end
+  end
+
   describe "ClassMethods" do
     describe ".provider_name" do
       it "returns the provider name" do
@@ -104,6 +132,16 @@ RSpec.describe AgentHarness::Providers::Adapter do
     describe ".binary_name" do
       it "returns the binary name" do
         expect(adapter_class.binary_name).to eq("test")
+      end
+    end
+
+    describe ".install_contract" do
+      it "returns nil by default" do
+        expect(adapter_class.install_contract).to be_nil
+      end
+
+      it "accepts an optional version keyword and still returns nil" do
+        expect(adapter_class.install_contract(version: "1.2.3")).to be_nil
       end
     end
 
@@ -132,6 +170,19 @@ RSpec.describe AgentHarness::Providers::Adapter do
 
       it "ignores forwarded keyword arguments by default" do
         expect(adapter_class.installation_contract(version: "1.2.3")).to be_nil
+      end
+
+      it "falls back to the legacy install_contract API" do
+        expect(legacy_install_contract_adapter_class.installation_contract).to include(
+          package_name: "@scope/legacy-installer",
+          resolved_version: "1.0.0"
+        )
+      end
+
+      it "forwards the version option to the legacy install_contract API" do
+        expect(legacy_install_contract_adapter_class.installation_contract(version: "2.3.4")).to include(
+          resolved_version: "2.3.4"
+        )
       end
     end
 
