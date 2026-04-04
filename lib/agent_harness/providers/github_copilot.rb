@@ -157,8 +157,10 @@ module AgentHarness
       def build_command(prompt, options)
         cmd = [self.class.binary_name, "what-the-shell", prompt]
 
-        # Add dangerous mode flags by default for automation
-        cmd += dangerous_mode_flags if supports_dangerous_mode?
+        # Opt in to unrestricted tool access explicitly to preserve a safe default.
+        if supports_dangerous_mode? && options[:dangerous_mode]
+          cmd += dangerous_mode_flags
+        end
 
         # Add session support if provided
         if options[:session] && !options[:session].empty?

@@ -131,13 +131,35 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         expect(command).to eq([
           "github-copilot-cli",
           "what-the-shell",
+          "Hello"
+        ])
+      end
+
+      it "adds dangerous mode flags only when explicitly requested" do
+        command = provider.send(:build_command, "Hello", {dangerous_mode: true})
+
+        expect(command).to eq([
+          "github-copilot-cli",
+          "what-the-shell",
           "Hello",
           "--allow-all-tools"
         ])
       end
 
-      it "appends session resume flags after the prompt and default flags" do
+      it "appends session resume flags after the prompt and any dangerous mode flags" do
         command = provider.send(:build_command, "Hello", {session: "session-123"})
+
+        expect(command).to eq([
+          "github-copilot-cli",
+          "what-the-shell",
+          "Hello",
+          "--resume",
+          "session-123"
+        ])
+      end
+
+      it "appends session resume flags after dangerous mode flags when both are provided" do
+        command = provider.send(:build_command, "Hello", {dangerous_mode: true, session: "session-123"})
 
         expect(command).to eq([
           "github-copilot-cli",
