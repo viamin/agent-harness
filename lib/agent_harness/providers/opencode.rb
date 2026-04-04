@@ -78,7 +78,7 @@ module AgentHarness
         private
 
         def validate_install_version!(version)
-          raise ArgumentError, unsupported_version_message(version) unless version.is_a?(String) && !version.empty?
+          raise ArgumentError, unsupported_version_message(version) unless version.is_a?(String) && !version.strip.empty?
 
           parsed_version = Gem::Version.new(version)
           return if SUPPORTED_CLI_REQUIREMENT.satisfied_by?(parsed_version)
