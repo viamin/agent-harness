@@ -125,6 +125,28 @@ AgentHarness::Providers::Registry.instance.all
 # => [:claude, :cursor, :gemini, :github_copilot, :codex, :opencode, :kilocode, :aider]
 ```
 
+### Provider Installation Contracts
+
+`agent-harness` can also expose install metadata for provider CLIs so
+downstream apps do not need to hardcode package names or version pins.
+
+```ruby
+codex_install = AgentHarness.installation_contract(:codex)
+
+codex_install
+# => {
+#      source: :npm,
+#      package_name: "@openai/codex",
+#      version: "0.116.0",
+#      binary_name: "codex",
+#      install_command: ["npm", "install", "-g", "--ignore-scripts", "@openai/codex@0.116.0"]
+#    }
+```
+
+For Codex, the install contract tracks the CLI version supported by the
+current `agent-harness` release, and the runtime adapter tests assert that
+the expected binary remains aligned with that contract.
+
 ### Custom Providers
 
 ```ruby

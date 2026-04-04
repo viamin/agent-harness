@@ -63,6 +63,37 @@ module AgentHarness
         def discover_models
           []
         end
+
+        # Installation contract for the provider CLI.
+        #
+        # Downstream apps can use this metadata to build container images
+        # without duplicating package names, binary names, or supported
+        # version pins outside agent-harness.
+        #
+        # @return [Hash, nil] installation metadata or nil when the provider
+        #   does not expose a first-class install contract
+        def installation_contract
+          nil
+        end
+
+        # Build the install command from the provider installation contract.
+        #
+        # @param version [String, nil] optional explicit version override
+        # @return [Array<String>, nil] install command argv or nil when the
+        #   provider has no install contract
+        def install_command(version: nil)
+          contract = installation_contract
+          return nil unless contract
+
+          return contract[:install_command] unless version
+
+          package_name = contract[:package_name]
+          unless package_name
+            raise ArgumentError, "installation_contract must define :package_name when overriding version"
+          end
+
+          Array(contract[:install_command_prefix]) + ["#{package_name}@#{version}"]
+        end
       end
 
       # Instance methods
