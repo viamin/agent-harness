@@ -9,6 +9,11 @@ module AgentHarness
       CLI_PACKAGE = "opencode-ai"
       SUPPORTED_CLI_VERSION = "1.3.2"
       SUPPORTED_CLI_REQUIREMENT = Gem::Requirement.new(">= #{SUPPORTED_CLI_VERSION}", "< 1.4.0").freeze
+      INSTALL_COMMAND_PREFIX = ["npm", "install", "-g", "--ignore-scripts"].freeze
+      SUPPORTED_CLI_VERSIONS = [SUPPORTED_CLI_VERSION].freeze
+      VERSION_REQUIREMENT_STRINGS = SUPPORTED_CLI_REQUIREMENT.requirements
+        .map { |op, ver| "#{op} #{ver}".freeze }
+        .freeze
 
       class << self
         def provider_name
@@ -46,23 +51,18 @@ module AgentHarness
           normalized_version = normalize_install_version(version)
 
           default_package = "#{CLI_PACKAGE}@#{normalized_version}".freeze
-          install_command_prefix = ["npm", "install", "-g", "--ignore-scripts"].freeze
-          install_command = (install_command_prefix + [default_package]).freeze
-          supported_versions = [SUPPORTED_CLI_VERSION].freeze
-          version_requirement = SUPPORTED_CLI_REQUIREMENT.requirements
-            .map { |op, ver| "#{op} #{ver}".freeze }
-            .freeze
+          install_command = (INSTALL_COMMAND_PREFIX + [default_package]).freeze
 
           contract = {
             source: :npm,
             package: default_package,
             package_name: CLI_PACKAGE,
             version: normalized_version,
-            version_requirement: version_requirement,
+            version_requirement: VERSION_REQUIREMENT_STRINGS,
             binary_name: binary_name,
-            install_command_prefix: install_command_prefix,
+            install_command_prefix: INSTALL_COMMAND_PREFIX,
             install_command: install_command,
-            supported_versions: supported_versions
+            supported_versions: SUPPORTED_CLI_VERSIONS
           }
 
           contract.each_value do |value|
