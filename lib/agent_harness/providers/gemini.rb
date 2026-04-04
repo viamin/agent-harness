@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "json"
+require "rubygems/requirement"
 require "time"
 
 module AgentHarness
@@ -11,6 +12,9 @@ module AgentHarness
     class Gemini < Base
       # Model name pattern for Gemini models
       MODEL_PATTERN = /^gemini-[\d.]+-(?:pro|flash|ultra)(?:-\d+)?$/i
+      CLI_PACKAGE = "@google/gemini-cli"
+      SUPPORTED_CLI_VERSION = "0.35.3"
+      SUPPORTED_CLI_REQUIREMENT = Gem::Requirement.new("= #{SUPPORTED_CLI_VERSION}").freeze
 
       class << self
         def provider_name
@@ -24,6 +28,26 @@ module AgentHarness
         def available?
           executor = AgentHarness.configuration.command_executor
           !!executor.which(binary_name)
+        end
+
+        def install_contract(version: SUPPORTED_CLI_VERSION)
+          unless SUPPORTED_CLI_REQUIREMENT.satisfied_by?(Gem::Version.new(version))
+            raise ArgumentError, "Unsupported Gemini CLI version #{version.inspect}. Supported requirement: #{SUPPORTED_CLI_REQUIREMENT}"
+          end
+
+          package_spec = "#{CLI_PACKAGE}@#{version}"
+
+          {
+            provider: provider_name,
+            source_type: :npm,
+            package_name: CLI_PACKAGE,
+            supported_version_requirement: SUPPORTED_CLI_REQUIREMENT,
+            default_version: SUPPORTED_CLI_VERSION,
+            resolved_version: version,
+            binary_name: binary_name,
+            install_command: ["npm", "install", "-g", "--ignore-scripts", package_spec],
+            install_command_string: "npm install -g --ignore-scripts #{package_spec}"
+          }
         end
 
         def firewall_requirements

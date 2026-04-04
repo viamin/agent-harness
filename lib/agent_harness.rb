@@ -83,6 +83,18 @@ module AgentHarness
       conductor.provider_manager.get_provider(name)
     end
 
+    # Returns install metadata for a provider CLI when the provider exposes it.
+    #
+    # @param provider_name [Symbol, String] the provider name
+    # @param version [String, nil] optional explicit CLI version override
+    # @return [Hash, nil] installation metadata
+    def provider_install_contract(provider_name, version: nil)
+      provider_class = Providers::Registry.instance.get(provider_name)
+      return provider_class.install_contract unless version
+
+      provider_class.install_contract(version: version)
+    end
+
     # Check if authentication is valid for a provider
     # @param provider_name [Symbol] the provider name
     # @return [Boolean] true if auth is valid

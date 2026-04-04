@@ -51,6 +51,12 @@ RSpec.describe AgentHarness::Providers::Adapter do
       end
     end
 
+    describe ".install_contract" do
+      it "returns nil by default" do
+        expect(adapter_class.install_contract).to be_nil
+      end
+    end
+
     describe ".firewall_requirements" do
       it "returns default empty requirements" do
         expect(adapter_class.firewall_requirements).to eq({domains: [], ip_ranges: []})

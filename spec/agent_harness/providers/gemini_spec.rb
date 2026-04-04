@@ -16,6 +16,38 @@ RSpec.describe AgentHarness::Providers::Gemini do
     end
   end
 
+  describe ".install_contract" do
+    it "returns the default supported Gemini CLI install contract" do
+      contract = described_class.install_contract
+
+      expect(contract[:provider]).to eq(:gemini)
+      expect(contract[:source_type]).to eq(:npm)
+      expect(contract[:package_name]).to eq("@google/gemini-cli")
+      expect(contract[:default_version]).to eq("0.35.3")
+      expect(contract[:resolved_version]).to eq("0.35.3")
+      expect(contract[:binary_name]).to eq(described_class.binary_name)
+      expect(contract[:supported_version_requirement].to_s).to eq("= 0.35.3")
+      expect(contract[:install_command]).to eq(
+        ["npm", "install", "-g", "--ignore-scripts", "@google/gemini-cli@0.35.3"]
+      )
+    end
+
+    it "can build the install command for an explicit supported version" do
+      contract = described_class.install_contract(version: "0.35.3")
+
+      expect(contract[:resolved_version]).to eq("0.35.3")
+      expect(contract[:install_command_string]).to eq(
+        "npm install -g --ignore-scripts @google/gemini-cli@0.35.3"
+      )
+    end
+
+    it "rejects unsupported versions" do
+      expect { described_class.install_contract(version: "0.35.2") }.to raise_error(
+        ArgumentError, /Unsupported Gemini CLI version/
+      )
+    end
+  end
+
   describe ".available?" do
     let(:mock_executor) { instance_double(AgentHarness::CommandExecutor) }
 
@@ -66,6 +98,12 @@ RSpec.describe AgentHarness::Providers::Gemini do
 
       it "is not openai compatible" do
         expect(provider.configuration_schema[:openai_compatible]).to be false
+      end
+    end
+
+    describe "runtime/install contract alignment" do
+      it "keeps the runtime binary aligned with the install contract" do
+        expect(described_class.install_contract[:binary_name]).to eq(described_class.binary_name)
       end
     end
   end

@@ -54,6 +54,24 @@ RSpec.describe AgentHarness do
     end
   end
 
+  describe ".provider_install_contract" do
+    it "delegates to the registered provider class" do
+      contract = {provider: :gemini}
+      expect(AgentHarness::Providers::Registry.instance).to receive(:get).with(:gemini).and_return(AgentHarness::Providers::Gemini)
+      expect(AgentHarness::Providers::Gemini).to receive(:install_contract).and_return(contract)
+
+      expect(AgentHarness.provider_install_contract(:gemini)).to eq(contract)
+    end
+
+    it "passes through an explicit version override" do
+      contract = {provider: :gemini, resolved_version: "0.35.3"}
+      expect(AgentHarness::Providers::Registry.instance).to receive(:get).with(:gemini).and_return(AgentHarness::Providers::Gemini)
+      expect(AgentHarness::Providers::Gemini).to receive(:install_contract).with(version: "0.35.3").and_return(contract)
+
+      expect(AgentHarness.provider_install_contract(:gemini, version: "0.35.3")).to eq(contract)
+    end
+  end
+
   describe ".auth_status" do
     it "delegates to Authentication module" do
       status = {valid: true, expires_at: nil, error: nil}

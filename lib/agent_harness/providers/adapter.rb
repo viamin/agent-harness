@@ -43,6 +43,17 @@ module AgentHarness
           raise NotImplementedError, "#{self} must implement .binary_name"
         end
 
+        # Installation contract for the provider CLI.
+        #
+        # Downstream applications can use this metadata to install a provider's
+        # supported CLI without hardcoding package names, install flags, or
+        # version pins outside AgentHarness.
+        #
+        # @return [Hash, nil] installation metadata or nil when not provided
+        def install_contract
+          nil
+        end
+
         # Required domains for firewall configuration
         #
         # @return [Hash] with :domains and :ip_ranges arrays
