@@ -106,7 +106,7 @@ end
 | `:codex` | `codex` | OpenAI Codex CLI |
 | `:aider` | `aider` | Aider coding assistant |
 | `:opencode` | `opencode` | OpenCode CLI |
-| `:kilocode` | `kilocode` | Kilocode CLI |
+| `:kilocode` | `kilo` | Kilocode CLI |
 
 ### Direct Provider Access
 
@@ -127,8 +127,29 @@ AgentHarness::Providers::Registry.instance.all
 
 ### Provider Installation Contracts
 
-`agent-harness` can also expose install metadata for provider CLIs so
-downstream apps do not need to hardcode package names or version pins.
+Downstream apps can ask `agent-harness` for provider-specific CLI install
+metadata instead of hardcoding package names, binary names, or supported
+versions out-of-band.
+
+```ruby
+contract = AgentHarness.provider_installation_contract(:kilocode, version: "7.1.3")
+
+contract
+# {
+#   source: { type: :npm, package: "@kilocode/cli" },
+#   install_command: ["npm", "install", "-g", "--ignore-scripts", "@kilocode/cli@7.1.3"],
+#   binary_name: "kilo",
+#   default_version: "7.1.3",
+#   supported_version_requirement: "= 7.1.3"
+# }
+```
+
+The Kilocode runtime adapter expects the `kilo` binary and executes prompts via
+`kilo run ...`, so the install contract and runtime behavior stay aligned in
+tests.
+
+Providers with fixed install metadata can also be queried through the generic
+API:
 
 ```ruby
 opencode_install = AgentHarness.installation_contract(:opencode)
@@ -138,6 +159,7 @@ opencode_install
 #      source: :npm,
 #      package_name: "opencode-ai",
 #      version: "1.3.2",
+#      version_requirement: [">= 1.3.2", "< 1.4.0"],
 #      binary_name: "opencode",
 #      install_command: ["npm", "install", "-g", "--ignore-scripts", "opencode-ai@1.3.2"]
 #    }
@@ -146,7 +168,6 @@ opencode_install
 For providers with install contracts, the metadata tracks the CLI version
 supported by the current `agent-harness` release, and the runtime adapter
 tests assert that the expected binary remains aligned with that contract.
-
 ### Custom Providers
 
 ```ruby

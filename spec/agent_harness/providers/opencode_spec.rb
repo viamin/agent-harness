@@ -37,6 +37,21 @@ RSpec.describe AgentHarness::Providers::Opencode do
       expect(contract[:binary_name]).to eq(described_class.binary_name)
     end
 
+    it "supports explicit versions within the advertised requirement" do
+      contract = described_class.installation_contract(version: "1.3.9")
+
+      expect(contract[:version]).to eq("1.3.9")
+      expect(contract[:install_command]).to eq(
+        ["npm", "install", "-g", "--ignore-scripts", "opencode-ai@1.3.9"]
+      )
+    end
+
+    it "rejects versions outside the advertised requirement" do
+      expect {
+        described_class.installation_contract(version: "1.4.0")
+      }.to raise_error(ArgumentError, /Unsupported OpenCode CLI version/)
+    end
+
     it "deep-freezes nested contract values" do
       contract = described_class.installation_contract
 
@@ -55,9 +70,15 @@ RSpec.describe AgentHarness::Providers::Opencode do
     end
 
     it "supports explicit version overrides" do
-      expect(described_class.install_command(version: "1.3.1")).to eq(
-        ["npm", "install", "-g", "--ignore-scripts", "opencode-ai@1.3.1"]
+      expect(described_class.install_command(version: "1.3.9")).to eq(
+        ["npm", "install", "-g", "--ignore-scripts", "opencode-ai@1.3.9"]
       )
+    end
+
+    it "rejects unsupported version overrides" do
+      expect {
+        described_class.install_command(version: "1.3.1")
+      }.to raise_error(ArgumentError, /Unsupported OpenCode CLI version/)
     end
   end
 
