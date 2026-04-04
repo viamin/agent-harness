@@ -108,6 +108,19 @@ RSpec.describe AgentHarness::Providers::Registry do
       )
     end
 
+    it "forwards target selection options to providers with generic contracts" do
+      contract = registry.installation_contract(:opencode, version: "1.3.9")
+
+      expect(contract).to include(
+        package_name: "opencode-ai",
+        version: "1.3.9",
+        binary_name: "opencode"
+      )
+      expect(contract[:install_command]).to eq(
+        ["npm", "install", "-g", "--ignore-scripts", "opencode-ai@1.3.9"]
+      )
+    end
+
     it "returns nil for registered providers without installation contract support" do
       provider_without_install_contract = Class.new do
         def self.provider_name
