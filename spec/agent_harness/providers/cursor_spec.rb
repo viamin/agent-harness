@@ -314,6 +314,16 @@ RSpec.describe AgentHarness::Providers::Cursor do
         )
       end
 
+      it "preserves idle timeout errors" do
+        allow(mock_executor).to receive(:execute).and_raise(
+          AgentHarness::IdleTimeoutError.new("Command exceeded idle timeout")
+        )
+
+        expect {
+          provider.send_message(prompt: "Hello")
+        }.to raise_error(AgentHarness::IdleTimeoutError)
+      end
+
       context "error handling" do
         it "raises RateLimitError for rate limit errors" do
           allow(mock_executor).to receive(:execute).and_raise(StandardError.new("rate limit exceeded"))

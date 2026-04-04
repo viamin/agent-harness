@@ -18,6 +18,13 @@ RSpec.describe AgentHarness::ErrorTaxonomy do
       error = StandardError.new("rate limit exceeded")
       expect(described_class.classify(error)).to eq(:rate_limited)
     end
+
+    it "classifies timeout exception types before provider-specific patterns" do
+      patterns = {transient: [/timeout/i]}
+      error = AgentHarness::IdleTimeoutError.new("command exceeded idle timeout")
+
+      expect(described_class.classify(error, patterns)).to eq(:timeout)
+    end
   end
 
   describe ".classify_message" do

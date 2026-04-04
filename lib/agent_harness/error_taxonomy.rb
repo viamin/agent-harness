@@ -58,6 +58,8 @@ module AgentHarness
       # @param patterns [Hash<Symbol, Array<Regexp>>] provider-specific patterns
       # @return [Symbol] error category
       def classify(error, patterns = {})
+        return :timeout if error.is_a?(TimeoutError)
+
         message = error.message.to_s.downcase
 
         # Check provider-specific patterns first

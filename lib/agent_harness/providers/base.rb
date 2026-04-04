@@ -333,6 +333,8 @@ module AgentHarness
             original_error: original_error
           )
         when :timeout
+          return original_error if original_error.is_a?(TimeoutError)
+
           TimeoutError.new(original_error.message, original_error: original_error)
         else
           ProviderError.new(original_error.message, original_error: original_error)

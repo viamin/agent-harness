@@ -54,6 +54,10 @@ module AgentHarness
     def execute(command, timeout: nil, idle_timeout: nil, env: {}, stdin_data: nil,
       on_stdout_chunk: nil, on_stderr_chunk: nil, on_heartbeat: nil,
       heartbeat_interval: 1.0, observer: nil)
+      validate_duration!(timeout, name: :timeout, allow_nil: true)
+      validate_duration!(idle_timeout, name: :idle_timeout, allow_nil: true)
+      validate_duration!(heartbeat_interval, name: :heartbeat_interval, allow_nil: true)
+
       cmd_array = normalize_command(command)
       cmd_string = cmd_array.shelljoin
 
@@ -246,6 +250,13 @@ module AgentHarness
     def write_stdin(stdin, stdin_data)
       stdin.write(stdin_data) if stdin_data
       stdin.close
+    end
+
+    def validate_duration!(value, name:, allow_nil: false)
+      return if allow_nil && value.nil?
+      return if value.is_a?(Numeric) && value.positive?
+
+      raise ArgumentError, "#{name} must be a positive number"
     end
 
     def monotonic_time

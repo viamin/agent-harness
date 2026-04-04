@@ -183,6 +183,18 @@ RSpec.describe AgentHarness::Providers::Base, "#send_message" do
     end
   end
 
+  describe "idle timeout handling" do
+    before do
+      allow(mock_executor).to receive(:execute).and_raise(
+        AgentHarness::IdleTimeoutError.new("Command exceeded idle timeout")
+      )
+    end
+
+    it "preserves IdleTimeoutError" do
+      expect { provider.send_message(prompt: "Hello") }.to raise_error(AgentHarness::IdleTimeoutError)
+    end
+  end
+
   describe "rate limit handling" do
     before do
       allow(mock_executor).to receive(:execute).and_raise(

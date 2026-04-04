@@ -60,6 +60,18 @@ RSpec.describe AgentHarness::CommandExecutor do
 
         expect(result.success?).to be true
       end
+
+      it "rejects non-positive timeout values" do
+        expect {
+          executor.execute(["echo", "quick"], timeout: 0)
+        }.to raise_error(ArgumentError, /timeout must be a positive number/)
+      end
+
+      it "rejects non-positive idle timeout values" do
+        expect {
+          executor.execute(["echo", "quick"], idle_timeout: -1)
+        }.to raise_error(ArgumentError, /idle_timeout must be a positive number/)
+      end
     end
 
     context "with streaming hooks" do
@@ -90,6 +102,12 @@ RSpec.describe AgentHarness::CommandExecutor do
 
         expect(heartbeats).not_to be_empty
         expect(heartbeats).to all(include(:elapsed, :idle_for))
+      end
+
+      it "rejects non-positive heartbeat interval values" do
+        expect {
+          executor.execute(["echo", "quick"], heartbeat_interval: 0)
+        }.to raise_error(ArgumentError, /heartbeat_interval must be a positive number/)
       end
     end
 

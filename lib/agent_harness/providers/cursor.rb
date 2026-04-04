@@ -333,6 +333,8 @@ module AgentHarness
         when :auth_expired
           raise AuthenticationError.new(error.message, provider: self.class.provider_name, original_error: error)
         when :timeout
+          raise error if error.is_a?(TimeoutError)
+
           raise TimeoutError.new(error.message, original_error: error)
         else
           raise ProviderError.new(error.message, original_error: error)
