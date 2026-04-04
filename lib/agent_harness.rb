@@ -90,6 +90,8 @@ module AgentHarness
     # @return [Hash, nil] installation metadata
     def provider_install_contract(provider_name, version: nil)
       provider_class = Providers::Registry.instance.get(provider_name)
+      return nil unless provider_class.respond_to?(:install_contract)
+
       return provider_class.install_contract unless version
 
       provider_class.install_contract(version: version)

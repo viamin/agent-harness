@@ -57,8 +57,6 @@ RSpec.describe AgentHarness do
   describe ".provider_install_contract" do
     let(:provider_without_contract) do
       Class.new do
-        include AgentHarness::Providers::Adapter
-
         class << self
           def provider_name
             :no_contract
@@ -95,6 +93,12 @@ RSpec.describe AgentHarness do
       expect(AgentHarness::Providers::Registry.instance).to receive(:get).with(:no_contract).and_return(provider_without_contract)
 
       expect(AgentHarness.provider_install_contract(:no_contract, version: "0.35.3")).to be_nil
+    end
+
+    it "returns nil when the provider has no install contract and no version is supplied" do
+      expect(AgentHarness::Providers::Registry.instance).to receive(:get).with(:no_contract).and_return(provider_without_contract)
+
+      expect(AgentHarness.provider_install_contract(:no_contract)).to be_nil
     end
   end
 
