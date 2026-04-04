@@ -43,9 +43,9 @@ module AgentHarness
         end
 
         def installation_contract(version: SUPPORTED_CLI_VERSION)
-          validate_install_version!(version)
+          normalized_version = normalize_install_version(version)
 
-          default_package = "#{CLI_PACKAGE}@#{version}".freeze
+          default_package = "#{CLI_PACKAGE}@#{normalized_version}".freeze
           install_command_prefix = ["npm", "install", "-g", "--ignore-scripts"].freeze
           install_command = (install_command_prefix + [default_package]).freeze
           supported_versions = [SUPPORTED_CLI_VERSION].freeze
@@ -57,7 +57,7 @@ module AgentHarness
             source: :npm,
             package: default_package,
             package_name: CLI_PACKAGE,
-            version: version,
+            version: normalized_version,
             version_requirement: version_requirement,
             binary_name: binary_name,
             install_command_prefix: install_command_prefix,
@@ -77,11 +77,12 @@ module AgentHarness
 
         private
 
-        def validate_install_version!(version)
+        def normalize_install_version(version)
           raise ArgumentError, unsupported_version_message(version) unless version.is_a?(String) && !version.strip.empty?
 
-          parsed_version = Gem::Version.new(version)
-          return if SUPPORTED_CLI_REQUIREMENT.satisfied_by?(parsed_version)
+          normalized_version = version.strip
+          parsed_version = Gem::Version.new(normalized_version)
+          return normalized_version if SUPPORTED_CLI_REQUIREMENT.satisfied_by?(parsed_version)
 
           raise ArgumentError, unsupported_version_message(version)
         rescue ArgumentError
@@ -142,7 +143,7 @@ module AgentHarness
       protected
 
       def build_command(prompt, options)
-        cmd = [self.class.binary_name, "run"]
+        cmd = [self.class.installation_contract[:binary_name], "run"]
 
         runtime = options[:provider_runtime]
         if runtime

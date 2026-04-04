@@ -46,6 +46,16 @@ RSpec.describe AgentHarness::Providers::Opencode do
       )
     end
 
+    it "normalizes surrounding whitespace in supported explicit versions" do
+      contract = described_class.installation_contract(version: " 1.3.9 ")
+
+      expect(contract[:version]).to eq("1.3.9")
+      expect(contract[:package]).to eq("opencode-ai@1.3.9")
+      expect(contract[:install_command]).to eq(
+        ["npm", "install", "-g", "--ignore-scripts", "opencode-ai@1.3.9"]
+      )
+    end
+
     it "rejects versions outside the advertised requirement" do
       expect {
         described_class.installation_contract(version: "1.4.0")
@@ -101,6 +111,12 @@ RSpec.describe AgentHarness::Providers::Opencode do
 
     it "supports explicit version overrides" do
       expect(described_class.install_command(version: "1.3.9")).to eq(
+        ["npm", "install", "-g", "--ignore-scripts", "opencode-ai@1.3.9"]
+      )
+    end
+
+    it "normalizes surrounding whitespace in explicit version overrides" do
+      expect(described_class.install_command(version: " 1.3.9 ")).to eq(
         ["npm", "install", "-g", "--ignore-scripts", "opencode-ai@1.3.9"]
       )
     end
