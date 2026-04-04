@@ -123,10 +123,22 @@ RSpec.describe AgentHarness::Providers::Opencode do
       }.to raise_error(ArgumentError, /Unsupported OpenCode CLI version nil/)
     end
 
+    it "rejects blank version overrides with the provider-specific error" do
+      expect {
+        described_class.install_command(version: "")
+      }.to raise_error(ArgumentError, /Unsupported OpenCode CLI version ""/)
+    end
+
     it "rejects whitespace-only version overrides with the provider-specific error" do
       expect {
         described_class.install_command(version: "   ")
       }.to raise_error(ArgumentError, /Unsupported OpenCode CLI version "   "/)
+    end
+
+    it "rejects non-string version overrides with the provider-specific error" do
+      expect {
+        described_class.install_command(version: 1.3)
+      }.to raise_error(ArgumentError, /Unsupported OpenCode CLI version 1\.3/)
     end
   end
 
