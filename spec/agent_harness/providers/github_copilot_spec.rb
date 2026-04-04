@@ -123,5 +123,31 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         expect(semantics[:parses_rate_limit_reset]).to be false
       end
     end
+
+    describe "#build_command" do
+      it "places the subcommand and prompt before optional flags" do
+        command = provider.send(:build_command, "Hello", {})
+
+        expect(command).to eq([
+          "github-copilot-cli",
+          "what-the-shell",
+          "Hello",
+          "--allow-all-tools"
+        ])
+      end
+
+      it "appends session resume flags after the prompt and default flags" do
+        command = provider.send(:build_command, "Hello", {session: "session-123"})
+
+        expect(command).to eq([
+          "github-copilot-cli",
+          "what-the-shell",
+          "Hello",
+          "--allow-all-tools",
+          "--resume",
+          "session-123"
+        ])
+      end
+    end
   end
 end
