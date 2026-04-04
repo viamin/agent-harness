@@ -26,7 +26,7 @@ module AgentHarness
         end
 
         def install_contract
-          local_binary_path = File.expand_path("~/.local/bin/claude")
+          local_binary_path = "~/.local/bin/claude"
 
           {
             provider: provider_name,

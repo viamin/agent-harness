@@ -128,7 +128,7 @@ puts contract[:supported_versions][:default]
 
 # List all registered providers
 AgentHarness::Providers::Registry.instance.all
-# => [:claude, :cursor, :gemini, :github_copilot, :codex, :opencode, :kilocode, :aider]
+# => [:claude, :cursor, :gemini, :github_copilot, :codex, :opencode, :kilocode, :aider, :mistral_vibe]
 ```
 
 For Claude, the install contract is the first-class source of truth for:

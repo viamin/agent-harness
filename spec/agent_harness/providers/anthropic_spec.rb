@@ -16,7 +16,7 @@ RSpec.describe AgentHarness::Providers::Anthropic do
   describe ".install_contract" do
     it "exposes the official install contract" do
       contract = described_class.install_contract
-      local_binary_path = File.expand_path("~/.local/bin/claude")
+      local_binary_path = "~/.local/bin/claude"
 
       expect(contract[:provider]).to eq(:claude)
       expect(contract[:binary_name]).to eq("claude")
