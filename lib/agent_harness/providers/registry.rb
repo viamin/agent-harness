@@ -83,8 +83,16 @@ module AgentHarness
       #
       # @param name [Symbol, String] the provider name
       # @return [Hash] the provider install contract
+      # @raise [ConfigurationError] if the provider does not implement
+      #   `.install_contract`
       def install_contract(name)
-        get(name).install_contract
+        provider_class = get(name)
+
+        unless provider_class.respond_to?(:install_contract)
+          raise ConfigurationError, "Provider #{provider_class} does not implement .install_contract"
+        end
+
+        provider_class.install_contract
       end
 
       # Reset registry (useful for testing)
@@ -107,10 +115,13 @@ module AgentHarness
         has_required_methods = klass.respond_to?(:provider_name) &&
           klass.respond_to?(:available?) &&
           klass.respond_to?(:binary_name)
+        has_install_contract = klass.respond_to?(:install_contract)
 
-        return if includes_adapter || has_required_methods
+        return if includes_adapter
+        return if has_required_methods && has_install_contract
 
-        raise ConfigurationError, "Provider class must include AgentHarness::Providers::Adapter or implement required class methods"
+        raise ConfigurationError,
+          "Provider class must include AgentHarness::Providers::Adapter or implement required class methods, including .install_contract"
       end
 
       def ensure_builtin_providers_registered

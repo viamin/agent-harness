@@ -54,6 +54,13 @@ RSpec.describe AgentHarness do
 
       expect(AgentHarness.install_contract(:claude)).to eq(contract)
     end
+
+    it "accepts string provider names" do
+      contract = {provider: :claude}
+      expect(AgentHarness::Providers::Registry.instance).to receive(:install_contract).with("claude").and_return(contract)
+
+      expect(AgentHarness.install_contract("claude")).to eq(contract)
+    end
   end
 
   describe ".auth_valid?" do

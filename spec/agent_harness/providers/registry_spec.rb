@@ -27,6 +27,26 @@ RSpec.describe AgentHarness::Providers::Registry do
         def self.binary_name
           "test"
         end
+
+        def self.install_contract
+          {provider: :test_provider}
+        end
+      end
+    end
+
+    let(:invalid_provider) do
+      Class.new do
+        def self.provider_name
+          :invalid_provider
+        end
+
+        def self.available?
+          true
+        end
+
+        def self.binary_name
+          "invalid"
+        end
       end
     end
 
@@ -39,6 +59,12 @@ RSpec.describe AgentHarness::Providers::Registry do
       registry.register(:test, mock_provider, aliases: [:t, :testing])
       expect(registry.registered?(:t)).to be true
       expect(registry.registered?(:testing)).to be true
+    end
+
+    it "rejects non-adapter providers that do not implement install_contract" do
+      expect {
+        registry.register(:invalid, invalid_provider)
+      }.to raise_error(AgentHarness::ConfigurationError, /install_contract/)
     end
   end
 
@@ -87,6 +113,36 @@ RSpec.describe AgentHarness::Providers::Registry do
       expect(contract[:provider]).to eq(:claude)
       expect(contract[:binary_name]).to eq("claude")
       expect(contract.dig(:install, :command)).to include("https://claude.ai/install.sh")
+    end
+
+    it "supports provider names passed as strings" do
+      registry.send(:ensure_builtin_providers_registered)
+
+      contract = registry.install_contract("claude")
+
+      expect(contract[:provider]).to eq(:claude)
+    end
+
+    it "raises a configuration error when a registered provider lacks install_contract" do
+      provider = Class.new do
+        def self.provider_name
+          :legacy_provider
+        end
+
+        def self.available?
+          true
+        end
+
+        def self.binary_name
+          "legacy"
+        end
+      end
+
+      registry.instance_variable_get(:@providers)[:legacy] = provider
+
+      expect {
+        registry.install_contract(:legacy)
+      }.to raise_error(AgentHarness::ConfigurationError, /does not implement \.install_contract/)
     end
   end
 

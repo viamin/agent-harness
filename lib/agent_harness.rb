@@ -84,7 +84,7 @@ module AgentHarness
     end
 
     # Get install contract metadata for a provider
-    # @param name [Symbol] the provider name
+    # @param name [Symbol, String] the provider name
     # @return [Hash] install contract metadata
     def install_contract(name)
       Providers::Registry.instance.install_contract(name)
