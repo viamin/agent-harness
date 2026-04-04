@@ -93,6 +93,43 @@ RSpec.describe AgentHarness::Providers::Opencode do
 
         provider.send_message(prompt: "Hello")
       end
+
+      it "builds runtime config bootstrap from metadata" do
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "response",
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        expect(mock_executor).to receive(:execute).with(
+          ["opencode", "run", "Hello"],
+          hash_including(
+            preparation: have_attributes(
+              file_writes: [
+                have_attributes(
+                  path: "~/.config/opencode/opencode.json",
+                  content: include("\"model\": \"gpt-5.4\""),
+                  mode: 0o600
+                )
+              ]
+            )
+          )
+        )
+
+        provider.send_message(
+          prompt: "Hello",
+          provider_runtime: {
+            metadata: {
+              config: {
+                model: "gpt-5.4"
+              }
+            }
+          }
+        )
+      end
     end
 
     describe "#error_patterns" do

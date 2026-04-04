@@ -228,6 +228,34 @@ RSpec.describe "ProviderRuntime integration" do
       response = provider.send_message(prompt: "Write tests", provider_runtime: runtime)
       expect(response.model).to eq("anthropic/claude-opus-4.1")
     end
+
+    it "passes structured runtime preparation for config-file bootstrap" do
+      runtime = AgentHarness::ProviderRuntime.new(
+        metadata: {
+          config: {
+            provider: "openrouter",
+            model: "anthropic/claude-opus-4.1"
+          }
+        }
+      )
+
+      expect(mock_executor).to receive(:execute).with(
+        ["opencode", "run", "Write tests"],
+        hash_including(
+          preparation: have_attributes(
+            file_writes: [
+              have_attributes(
+                path: "~/.config/opencode/opencode.json",
+                content: include("\"provider\": \"openrouter\"", "\"model\": \"anthropic/claude-opus-4.1\""),
+                mode: 0o600
+              )
+            ]
+          )
+        )
+      ).and_return(success_result)
+
+      provider.send_message(prompt: "Write tests", provider_runtime: runtime)
+    end
   end
 
   describe AgentHarness::Providers::Cursor do

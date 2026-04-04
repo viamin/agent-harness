@@ -3,6 +3,7 @@
 require "open3"
 require "timeout"
 require "shellwords"
+require "fileutils"
 
 module AgentHarness
   # Executes shell commands with timeout support
@@ -41,13 +42,16 @@ module AgentHarness
     # @param timeout [Integer, nil] timeout in seconds
     # @param env [Hash] environment variables
     # @param stdin_data [String, nil] data to send to stdin
+    # @param preparation [ExecutionPreparation, nil] request-scoped bootstrap
+    #   work for the runtime environment
     # @return [Result] execution result
     # @raise [TimeoutError] if the command times out
-    def execute(command, timeout: nil, env: {}, stdin_data: nil)
+    def execute(command, timeout: nil, env: {}, stdin_data: nil, preparation: nil)
       cmd_array = normalize_command(command)
       cmd_string = cmd_array.shelljoin
 
       log_debug("Executing command", command: cmd_string, timeout: timeout)
+      apply_preparation(preparation)
 
       start_time = Time.now
 
@@ -101,6 +105,17 @@ module AgentHarness
     end
 
     private
+
+    def apply_preparation(preparation)
+      return if preparation.nil? || preparation.empty?
+
+      preparation.file_writes.each do |write|
+        resolved_path = File.expand_path(write.path)
+        FileUtils.mkdir_p(File.dirname(resolved_path))
+        File.binwrite(resolved_path, write.content)
+        File.chmod(write.mode, resolved_path) if write.mode
+      end
+    end
 
     def execute_with_timeout(cmd_array, timeout:, env:, stdin_data:)
       stdout = ""

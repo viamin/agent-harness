@@ -93,6 +93,37 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
       executor.execute(["ls"], env: {"CONTAINER_VAR" => "value"})
     end
 
+    it "materializes preparation file writes inside the container before executing" do
+      expect_popen3_sequence(
+        [
+          {
+            env: {},
+            cmd: ["docker", "exec", container_id, "sh", "-lc", "mkdir -p \"$HOME\"/.config/opencode"]
+          },
+          {
+            env: {},
+            cmd: ["docker", "exec", "-i", container_id, "sh", "-lc", "cat > \"$HOME\"/.config/opencode/opencode.json"],
+            stdin: "{\"ok\":true}"
+          },
+          {
+            env: {},
+            cmd: ["docker", "exec", container_id, "sh", "-lc", "chmod 600 \"$HOME\"/.config/opencode/opencode.json"]
+          },
+          {
+            env: {},
+            cmd: ["docker", "exec", container_id, "echo", "hello"]
+          }
+        ]
+      )
+
+      executor.execute(
+        ["echo", "hello"],
+        preparation: AgentHarness::ExecutionPreparation.new(
+          file_writes: [{path: "~/.config/opencode/opencode.json", content: "{\"ok\":true}", mode: 0o600}]
+        )
+      )
+    end
+
     it "passes timeout through to parent" do
       expect(Timeout).to receive(:timeout).with(30).and_call_original
       allow(Open3).to receive(:popen3) do |*_args, &block|
@@ -122,6 +153,27 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
         stderr = StringIO.new("")
         wait_thr = instance_double(Process::Waiter, value: instance_double(Process::Status, exitstatus: 0))
         block.call(stdin, stdout, stderr, wait_thr)
+      end
+    end
+
+    def expect_popen3_sequence(expected_calls)
+      index = 0
+
+      allow(Open3).to receive(:popen3) do |actual_env, *actual_cmd, &block|
+        expected = expected_calls.fetch(index)
+        index += 1
+
+        expect(actual_env).to eq(expected[:env])
+        expect(actual_cmd).to eq(expected[:cmd])
+
+        stdin = StringIO.new
+        stdout = StringIO.new("output")
+        stderr = StringIO.new("")
+        wait_thr = instance_double(Process::Waiter, value: instance_double(Process::Status, exitstatus: 0))
+        result = block.call(stdin, stdout, stderr, wait_thr)
+
+        expect(stdin.string).to eq(expected[:stdin]) if expected.key?(:stdin)
+        result
       end
     end
   end

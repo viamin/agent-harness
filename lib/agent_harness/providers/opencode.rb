@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "json"
+
 module AgentHarness
   module Providers
     # OpenCode CLI provider
@@ -107,8 +109,49 @@ module AgentHarness
         env
       end
 
+      def build_execution_preparation(options)
+        runtime = options[:provider_runtime]
+        return nil unless runtime
+
+        config_payload = opencode_config_payload(runtime)
+        return nil unless config_payload
+
+        ExecutionPreparation.new(
+          file_writes: [
+            {
+              path: opencode_config_path(runtime),
+              content: serialize_opencode_config(config_payload),
+              mode: 0o600
+            }
+          ]
+        )
+      end
+
       def default_timeout
         300
+      end
+
+      private
+
+      def opencode_config_payload(runtime)
+        metadata = runtime.metadata
+        metadata[:config] || metadata["config"]
+      end
+
+      def opencode_config_path(runtime)
+        metadata = runtime.metadata
+        metadata[:config_path] || metadata["config_path"] || "~/.config/opencode/opencode.json"
+      end
+
+      def serialize_opencode_config(payload)
+        case payload
+        when String
+          payload
+        when Hash
+          JSON.pretty_generate(payload)
+        else
+          raise ArgumentError, "OpenCode runtime metadata config must be a String or Hash (got #{payload.class})"
+        end
       end
     end
   end

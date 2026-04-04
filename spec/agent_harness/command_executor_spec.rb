@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "tmpdir"
+
 RSpec.describe AgentHarness::CommandExecutor do
   subject(:executor) { described_class.new }
 
@@ -79,6 +81,42 @@ RSpec.describe AgentHarness::CommandExecutor do
         expect(result.stdout).to eq("unset")
       ensure
         ENV["AGENT_HARNESS_TEST_UNSET"] = original
+      end
+    end
+
+    context "with execution preparation" do
+      it "materializes requested files before executing" do
+        Dir.mktmpdir do |dir|
+          file_path = File.join(dir, "config", "runtime.json")
+          preparation = AgentHarness::ExecutionPreparation.new(
+            file_writes: [{path: file_path, content: "{\"ok\":true}", mode: 0o600}]
+          )
+
+          result = executor.execute(
+            ["sh", "-c", "cat \"$1\"", "sh", file_path],
+            preparation: preparation
+          )
+
+          expect(result.stdout).to eq("{\"ok\":true}")
+          expect(File.stat(file_path).mode & 0o777).to eq(0o600)
+        end
+      end
+
+      it "expands home-relative file paths in the local executor" do
+        Dir.mktmpdir do |dir|
+          original_home = ENV["HOME"]
+          ENV["HOME"] = dir
+
+          preparation = AgentHarness::ExecutionPreparation.new(
+            file_writes: [{path: "~/.config/test.json", content: "{\"ok\":true}"}]
+          )
+
+          executor.execute(["true"], preparation: preparation)
+
+          expect(File.read(File.join(dir, ".config", "test.json"))).to eq("{\"ok\":true}")
+        ensure
+          ENV["HOME"] = original_home
+        end
       end
     end
   end

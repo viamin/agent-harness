@@ -37,8 +37,11 @@ module AgentHarness
     # @param timeout [Integer, nil] timeout in seconds
     # @param env [Hash] environment variables to set in the container
     # @param stdin_data [String, nil] data to send to stdin
+    # @param preparation [ExecutionPreparation, nil] request-scoped bootstrap
+    #   work to materialize inside the container before the main command runs
     # @return [Result] execution result
-    def execute(command, timeout: nil, env: {}, stdin_data: nil)
+    def execute(command, timeout: nil, env: {}, stdin_data: nil, preparation: nil)
+      apply_container_preparation(preparation, timeout: timeout)
       docker_cmd = build_docker_command(command, env: env, stdin_data: stdin_data)
       super(docker_cmd, timeout: timeout, env: {}, stdin_data: stdin_data)
     end
@@ -54,10 +57,58 @@ module AgentHarness
 
     private
 
+    def apply_container_preparation(preparation, timeout:)
+      return if preparation.nil? || preparation.empty?
+
+      preparation.file_writes.each do |write|
+        materialize_file_write(write, timeout: timeout)
+      end
+    end
+
+    def materialize_file_write(write, timeout:)
+      path = shell_path(write.path)
+      dir = shell_path(File.dirname(write.path))
+      mkdir_cmd = ["docker", "exec", @container_id, "sh", "-lc", "mkdir -p #{dir}"]
+      run_host_command(mkdir_cmd, timeout: timeout)
+
+      write_cmd = ["docker", "exec", "-i", @container_id, "sh", "-lc", "cat > #{path}"]
+      run_host_command(write_cmd, timeout: timeout, stdin_data: write.content)
+
+      return unless write.mode
+
+      chmod_cmd = ["docker", "exec", @container_id, "sh", "-lc", "chmod #{write.mode.to_s(8)} #{path}"]
+      run_host_command(chmod_cmd, timeout: timeout)
+    end
+
+    def run_host_command(command, timeout:, stdin_data: nil)
+      result = CommandExecutor.instance_method(:execute).bind_call(
+        self,
+        command,
+        timeout: timeout,
+        env: {},
+        stdin_data: stdin_data,
+        preparation: nil
+      )
+      return result if result.success?
+
+      message = result.stderr.to_s.strip
+      message = result.stdout.to_s.strip if message.empty?
+      message = "command failed with exit code #{result.exit_code}" if message.empty?
+      raise CommandExecutionError, "Failed to apply runtime preparation: #{message}"
+    end
+
     def validate_docker!
       return if ENV["PATH"]&.split(File::PATH_SEPARATOR)&.any? { |path| File.executable?(File.join(path, "docker")) }
 
       raise CommandExecutionError, "Docker CLI not found on host PATH"
+    end
+
+    def shell_path(path)
+      return Shellwords.escape(path) unless path.start_with?("~/")
+
+      suffix = path.delete_prefix("~/")
+      escaped_suffix = suffix.split("/").map { |segment| Shellwords.escape(segment) }.join("/")
+      %("$HOME"/#{escaped_suffix})
     end
 
     def build_docker_command(command, env:, stdin_data:)
