@@ -249,7 +249,9 @@ RSpec.describe AgentHarness::Providers::Opencode do
           )
         )
 
-        binary = described_class.installation_contract[:binary_name]
+        binary = "opencode-custom"
+        contract = described_class.installation_contract.merge(binary_name: binary).freeze
+        allow(described_class).to receive(:installation_contract).and_return(contract)
 
         expect(mock_executor).to receive(:execute).with(
           [binary, "run", "Hello"],
