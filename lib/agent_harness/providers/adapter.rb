@@ -77,13 +77,37 @@ module AgentHarness
           nil
         end
 
+        # Backward-compatible installation contract for package-driven CLIs.
+        #
+        # Providers that expose richer first-class install metadata can skip
+        # overriding this method and use .install_metadata instead.
+        #
+        # @return [Hash, nil] installation metadata or nil when the provider
+        #   does not expose a package-based install contract
+        def installation_contract
+          install_metadata
+        end
+
         # Shell command for installing the provider CLI.
         #
         # @param version [String, Symbol, nil] optional install target/version
-        # @return [String, nil] shell command, or nil when the provider does
-        #   not expose a first-class install contract
+        # @return [String, Array<String>, nil] shell command or argv, or nil
+        #   when the provider does not expose an install contract
         def install_command(version: nil)
-          install_metadata(version: version)&.dig(:source, :command)
+          metadata = install_metadata(version: version)
+          return metadata.dig(:source, :command) if metadata
+
+          contract = installation_contract
+          return nil unless contract
+
+          return contract[:install_command] unless version
+
+          package_name = contract[:package_name]
+          unless package_name
+            raise ArgumentError, "installation_contract must define :package_name when overriding version"
+          end
+
+          Array(contract[:install_command_prefix]) + ["#{package_name}@#{version}"]
         end
       end
 

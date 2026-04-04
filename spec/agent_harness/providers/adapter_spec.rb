@@ -31,6 +31,93 @@ RSpec.describe AgentHarness::Providers::Adapter do
   end
 
   let(:adapter) { adapter_class.new }
+  let(:installing_adapter_class) do
+    Class.new do
+      include AgentHarness::Providers::Adapter
+
+      class << self
+        def provider_name
+          :installing_adapter
+        end
+
+        def available?
+          true
+        end
+
+        def binary_name
+          "installer"
+        end
+
+        def installation_contract
+          {
+            package: "@scope/pkg@1.0.0",
+            package_name: "@scope/pkg",
+            install_command_prefix: ["npm", "install", "-g"],
+            install_command: ["npm", "install", "-g", "@scope/pkg@1.0.0"]
+          }
+        end
+      end
+    end
+  end
+
+  let(:package_only_installing_adapter_class) do
+    Class.new do
+      include AgentHarness::Providers::Adapter
+
+      class << self
+        def provider_name
+          :package_only_installing_adapter
+        end
+
+        def available?
+          true
+        end
+
+        def binary_name
+          "installer"
+        end
+
+        def installation_contract
+          {
+            package: "@scope/pkg@1.0.0",
+            install_command_prefix: ["npm", "install", "-g"],
+            install_command: ["npm", "install", "-g", "@scope/pkg@1.0.0"]
+          }
+        end
+      end
+    end
+  end
+
+  let(:metadata_installing_adapter_class) do
+    Class.new do
+      include AgentHarness::Providers::Adapter
+
+      class << self
+        def provider_name
+          :metadata_installing_adapter
+        end
+
+        def available?
+          true
+        end
+
+        def binary_name
+          "metadata-installer"
+        end
+
+        def install_metadata(version: nil)
+          target = version || "latest"
+
+          {
+            source: {
+              type: :shell_script,
+              command: "install metadata-installer #{target}"
+            }
+          }
+        end
+      end
+    end
+  end
 
   describe "ClassMethods" do
     describe ".provider_name" do
@@ -75,9 +162,49 @@ RSpec.describe AgentHarness::Providers::Adapter do
       end
     end
 
+    describe ".installation_contract" do
+      it "returns nil by default" do
+        expect(adapter_class.installation_contract).to be_nil
+      end
+
+      it "falls back to install_metadata for first-class install contracts" do
+        expect(metadata_installing_adapter_class.installation_contract).to eq(
+          metadata_installing_adapter_class.install_metadata
+        )
+      end
+    end
+
     describe ".install_command" do
       it "returns nil by default" do
         expect(adapter_class.install_command).to be_nil
+      end
+
+      it "returns the contract install_command when no override is provided" do
+        expect(installing_adapter_class.install_command).to eq(
+          ["npm", "install", "-g", "@scope/pkg@1.0.0"]
+        )
+      end
+
+      it "builds an explicit version override from package_name" do
+        expect(installing_adapter_class.install_command(version: "1.2.3")).to eq(
+          ["npm", "install", "-g", "@scope/pkg@1.2.3"]
+        )
+      end
+
+      it "raises when version override is requested without package_name" do
+        expect {
+          package_only_installing_adapter_class.install_command(version: "1.2.3")
+        }.to raise_error(ArgumentError, /must define :package_name/)
+      end
+
+      it "returns the first-class metadata install command when provided" do
+        expect(metadata_installing_adapter_class.install_command).to eq("install metadata-installer latest")
+      end
+
+      it "passes explicit versions through to first-class metadata contracts" do
+        expect(metadata_installing_adapter_class.install_command(version: "stable")).to eq(
+          "install metadata-installer stable"
+        )
       end
     end
   end
