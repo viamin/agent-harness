@@ -54,20 +54,30 @@ module AgentHarness
         end
 
         def installation_contract
-          default_package = "@openai/codex@#{SUPPORTED_CLI_VERSION}"
-          install_command_prefix = ["npm", "install", "-g", "--ignore-scripts"]
+          default_package = "@openai/codex@#{SUPPORTED_CLI_VERSION}".freeze
+          install_command_prefix = ["npm", "install", "-g", "--ignore-scripts"].freeze
+          install_command = (install_command_prefix + [default_package]).freeze
+          supported_versions = [SUPPORTED_CLI_VERSION].freeze
+          version_requirement = SUPPORTED_CLI_REQUIREMENT.requirements
+            .map { |op, ver| "#{op} #{ver}".freeze }
+            .freeze
 
-          {
+          contract = {
             source: :npm,
             package: default_package,
             package_name: "@openai/codex",
             version: SUPPORTED_CLI_VERSION,
-            version_requirement: SUPPORTED_CLI_REQUIREMENT.requirements.map { |op, ver| "#{op} #{ver}" },
+            version_requirement: version_requirement,
             binary_name: binary_name,
             install_command_prefix: install_command_prefix,
-            install_command: install_command_prefix + [default_package],
-            supported_versions: [SUPPORTED_CLI_VERSION]
-          }.freeze
+            install_command: install_command,
+            supported_versions: supported_versions
+          }
+
+          contract.each_value do |value|
+            value.freeze if value.is_a?(String)
+          end
+          contract.freeze
         end
       end
 

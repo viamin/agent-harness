@@ -85,13 +85,14 @@ module AgentHarness
           contract = installation_contract
           return nil unless contract
 
-          package = if version
-            "#{contract[:package_name] || contract[:package]}@#{version}"
-          else
-            contract[:package]
+          return contract[:install_command] unless version
+
+          package_name = contract[:package_name]
+          unless package_name
+            raise ArgumentError, "installation_contract must define :package_name when overriding version"
           end
 
-          Array(contract[:install_command_prefix]) + [package]
+          Array(contract[:install_command_prefix]) + ["#{package_name}@#{version}"]
         end
       end
 

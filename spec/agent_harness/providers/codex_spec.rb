@@ -39,6 +39,15 @@ RSpec.describe AgentHarness::Providers::Codex do
 
       expect(contract[:binary_name]).to eq(described_class.binary_name)
     end
+
+    it "deep-freezes nested contract values" do
+      contract = described_class.installation_contract
+
+      expect { contract[:install_command_prefix] << "codex" }.to raise_error(FrozenError)
+      expect { contract[:install_command] << "codex" }.to raise_error(FrozenError)
+      expect { contract[:supported_versions] << "0.115.0" }.to raise_error(FrozenError)
+      expect { contract[:version_requirement] << ">= 0.115.0" }.to raise_error(FrozenError)
+    end
   end
 
   describe ".install_command" do
