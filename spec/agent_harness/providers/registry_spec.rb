@@ -78,6 +78,18 @@ RSpec.describe AgentHarness::Providers::Registry do
     end
   end
 
+  describe "#install_contract" do
+    it "returns the provider install contract" do
+      registry.send(:ensure_builtin_providers_registered)
+
+      contract = registry.install_contract(:claude)
+
+      expect(contract[:provider]).to eq(:claude)
+      expect(contract[:binary_name]).to eq("claude")
+      expect(contract.dig(:install, :command)).to include("https://claude.ai/install.sh")
+    end
+  end
+
   describe "#reset!" do
     it "clears all registrations" do
       registry.send(:ensure_builtin_providers_registered)

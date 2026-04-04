@@ -120,10 +120,22 @@ if AgentHarness::Providers::Registry.instance.get(:claude).available?
   puts "Claude CLI is installed"
 end
 
+# Ask the harness which Claude CLI install contract it supports
+contract = AgentHarness.install_contract(:claude)
+puts contract[:install][:command]
+puts contract[:install][:post_install_binary_path]
+puts contract[:supported_versions][:default]
+
 # List all registered providers
 AgentHarness::Providers::Registry.instance.all
 # => [:claude, :cursor, :gemini, :github_copilot, :codex, :opencode, :kilocode, :aider]
 ```
+
+For Claude, the install contract is the first-class source of truth for:
+
+- the official install recipe the current harness release expects
+- the binary name and post-install path the adapter validates against
+- the supported install target, which defaults to the harness-supported `latest` Claude CLI channel
 
 ### Custom Providers
 

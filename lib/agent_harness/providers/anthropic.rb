@@ -25,6 +25,45 @@ module AgentHarness
           "claude"
         end
 
+        def install_contract
+          {
+            provider: provider_name,
+            binary_name: binary_name,
+            binary_paths: [
+              "/usr/local/bin/claude",
+              "/root/.local/bin/claude",
+              binary_name
+            ],
+            install: {
+              strategy: :shell,
+              source: "official",
+              command: "curl -fsSL https://claude.ai/install.sh | bash && cp -L /root/.local/bin/claude /usr/local/bin/claude && chmod +x /usr/local/bin/claude",
+              post_install_binary_path: "/usr/local/bin/claude"
+            },
+            supported_versions: {
+              default: "latest",
+              requirement: "latest",
+              channel: "latest"
+            },
+            runtime_contract: {
+              available_via: binary_name,
+              build_command: [
+                binary_name,
+                "--print",
+                "--output-format=json"
+              ],
+              required_features: [
+                "print_mode",
+                "json_output",
+                "mcp_config",
+                "mcp_list",
+                "dangerously_skip_permissions",
+                "models_list"
+              ]
+            }
+          }
+        end
+
         def available?
           executor = AgentHarness.configuration.command_executor
           !!executor.which(binary_name)

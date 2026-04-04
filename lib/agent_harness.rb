@@ -83,6 +83,13 @@ module AgentHarness
       conductor.provider_manager.get_provider(name)
     end
 
+    # Get install contract metadata for a provider
+    # @param name [Symbol] the provider name
+    # @return [Hash] install contract metadata
+    def install_contract(name)
+      Providers::Registry.instance.install_contract(name)
+    end
+
     # Check if authentication is valid for a provider
     # @param provider_name [Symbol] the provider name
     # @return [Boolean] true if auth is valid

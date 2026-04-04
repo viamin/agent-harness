@@ -51,6 +51,27 @@ RSpec.describe AgentHarness::Providers::Adapter do
       end
     end
 
+    describe ".install_contract" do
+      it "returns a default install contract" do
+        expect(adapter_class.install_contract).to eq(
+          {
+            provider: :test_adapter,
+            binary_name: "test",
+            binary_paths: ["test"],
+            install: nil,
+            supported_versions: {
+              default: "latest",
+              requirement: "latest"
+            },
+            runtime_contract: {
+              available_via: "test",
+              required_features: []
+            }
+          }
+        )
+      end
+    end
+
     describe ".firewall_requirements" do
       it "returns default empty requirements" do
         expect(adapter_class.firewall_requirements).to eq({domains: [], ip_ranges: []})

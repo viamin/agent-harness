@@ -79,6 +79,14 @@ module AgentHarness
         @providers.select { |_, klass| klass.available? }.keys
       end
 
+      # Fetch install contract metadata for a provider.
+      #
+      # @param name [Symbol, String] the provider name
+      # @return [Hash] the provider install contract
+      def install_contract(name)
+        get(name).install_contract
+      end
+
       # Reset registry (useful for testing)
       #
       # @return [void]

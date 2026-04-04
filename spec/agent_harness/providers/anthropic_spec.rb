@@ -13,6 +13,41 @@ RSpec.describe AgentHarness::Providers::Anthropic do
     end
   end
 
+  describe ".install_contract" do
+    it "exposes the official install contract" do
+      contract = described_class.install_contract
+
+      expect(contract[:provider]).to eq(:claude)
+      expect(contract[:binary_name]).to eq("claude")
+      expect(contract[:binary_paths]).to include("/usr/local/bin/claude", "/root/.local/bin/claude", "claude")
+      expect(contract.dig(:install, :strategy)).to eq(:shell)
+      expect(contract.dig(:install, :command)).to include("curl -fsSL https://claude.ai/install.sh | bash")
+      expect(contract.dig(:install, :post_install_binary_path)).to eq("/usr/local/bin/claude")
+      expect(contract.dig(:supported_versions, :default)).to eq("latest")
+      expect(contract.dig(:supported_versions, :requirement)).to eq("latest")
+      expect(contract.dig(:runtime_contract, :available_via)).to eq(described_class.binary_name)
+      expect(contract.dig(:runtime_contract, :build_command)).to eq(["claude", "--print", "--output-format=json"])
+      expect(contract.dig(:runtime_contract, :required_features)).to include(
+        "print_mode",
+        "json_output",
+        "mcp_config",
+        "mcp_list",
+        "dangerously_skip_permissions",
+        "models_list"
+      )
+    end
+
+    it "keeps runtime assumptions aligned with the provider command contract" do
+      contract = described_class.install_contract
+      config = AgentHarness::ProviderConfig.new(:claude)
+      provider = described_class.new(config: config, executor: instance_double(AgentHarness::CommandExecutor))
+      command = provider.send(:build_command, "prompt", {})
+
+      expect(command.first).to eq(contract[:binary_name])
+      expect(command).to include(*contract.dig(:runtime_contract, :build_command).drop(1))
+    end
+  end
+
   describe ".firewall_requirements" do
     it "returns required domains" do
       requirements = described_class.firewall_requirements

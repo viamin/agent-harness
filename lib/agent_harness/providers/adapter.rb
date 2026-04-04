@@ -43,6 +43,30 @@ module AgentHarness
           raise NotImplementedError, "#{self} must implement .binary_name"
         end
 
+        # Provider install contract metadata for downstream consumers.
+        #
+        # Downstream applications can use this to build images or validate
+        # provider runtime assumptions without hardcoding provider-specific
+        # install commands, binary paths, or version targets.
+        #
+        # @return [Hash] install contract metadata
+        def install_contract
+          {
+            provider: provider_name,
+            binary_name: binary_name,
+            binary_paths: [binary_name],
+            install: nil,
+            supported_versions: {
+              default: "latest",
+              requirement: "latest"
+            },
+            runtime_contract: {
+              available_via: binary_name,
+              required_features: []
+            }
+          }
+        end
+
         # Required domains for firewall configuration
         #
         # @return [Hash] with :domains and :ip_ranges arrays

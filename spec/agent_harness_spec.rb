@@ -47,6 +47,15 @@ RSpec.describe AgentHarness do
     end
   end
 
+  describe ".install_contract" do
+    it "delegates to the provider registry" do
+      contract = {provider: :claude}
+      expect(AgentHarness::Providers::Registry.instance).to receive(:install_contract).with(:claude).and_return(contract)
+
+      expect(AgentHarness.install_contract(:claude)).to eq(contract)
+    end
+  end
+
   describe ".auth_valid?" do
     it "delegates to Authentication module" do
       expect(AgentHarness::Authentication).to receive(:auth_valid?).with(:claude).and_return(true)
