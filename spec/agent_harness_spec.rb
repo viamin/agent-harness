@@ -171,6 +171,28 @@ RSpec.describe AgentHarness do
     end
   end
 
+  describe ".provider_metadata" do
+    it "delegates to the provider registry" do
+      metadata = {provider: :claude, auth: {service: :anthropic}}
+
+      expect(AgentHarness::Providers::Registry.instance)
+        .to receive(:provider_metadata).with(:claude).and_return(metadata)
+
+      expect(AgentHarness.provider_metadata(:claude)).to eq(metadata)
+    end
+  end
+
+  describe ".provider_metadata_catalog" do
+    it "returns provider metadata for all providers" do
+      metadata = {claude: {provider: :claude}}
+
+      expect(AgentHarness::Providers::Registry.instance)
+        .to receive(:provider_metadata_catalog).and_return(metadata)
+
+      expect(AgentHarness.provider_metadata_catalog).to eq(metadata)
+    end
+  end
+
   describe ".auth_status" do
     it "delegates to Authentication module" do
       status = {valid: true, expires_at: nil, error: nil}

@@ -89,6 +89,98 @@ module AgentHarness
           install_contract(version: options[:version])
         end
 
+        # Stable provider metadata for downstream configuration and policy UIs.
+        #
+        # This contract consolidates provider identifier aliases, auth/runtime
+        # details, installability, and health-check characteristics so apps do
+        # not need to maintain their own partial mirrors of adapter behavior.
+        #
+        # @param aliases [Array<Symbol, String>] alternate identifiers registered
+        #   for this provider
+        # @return [Hash] provider metadata
+        def provider_metadata(aliases: [])
+          provider = new
+          configuration = provider.configuration_schema
+          execution = provider.execution_semantics
+          installation = installation_contract
+
+          deep_merge_metadata(
+            {
+              provider: provider_name,
+              canonical_provider: provider_name,
+              aliases: aliases.map(&:to_sym),
+              display_name: provider_display_name(provider),
+              binary_name: binary_name,
+              auth: {
+                default_mode: provider.auth_type,
+                supported_modes: Array(configuration[:auth_modes]).map(&:to_sym),
+                service: provider_name,
+                api_family: configuration[:openai_compatible] ? :openai : provider_name
+              },
+              runtime: {
+                interface: :cli,
+                requires_cli: true,
+                available: available?,
+                installable: !installation.nil?,
+                installation: installation,
+                prompt_delivery: execution[:prompt_delivery],
+                output_format: execution[:output_format],
+                sandbox_aware: execution[:sandbox_aware],
+                uses_subcommand: execution[:uses_subcommand],
+                supports_mcp: provider.supports_mcp?,
+                supported_mcp_transports: provider.supported_mcp_transports,
+                supports_sessions: provider.supports_sessions?,
+                supports_dangerous_mode: provider.supports_dangerous_mode?
+              },
+              configuration: configuration,
+              capabilities: provider.capabilities,
+              health_check: {
+                supports_registry_checks: true,
+                provider_status: overrides_instance_method?(:health_status),
+                configuration_validation: overrides_instance_method?(:validate_config),
+                lightweight: !overrides_instance_method?(:health_status) && !overrides_instance_method?(:validate_config)
+              },
+              identity: {
+                bot_usernames: []
+              }
+            },
+            provider_metadata_overrides
+          )
+        end
+
+        # Optional provider-specific metadata overrides for provider_metadata.
+        #
+        # @return [Hash]
+        def provider_metadata_overrides
+          {}
+        end
+
+        private
+
+        def overrides_instance_method?(method_name)
+          instance_method(method_name).owner != AgentHarness::Providers::Adapter
+        end
+
+        def deep_merge_metadata(base, overrides)
+          return base unless overrides.is_a?(Hash)
+
+          base.merge(overrides) do |_key, left, right|
+            if left.is_a?(Hash) && right.is_a?(Hash)
+              deep_merge_metadata(left, right)
+            else
+              right
+            end
+          end
+        end
+
+        def provider_display_name(provider)
+          return provider.display_name if provider.respond_to?(:display_name)
+
+          provider_name.to_s.tr("_", " ").capitalize
+        end
+
+        public
+
         # Build the install command from the provider installation contract.
         #
         # @param version [String, nil] optional explicit version override

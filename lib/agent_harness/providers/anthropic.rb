@@ -30,6 +30,15 @@ module AgentHarness
           !!executor.which(binary_name)
         end
 
+        def provider_metadata_overrides
+          {
+            auth: {
+              service: :anthropic,
+              api_family: :anthropic
+            }
+          }
+        end
+
         def firewall_requirements
           {
             domains: [

@@ -20,6 +20,7 @@ module AgentHarness
       def initialize
         @providers = {}
         @aliases = {}
+        @provider_aliases = Hash.new { |hash, key| hash[key] = [] }
         @builtin_registered = false
       end
 
@@ -34,6 +35,7 @@ module AgentHarness
         validate_provider_class!(klass)
 
         @providers[name] = klass
+        @provider_aliases[name] = aliases.map(&:to_sym)
 
         aliases.each do |alias_name|
           @aliases[alias_name.to_sym] = name
@@ -107,12 +109,43 @@ module AgentHarness
         end
       end
 
+      # Fetch consolidated provider metadata for a provider.
+      #
+      # @param name [Symbol, String] the provider name or alias
+      # @return [Hash] provider metadata
+      # @raise [ConfigurationError] if provider not found
+      def provider_metadata(name)
+        ensure_builtin_providers_registered
+
+        canonical_name = resolve_alias(name.to_sym)
+        klass = @providers[canonical_name] || raise(ConfigurationError, "Unknown provider: #{canonical_name}")
+        aliases = @provider_aliases[canonical_name]
+
+        if klass.respond_to?(:provider_metadata)
+          return klass.provider_metadata(aliases: aliases)
+        end
+
+        fallback_provider_metadata(canonical_name, klass, aliases)
+      end
+
+      # Get consolidated metadata for all registered providers.
+      #
+      # @return [Hash<Symbol, Hash>] provider metadata keyed by canonical provider
+      def provider_metadata_catalog
+        ensure_builtin_providers_registered
+
+        @providers.keys.each_with_object({}) do |name, catalog|
+          catalog[name] = provider_metadata(name)
+        end
+      end
+
       # Reset registry (useful for testing)
       #
       # @return [void]
       def reset!
         @providers.clear
         @aliases.clear
+        @provider_aliases.clear
         @builtin_registered = false
       end
 
@@ -131,6 +164,50 @@ module AgentHarness
         return if includes_adapter || has_required_methods
 
         raise ConfigurationError, "Provider class must include AgentHarness::Providers::Adapter or implement required class methods"
+      end
+
+      def fallback_provider_metadata(name, klass, aliases)
+        installation = klass.respond_to?(:installation_contract) ? klass.installation_contract : nil
+
+        {
+          provider: name,
+          canonical_provider: name,
+          aliases: aliases,
+          display_name: name.to_s.split("_").map(&:capitalize).join(" "),
+          binary_name: klass.binary_name,
+          auth: {
+            default_mode: nil,
+            supported_modes: [],
+            service: nil,
+            api_family: nil
+          },
+          runtime: {
+            interface: :cli,
+            requires_cli: true,
+            available: klass.available?,
+            installable: !installation.nil?,
+            installation: installation,
+            prompt_delivery: nil,
+            output_format: nil,
+            sandbox_aware: nil,
+            uses_subcommand: nil,
+            supports_mcp: false,
+            supported_mcp_transports: [],
+            supports_sessions: false,
+            supports_dangerous_mode: false
+          },
+          configuration: {},
+          capabilities: {},
+          health_check: {
+            supports_registry_checks: false,
+            provider_status: false,
+            configuration_validation: false,
+            lightweight: false
+          },
+          identity: {
+            bot_usernames: []
+          }
+        }
       end
 
       def ensure_builtin_providers_registered

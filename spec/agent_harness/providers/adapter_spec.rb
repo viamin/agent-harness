@@ -186,6 +186,56 @@ RSpec.describe AgentHarness::Providers::Adapter do
       end
     end
 
+    describe ".provider_metadata" do
+      it "returns a stable metadata contract" do
+        metadata = adapter_class.provider_metadata(aliases: [:test_alias])
+
+        expect(metadata).to include(
+          provider: :test_adapter,
+          canonical_provider: :test_adapter,
+          aliases: [:test_alias],
+          display_name: "Test adapter",
+          binary_name: "test"
+        )
+        expect(metadata[:auth]).to include(
+          default_mode: :api_key,
+          supported_modes: [:api_key],
+          service: :test_adapter,
+          api_family: :test_adapter
+        )
+        expect(metadata[:runtime]).to include(
+          interface: :cli,
+          requires_cli: true,
+          available: true,
+          installable: false,
+          prompt_delivery: :arg,
+          output_format: :text,
+          sandbox_aware: false,
+          uses_subcommand: false,
+          supports_mcp: false,
+          supports_sessions: false,
+          supports_dangerous_mode: false
+        )
+        expect(metadata[:runtime][:supported_mcp_transports]).to eq([])
+        expect(metadata[:configuration]).to include(
+          fields: [],
+          auth_modes: [:api_key],
+          openai_compatible: false
+        )
+        expect(metadata[:capabilities]).to include(
+          streaming: false,
+          mcp: false
+        )
+        expect(metadata[:health_check]).to include(
+          supports_registry_checks: true,
+          provider_status: false,
+          configuration_validation: false,
+          lightweight: true
+        )
+        expect(metadata[:identity]).to eq(bot_usernames: [])
+      end
+    end
+
     describe ".install_command" do
       it "returns nil by default" do
         expect(adapter_class.install_command).to be_nil

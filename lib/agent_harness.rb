@@ -117,6 +117,22 @@ module AgentHarness
       Providers::Registry.instance.installation_contracts
     end
 
+    # Get consolidated metadata for a provider.
+    #
+    # @param provider_name [Symbol, String] the provider name or alias
+    # @return [Hash] provider metadata
+    # @raise [ConfigurationError] if the provider name is not registered
+    def provider_metadata(provider_name)
+      Providers::Registry.instance.provider_metadata(provider_name)
+    end
+
+    # Get consolidated metadata for all registered providers.
+    #
+    # @return [Hash<Symbol, Hash>] provider metadata keyed by canonical provider
+    def provider_metadata_catalog
+      Providers::Registry.instance.provider_metadata_catalog
+    end
+
     # Check if authentication is valid for a provider
     # @param provider_name [Symbol] the provider name
     # @return [Boolean] true if auth is valid

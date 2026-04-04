@@ -23,6 +23,15 @@ module AgentHarness
           !!executor.which(binary_name)
         end
 
+        def provider_metadata_overrides
+          {
+            auth: {
+              service: :github,
+              api_family: :github_copilot
+            }
+          }
+        end
+
         def firewall_requirements
           {
             domains: [

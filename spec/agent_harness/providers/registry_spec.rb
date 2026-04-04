@@ -176,6 +176,93 @@ RSpec.describe AgentHarness::Providers::Registry do
     end
   end
 
+  describe "#provider_metadata" do
+    it "returns metadata for builtin providers" do
+      metadata = registry.provider_metadata(:claude)
+
+      expect(metadata).to include(
+        provider: :claude,
+        canonical_provider: :claude,
+        aliases: [:anthropic],
+        binary_name: "claude"
+      )
+      expect(metadata[:auth]).to include(
+        default_mode: :oauth,
+        supported_modes: [:oauth],
+        service: :anthropic,
+        api_family: :anthropic
+      )
+      expect(metadata[:runtime]).to include(
+        interface: :cli,
+        requires_cli: true,
+        installable: false,
+        supports_mcp: true,
+        supports_dangerous_mode: true
+      )
+      expect(metadata[:health_check]).to include(
+        supports_registry_checks: true,
+        lightweight: true
+      )
+    end
+
+    it "resolves aliases to canonical provider metadata" do
+      expect(registry.provider_metadata(:anthropic)).to eq(registry.provider_metadata(:claude))
+    end
+
+    it "returns fallback metadata for registry-compatible providers without adapter metadata" do
+      legacy_provider = Class.new do
+        def self.provider_name = :legacy_provider
+        def self.available? = true
+        def self.binary_name = "legacy"
+      end
+
+      registry.register(:legacy_provider, legacy_provider, aliases: [:legacy])
+
+      metadata = registry.provider_metadata(:legacy)
+
+      expect(metadata).to include(
+        provider: :legacy_provider,
+        canonical_provider: :legacy_provider,
+        aliases: [:legacy],
+        binary_name: "legacy"
+      )
+      expect(metadata[:auth]).to include(
+        default_mode: nil,
+        supported_modes: [],
+        service: nil,
+        api_family: nil
+      )
+      expect(metadata[:runtime]).to include(
+        available: true,
+        installable: false,
+        supports_mcp: false,
+        supports_sessions: false
+      )
+      expect(metadata[:health_check]).to include(
+        supports_registry_checks: false,
+        lightweight: false
+      )
+    end
+
+    it "raises ConfigurationError for unknown providers" do
+      expect {
+        registry.provider_metadata(:nonexistent_provider_xyz)
+      }.to raise_error(AgentHarness::ConfigurationError, /Unknown provider/)
+    end
+  end
+
+  describe "#provider_metadata_catalog" do
+    it "returns metadata for all registered providers" do
+      catalog = registry.provider_metadata_catalog
+
+      expect(catalog).to include(:claude, :codex, :gemini)
+      expect(catalog[:codex][:auth]).to include(
+        service: :openai,
+        api_family: :openai
+      )
+    end
+  end
+
   describe "#reset!" do
     it "clears all registrations" do
       registry.send(:ensure_builtin_providers_registered)

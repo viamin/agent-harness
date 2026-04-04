@@ -182,6 +182,46 @@ codex_install
 #    }
 ```
 
+### Provider Metadata
+
+Downstream apps can also query a consolidated provider metadata contract for
+configuration UIs and policy decisions.
+
+```ruby
+metadata = AgentHarness.provider_metadata(:anthropic)
+
+metadata
+# => {
+#      provider: :claude,
+#      canonical_provider: :claude,
+#      aliases: [:anthropic],
+#      auth: {
+#        default_mode: :oauth,
+#        supported_modes: [:oauth],
+#        service: :anthropic,
+#        api_family: :anthropic
+#      },
+#      runtime: {
+#        interface: :cli,
+#        requires_cli: true,
+#        installable: false,
+#        supports_mcp: true,
+#        supports_dangerous_mode: true
+#      },
+#      health_check: {
+#        supports_registry_checks: true,
+#        lightweight: true
+#      }
+#    }
+```
+
+To enumerate the full catalog:
+
+```ruby
+AgentHarness.provider_metadata_catalog
+# => { claude: {...}, cursor: {...}, gemini: {...}, ... }
+```
+
 ### Custom Providers
 
 ```ruby
