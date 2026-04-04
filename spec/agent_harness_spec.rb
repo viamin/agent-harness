@@ -64,10 +64,16 @@ RSpec.describe AgentHarness do
         binary_name: "codex"
       )
     end
+
+    it "raises ConfigurationError for an unknown provider" do
+      expect {
+        AgentHarness.installation_contract(:nonexistent_provider_xyz)
+      }.to raise_error(AgentHarness::ConfigurationError, /Unknown provider/)
+    end
   end
 
   describe ".installation_contracts" do
-    it "returns all available installation contracts" do
+    it "returns all registered provider installation contracts" do
       contracts = AgentHarness.installation_contracts
 
       expect(contracts).to include(:codex)

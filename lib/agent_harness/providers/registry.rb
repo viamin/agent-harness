@@ -83,8 +83,11 @@ module AgentHarness
       #
       # @param name [Symbol, String] the provider name
       # @return [Hash, nil] installation contract
+      # @raise [ConfigurationError] if the provider name is not registered
       def installation_contract(name)
         klass = get(name)
+        return nil unless klass.respond_to?(:installation_contract)
+
         klass.installation_contract
       end
 
@@ -95,6 +98,8 @@ module AgentHarness
         ensure_builtin_providers_registered
 
         @providers.each_with_object({}) do |(name, klass), contracts|
+          next unless klass.respond_to?(:installation_contract)
+
           contract = klass.installation_contract
           contracts[name] = contract if contract
         end

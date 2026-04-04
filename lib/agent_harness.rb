@@ -86,6 +86,7 @@ module AgentHarness
     # Get installation metadata for a provider CLI.
     # @param provider_name [Symbol, String] the provider name
     # @return [Hash, nil] installation contract
+    # @raise [ConfigurationError] if the provider name is not registered
     def installation_contract(provider_name)
       Providers::Registry.instance.installation_contract(provider_name)
     end
