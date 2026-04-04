@@ -63,6 +63,28 @@ module AgentHarness
         def discover_models
           []
         end
+
+        # Installation contract for the provider CLI.
+        #
+        # Downstream applications can use this metadata to build provider
+        # images without hardcoding provider-specific install URLs, expected
+        # binary paths, or supported install targets.
+        #
+        # @param version [String, Symbol, nil] optional install target/version
+        # @return [Hash, nil] provider install metadata, or nil when the
+        #   provider does not expose a first-class install contract
+        def install_metadata(version: nil)
+          nil
+        end
+
+        # Shell command for installing the provider CLI.
+        #
+        # @param version [String, Symbol, nil] optional install target/version
+        # @return [String, nil] shell command, or nil when the provider does
+        #   not expose a first-class install contract
+        def install_command(version: nil)
+          install_metadata(version: version)&.dig(:source, :command)
+        end
       end
 
       # Instance methods

@@ -13,6 +13,41 @@ RSpec.describe AgentHarness::Providers::Cursor do
     end
   end
 
+  describe ".install_metadata" do
+    it "returns the first-class install contract" do
+      metadata = described_class.install_metadata
+
+      expect(metadata[:source]).to eq(
+        type: :shell_script,
+        url: "https://cursor.com/install",
+        command: "curl -fsSL https://cursor.com/install | bash"
+      )
+      expect(metadata[:checksum]).to include(strategy: :none, optional: true)
+      expect(metadata.dig(:binary, :name)).to eq(described_class.binary_name)
+      expect(metadata.dig(:binary, :path)).to eq("$HOME/.local/bin/cursor-agent")
+      expect(metadata.dig(:binary, :suggested_global_path)).to eq("/usr/local/bin/cursor-agent")
+      expect(metadata.dig(:version, :default)).to eq("latest")
+      expect(metadata.dig(:version, :supported)).to eq("latest")
+      expect(metadata.dig(:version, :command)).to eq(["cursor-agent", "--version"])
+    end
+
+    it "treats nil and latest as the same install target" do
+      expect(described_class.install_metadata(version: :latest)).to eq(described_class.install_metadata)
+    end
+
+    it "rejects unsupported install targets" do
+      expect {
+        described_class.install_metadata(version: "1.2.3")
+      }.to raise_error(ArgumentError, /Unsupported Cursor install target/)
+    end
+  end
+
+  describe ".install_command" do
+    it "returns the install command from the contract" do
+      expect(described_class.install_command).to eq("curl -fsSL https://cursor.com/install | bash")
+    end
+  end
+
   describe ".firewall_requirements" do
     it "returns required domains" do
       requirements = described_class.firewall_requirements
@@ -219,7 +254,7 @@ RSpec.describe AgentHarness::Providers::Cursor do
         )
 
         expect(mock_executor).to receive(:execute).with(
-          ["cursor-agent", "-p"],
+          [described_class.install_metadata.dig(:binary, :name), "-p"],
           hash_including(stdin_data: "Hello")
         )
 
@@ -322,6 +357,18 @@ RSpec.describe AgentHarness::Providers::Cursor do
         end
 
         it "parses servers correctly" do
+          cli_result = AgentHarness::CommandExecutor::Result.new(
+            stdout: "filesystem: ready\nmemory: disconnected",
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+
+          expect(mock_executor).to receive(:execute).with(
+            [described_class.install_metadata.dig(:binary, :name), "mcp", "list"],
+            timeout: 5
+          ).and_return(cli_result)
+
           servers = provider.fetch_mcp_servers
           expect(servers.size).to eq(2)
 

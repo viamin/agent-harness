@@ -12,6 +12,9 @@ module AgentHarness
     #   provider = AgentHarness::Providers::Cursor.new
     #   response = provider.send_message(prompt: "Hello!")
     class Cursor < Base
+      INSTALL_SCRIPT_URL = "https://cursor.com/install"
+      INSTALL_TARGET_LATEST = "latest"
+
       class << self
         def provider_name
           :cursor
@@ -82,6 +85,42 @@ module AgentHarness
         # Check if this provider supports a given model family
         def supports_model_family?(family_name)
           family_name.match?(/^(claude|gpt|cursor)-/)
+        end
+
+        def install_metadata(version: nil)
+          install_target = normalize_install_target(version)
+
+          {
+            source: {
+              type: :shell_script,
+              url: INSTALL_SCRIPT_URL,
+              command: "curl -fsSL #{INSTALL_SCRIPT_URL} | bash"
+            },
+            checksum: {
+              strategy: :none,
+              optional: true,
+              reason: "Cursor distributes a rolling latest-channel install script without a stable pinned checksum contract."
+            },
+            binary: {
+              name: binary_name,
+              path: "$HOME/.local/bin/#{binary_name}",
+              suggested_global_path: "/usr/local/bin/#{binary_name}"
+            },
+            version: {
+              default: INSTALL_TARGET_LATEST,
+              supported: install_target,
+              command: [binary_name, "--version"]
+            }
+          }
+        end
+
+        private
+
+        def normalize_install_target(version)
+          target = version.nil? ? INSTALL_TARGET_LATEST : version.to_s
+          return target if target == INSTALL_TARGET_LATEST
+
+          raise ArgumentError, "Unsupported Cursor install target: #{version.inspect}"
         end
       end
 
@@ -243,7 +282,7 @@ module AgentHarness
         return nil unless self.class.available?
 
         begin
-          result = @executor.execute(["cursor-agent", "mcp", "list"], timeout: 5)
+          result = @executor.execute([self.class.binary_name, "mcp", "list"], timeout: 5)
           return nil unless result.success?
 
           parse_mcp_servers_output(result.stdout)
