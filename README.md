@@ -5,7 +5,7 @@ A unified Ruby interface for CLI-based AI coding agents like Claude Code, Cursor
 ## Features
 
 - **Unified Interface**: Single API for multiple AI coding agents
-- **8 Built-in Providers**: Claude Code, Cursor, Gemini CLI, GitHub Copilot, Codex, Aider, OpenCode, Kilocode
+- **9 Built-in Providers**: Claude Code, Cursor, Gemini CLI, GitHub Copilot, Codex, Aider, OpenCode, Kilocode, Mistral Vibe
 - **Full Orchestration**: Provider switching, circuit breakers, rate limiting, and health monitoring
 - **Flexible Configuration**: YAML, Ruby DSL, or environment variables
 - **Token Tracking**: Monitor usage across providers for cost and limit management
@@ -107,6 +107,7 @@ end
 | `:aider` | `aider` | Aider coding assistant |
 | `:opencode` | `opencode` | OpenCode CLI |
 | `:kilocode` | `kilocode` | Kilocode CLI |
+| `:mistral_vibe` | `mistral-vibe` | Mistral Vibe CLI |
 
 ### Direct Provider Access
 
@@ -136,6 +137,28 @@ For Claude, the install contract is the first-class source of truth for:
 - the official install recipe the current harness release expects
 - the expected binary name and documented post-install path for that recipe
 - the supported install target metadata, which defaults to the harness-supported `latest` Claude CLI channel
+
+### Provider Installation Contracts
+
+`agent-harness` can also expose install metadata for provider CLIs so
+downstream apps do not need to hardcode package names or version pins.
+
+```ruby
+codex_install = AgentHarness.installation_contract(:codex)
+
+codex_install
+# => {
+#      source: :npm,
+#      package_name: "@openai/codex",
+#      version: "0.116.0",
+#      binary_name: "codex",
+#      install_command: ["npm", "install", "-g", "--ignore-scripts", "@openai/codex@0.116.0"]
+#    }
+```
+
+For Codex, the install contract tracks the CLI version supported by the
+current `agent-harness` release, and the runtime adapter tests assert that
+the expected binary remains aligned with that contract.
 
 ### Custom Providers
 

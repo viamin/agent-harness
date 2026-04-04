@@ -90,6 +90,20 @@ module AgentHarness
       Providers::Registry.instance.install_contract(name)
     end
 
+    # Get installation metadata for a provider CLI.
+    # @param provider_name [Symbol, String] the provider name
+    # @return [Hash, nil] installation contract
+    # @raise [ConfigurationError] if the provider name is not registered
+    def installation_contract(provider_name)
+      Providers::Registry.instance.installation_contract(provider_name)
+    end
+
+    # Get all provider installation contracts exposed by agent-harness.
+    # @return [Hash<Symbol, Hash>] installation contracts keyed by provider
+    def installation_contracts
+      Providers::Registry.instance.installation_contracts
+    end
+
     # Check if authentication is valid for a provider
     # @param provider_name [Symbol] the provider name
     # @return [Boolean] true if auth is valid

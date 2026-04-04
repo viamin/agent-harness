@@ -70,6 +70,32 @@ RSpec.describe AgentHarness do
     end
   end
 
+  describe ".installation_contract" do
+    it "returns provider install metadata" do
+      contract = AgentHarness.installation_contract(:codex)
+
+      expect(contract).to include(
+        source: :npm,
+        package_name: "@openai/codex",
+        binary_name: "codex"
+      )
+    end
+
+    it "raises ConfigurationError for an unknown provider" do
+      expect {
+        AgentHarness.installation_contract(:nonexistent_provider_xyz)
+      }.to raise_error(AgentHarness::ConfigurationError, /Unknown provider/)
+    end
+  end
+
+  describe ".installation_contracts" do
+    it "returns all registered provider installation contracts" do
+      contracts = AgentHarness.installation_contracts
+
+      expect(contracts).to include(:codex)
+    end
+  end
+
   describe ".auth_status" do
     it "delegates to Authentication module" do
       status = {valid: true, expires_at: nil, error: nil}
