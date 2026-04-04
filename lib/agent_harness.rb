@@ -117,6 +117,20 @@ module AgentHarness
       Providers::Registry.instance.installation_contracts
     end
 
+    # Get smoke-test metadata for a provider CLI.
+    # @param provider_name [Symbol, String] the provider name
+    # @return [Hash, nil] smoke-test contract
+    # @raise [ConfigurationError] if the provider name is not registered
+    def smoke_test_contract(provider_name)
+      Providers::Registry.instance.smoke_test_contract(provider_name)
+    end
+
+    # Get all provider smoke-test contracts exposed by agent-harness.
+    # @return [Hash<Symbol, Hash>] smoke-test contracts keyed by provider
+    def smoke_test_contracts
+      Providers::Registry.instance.smoke_test_contracts
+    end
+
     # Check if authentication is valid for a provider
     # @param provider_name [Symbol] the provider name
     # @return [Boolean] true if auth is valid
@@ -155,16 +169,24 @@ module AgentHarness
     #
     # @param timeout [Integer] timeout in seconds for each check (defaults to configured value)
     # @return [Array<Hash>] health status for each provider
-    def check_providers(timeout: nil)
-      timeout ? ProviderHealthCheck.check_all(timeout: timeout) : ProviderHealthCheck.check_all
+    def check_providers(timeout: nil, executor: nil, provider_runtime: nil)
+      options = {}
+      options[:timeout] = timeout unless timeout.nil?
+      options[:executor] = executor unless executor.nil?
+      options[:provider_runtime] = provider_runtime unless provider_runtime.nil?
+      ProviderHealthCheck.check_all(**options)
     end
 
     # Check health of a single provider
     # @param provider_name [Symbol] the provider name
     # @param timeout [Integer, nil] timeout in seconds (nil lets ProviderHealthCheck apply its validated default)
     # @return [Hash] health status with :name, :status, :message, :latency_ms
-    def check_provider(provider_name, timeout: nil)
-      timeout ? ProviderHealthCheck.check(provider_name, timeout: timeout) : ProviderHealthCheck.check(provider_name)
+    def check_provider(provider_name, timeout: nil, executor: nil, provider_runtime: nil)
+      options = {}
+      options[:timeout] = timeout unless timeout.nil?
+      options[:executor] = executor unless executor.nil?
+      options[:provider_runtime] = provider_runtime unless provider_runtime.nil?
+      ProviderHealthCheck.check(provider_name, **options)
     end
   end
 end

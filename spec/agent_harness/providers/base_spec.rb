@@ -103,6 +103,17 @@ RSpec.describe AgentHarness::Providers::Base do
     end
   end
 
+  describe ".smoke_test_contract" do
+    it "exposes the default CLI smoke-test contract" do
+      expect(test_provider_class.smoke_test_contract).to include(
+        prompt: "Reply with exactly OK.",
+        timeout: 30,
+        require_output: true,
+        success_message: "Smoke test passed"
+      )
+    end
+  end
+
   describe "#parse_response" do
     let(:result) { instance_double("Result", stdout: "output", stderr: "", exit_code: 0) }
 

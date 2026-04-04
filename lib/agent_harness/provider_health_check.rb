@@ -25,14 +25,16 @@ module AgentHarness
       #
       # @param timeout [Integer] timeout in seconds for each check
       # @return [Array<Hash>] health status for each provider
-      def check_all(timeout: configured_timeout)
+      def check_all(timeout: configured_timeout, executor: nil, provider_runtime: nil)
         provider_names = if AgentHarness.configuration.providers.empty?
           Providers::Registry.instance.all
         else
           enabled_provider_names
         end
 
-        provider_names.map { |name| check(name, timeout: timeout) }
+        provider_names.map do |name|
+          check(name, timeout: timeout, executor: executor, provider_runtime: provider_runtime)
+        end
       end
 
       # Check health of a single provider
@@ -40,20 +42,28 @@ module AgentHarness
       # @param provider_name [Symbol, String] the provider name
       # @param timeout [Integer] timeout in seconds
       # @return [Hash] health status with :name, :status, :message, :latency_ms keys
-      def check(provider_name, timeout: configured_timeout)
+      def check(provider_name, timeout: configured_timeout, executor: nil, provider_runtime: nil)
         name = normalize_name(provider_name)
         start_time = monotonic_now
         timeout = validate_timeout(timeout)
 
         Timeout.timeout(timeout) do
-          perform_check(name, start_time)
+          perform_check(
+            name,
+            start_time,
+            timeout: timeout,
+            executor: executor,
+            provider_runtime: provider_runtime
+          )
         end
       rescue Timeout::Error
         build_result(
           name: name,
           status: "error",
           message: "Health check timed out after #{timeout}s",
-          start_time: start_time || monotonic_now
+          start_time: start_time || monotonic_now,
+          error_category: :timeout,
+          check: :timeout
         )
       rescue NotImplementedError => e
         # NotImplementedError inherits from ScriptError, not StandardError,
@@ -65,7 +75,9 @@ module AgentHarness
           name: name,
           status: "error",
           message: "Health check failed: #{e.class}: #{e.message}",
-          start_time: start_time || monotonic_now
+          start_time: start_time || monotonic_now,
+          error_category: :unknown,
+          check: :provider_health
         )
       rescue => e
         # Return a generic message to avoid leaking sensitive details
@@ -76,7 +88,9 @@ module AgentHarness
           name: name,
           status: "error",
           message: "Health check failed: #{e.class}",
-          start_time: start_time || monotonic_now
+          start_time: start_time || monotonic_now,
+          error_category: :unknown,
+          check: :provider_health
         )
       end
 
@@ -148,7 +162,7 @@ module AgentHarness
         :unknown
       end
 
-      def perform_check(provider_name, start_time)
+      def perform_check(provider_name, start_time, timeout:, executor:, provider_runtime:)
         # Step 1: Check provider is registered
         registry = Providers::Registry.instance
         unless registry.registered?(provider_name)
@@ -156,7 +170,9 @@ module AgentHarness
             name: provider_name,
             status: "error",
             message: "Provider not registered",
-            start_time: start_time
+            start_time: start_time,
+            error_category: :installation,
+            check: :registration
           )
         end
 
@@ -167,7 +183,9 @@ module AgentHarness
             name: provider_name,
             status: "error",
             message: "CLI '#{klass.binary_name}' not found in PATH",
-            start_time: start_time
+            start_time: start_time,
+            error_category: :installation,
+            check: :availability
           )
         end
 
@@ -184,7 +202,9 @@ module AgentHarness
               name: provider_name,
               status: "error",
               message: auth[:error] || "Authentication failed",
-              start_time: start_time
+              start_time: start_time,
+              error_category: :authentication,
+              check: :authentication
             )
           end
           auth_degraded = true
@@ -194,14 +214,16 @@ module AgentHarness
         # The Adapter default always returns {healthy: true}, so providers
         # that haven't implemented a real health check are reported as ok
         # with a note that the check is not implemented.
-        provider_instance = build_provider(provider_name, klass)
+        provider_instance = build_provider(provider_name, klass, executor: executor)
         health = provider_instance.health_status
         unless health[:healthy]
           return build_result(
             name: provider_name,
             status: "degraded",
             message: health[:message] || "Provider health check failed",
-            start_time: start_time
+            start_time: start_time,
+            error_category: :transient,
+            check: :provider_health
           )
         end
 
@@ -216,7 +238,21 @@ module AgentHarness
             name: provider_name,
             status: "degraded",
             message: "Configuration issues: #{errors_msg}",
-            start_time: start_time
+            start_time: start_time,
+            error_category: :configuration,
+            check: :configuration
+          )
+        end
+
+        smoke = provider_instance.smoke_test(timeout: timeout, provider_runtime: provider_runtime)
+        unless smoke[:ok]
+          return build_result(
+            name: provider_name,
+            status: smoke[:status] || "error",
+            message: smoke[:message] || "Smoke test failed",
+            start_time: start_time,
+            error_category: smoke[:error_category] || :unknown,
+            check: :smoke_test
           )
         end
 
@@ -226,7 +262,9 @@ module AgentHarness
             name: provider_name,
             status: "degraded",
             message: "Auth status check not implemented; health and config checks passed",
-            start_time: start_time
+            start_time: start_time,
+            error_category: :authentication,
+            check: :authentication
           )
         end
 
@@ -241,7 +279,8 @@ module AgentHarness
           name: provider_name,
           status: "ok",
           message: message,
-          start_time: start_time
+          start_time: start_time,
+          check: :smoke_test
         )
       end
 
@@ -262,21 +301,23 @@ module AgentHarness
         provider_instance.method(method_name).owner != Providers::Adapter
       end
 
-      def build_result(name:, status:, message:, start_time:)
+      def build_result(name:, status:, message:, start_time:, error_category: nil, check: nil)
         latency = ((monotonic_now - start_time) * 1000).round
         {
           name: name,
           status: status,
           message: message,
-          latency_ms: latency
+          latency_ms: latency,
+          error_category: error_category,
+          check: check
         }
       end
 
-      def build_provider(provider_name, klass)
+      def build_provider(provider_name, klass, executor:)
         config = AgentHarness.configuration.providers[provider_name]
         klass.new(
           config: config,
-          executor: AgentHarness.configuration.command_executor,
+          executor: executor || AgentHarness.configuration.command_executor,
           logger: AgentHarness.logger
         )
       end

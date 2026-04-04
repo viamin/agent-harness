@@ -49,6 +49,8 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
         expect(result[:status]).to eq("error")
         expect(result[:message]).to include("test-cli")
         expect(result[:message]).to include("not found")
+        expect(result[:error_category]).to eq(:installation)
+        expect(result[:check]).to eq(:availability)
       end
     end
 
@@ -68,6 +70,10 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
               true
             end
           end
+
+          def smoke_test(timeout: nil, provider_runtime: nil)
+            {ok: true, status: "ok", message: "Smoke test passed", error_category: nil}
+          end
         end
       end
 
@@ -84,6 +90,8 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
         expect(result[:name]).to eq(:test_provider)
         expect(result[:status]).to eq("error")
         expect(result[:message]).to eq("Invalid API key")
+        expect(result[:error_category]).to eq(:authentication)
+        expect(result[:check]).to eq(:authentication)
       end
     end
 
@@ -123,6 +131,8 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
         expect(result[:name]).to eq(:test_provider)
         expect(result[:status]).to eq("degraded")
         expect(result[:message]).to eq("Endpoint unreachable")
+        expect(result[:error_category]).to eq(:transient)
+        expect(result[:check]).to eq(:provider_health)
       end
     end
 
@@ -162,6 +172,8 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
         expect(result[:name]).to eq(:test_provider)
         expect(result[:status]).to eq("degraded")
         expect(result[:message]).to include("Missing model name")
+        expect(result[:error_category]).to eq(:configuration)
+        expect(result[:check]).to eq(:configuration)
       end
     end
 
@@ -201,6 +213,7 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
         expect(result[:name]).to eq(:test_provider)
         expect(result[:status]).to eq("degraded")
         expect(result[:message]).to eq("Configuration issues: check provider configuration")
+        expect(result[:error_category]).to eq(:configuration)
       end
     end
 
@@ -220,6 +233,10 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
               true
             end
           end
+
+          def smoke_test(timeout: nil, provider_runtime: nil)
+            {ok: true, status: "ok", message: "Smoke test passed", error_category: nil}
+          end
         end
       end
 
@@ -236,6 +253,7 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
         expect(result[:name]).to eq(:test_provider)
         expect(result[:status]).to eq("ok")
         expect(result[:message]).to include("Registered and authenticated")
+        expect(result[:check]).to eq(:smoke_test)
         expect(result[:latency_ms]).to be_a(Integer)
         expect(result[:latency_ms]).to be >= 0
       end
@@ -260,6 +278,10 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
 
           def health_status
             {healthy: true, message: "Endpoint reachable"}
+          end
+
+          def smoke_test(timeout: nil, provider_runtime: nil)
+            {ok: true, status: "ok", message: "Smoke test passed", error_category: nil}
           end
         end
       end
@@ -295,6 +317,10 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
             def available?
               true
             end
+          end
+
+          def smoke_test(timeout: nil, provider_runtime: nil)
+            {ok: true, status: "ok", message: "Smoke test passed", error_category: nil}
           end
         end
       end
@@ -332,6 +358,10 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
               true
             end
           end
+
+          def smoke_test(timeout: nil, provider_runtime: nil)
+            {ok: true, status: "ok", message: "Smoke test passed", error_category: nil}
+          end
         end
       end
 
@@ -366,6 +396,10 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
             def available?
               true
             end
+          end
+
+          def smoke_test(timeout: nil, provider_runtime: nil)
+            {ok: true, status: "ok", message: "Smoke test passed", error_category: nil}
           end
         end
       end
@@ -425,6 +459,98 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
       end
     end
 
+    context "when the provider smoke test fails with a normalized category" do
+      let(:provider_class) do
+        Class.new(AgentHarness::Providers::Base) do
+          class << self
+            def provider_name
+              :test_provider
+            end
+
+            def binary_name
+              "test-cli"
+            end
+
+            def available?
+              true
+            end
+          end
+
+          def smoke_test(timeout: nil, provider_runtime: nil)
+            @seen_timeout = timeout
+            @seen_provider_runtime = provider_runtime
+            {
+              ok: false,
+              status: "error",
+              message: "Rate limit exceeded",
+              error_category: :rate_limited
+            }
+          end
+        end
+      end
+
+      before do
+        registry.register(:test_provider, provider_class)
+        allow(AgentHarness::Authentication).to receive(:auth_status)
+          .with(:test_provider)
+          .and_return({valid: true, expires_at: nil, error: nil})
+      end
+
+      it "returns the normalized smoke-test failure details" do
+        result = described_class.check(:test_provider, timeout: 7, provider_runtime: {model: "test-model"})
+
+        expect(result[:status]).to eq("error")
+        expect(result[:message]).to eq("Rate limit exceeded")
+        expect(result[:error_category]).to eq(:rate_limited)
+        expect(result[:check]).to eq(:smoke_test)
+      end
+    end
+
+    context "when a custom executor is provided" do
+      let(:custom_executor) { instance_double(AgentHarness::CommandExecutor) }
+      let(:provider_class) do
+        Class.new(AgentHarness::Providers::Base) do
+          class << self
+            attr_reader :last_executor, :last_provider_runtime, :last_timeout
+
+            def provider_name
+              :test_provider
+            end
+
+            def binary_name
+              "test-cli"
+            end
+
+            def available?
+              true
+            end
+          end
+
+          def smoke_test(timeout: nil, provider_runtime: nil)
+            self.class.instance_variable_set(:@last_executor, executor)
+            self.class.instance_variable_set(:@last_provider_runtime, provider_runtime)
+            self.class.instance_variable_set(:@last_timeout, timeout)
+            {ok: true, status: "ok", message: "Smoke test passed", error_category: nil}
+          end
+        end
+      end
+
+      before do
+        registry.register(:test_provider, provider_class)
+        allow(AgentHarness::Authentication).to receive(:auth_status)
+          .with(:test_provider)
+          .and_return({valid: true, expires_at: nil, error: nil})
+      end
+
+      it "builds the provider with the supplied executor and forwards runtime overrides" do
+        described_class.check(:test_provider, timeout: 9, executor: custom_executor, provider_runtime: {model: "runtime-model"})
+
+        expect(provider_class.last_executor).to eq(custom_executor)
+        expect(provider_class.last_timeout).to eq(9)
+        expect(provider_class.last_provider_runtime).to eq({model: "runtime-model"})
+      end
+    end
+
     context "when an unexpected error occurs" do
       before do
         allow(AgentHarness::Providers::Registry).to receive(:instance).and_raise(RuntimeError, "Unexpected failure")
@@ -474,6 +600,8 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
         expect(result[:status]).to eq("error")
         expect(result[:message]).to include("timed out")
         expect(result[:message]).to include("2s")
+        expect(result[:error_category]).to eq(:timeout)
+        expect(result[:check]).to eq(:timeout)
       end
     end
 
@@ -556,6 +684,10 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
           def available?
             true
           end
+        end
+
+        def smoke_test(timeout: nil, provider_runtime: nil)
+          {ok: true, status: "ok", message: "Smoke test passed", error_category: nil}
         end
       end
     end
@@ -764,6 +896,10 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
             true
           end
         end
+
+        def smoke_test(timeout: nil, provider_runtime: nil)
+          {ok: true, status: "ok", message: "Smoke test passed", error_category: nil}
+        end
       end
     end
 
@@ -798,6 +934,12 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
       expect(result[:name]).to eq(:test_provider)
       expect(result[:status]).to eq("ok")
       expect(result[:message]).to include("Registered and authenticated")
+    end
+
+    it "exposes smoke_test_contract on the module" do
+      contract = AgentHarness.smoke_test_contract(:test_provider)
+
+      expect(contract).to include(prompt: "Reply with exactly OK.")
     end
   end
 end
