@@ -65,22 +65,24 @@ RSpec.describe AgentHarness::Orchestration::ProviderManager do
   end
 
   describe "#get_provider" do
-    before do
-      allow_any_instance_of(AgentHarness::Providers::Registry).to receive(:get).and_return(
-        Class.new(AgentHarness::Providers::Base) do
-          def self.provider_name
-            :claude
-          end
-
-          def self.binary_name
-            "claude"
-          end
-
-          def self.available?
-            true
-          end
+    let(:provider_class) do
+      Class.new(AgentHarness::Providers::Base) do
+        def self.provider_name
+          :claude
         end
-      )
+
+        def self.binary_name
+          "claude"
+        end
+
+        def self.available?
+          true
+        end
+      end
+    end
+
+    before do
+      allow_any_instance_of(AgentHarness::Providers::Registry).to receive(:get).and_return(provider_class)
     end
 
     it "returns provider instance" do
@@ -92,6 +94,18 @@ RSpec.describe AgentHarness::Orchestration::ProviderManager do
       provider1 = manager.get_provider(:claude)
       provider2 = manager.get_provider(:claude)
       expect(provider1).to be(provider2)
+    end
+
+    it "creates request-scoped providers for executor overrides" do
+      executor = instance_double(AgentHarness::CommandExecutor)
+
+      provider1 = manager.get_provider(:claude, executor: executor)
+      provider2 = manager.get_provider(:claude, executor: executor)
+
+      expect(provider1).not_to be(provider2)
+      expect(provider1.executor).to be(executor)
+      expect(provider2.executor).to be(executor)
+      expect(manager.provider_instances).to be_empty
     end
   end
 
@@ -215,6 +229,15 @@ RSpec.describe AgentHarness::Orchestration::ProviderManager do
 
       expect { manager.switch_provider(reason: :all_failed, context: {}) }
         .to raise_error(AgentHarness::NoProvidersAvailableError)
+    end
+
+    it "preserves executor overrides on the fallback instance" do
+      executor = instance_double(AgentHarness::CommandExecutor)
+      5.times { manager.record_failure(:claude) }
+
+      result = manager.switch_provider(reason: :circuit_open, executor: executor)
+
+      expect(result.executor).to be(executor)
     end
   end
 

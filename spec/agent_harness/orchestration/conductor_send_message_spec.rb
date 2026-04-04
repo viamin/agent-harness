@@ -66,6 +66,15 @@ RSpec.describe AgentHarness::Orchestration::Conductor, "#send_message" do
       conductor.send_message("Hello")
       expect(conductor.metrics.summary[:total_attempts]).to eq(1)
     end
+
+    it "passes executor overrides through provider selection" do
+      executor = instance_double(AgentHarness::CommandExecutor)
+
+      expect(mock_provider_manager).to receive(:select_provider).with(:test_provider, executor: executor)
+        .and_return(mock_provider)
+
+      conductor.send_message("Hello", executor: executor)
+    end
   end
 
   describe "rate limit error" do
@@ -177,6 +186,15 @@ RSpec.describe AgentHarness::Orchestration::Conductor, "#send_message" do
     it "bypasses orchestration" do
       response = conductor.execute_direct("Hello", provider: :direct)
       expect(response.output).to eq("direct")
+    end
+
+    it "passes executor overrides to the provider manager" do
+      executor = instance_double(AgentHarness::CommandExecutor)
+
+      expect(mock_provider_manager).to receive(:get_provider).with(:direct, executor: executor)
+        .and_return(direct_provider)
+
+      conductor.execute_direct("Hello", provider: :direct, executor: executor)
     end
   end
 end

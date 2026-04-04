@@ -70,10 +70,11 @@ module AgentHarness
     # Send a message using the orchestration layer
     # @param prompt [String] the prompt to send
     # @param provider [Symbol, nil] optional provider override
+    # @param executor [CommandExecutor, nil] per-request executor override
     # @param options [Hash] additional options
     # @return [Response] the response from the provider
-    def send_message(prompt, provider: nil, **options)
-      conductor.send_message(prompt, provider: provider, **options)
+    def send_message(prompt, provider: nil, executor: nil, **options)
+      conductor.send_message(prompt, provider: provider, executor: executor, **options)
     end
 
     # Get a provider instance

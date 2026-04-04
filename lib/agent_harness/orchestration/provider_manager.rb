@@ -30,9 +30,10 @@ module AgentHarness
       # Select best available provider
       #
       # @param preferred [Symbol, nil] preferred provider name
+      # @param executor [CommandExecutor, nil] per-request executor override
       # @return [Providers::Base] selected provider instance
       # @raise [NoProvidersAvailableError] if no providers available
-      def select_provider(preferred = nil)
+      def select_provider(preferred = nil, executor: nil)
         preferred ||= @current_provider
 
         # Check circuit breaker
@@ -50,15 +51,18 @@ module AgentHarness
           return select_fallback(preferred, reason: :unhealthy)
         end
 
-        get_provider(preferred)
+        get_provider(preferred, executor: executor)
       end
 
       # Get or create provider instance
       #
       # @param name [Symbol, String] the provider name
+      # @param executor [CommandExecutor, nil] per-request executor override
       # @return [Providers::Base] the provider instance
-      def get_provider(name)
+      def get_provider(name, executor: nil)
         name = name.to_sym
+        return create_provider(name, executor: executor) if executor
+
         @provider_instances[name] ||= create_provider(name)
       end
 
@@ -66,11 +70,12 @@ module AgentHarness
       #
       # @param reason [Symbol, String] reason for switch
       # @param context [Hash] additional context
+      # @param executor [CommandExecutor, nil] per-request executor override
       # @return [Providers::Base, nil] new provider or nil if none available
-      def switch_provider(reason:, context: {})
+      def switch_provider(reason:, context: {}, executor: nil)
         old_provider = @current_provider
 
-        fallback = select_fallback(@current_provider, reason: reason)
+        fallback = select_fallback(@current_provider, reason: reason, executor: executor)
         return nil unless fallback
 
         @current_provider = fallback.class.provider_name
@@ -195,18 +200,18 @@ module AgentHarness
         end
       end
 
-      def create_provider(name)
+      def create_provider(name, executor: @config.command_executor)
         klass = @registry.get(name)
         config = @config.providers[name]
 
         klass.new(
           config: config,
-          executor: @config.command_executor,
+          executor: executor,
           logger: AgentHarness.logger
         )
       end
 
-      def select_fallback(provider_name, reason:)
+      def select_fallback(provider_name, reason:, executor: nil)
         chain = @fallback_chains[provider_name] || build_fallback_chain(provider_name)
 
         chain.each do |fallback_name|
@@ -219,7 +224,7 @@ module AgentHarness
             "[AgentHarness::ProviderManager] Falling back from #{provider_name} to #{fallback_name} (#{reason})"
           )
 
-          return get_provider(fallback_name)
+          return get_provider(fallback_name, executor: executor)
         end
 
         # No fallback available

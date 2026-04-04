@@ -33,13 +33,14 @@ module AgentHarness
       # @param prompt [String] the prompt to send
       # @param provider [Symbol, nil] preferred provider
       # @param model [String, nil] model to use
+      # @param executor [CommandExecutor, nil] per-request executor override
       # @param options [Hash] additional options
       # @return [Response] the response
       # @raise [NoProvidersAvailableError] if all providers fail
-      def send_message(prompt, provider: nil, model: nil, **options)
+      def send_message(prompt, provider: nil, model: nil, executor: nil, **options)
         provider_name = provider || @config.default_provider
 
-        with_orchestration(provider_name, model, options) do |selected_provider|
+        with_orchestration(provider_name, model, executor, options) do |selected_provider|
           selected_provider.send_message(prompt: prompt, model: model, **options)
         end
       end
@@ -50,8 +51,8 @@ module AgentHarness
       # @param provider [Symbol] the provider to use
       # @param options [Hash] additional options
       # @return [Response] the response
-      def execute_direct(prompt, provider:, **options)
-        provider_instance = @provider_manager.get_provider(provider)
+      def execute_direct(prompt, provider:, executor: nil, **options)
+        provider_instance = @provider_manager.get_provider(provider, executor: executor)
         provider_instance.send_message(prompt: prompt, **options)
       end
 
@@ -77,7 +78,7 @@ module AgentHarness
 
       private
 
-      def with_orchestration(provider_name, model, options)
+      def with_orchestration(provider_name, model, executor, options)
         retries = 0
         retry_config = @config.orchestration_config.retry_config
         max_retries = retry_config.max_attempts
@@ -85,7 +86,7 @@ module AgentHarness
 
         begin
           # Select provider (may return different provider based on health)
-          provider = @provider_manager.select_provider(provider_name)
+          provider = @provider_manager.select_provider(provider_name, executor: executor)
           provider_name = provider.class.provider_name
           attempted_providers << provider_name
 
@@ -114,16 +115,16 @@ module AgentHarness
           raise
         rescue RateLimitError => e
           @provider_manager.mark_rate_limited(provider_name, reset_at: e.reset_time)
-          handle_provider_failure(e, provider_name, :switch)
+          handle_provider_failure(e, provider_name, :switch, executor: executor)
           retry if should_retry?(retries += 1, max_retries)
           raise
         rescue CircuitOpenError => e
-          handle_provider_failure(e, provider_name, :switch)
+          handle_provider_failure(e, provider_name, :switch, executor: executor)
           retry if should_retry?(retries += 1, max_retries)
           raise
         rescue TimeoutError, ProviderError => e
           @provider_manager.record_failure(provider_name)
-          handle_provider_failure(e, provider_name, :retry)
+          handle_provider_failure(e, provider_name, :retry, executor: executor)
           retry if should_retry?(retries += 1, max_retries)
           raise
         rescue NoProvidersAvailableError
@@ -134,7 +135,7 @@ module AgentHarness
           @provider_manager.record_failure(provider_name)
 
           # Try switching for unknown errors
-          handle_provider_failure(e, provider_name, :switch)
+          handle_provider_failure(e, provider_name, :switch, executor: executor)
           retry if should_retry?(retries += 1, max_retries)
           raise ProviderError.new(e.message, original_error: e)
         end
@@ -145,7 +146,7 @@ module AgentHarness
         current_retries < max_retries
       end
 
-      def handle_provider_failure(error, provider_name, strategy)
+      def handle_provider_failure(error, provider_name, strategy, executor: nil)
         @metrics.record_failure(provider_name, error)
 
         case strategy
@@ -154,7 +155,8 @@ module AgentHarness
             new_provider = begin
               @provider_manager.switch_provider(
                 reason: error.class.name,
-                context: {error: error.message}
+                context: {error: error.message},
+                executor: executor
               )
             rescue NoProvidersAvailableError
               nil
