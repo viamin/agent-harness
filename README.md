@@ -132,6 +132,7 @@ downstream apps do not need to hardcode package names or version pins.
 
 ```ruby
 codex_install = AgentHarness.installation_contract(:codex)
+aider_install = AgentHarness.installation_contract(:aider)
 
 codex_install
 # => {
@@ -141,11 +142,32 @@ codex_install
 #      binary_name: "codex",
 #      install_command: ["npm", "install", "-g", "--ignore-scripts", "@openai/codex@0.116.0"]
 #    }
+
+aider_install
+# => {
+#      source: :uv_tool,
+#      bootstrap_package: "uv==0.8.17",
+#      package_name: "aider-chat",
+#      version: "0.86.2",
+#      binary_name: "aider",
+#      binary_path: "/usr/local/bin/aider",
+#      install_environment: {
+#        "UV_TOOL_BIN_DIR" => "/usr/local/bin",
+#        "UV_TOOL_DIR" => "/opt/uv/tools",
+#        "UV_PYTHON_INSTALL_DIR" => "/opt/uv/python"
+#      },
+#      bootstrap_commands: [
+#        ["python3", "-m", "pip", "install", "--no-cache-dir", "--break-system-packages", "uv==0.8.17"]
+#      ],
+#      install_command: ["uv", "tool", "install", "--force", "--python", "python3.12", "--with", "pip", "aider-chat==0.86.2"]
+#    }
 ```
 
-For Codex, the install contract tracks the CLI version supported by the
-current `agent-harness` release, and the runtime adapter tests assert that
-the expected binary remains aligned with that contract.
+For supported providers like Codex and Aider, the install contract tracks
+the CLI version supported by the current `agent-harness` release. The
+contract includes bootstrap requirements, install command shape, and the
+expected runtime binary, and the provider specs assert that runtime
+expectations remain aligned with the published install metadata.
 
 ### Custom Providers
 

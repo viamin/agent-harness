@@ -148,6 +148,30 @@ RSpec.describe AgentHarness::Providers::Adapter do
         )
       end
 
+      it "supports custom version formatting in the installation contract" do
+        custom_format_class = Class.new do
+          include AgentHarness::Providers::Adapter
+
+          class << self
+            def provider_name = :custom_format
+            def available? = true
+            def binary_name = "installer"
+
+            def installation_contract
+              {
+                package_name: "pkg",
+                version_format: "%{package_name}==%{version}",
+                install_command_prefix: ["tool", "install"]
+              }
+            end
+          end
+        end
+
+        expect(custom_format_class.install_command(version: "1.2.3")).to eq(
+          ["tool", "install", "pkg==1.2.3"]
+        )
+      end
+
       it "raises when version override is requested without package_name" do
         expect {
           package_only_installing_adapter_class.install_command(version: "1.2.3")

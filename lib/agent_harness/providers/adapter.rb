@@ -92,7 +92,10 @@ module AgentHarness
             raise ArgumentError, "installation_contract must define :package_name when overriding version"
           end
 
-          Array(contract[:install_command_prefix]) + ["#{package_name}@#{version}"]
+          version_format = contract.fetch(:version_format, "%{package_name}@%{version}")
+          package_with_version = format(version_format, package_name: package_name, version: version)
+
+          Array(contract[:install_command_prefix]) + [package_with_version]
         end
       end
 
