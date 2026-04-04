@@ -6,6 +6,7 @@ module AgentHarness
     #
     # Provides integration with the OpenCode CLI tool.
     class Opencode < Base
+      CLI_PACKAGE = "opencode-ai"
       SUPPORTED_CLI_VERSION = "1.3.2"
       SUPPORTED_CLI_REQUIREMENT = Gem::Requirement.new(">= #{SUPPORTED_CLI_VERSION}", "< 1.4.0").freeze
 
@@ -44,7 +45,7 @@ module AgentHarness
         def installation_contract(version: SUPPORTED_CLI_VERSION)
           validate_install_version!(version)
 
-          default_package = "opencode-ai@#{version}".freeze
+          default_package = "#{CLI_PACKAGE}@#{version}".freeze
           install_command_prefix = ["npm", "install", "-g", "--ignore-scripts"].freeze
           install_command = (install_command_prefix + [default_package]).freeze
           supported_versions = [SUPPORTED_CLI_VERSION].freeze
@@ -55,7 +56,7 @@ module AgentHarness
           contract = {
             source: :npm,
             package: default_package,
-            package_name: "opencode-ai",
+            package_name: CLI_PACKAGE,
             version: version,
             version_requirement: version_requirement,
             binary_name: binary_name,
@@ -77,10 +78,16 @@ module AgentHarness
         private
 
         def validate_install_version!(version)
-          return if SUPPORTED_CLI_REQUIREMENT.satisfied_by?(Gem::Version.new(version))
+          parsed_version = Gem::Version.new(version)
+          return if SUPPORTED_CLI_REQUIREMENT.satisfied_by?(parsed_version)
 
-          raise ArgumentError,
-            "Unsupported OpenCode CLI version #{version.inspect}; " \
+          raise ArgumentError, unsupported_version_message(version)
+        rescue ArgumentError
+          raise ArgumentError, unsupported_version_message(version)
+        end
+
+        def unsupported_version_message(version)
+          "Unsupported OpenCode CLI version #{version.inspect}; " \
             "supported versions must satisfy #{SUPPORTED_CLI_REQUIREMENT}"
         end
       end
