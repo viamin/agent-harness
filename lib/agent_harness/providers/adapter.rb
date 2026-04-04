@@ -50,7 +50,7 @@ module AgentHarness
         # version pins outside AgentHarness.
         #
         # @return [Hash, nil] installation metadata or nil when not provided
-        def install_contract
+        def install_contract(version: nil)
           nil
         end
 

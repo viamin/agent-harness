@@ -55,6 +55,10 @@ RSpec.describe AgentHarness::Providers::Adapter do
       it "returns nil by default" do
         expect(adapter_class.install_contract).to be_nil
       end
+
+      it "accepts an optional version keyword and still returns nil" do
+        expect(adapter_class.install_contract(version: "1.2.3")).to be_nil
+      end
     end
 
     describe ".firewall_requirements" do

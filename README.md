@@ -156,16 +156,16 @@ class MyProvider < AgentHarness::Providers::Base
       "my-cli"
     end
 
-    def install_contract
+    def install_contract(version: "1.2.3")
       {
         provider: provider_name,
         source_type: :npm,
         package_name: "@acme/my-cli",
         supported_version_requirement: Gem::Requirement.new("~> 1.2"),
         default_version: "1.2.3",
-        resolved_version: "1.2.3",
+        resolved_version: version,
         binary_name: binary_name,
-        install_command: ["npm", "install", "-g", "@acme/my-cli@1.2.3"]
+        install_command: ["npm", "install", "-g", "@acme/my-cli@#{version}"]
       }
     end
 
