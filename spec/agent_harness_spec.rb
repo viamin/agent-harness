@@ -56,6 +56,15 @@ RSpec.describe AgentHarness do
 
       expect(AgentHarness.provider_installation_contract(:kilocode)).to eq(contract)
     end
+
+    it "forwards target selection options to the provider registry" do
+      contract = {binary_name: "kilo", default_version: "7.1.3"}
+
+      expect(AgentHarness::Providers::Registry.instance)
+        .to receive(:installation_contract).with(:kilocode, version: "7.1.3").and_return(contract)
+
+      expect(AgentHarness.provider_installation_contract(:kilocode, version: "7.1.3")).to eq(contract)
+    end
   end
 
   describe ".auth_valid?" do

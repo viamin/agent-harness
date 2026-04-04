@@ -82,9 +82,15 @@ module AgentHarness
       # Fetch installation metadata for a provider.
       #
       # @param name [Symbol, String] the provider name
-      # @return [Hash, nil] provider installation contract
-      def installation_contract(name)
-        get(name).installation_contract
+      # @param options [Hash] optional target selection (for example, `version:`)
+      # @return [Hash, nil] provider installation contract, or nil when the
+      #   registered provider class does not define `.installation_contract`
+      # @raise [ConfigurationError] if provider not found
+      def installation_contract(name, **options)
+        provider_class = get(name)
+        return nil unless provider_class.respond_to?(:installation_contract)
+
+        provider_class.installation_contract(**options)
       end
 
       # Reset registry (useful for testing)

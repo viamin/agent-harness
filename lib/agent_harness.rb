@@ -86,9 +86,11 @@ module AgentHarness
     # Get the installation contract for a provider CLI.
     #
     # @param name [Symbol, String] the provider name
-    # @return [Hash, nil] provider installation contract
-    def provider_installation_contract(name)
-      Providers::Registry.instance.installation_contract(name)
+    # @param options [Hash] optional target selection (for example, `version:`)
+    # @return [Hash, nil] provider installation contract for the requested target
+    # @raise [ConfigurationError] if provider not found
+    def provider_installation_contract(name, **options)
+      Providers::Registry.instance.installation_contract(name, **options)
     end
 
     # Check if authentication is valid for a provider

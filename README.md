@@ -132,7 +132,7 @@ metadata instead of hardcoding package names, binary names, or supported
 versions out-of-band.
 
 ```ruby
-contract = AgentHarness.provider_installation_contract(:kilocode)
+contract = AgentHarness.provider_installation_contract(:kilocode, version: "7.1.3")
 
 contract
 # {
