@@ -64,15 +64,15 @@ module AgentHarness
           []
         end
 
-        # Installation contract for the provider CLI.
+        # Installation contract for this provider's CLI.
         #
-        # Downstream apps can use this metadata to build container images
-        # without duplicating package names, binary names, or supported
-        # version pins outside agent-harness.
+        # Downstream apps can use this metadata to provision the provider CLI
+        # without hardcoding package names, versions, or binary expectations
+        # outside agent-harness.
         #
-        # @return [Hash, nil] installation metadata or nil when the provider
-        #   does not expose a first-class install contract
-        def installation_contract
+        # @return [Hash, nil] install metadata, or nil when no first-class
+        #   installation contract is defined for the provider
+        def installation_contract(**_options)
           nil
         end
 
