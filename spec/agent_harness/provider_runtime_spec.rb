@@ -35,6 +35,12 @@ RSpec.describe AgentHarness::ProviderRuntime do
       expect(runtime.env).to eq("MY_VAR" => "val")
     end
 
+    it "converts unset_env entries to strings" do
+      runtime = described_class.new(unset_env: [:OPENAI_BASE_URL, "ANTHROPIC_API_KEY"])
+
+      expect(runtime.unset_env).to eq(["OPENAI_BASE_URL", "ANTHROPIC_API_KEY"])
+    end
+
     it "raises ArgumentError for non-String env values" do
       expect { described_class.new(env: {"PORT" => 3000}) }
         .to raise_error(ArgumentError, /env value for "PORT" must be a String \(got Integer\)/)
@@ -53,6 +59,12 @@ RSpec.describe AgentHarness::ProviderRuntime do
     it "coerces nil metadata to empty hash" do
       runtime = described_class.new(metadata: nil)
       expect(runtime.metadata).to eq({})
+    end
+
+    it "coerces nil unset_env to empty array" do
+      runtime = described_class.new(unset_env: nil)
+
+      expect(runtime.unset_env).to eq([])
     end
 
     it "raises ArgumentError when flags is not an Array" do
@@ -112,6 +124,11 @@ RSpec.describe AgentHarness::ProviderRuntime do
     it "raises ArgumentError when metadata is not a Hash" do
       expect { described_class.new(metadata: "bad") }
         .to raise_error(ArgumentError, /metadata must be a Hash/)
+    end
+
+    it "raises ArgumentError when unset_env is not an Array" do
+      expect { described_class.new(unset_env: "OPENAI_BASE_URL") }
+        .to raise_error(ArgumentError, /unset_env must be an Array/)
     end
   end
 
@@ -200,6 +217,10 @@ RSpec.describe AgentHarness::ProviderRuntime do
 
     it "returns false when metadata is set" do
       expect(described_class.new(metadata: {a: 1})).not_to be_empty
+    end
+
+    it "returns false when unset_env is set" do
+      expect(described_class.new(unset_env: ["OPENAI_BASE_URL"])).not_to be_empty
     end
   end
 end

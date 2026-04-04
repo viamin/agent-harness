@@ -78,12 +78,13 @@ module AgentHarness
       unless unset_array.is_a?(Array)
         raise ArgumentError, "unset_env must be an Array (got #{unset_array.class})"
       end
-      unset_array.each_with_index do |key, index|
-        unless key.is_a?(String)
-          raise ArgumentError, "unset_env must be an Array of Strings; invalid element at index #{index}: #{key.inspect} (#{key.class})"
-        end
+      normalized_unset_env = unset_array.map.with_index do |key, index|
+        key.to_s
+      rescue NoMethodError
+        raise ArgumentError,
+          "unset_env must contain values convertible to String; invalid element at index #{index}: #{key.inspect} (#{key.class})"
       end
-      @unset_env = unset_array.map(&:dup).freeze
+      @unset_env = normalized_unset_env.freeze
 
       freeze
     end

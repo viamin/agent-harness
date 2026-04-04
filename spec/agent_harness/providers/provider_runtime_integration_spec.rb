@@ -45,6 +45,20 @@ RSpec.describe "ProviderRuntime integration" do
 
       provider.send_message(prompt: "Hello")
     end
+
+    it "passes unset env vars as nil overrides to the executor" do
+      runtime = AgentHarness::ProviderRuntime.new(
+        env: {"CUSTOM_KEY" => "custom_value"},
+        unset_env: [:OPENAI_BASE_URL]
+      )
+
+      expect(mock_executor).to receive(:execute).with(
+        anything,
+        hash_including(env: hash_including("CUSTOM_KEY" => "custom_value", "OPENAI_BASE_URL" => nil))
+      ).and_return(success_result)
+
+      provider.send_message(prompt: "Hello", provider_runtime: runtime)
+    end
   end
 
   shared_examples "runtime hash coercion" do
@@ -149,6 +163,17 @@ RSpec.describe "ProviderRuntime integration" do
 
       response = provider_with_model.send_message(prompt: "Hello", provider_runtime: runtime)
       expect(response.model).to eq("runtime-model")
+    end
+
+    it "does not leak inherited host env into executor overrides" do
+      runtime = AgentHarness::ProviderRuntime.new(env: {"CUSTOM_KEY" => "custom_value"})
+
+      expect(mock_executor).to receive(:execute) do |_command, options|
+        expect(options.fetch(:env)).to eq("CUSTOM_KEY" => "custom_value")
+        success_result
+      end
+
+      provider.send_message(prompt: "Hello", provider_runtime: runtime)
     end
   end
 

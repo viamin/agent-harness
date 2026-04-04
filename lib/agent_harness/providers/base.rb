@@ -184,10 +184,10 @@ module AgentHarness
         runtime = options[:provider_runtime]
         return {} unless runtime
 
-        # Start with the current process environment, apply overrides, then unset requested keys.
-        env = ENV.to_h.dup
-        env.merge!(runtime.env)
-        runtime.unset_env.each { |key| env.delete(key) }
+        # Return overrides only. Ruby subprocess spawning treats nil values as
+        # explicit unsets in the child process, while omitted keys are inherited.
+        env = runtime.env.dup
+        runtime.unset_env.each { |key| env[key] = nil }
         env
       end
 

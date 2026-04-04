@@ -73,6 +73,11 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
       executor.execute(["echo", "hi"], env: {"FOO" => "bar", "BAZ" => "qux"})
     end
 
+    it "does not serialize nil env values into docker flags" do
+      expect_popen3_with(["docker", "exec", "--env", "FOO=bar", container_id, "echo", "hi"])
+      executor.execute(["echo", "hi"], env: {"FOO" => "bar", "BAR" => nil})
+    end
+
     it "adds -i flag when stdin_data is present" do
       expect_popen3_with(["docker", "exec", "-i", container_id, "cat"])
       executor.execute(["cat"], stdin_data: "input data")

@@ -63,7 +63,11 @@ module AgentHarness
     def build_docker_command(command, env:, stdin_data:)
       cmd = ["docker", "exec"]
 
-      env.each { |key, value| cmd.push("--env", "#{key}=#{value}") }
+      env.each do |key, value|
+        next if value.nil?
+
+        cmd.push("--env", "#{key}=#{value}")
+      end
       cmd.push("-i") if stdin_data
 
       cmd.push(@container_id)
