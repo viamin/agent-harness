@@ -290,7 +290,7 @@ module AgentHarness
       end
 
       def sandbox_bypass_flags
-        ["--sandbox", "none"]
+        ["--dangerously-bypass-approvals-and-sandbox"]
       end
 
       def read_codex_credentials

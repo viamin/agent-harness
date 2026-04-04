@@ -256,9 +256,9 @@ RSpec.describe AgentHarness::Providers::Codex do
       end
 
       context "with externally_sandboxed option" do
-        it "includes --sandbox none flag" do
+        it "includes bypass flag compatible with current codex cli" do
           expect(mock_executor).to receive(:execute).with(
-            ["codex", "exec", "--sandbox", "none", "Hello"],
+            ["codex", "exec", "--dangerously-bypass-approvals-and-sandbox", "Hello"],
             anything
           ).and_return(success_result)
 
@@ -274,9 +274,9 @@ RSpec.describe AgentHarness::Providers::Codex do
         end
         let(:sandboxed_provider) { described_class.new(config: sandboxed_config, executor: mock_executor) }
 
-        it "includes --sandbox none flag from config" do
+        it "includes bypass flag from config" do
           expect(mock_executor).to receive(:execute).with(
-            ["codex", "exec", "--sandbox", "none", "Hello"],
+            ["codex", "exec", "--dangerously-bypass-approvals-and-sandbox", "Hello"],
             anything
           ).and_return(success_result)
 
@@ -287,7 +287,7 @@ RSpec.describe AgentHarness::Providers::Codex do
       context "with both dangerous_mode and externally_sandboxed" do
         it "includes both flag sets" do
           expect(mock_executor).to receive(:execute).with(
-            ["codex", "exec", "--full-auto", "--sandbox", "none", "Hello"],
+            ["codex", "exec", "--full-auto", "--dangerously-bypass-approvals-and-sandbox", "Hello"],
             anything
           ).and_return(success_result)
 
@@ -303,7 +303,7 @@ RSpec.describe AgentHarness::Providers::Codex do
         end
         let(:sandboxed_provider) { described_class.new(config: sandboxed_config, executor: mock_executor) }
 
-        it "does not include --sandbox none when per-call option is false" do
+        it "does not include bypass flag when per-call option is false" do
           expect(mock_executor).to receive(:execute).with(
             ["codex", "exec", "Hello"],
             anything
