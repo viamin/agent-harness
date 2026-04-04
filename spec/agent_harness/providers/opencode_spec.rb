@@ -46,6 +46,10 @@ RSpec.describe AgentHarness::Providers::Opencode do
       )
     end
 
+    it "reuses the default frozen install contract" do
+      expect(described_class.installation_contract).to equal(described_class.installation_contract)
+    end
+
     it "normalizes surrounding whitespace in supported explicit versions" do
       contract = described_class.installation_contract(version: " 1.3.9 ")
 

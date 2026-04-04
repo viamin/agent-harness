@@ -49,15 +49,26 @@ module AgentHarness
 
         def installation_contract(version: SUPPORTED_CLI_VERSION)
           normalized_version = normalize_install_version(version)
+          return DEFAULT_INSTALLATION_CONTRACT if normalized_version == SUPPORTED_CLI_VERSION
 
-          default_package = "#{CLI_PACKAGE}@#{normalized_version}".freeze
-          install_command = (INSTALL_COMMAND_PREFIX + [default_package]).freeze
+          build_installation_contract(normalized_version)
+        end
+
+        def install_command(version: SUPPORTED_CLI_VERSION)
+          installation_contract(version: version)[:install_command]
+        end
+
+        private
+
+        def build_installation_contract(version)
+          package = "#{CLI_PACKAGE}@#{version}".freeze
+          install_command = (INSTALL_COMMAND_PREFIX + [package]).freeze
 
           contract = {
             source: :npm,
-            package: default_package,
+            package: package,
             package_name: CLI_PACKAGE,
-            version: normalized_version,
+            version: version,
             version_requirement: VERSION_REQUIREMENT_STRINGS,
             binary_name: binary_name,
             install_command_prefix: INSTALL_COMMAND_PREFIX,
@@ -70,12 +81,6 @@ module AgentHarness
           end
           contract.freeze
         end
-
-        def install_command(version: SUPPORTED_CLI_VERSION)
-          installation_contract(version: version)[:install_command]
-        end
-
-        private
 
         def normalize_install_version(version)
           raise ArgumentError, unsupported_version_message(version) unless version.is_a?(String) && !version.strip.empty?
@@ -94,6 +99,8 @@ module AgentHarness
             "supported versions must satisfy #{SUPPORTED_CLI_REQUIREMENT}"
         end
       end
+
+      DEFAULT_INSTALLATION_CONTRACT = build_installation_contract(SUPPORTED_CLI_VERSION)
 
       def name
         "opencode"
