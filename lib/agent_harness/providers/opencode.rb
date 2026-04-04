@@ -6,6 +6,9 @@ module AgentHarness
     #
     # Provides integration with the OpenCode CLI tool.
     class Opencode < Base
+      SUPPORTED_CLI_VERSION = "1.3.2"
+      SUPPORTED_CLI_REQUIREMENT = Gem::Requirement.new(">= #{SUPPORTED_CLI_VERSION}", "< 1.4.0").freeze
+
       class << self
         def provider_name
           :opencode
@@ -36,6 +39,33 @@ module AgentHarness
         def discover_models
           return [] unless available?
           []
+        end
+
+        def installation_contract
+          default_package = "opencode-ai@#{SUPPORTED_CLI_VERSION}".freeze
+          install_command_prefix = ["npm", "install", "-g", "--ignore-scripts"].freeze
+          install_command = (install_command_prefix + [default_package]).freeze
+          supported_versions = [SUPPORTED_CLI_VERSION].freeze
+          version_requirement = SUPPORTED_CLI_REQUIREMENT.requirements
+            .map { |op, ver| "#{op} #{ver}".freeze }
+            .freeze
+
+          contract = {
+            source: :npm,
+            package: default_package,
+            package_name: "opencode-ai",
+            version: SUPPORTED_CLI_VERSION,
+            version_requirement: version_requirement,
+            binary_name: binary_name,
+            install_command_prefix: install_command_prefix,
+            install_command: install_command,
+            supported_versions: supported_versions
+          }
+
+          contract.each_value do |value|
+            value.freeze if value.is_a?(String)
+          end
+          contract.freeze
         end
       end
 

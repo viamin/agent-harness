@@ -110,9 +110,12 @@ RSpec.describe AgentHarness::Providers::Registry do
     it "returns providers with installation contracts" do
       contracts = registry.installation_contracts
 
-      expect(contracts).to include(:codex)
+      expect(contracts).to include(:codex, :opencode)
       expect(contracts[:codex][:install_command]).to eq(
         ["npm", "install", "-g", "--ignore-scripts", "@openai/codex@0.116.0"]
+      )
+      expect(contracts[:opencode][:install_command]).to eq(
+        ["npm", "install", "-g", "--ignore-scripts", "opencode-ai@1.3.2"]
       )
     end
 

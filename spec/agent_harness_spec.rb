@@ -76,7 +76,7 @@ RSpec.describe AgentHarness do
     it "returns all registered provider installation contracts" do
       contracts = AgentHarness.installation_contracts
 
-      expect(contracts).to include(:codex)
+      expect(contracts).to include(:codex, :opencode)
     end
   end
 

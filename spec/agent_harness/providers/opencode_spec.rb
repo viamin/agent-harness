@@ -13,6 +13,54 @@ RSpec.describe AgentHarness::Providers::Opencode do
     end
   end
 
+  describe ".installation_contract" do
+    it "exposes OpenCode CLI install metadata" do
+      contract = described_class.installation_contract
+
+      expect(contract).to include(
+        source: :npm,
+        package_name: "opencode-ai",
+        version: "1.3.2",
+        binary_name: "opencode"
+      )
+      expect(contract[:package]).to eq("opencode-ai@1.3.2")
+      expect(contract[:supported_versions]).to eq(["1.3.2"])
+      expect(contract[:version_requirement]).to eq([">= 1.3.2", "< 1.4.0"])
+      expect(contract[:install_command]).to eq(
+        ["npm", "install", "-g", "--ignore-scripts", "opencode-ai@1.3.2"]
+      )
+    end
+
+    it "keeps the runtime binary aligned with the install contract" do
+      contract = described_class.installation_contract
+
+      expect(contract[:binary_name]).to eq(described_class.binary_name)
+    end
+
+    it "deep-freezes nested contract values" do
+      contract = described_class.installation_contract
+
+      expect { contract[:install_command_prefix] << "opencode-ai" }.to raise_error(FrozenError)
+      expect { contract[:install_command] << "opencode-ai" }.to raise_error(FrozenError)
+      expect { contract[:supported_versions] << "1.3.1" }.to raise_error(FrozenError)
+      expect { contract[:version_requirement] << ">= 1.3.1" }.to raise_error(FrozenError)
+    end
+  end
+
+  describe ".install_command" do
+    it "builds the default install command from the contract" do
+      expect(described_class.install_command).to eq(
+        ["npm", "install", "-g", "--ignore-scripts", "opencode-ai@1.3.2"]
+      )
+    end
+
+    it "supports explicit version overrides" do
+      expect(described_class.install_command(version: "1.3.1")).to eq(
+        ["npm", "install", "-g", "--ignore-scripts", "opencode-ai@1.3.1"]
+      )
+    end
+  end
+
   describe ".firewall_requirements" do
     it "returns required domains" do
       requirements = described_class.firewall_requirements
@@ -88,6 +136,26 @@ RSpec.describe AgentHarness::Providers::Opencode do
 
         expect(mock_executor).to receive(:execute).with(
           ["opencode", "run", "Hello"],
+          anything
+        )
+
+        provider.send_message(prompt: "Hello")
+      end
+
+      it "uses the install contract binary in the runtime command" do
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "response",
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        binary = described_class.installation_contract[:binary_name]
+
+        expect(mock_executor).to receive(:execute).with(
+          [binary, "run", "Hello"],
           anything
         )
 
