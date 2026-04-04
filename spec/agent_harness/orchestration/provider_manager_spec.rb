@@ -62,6 +62,37 @@ RSpec.describe AgentHarness::Orchestration::ProviderManager do
         expect { manager.select_provider(:claude) }.to raise_error(AgentHarness::NoProvidersAvailableError)
       end
     end
+
+    context "when preferred provider falls back with an executor override" do
+      let(:cursor_class) do
+        Class.new(AgentHarness::Providers::Base) do
+          def self.provider_name
+            :cursor
+          end
+
+          def self.binary_name
+            "cursor"
+          end
+
+          def self.available?
+            true
+          end
+        end
+      end
+
+      before do
+        allow_any_instance_of(AgentHarness::Providers::Registry).to receive(:get).and_return(cursor_class)
+        5.times { manager.record_failure(:claude) }
+      end
+
+      it "preserves the override on the fallback provider" do
+        executor = instance_double(AgentHarness::CommandExecutor)
+
+        provider = manager.select_provider(:claude, executor: executor)
+
+        expect(provider.executor).to be(executor)
+      end
+    end
   end
 
   describe "#get_provider" do

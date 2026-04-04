@@ -38,17 +38,17 @@ module AgentHarness
 
         # Check circuit breaker
         if circuit_open?(preferred)
-          return select_fallback(preferred, reason: :circuit_open)
+          return select_fallback(preferred, reason: :circuit_open, executor: executor)
         end
 
         # Check rate limit
         if rate_limited?(preferred)
-          return select_fallback(preferred, reason: :rate_limited)
+          return select_fallback(preferred, reason: :rate_limited, executor: executor)
         end
 
         # Check health
         unless healthy?(preferred)
-          return select_fallback(preferred, reason: :unhealthy)
+          return select_fallback(preferred, reason: :unhealthy, executor: executor)
         end
 
         get_provider(preferred, executor: executor)
