@@ -22,12 +22,6 @@ module AgentHarness
     #         system("which my-cli > /dev/null 2>&1")
     #       end
     #     end
-    #
-    #     protected
-    #
-    #     def build_command(prompt, options)
-    #       [self.class.binary_name, "--prompt", prompt]
-    #     end
     #   end
     class Base
       include Adapter
@@ -190,7 +184,11 @@ module AgentHarness
         runtime = options[:provider_runtime]
         return {} unless runtime
 
-        runtime.env.dup
+        # Return overrides only. Ruby subprocess spawning treats nil values as
+        # explicit unsets in the child process, while omitted keys are inherited.
+        env = runtime.env.dup
+        runtime.unset_env.each { |key| env[key] = nil }
+        env
       end
 
       # Parse CLI output into Response - override in subclasses

@@ -66,6 +66,20 @@ RSpec.describe AgentHarness::CommandExecutor do
 
         expect(result.stdout.strip).to eq("test_value")
       end
+
+      it "unsets inherited environment variables when given nil values" do
+        original = ENV["AGENT_HARNESS_TEST_UNSET"]
+        ENV["AGENT_HARNESS_TEST_UNSET"] = "inherited"
+
+        result = executor.execute(
+          ["sh", "-c", "printf '%s' \"${AGENT_HARNESS_TEST_UNSET-unset}\""],
+          env: {"AGENT_HARNESS_TEST_UNSET" => nil}
+        )
+
+        expect(result.stdout).to eq("unset")
+      ensure
+        ENV["AGENT_HARNESS_TEST_UNSET"] = original
+      end
     end
   end
 

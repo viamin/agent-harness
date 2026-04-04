@@ -25,15 +25,16 @@ module AgentHarness
   #     }
   #   )
   class ProviderRuntime
-    attr_reader :model, :base_url, :api_provider, :env, :flags, :metadata
+    attr_reader :model, :base_url, :api_provider, :env, :flags, :metadata, :unset_env
 
     # @param model [String, nil] model identifier override
     # @param base_url [String, nil] upstream API base URL override
     # @param api_provider [String, nil] API-compatible backend name
     # @param env [Hash<String,String>] extra environment variables for the subprocess
     # @param flags [Array<String>] extra CLI flags to append
+    # @param unset_env [Array<String>] environment variable names to remove from inherited env
     # @param metadata [Hash] arbitrary provider-specific data
-    def initialize(model: nil, base_url: nil, api_provider: nil, env: {}, flags: [], metadata: {})
+    def initialize(model: nil, base_url: nil, api_provider: nil, env: {}, flags: [], unset_env: [], metadata: {})
       @model = model
       @base_url = base_url
       @api_provider = api_provider
@@ -70,6 +71,21 @@ module AgentHarness
       end
       @metadata = metadata_hash.dup.freeze
 
+      # Unset environment variables for the request. These are variable names that
+      # should be removed from the inherited environment before the provider
+      # command runs.
+      unset_array = unset_env || []
+      unless unset_array.is_a?(Array)
+        raise ArgumentError, "unset_env must be an Array (got #{unset_array.class})"
+      end
+      normalized_unset_env = unset_array.map.with_index do |key, index|
+        key.to_s
+      rescue NoMethodError
+        raise ArgumentError,
+          "unset_env must contain values convertible to String; invalid element at index #{index}: #{key.inspect} (#{key.class})"
+      end
+      @unset_env = normalized_unset_env.freeze
+
       freeze
     end
 
@@ -86,6 +102,7 @@ module AgentHarness
         api_provider: hash[:api_provider] || hash["api_provider"],
         env: hash[:env] || hash["env"] || {},
         flags: hash[:flags] || hash["flags"] || [],
+        unset_env: hash[:unset_env] || hash["unset_env"] || [],
         metadata: hash[:metadata] || hash["metadata"] || {}
       )
     end
@@ -109,7 +126,7 @@ module AgentHarness
     # @return [Boolean]
     def empty?
       model.nil? && base_url.nil? && api_provider.nil? &&
-        env.empty? && flags.empty? && metadata.empty?
+        env.empty? && flags.empty? && metadata.empty? && unset_env.empty?
     end
   end
 end
