@@ -15,7 +15,7 @@ module AgentHarness
         end
 
         def binary_name
-          "copilot"
+          "github-copilot-cli"
         end
 
         def available?
@@ -116,10 +116,10 @@ module AgentHarness
 
       def execution_semantics
         {
-          prompt_delivery: :flag,
+          prompt_delivery: :argument,
           output_format: :text,
           sandbox_aware: false,
-          uses_subcommand: false,
+          uses_subcommand: true,
           non_interactive_flag: nil,
           legitimate_exit_codes: [0],
           stderr_is_diagnostic: true,
@@ -155,7 +155,7 @@ module AgentHarness
       protected
 
       def build_command(prompt, options)
-        cmd = [self.class.binary_name, "-p", prompt]
+        cmd = [self.class.binary_name, "what-the-shell", prompt]
 
         # Add dangerous mode flags by default for automation
         cmd += dangerous_mode_flags if supports_dangerous_mode?
