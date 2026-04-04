@@ -95,6 +95,11 @@ RSpec.describe AgentHarness::Providers::Opencode do
     it "deep-freezes nested contract values" do
       contract = described_class.installation_contract
 
+      expect(contract).to be_frozen
+      expect(contract[:package]).to be_frozen
+      expect(contract[:package_name]).to be_frozen
+      expect(contract[:version]).to be_frozen
+      expect(contract[:binary_name]).to be_frozen
       expect { contract[:install_command_prefix] << "opencode-ai" }.to raise_error(FrozenError)
       expect { contract[:install_command] << "opencode-ai" }.to raise_error(FrozenError)
       expect { contract[:supported_versions] << "1.3.1" }.to raise_error(FrozenError)
