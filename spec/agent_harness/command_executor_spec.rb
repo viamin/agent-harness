@@ -45,10 +45,51 @@ RSpec.describe AgentHarness::CommandExecutor do
         }.to raise_error(AgentHarness::TimeoutError)
       end
 
+      it "raises IdleTimeoutError when command stops producing output" do
+        expect {
+          executor.execute(
+            ["ruby", "-e", "$stdout.sync = true; puts 'ready'; sleep 0.3"],
+            timeout: 5,
+            idle_timeout: 0.1
+          )
+        }.to raise_error(AgentHarness::IdleTimeoutError)
+      end
+
       it "completes before timeout" do
         result = executor.execute(["echo", "quick"], timeout: 5)
 
         expect(result.success?).to be true
+      end
+    end
+
+    context "with streaming hooks" do
+      it "streams stdout and stderr chunks while returning the final result" do
+        stdout_chunks = []
+        stderr_chunks = []
+
+        result = executor.execute(
+          ["ruby", "-e", "$stdout.sync = true; $stderr.sync = true; puts 'out'; warn 'err'"],
+          on_stdout_chunk: ->(chunk) { stdout_chunks << chunk },
+          on_stderr_chunk: ->(chunk) { stderr_chunks << chunk }
+        )
+
+        expect(stdout_chunks.join).to include("out")
+        expect(stderr_chunks.join).to include("err")
+        expect(result.stdout).to include("out")
+        expect(result.stderr).to include("err")
+      end
+
+      it "emits heartbeats while the command remains active" do
+        heartbeats = []
+
+        executor.execute(
+          ["ruby", "-e", "sleep 0.2"],
+          on_heartbeat: ->(**heartbeat) { heartbeats << heartbeat },
+          heartbeat_interval: 0.05
+        )
+
+        expect(heartbeats).not_to be_empty
+        expect(heartbeats).to all(include(:elapsed, :idle_for))
       end
     end
 

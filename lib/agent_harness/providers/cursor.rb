@@ -189,7 +189,13 @@ module AgentHarness
         # Execute command with prompt on stdin
         env = build_env(options)
         start_time = Time.now
-        result = @executor.execute(command, timeout: timeout, stdin_data: prompt, env: env)
+        result = execute_with_timeout(
+          command,
+          timeout: timeout,
+          env: env,
+          stdin_data: prompt,
+          **command_execution_options(options)
+        )
         duration = Time.now - start_time
 
         # Parse response

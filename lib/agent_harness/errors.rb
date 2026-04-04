@@ -22,6 +22,8 @@ module AgentHarness
   # Execution errors
   class TimeoutError < Error; end
 
+  class IdleTimeoutError < TimeoutError; end
+
   class CommandExecutionError < Error; end
 
   # Rate limiting and circuit breaker errors

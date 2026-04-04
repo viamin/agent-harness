@@ -103,7 +103,12 @@ module AgentHarness
 
         # Execute command
         start_time = Time.now
-        result = execute_with_timeout(command, timeout: timeout, env: build_env(options))
+        result = execute_with_timeout(
+          command,
+          timeout: timeout,
+          env: build_env(options),
+          **command_execution_options(options)
+        )
         duration = Time.now - start_time
 
         # Parse response
@@ -277,8 +282,19 @@ module AgentHarness
         options.merge(mcp_servers: normalized)
       end
 
-      def execute_with_timeout(command, timeout:, env:)
-        @executor.execute(command, timeout: timeout, env: env)
+      def command_execution_options(options)
+        {
+          idle_timeout: options[:idle_timeout],
+          on_stdout_chunk: options[:on_stdout_chunk],
+          on_stderr_chunk: options[:on_stderr_chunk],
+          on_heartbeat: options[:on_heartbeat],
+          heartbeat_interval: options[:heartbeat_interval],
+          observer: options[:execution_observer] || options[:observer]
+        }.reject { |_, value| value.nil? }
+      end
+
+      def execute_with_timeout(command, timeout:, env:, stdin_data: nil, **execution_options)
+        @executor.execute(command, timeout: timeout, env: env, stdin_data: stdin_data, **execution_options)
       end
 
       def track_tokens(response)

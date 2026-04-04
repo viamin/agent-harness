@@ -248,4 +248,35 @@ RSpec.describe AgentHarness::Providers::Base, "#send_message" do
       provider.send_message(prompt: "Hello", timeout: 300)
     end
   end
+
+  describe "execution hooks" do
+    it "passes through idle timeout and streaming callbacks" do
+      observer = Object.new
+
+      expect(mock_executor).to receive(:execute).with(
+        anything,
+        hash_including(
+          timeout: 120,
+          idle_timeout: 30,
+          on_stdout_chunk: kind_of(Proc),
+          on_stderr_chunk: kind_of(Proc),
+          on_heartbeat: kind_of(Proc),
+          heartbeat_interval: 5,
+          observer: observer
+        )
+      ).and_return(
+        AgentHarness::CommandExecutor::Result.new(stdout: "ok", stderr: "", exit_code: 0, duration: 1.0)
+      )
+
+      provider.send_message(
+        prompt: "Hello",
+        idle_timeout: 30,
+        on_stdout_chunk: ->(_chunk) {},
+        on_stderr_chunk: ->(_chunk) {},
+        on_heartbeat: ->(**_heartbeat) {},
+        heartbeat_interval: 5,
+        execution_observer: observer
+      )
+    end
+  end
 end
