@@ -79,7 +79,46 @@ RSpec.describe AgentHarness::Providers::Registry do
   end
 
   describe "#installation_contract" do
-    it "returns a provider installation contract" do
+    it "returns install metadata for builtin providers that expose it" do
+      contract = registry.installation_contract(:kilocode)
+
+      expect(contract[:source]).to eq({
+        type: :npm,
+        package: "@kilocode/cli"
+      })
+      expect(contract[:binary_name]).to eq("kilo")
+      expect(contract[:default_version]).to eq("7.1.3")
+    end
+
+    it "forwards target selection options to the provider" do
+      contract = registry.installation_contract(:kilocode, version: "7.1.3")
+
+      expect(contract[:install_command]).to eq(
+        ["npm", "install", "-g", "--ignore-scripts", "@kilocode/cli@7.1.3"]
+      )
+    end
+
+    it "returns nil for registered providers without installation contract support" do
+      provider_without_install_contract = Class.new do
+        def self.provider_name
+          :legacy_provider
+        end
+
+        def self.available?
+          true
+        end
+
+        def self.binary_name
+          "legacy"
+        end
+      end
+
+      registry.register(:legacy_provider, provider_without_install_contract)
+
+      expect(registry.installation_contract(:legacy_provider)).to be_nil
+    end
+
+    it "returns install metadata for providers with a generic contract" do
       contract = registry.installation_contract(:codex)
 
       expect(contract).to include(
@@ -99,7 +138,7 @@ RSpec.describe AgentHarness::Providers::Registry do
       )
     end
 
-    it "raises ConfigurationError for an unknown provider" do
+    it "raises ConfigurationError for unknown providers" do
       expect {
         registry.installation_contract(:nonexistent_provider_xyz)
       }.to raise_error(AgentHarness::ConfigurationError, /Unknown provider/)

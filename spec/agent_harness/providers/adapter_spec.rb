@@ -129,6 +129,10 @@ RSpec.describe AgentHarness::Providers::Adapter do
       it "returns nil by default" do
         expect(adapter_class.installation_contract).to be_nil
       end
+
+      it "ignores forwarded keyword arguments by default" do
+        expect(adapter_class.installation_contract(version: "1.2.3")).to be_nil
+      end
     end
 
     describe ".install_command" do

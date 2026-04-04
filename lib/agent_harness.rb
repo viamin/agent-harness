@@ -83,12 +83,23 @@ module AgentHarness
       conductor.provider_manager.get_provider(name)
     end
 
+    # Get the installation contract for a provider CLI.
+    #
+    # @param name [Symbol, String] the provider name
+    # @param options [Hash] optional target selection (for example, `version:`)
+    # @return [Hash, nil] provider installation contract for the requested target
+    # @raise [ConfigurationError] if provider not found
+    def provider_installation_contract(name, **options)
+      Providers::Registry.instance.installation_contract(name, **options)
+    end
+
     # Get installation metadata for a provider CLI.
     # @param provider_name [Symbol, String] the provider name
+    # @param options [Hash] optional target selection (for example, `version:`)
     # @return [Hash, nil] installation contract
     # @raise [ConfigurationError] if the provider name is not registered
-    def installation_contract(provider_name)
-      Providers::Registry.instance.installation_contract(provider_name)
+    def installation_contract(provider_name, **options)
+      Providers::Registry.instance.installation_contract(provider_name, **options)
     end
 
     # Get all provider installation contracts exposed by agent-harness.
