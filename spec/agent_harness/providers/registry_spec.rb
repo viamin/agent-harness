@@ -78,6 +78,29 @@ RSpec.describe AgentHarness::Providers::Registry do
     end
   end
 
+  describe "#installation_contract" do
+    it "returns a provider installation contract" do
+      contract = registry.installation_contract(:codex)
+
+      expect(contract).to include(
+        source: :npm,
+        package_name: "@openai/codex",
+        binary_name: "codex"
+      )
+    end
+  end
+
+  describe "#installation_contracts" do
+    it "returns providers with installation contracts" do
+      contracts = registry.installation_contracts
+
+      expect(contracts).to include(:codex)
+      expect(contracts[:codex][:install_command]).to eq(
+        ["npm", "install", "-g", "--ignore-scripts", "@openai/codex@0.116.0"]
+      )
+    end
+  end
+
   describe "#reset!" do
     it "clears all registrations" do
       registry.send(:ensure_builtin_providers_registered)

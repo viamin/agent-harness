@@ -8,6 +8,9 @@ module AgentHarness
     #
     # Provides integration with the OpenAI Codex CLI tool.
     class Codex < Base
+      SUPPORTED_CLI_VERSION = "0.116.0"
+      SUPPORTED_CLI_REQUIREMENT = Gem::Requirement.new(">= #{SUPPORTED_CLI_VERSION}", "< 0.117.0").freeze
+
       class << self
         def provider_name
           :codex
@@ -48,6 +51,23 @@ module AgentHarness
           [
             {name: "codex", family: "codex", tier: "standard", provider: "codex"}
           ]
+        end
+
+        def installation_contract
+          default_package = "@openai/codex@#{SUPPORTED_CLI_VERSION}"
+          install_command_prefix = ["npm", "install", "-g", "--ignore-scripts"]
+
+          {
+            source: :npm,
+            package: default_package,
+            package_name: "@openai/codex",
+            version: SUPPORTED_CLI_VERSION,
+            version_requirement: SUPPORTED_CLI_REQUIREMENT.requirements.map { |op, ver| "#{op} #{ver}" },
+            binary_name: binary_name,
+            install_command_prefix: install_command_prefix,
+            install_command: install_command_prefix + [default_package],
+            supported_versions: [SUPPORTED_CLI_VERSION]
+          }.freeze
         end
       end
 
