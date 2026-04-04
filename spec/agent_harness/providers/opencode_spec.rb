@@ -131,6 +131,13 @@ RSpec.describe AgentHarness::Providers::Opencode do
       )
     end
 
+    it "reuses the default frozen install command for explicit default versions" do
+      default_install_command = described_class.install_command
+
+      expect(described_class.install_command(version: "1.3.2")).to equal(default_install_command)
+      expect(described_class.install_command(version: " 1.3.2 ")).to equal(default_install_command)
+    end
+
     it "normalizes surrounding whitespace in explicit version overrides" do
       expect(described_class.install_command(version: " 1.3.9 ")).to eq(
         ["npm", "install", "-g", "--ignore-scripts", "opencode-ai@1.3.9"]
