@@ -68,6 +68,12 @@ RSpec.describe AgentHarness::Providers::Adapter do
         expect(adapter_class.discover_models).to eq([])
       end
     end
+
+    describe ".installation_contract" do
+      it "returns nil by default" do
+        expect(adapter_class.installation_contract).to be_nil
+      end
+    end
   end
 
   describe "Instance methods" do

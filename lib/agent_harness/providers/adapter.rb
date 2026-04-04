@@ -63,6 +63,18 @@ module AgentHarness
         def discover_models
           []
         end
+
+        # Installation contract for this provider's CLI.
+        #
+        # Returns metadata that downstream apps can use to provision the
+        # provider CLI without hardcoding package names, versions, or binary
+        # expectations outside agent-harness.
+        #
+        # @return [Hash, nil] install metadata, or nil when no first-class
+        #   installation contract is defined for the provider
+        def installation_contract
+          nil
+        end
       end
 
       # Instance methods

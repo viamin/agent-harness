@@ -6,6 +6,10 @@ module AgentHarness
     #
     # Provides integration with the Kilocode CLI tool.
     class Kilocode < Base
+      PACKAGE_NAME = "@kilocode/cli"
+      DEFAULT_VERSION = "7.1.3"
+      SUPPORTED_VERSION_REQUIREMENT = "= #{DEFAULT_VERSION}"
+
       class << self
         def provider_name
           :kilocode
@@ -34,6 +38,33 @@ module AgentHarness
         def discover_models
           return [] unless available?
           []
+        end
+
+        def installation_contract(version: DEFAULT_VERSION)
+          validate_install_version!(version)
+          package_spec = "#{PACKAGE_NAME}@#{version}"
+
+          {
+            source: {
+              type: :npm,
+              package: PACKAGE_NAME
+            },
+            install_command: ["npm", "install", "-g", "--ignore-scripts", package_spec],
+            binary_name: binary_name,
+            default_version: DEFAULT_VERSION,
+            supported_version_requirement: SUPPORTED_VERSION_REQUIREMENT
+          }
+        end
+
+        private
+
+        def validate_install_version!(version)
+          requirement = Gem::Requirement.new(SUPPORTED_VERSION_REQUIREMENT)
+          return if requirement.satisfied_by?(Gem::Version.new(version))
+
+          raise ArgumentError,
+            "Unsupported Kilocode CLI version #{version.inspect}; " \
+            "supported versions must satisfy #{SUPPORTED_VERSION_REQUIREMENT}"
         end
       end
 

@@ -13,6 +13,37 @@ RSpec.describe AgentHarness::Providers::Kilocode do
     end
   end
 
+  describe ".installation_contract" do
+    it "returns the upstream install contract" do
+      contract = described_class.installation_contract
+
+      expect(contract[:source]).to eq({
+        type: :npm,
+        package: "@kilocode/cli"
+      })
+      expect(contract[:install_command]).to eq(
+        ["npm", "install", "-g", "--ignore-scripts", "@kilocode/cli@7.1.3"]
+      )
+      expect(contract[:binary_name]).to eq("kilo")
+      expect(contract[:default_version]).to eq("7.1.3")
+      expect(contract[:supported_version_requirement]).to eq("= 7.1.3")
+    end
+
+    it "can render an install command for an explicitly supported target" do
+      contract = described_class.installation_contract(version: "7.1.3")
+
+      expect(contract[:install_command]).to eq(
+        ["npm", "install", "-g", "--ignore-scripts", "@kilocode/cli@7.1.3"]
+      )
+    end
+
+    it "rejects unsupported versions" do
+      expect {
+        described_class.installation_contract(version: "7.1.2")
+      }.to raise_error(ArgumentError, /Unsupported Kilocode CLI version/)
+    end
+  end
+
   describe ".firewall_requirements" do
     it "returns empty arrays" do
       requirements = described_class.firewall_requirements
@@ -72,6 +103,10 @@ RSpec.describe AgentHarness::Providers::Kilocode do
     end
 
     describe "#send_message" do
+      it "keeps the runtime binary aligned with the installation contract" do
+        expect(described_class.installation_contract[:binary_name]).to eq(described_class.binary_name)
+      end
+
       it "executes kilo run with the prompt" do
         allow(mock_executor).to receive(:execute).and_return(
           AgentHarness::CommandExecutor::Result.new(

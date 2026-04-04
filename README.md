@@ -106,7 +106,7 @@ end
 | `:codex` | `codex` | OpenAI Codex CLI |
 | `:aider` | `aider` | Aider coding assistant |
 | `:opencode` | `opencode` | OpenCode CLI |
-| `:kilocode` | `kilocode` | Kilocode CLI |
+| `:kilocode` | `kilo` | Kilocode CLI |
 
 ### Direct Provider Access
 
@@ -124,6 +124,29 @@ end
 AgentHarness::Providers::Registry.instance.all
 # => [:claude, :cursor, :gemini, :github_copilot, :codex, :opencode, :kilocode, :aider]
 ```
+
+### Provider Installation Contracts
+
+Downstream apps can ask `agent-harness` for provider-specific CLI install
+metadata instead of hardcoding package names, binary names, or supported
+versions out-of-band.
+
+```ruby
+contract = AgentHarness.provider_installation_contract(:kilocode)
+
+contract
+# {
+#   source: { type: :npm, package: "@kilocode/cli" },
+#   install_command: ["npm", "install", "-g", "--ignore-scripts", "@kilocode/cli@7.1.3"],
+#   binary_name: "kilo",
+#   default_version: "7.1.3",
+#   supported_version_requirement: "= 7.1.3"
+# }
+```
+
+The Kilocode runtime adapter expects the `kilo` binary and executes prompts via
+`kilo run ...`, so the install contract and runtime behavior stay aligned in
+tests.
 
 ### Custom Providers
 

@@ -78,6 +78,19 @@ RSpec.describe AgentHarness::Providers::Registry do
     end
   end
 
+  describe "#installation_contract" do
+    it "returns install metadata for builtin providers that expose it" do
+      contract = registry.installation_contract(:kilocode)
+
+      expect(contract[:source]).to eq({
+        type: :npm,
+        package: "@kilocode/cli"
+      })
+      expect(contract[:binary_name]).to eq("kilo")
+      expect(contract[:default_version]).to eq("7.1.3")
+    end
+  end
+
   describe "#reset!" do
     it "clears all registrations" do
       registry.send(:ensure_builtin_providers_registered)
