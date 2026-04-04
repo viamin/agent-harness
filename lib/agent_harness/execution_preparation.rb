@@ -13,8 +13,8 @@ module AgentHarness
       def initialize(path:, content:, mode: nil)
         raise ArgumentError, "path must be a non-empty String" unless path.is_a?(String) && !path.empty?
         raise ArgumentError, "content must be a String" unless content.is_a?(String)
-        if !mode.nil? && !mode.is_a?(Integer)
-          raise ArgumentError, "mode must be an Integer or nil"
+        if !mode.nil? && (!mode.is_a?(Integer) || mode.negative?)
+          raise ArgumentError, "mode must be a non-negative Integer or nil"
         end
 
         super
@@ -36,8 +36,8 @@ module AgentHarness
           write
         when Hash
           FileWrite.new(
-            path: write[:path] || write["path"],
-            content: write[:content] || write["content"],
+            path: fetch_value(write, :path),
+            content: fetch_value(write, :content),
             mode: write.key?(:mode) ? write[:mode] : write["mode"]
           )
         else
@@ -51,6 +51,14 @@ module AgentHarness
 
     def empty?
       file_writes.empty?
+    end
+
+    private
+
+    def fetch_value(hash, key)
+      return hash[key] if hash.key?(key)
+
+      hash[key.to_s]
     end
   end
 end

@@ -19,6 +19,19 @@ RSpec.describe AgentHarness::ExecutionPreparation do
       expect(preparation.file_writes.first.mode).to eq(0o600)
     end
 
+    it "preserves empty string content from hash inputs" do
+      preparation = described_class.new(
+        file_writes: [
+          {
+            "path" => "/tmp/empty.txt",
+            "content" => ""
+          }
+        ]
+      )
+
+      expect(preparation.file_writes.first.content).to eq("")
+    end
+
     it "defaults to an empty list" do
       preparation = described_class.new
 
@@ -56,10 +69,16 @@ RSpec.describe AgentHarness::ExecutionPreparation do
       }.to raise_error(ArgumentError, /content must be a String/)
     end
 
-    it "requires integer mode when provided" do
+    it "requires a non-negative integer mode when provided" do
       expect {
         described_class.new(path: "/tmp/config.json", content: "{}", mode: "600")
-      }.to raise_error(ArgumentError, /mode must be an Integer or nil/)
+      }.to raise_error(ArgumentError, /mode must be a non-negative Integer or nil/)
+    end
+
+    it "rejects negative modes" do
+      expect {
+        described_class.new(path: "/tmp/config.json", content: "{}", mode: -1)
+      }.to raise_error(ArgumentError, /mode must be a non-negative Integer or nil/)
     end
   end
 end
