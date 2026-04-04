@@ -61,10 +61,12 @@ RSpec.describe AgentHarness::Providers::Adapter do
             install: nil,
             supported_versions: {
               default: "latest",
-              requirement: "latest"
+              requirement: "latest",
+              channel: nil
             },
             runtime_contract: {
               available_via: "test",
+              build_command: ["test"],
               required_features: []
             }
           }

@@ -16,15 +16,17 @@ RSpec.describe AgentHarness::Providers::Anthropic do
   describe ".install_contract" do
     it "exposes the official install contract" do
       contract = described_class.install_contract
+      local_binary_path = File.expand_path("~/.local/bin/claude")
 
       expect(contract[:provider]).to eq(:claude)
       expect(contract[:binary_name]).to eq("claude")
-      expect(contract[:binary_paths]).to include("/usr/local/bin/claude", "/root/.local/bin/claude", "claude")
+      expect(contract[:binary_paths]).to include("/usr/local/bin/claude", local_binary_path, "claude")
       expect(contract.dig(:install, :strategy)).to eq(:shell)
-      expect(contract.dig(:install, :command)).to include("curl -fsSL https://claude.ai/install.sh | bash")
-      expect(contract.dig(:install, :post_install_binary_path)).to eq("/usr/local/bin/claude")
+      expect(contract.dig(:install, :command)).to eq("curl -fsSL https://claude.ai/install.sh | bash")
+      expect(contract.dig(:install, :post_install_binary_path)).to eq(local_binary_path)
       expect(contract.dig(:supported_versions, :default)).to eq("latest")
       expect(contract.dig(:supported_versions, :requirement)).to eq("latest")
+      expect(contract.dig(:supported_versions, :channel)).to eq("latest")
       expect(contract.dig(:runtime_contract, :available_via)).to eq(described_class.binary_name)
       expect(contract.dig(:runtime_contract, :build_command)).to eq(["claude", "--print", "--output-format=json"])
       expect(contract.dig(:runtime_contract, :required_features)).to include(
@@ -42,9 +44,10 @@ RSpec.describe AgentHarness::Providers::Anthropic do
       config = AgentHarness::ProviderConfig.new(:claude)
       provider = described_class.new(config: config, executor: instance_double(AgentHarness::CommandExecutor))
       command = provider.send(:build_command, "prompt", {})
+      contract_build_command = contract.dig(:runtime_contract, :build_command)
 
-      expect(command.first).to eq(contract[:binary_name])
-      expect(command).to include(*contract.dig(:runtime_contract, :build_command).drop(1))
+      expect(command.first(contract_build_command.length)).to eq(contract_build_command)
+      expect(command[contract_build_command.length]).to eq("prompt")
     end
   end
 

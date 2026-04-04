@@ -134,8 +134,8 @@ AgentHarness::Providers::Registry.instance.all
 For Claude, the install contract is the first-class source of truth for:
 
 - the official install recipe the current harness release expects
-- the binary name and post-install path the adapter validates against
-- the supported install target, which defaults to the harness-supported `latest` Claude CLI channel
+- the expected binary name and documented post-install path for that recipe
+- the supported install target metadata, which defaults to the harness-supported `latest` Claude CLI channel
 
 ### Custom Providers
 

@@ -26,19 +26,21 @@ module AgentHarness
         end
 
         def install_contract
+          local_binary_path = File.expand_path("~/.local/bin/claude")
+
           {
             provider: provider_name,
             binary_name: binary_name,
             binary_paths: [
               "/usr/local/bin/claude",
-              "/root/.local/bin/claude",
+              local_binary_path,
               binary_name
             ],
             install: {
               strategy: :shell,
               source: "official",
-              command: "curl -fsSL https://claude.ai/install.sh | bash && cp -L /root/.local/bin/claude /usr/local/bin/claude && chmod +x /usr/local/bin/claude",
-              post_install_binary_path: "/usr/local/bin/claude"
+              command: "curl -fsSL https://claude.ai/install.sh | bash",
+              post_install_binary_path: local_binary_path
             },
             supported_versions: {
               default: "latest",
