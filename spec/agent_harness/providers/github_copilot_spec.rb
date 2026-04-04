@@ -8,8 +8,8 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
   end
 
   describe ".binary_name" do
-    it "returns copilot" do
-      expect(described_class.binary_name).to eq("copilot")
+    it "returns github-copilot-cli" do
+      expect(described_class.binary_name).to eq("github-copilot-cli")
     end
   end
 
@@ -113,14 +113,62 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
     describe "#execution_semantics" do
       it "returns the full provider contract" do
         semantics = provider.execution_semantics
-        expect(semantics[:prompt_delivery]).to eq(:flag)
+        expect(semantics[:prompt_delivery]).to eq(:arg)
         expect(semantics[:output_format]).to eq(:text)
         expect(semantics[:sandbox_aware]).to be false
-        expect(semantics[:uses_subcommand]).to be false
+        expect(semantics[:uses_subcommand]).to be true
         expect(semantics[:non_interactive_flag]).to be_nil
         expect(semantics[:legitimate_exit_codes]).to eq([0])
         expect(semantics[:stderr_is_diagnostic]).to be true
         expect(semantics[:parses_rate_limit_reset]).to be false
+      end
+    end
+
+    describe "#build_command" do
+      it "places the subcommand and prompt before optional flags" do
+        command = provider.send(:build_command, "Hello", {})
+
+        expect(command).to eq([
+          "github-copilot-cli",
+          "what-the-shell",
+          "Hello"
+        ])
+      end
+
+      it "adds dangerous mode flags only when explicitly requested" do
+        command = provider.send(:build_command, "Hello", {dangerous_mode: true})
+
+        expect(command).to eq([
+          "github-copilot-cli",
+          "what-the-shell",
+          "Hello",
+          "--allow-all-tools"
+        ])
+      end
+
+      it "appends session resume flags after the prompt and any dangerous mode flags" do
+        command = provider.send(:build_command, "Hello", {session: "session-123"})
+
+        expect(command).to eq([
+          "github-copilot-cli",
+          "what-the-shell",
+          "Hello",
+          "--resume",
+          "session-123"
+        ])
+      end
+
+      it "appends session resume flags after dangerous mode flags when both are provided" do
+        command = provider.send(:build_command, "Hello", {dangerous_mode: true, session: "session-123"})
+
+        expect(command).to eq([
+          "github-copilot-cli",
+          "what-the-shell",
+          "Hello",
+          "--allow-all-tools",
+          "--resume",
+          "session-123"
+        ])
       end
     end
   end
