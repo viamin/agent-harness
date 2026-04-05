@@ -134,9 +134,11 @@ module AgentHarness
       Open3.popen3(env, *cmd_array, pgroup: true) do |stdin, stdout_io, stderr_io, wait_thr|
         unless selectable_streams?(stdin, stdout_io, stderr_io)
           return execute_buffered(
+            stdin,
             stdout_io,
             stderr_io,
             wait_thr,
+            stdin_data: stdin_data,
             stdout: stdout,
             stderr: stderr,
             timeout: timeout,
@@ -230,9 +232,11 @@ module AgentHarness
       streams.all? { |stream| stream.is_a?(IO) }
     end
 
-    def execute_buffered(stdout_io, stderr_io, wait_thr, stdout:, stderr:, timeout:, cmd_array:,
+    def execute_buffered(stdin, stdout_io, stderr_io, wait_thr, stdin_data:, stdout:, stderr:, timeout:, cmd_array:,
       on_stdout_chunk:, on_stderr_chunk:, observer:)
       result = lambda do
+        write_stdin_buffered(stdin, stdin_data)
+
         stdout_chunk = stdout_io.read.to_s
         stderr_chunk = stderr_io.read.to_s
 
@@ -257,6 +261,15 @@ module AgentHarness
     rescue Timeout::Error
       terminate_process(wait_thr)
       raise TimeoutError, "Command timed out after #{timeout} seconds: #{cmd_array.first}"
+    end
+
+    def write_stdin_buffered(stdin, stdin_data)
+      return unless stdin
+
+      stdin.write(stdin_data.to_s)
+      close_stream(stdin)
+    rescue Errno::EPIPE, IOError
+      close_stream(stdin)
     end
 
     def write_stdin_nonblock(stdin, stdin_buffer, stdin_offset)

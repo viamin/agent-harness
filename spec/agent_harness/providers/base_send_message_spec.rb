@@ -309,5 +309,23 @@ RSpec.describe AgentHarness::Providers::Base, "#send_message" do
         heartbeat_interval: nil
       )
     end
+
+    it "does not override the executor heartbeat interval unless requested" do
+      expect(mock_executor).to receive(:execute).with(
+        anything,
+        satisfy { |execution_options|
+          execution_options[:timeout] == 120 &&
+            execution_options[:on_heartbeat].is_a?(Proc) &&
+            !execution_options.key?(:heartbeat_interval)
+        }
+      ).and_return(
+        AgentHarness::CommandExecutor::Result.new(stdout: "ok", stderr: "", exit_code: 0, duration: 1.0)
+      )
+
+      provider.send_message(
+        prompt: "Hello",
+        on_heartbeat: ->(**_heartbeat) {}
+      )
+    end
   end
 end

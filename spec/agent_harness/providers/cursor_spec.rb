@@ -340,6 +340,31 @@ RSpec.describe AgentHarness::Providers::Cursor do
         )
       end
 
+      it "uses the executor default heartbeat interval when none is provided" do
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "ok",
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        expect(mock_executor).to receive(:execute).with(
+          ["cursor-agent", "-p"],
+          satisfy { |execution_options|
+            execution_options[:stdin_data] == "Hello" &&
+              execution_options[:on_heartbeat].is_a?(Proc) &&
+              !execution_options.key?(:heartbeat_interval)
+          }
+        )
+
+        provider.send_message(
+          prompt: "Hello",
+          on_heartbeat: ->(**_heartbeat) {}
+        )
+      end
+
       it "preserves idle timeout errors" do
         allow(mock_executor).to receive(:execute).and_raise(
           AgentHarness::IdleTimeoutError.new("Command exceeded idle timeout")

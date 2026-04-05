@@ -283,14 +283,16 @@ module AgentHarness
       end
 
       def command_execution_options(options)
-        {
+        execution_options = {
           idle_timeout: options[:idle_timeout],
           on_stdout_chunk: options[:on_stdout_chunk],
           on_stderr_chunk: options[:on_stderr_chunk],
           on_heartbeat: options[:on_heartbeat],
-          heartbeat_interval: options[:heartbeat_interval],
           observer: options[:execution_observer] || options[:observer]
-        }.reject { |key, value| value.nil? && key != :heartbeat_interval }
+        }.reject { |_, value| value.nil? }
+
+        execution_options[:heartbeat_interval] = options[:heartbeat_interval] if options.key?(:heartbeat_interval)
+        execution_options
       end
 
       def execute_with_timeout(command, timeout:, env:, stdin_data: nil, **execution_options)

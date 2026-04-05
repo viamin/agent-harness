@@ -161,6 +161,22 @@ RSpec.describe AgentHarness::CommandExecutor do
 
         expect(result.stdout).to eq("hello from stdin")
       end
+
+      it "writes stdin data before buffered fallback reads output" do
+        stdin = StringIO.new
+        stdout = StringIO.new("buffered stdout")
+        stderr = StringIO.new
+        status = instance_double(Process::Status, exitstatus: 0, success?: true)
+        wait_thr = instance_double(Thread, value: status)
+
+        allow(Open3).to receive(:popen3).and_yield(stdin, stdout, stderr, wait_thr)
+
+        result = executor.execute(["buffered-command"], stdin_data: "hello from stdin")
+
+        expect(stdin).to be_closed
+        expect(stdin.string).to eq("hello from stdin")
+        expect(result.stdout).to eq("buffered stdout")
+      end
     end
 
     context "with environment variables" do
