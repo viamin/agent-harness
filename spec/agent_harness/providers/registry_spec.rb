@@ -50,6 +50,50 @@ RSpec.describe AgentHarness::Providers::Registry do
       expect(registry.registered?(:renamed)).to be true
       expect(registry.provider_metadata(:test)[:aliases]).to eq([:renamed])
     end
+
+    it "evicts aliases from the previous provider when ownership changes" do
+      other_provider = Class.new do
+        def self.provider_name = :other_provider
+        def self.available? = true
+        def self.binary_name = "other"
+      end
+
+      registry.register(:first, mock_provider, aliases: [:shared])
+      registry.register(:second, other_provider, aliases: [:shared])
+
+      expect(registry.get(:shared)).to be(other_provider)
+      expect(registry.provider_metadata(:first)[:aliases]).to eq([])
+      expect(registry.provider_metadata(:second)[:aliases]).to eq([:shared])
+    end
+
+    it "drops an alias claim when that identifier becomes a canonical provider name" do
+      other_provider = Class.new do
+        def self.provider_name = :other_provider
+        def self.available? = true
+        def self.binary_name = "other"
+      end
+
+      registry.register(:first, mock_provider, aliases: [:second])
+      registry.register(:second, other_provider)
+
+      expect(registry.get(:second)).to be(other_provider)
+      expect(registry.provider_metadata(:first)[:aliases]).to eq([])
+      expect(registry.provider_metadata(:second)[:provider]).to eq(:second)
+    end
+
+    it "rejects aliases that conflict with another canonical provider name" do
+      other_provider = Class.new do
+        def self.provider_name = :other_provider
+        def self.available? = true
+        def self.binary_name = "other"
+      end
+
+      registry.register(:first, mock_provider)
+
+      expect {
+        registry.register(:second, other_provider, aliases: [:first])
+      }.to raise_error(AgentHarness::ConfigurationError, /Alias :first conflicts with registered provider :first/)
+    end
   end
 
   describe "#get" do
@@ -118,6 +162,32 @@ RSpec.describe AgentHarness::Providers::Registry do
       )
     end
 
+    it "forwards target selection options to providers with generic contracts" do
+      contract = registry.installation_contract(:opencode, version: "1.3.9")
+
+      expect(contract).to include(
+        package_name: "opencode-ai",
+        version: "1.3.9",
+        binary_name: "opencode"
+      )
+      expect(contract[:install_command]).to eq(
+        ["npm", "install", "-g", "--ignore-scripts", "opencode-ai@1.3.9"]
+      )
+    end
+
+    it "preserves provider normalization for generic-contract version lookups" do
+      contract = registry.installation_contract(:opencode, version: " 1.3.9 ")
+
+      expect(contract).to include(
+        package_name: "opencode-ai",
+        version: "1.3.9",
+        binary_name: "opencode"
+      )
+      expect(contract[:install_command]).to eq(
+        ["npm", "install", "-g", "--ignore-scripts", "opencode-ai@1.3.9"]
+      )
+    end
+
     it "returns nil for registered providers without installation contract support" do
       provider_without_install_contract = Class.new do
         def self.provider_name
@@ -169,9 +239,12 @@ RSpec.describe AgentHarness::Providers::Registry do
     it "returns providers with installation contracts" do
       contracts = registry.installation_contracts
 
-      expect(contracts).to include(:codex)
+      expect(contracts).to include(:codex, :opencode)
       expect(contracts[:codex][:install_command]).to eq(
         ["npm", "install", "-g", "--ignore-scripts", "@openai/codex@0.116.0"]
+      )
+      expect(contracts[:opencode][:install_command]).to eq(
+        ["npm", "install", "-g", "--ignore-scripts", "opencode-ai@1.3.2"]
       )
     end
 
@@ -213,6 +286,9 @@ RSpec.describe AgentHarness::Providers::Registry do
         supports_registry_checks: true,
         lightweight: true
       )
+      expect(metadata[:identity]).to eq(
+        bot_usernames: ["claude", "anthropic"]
+      )
     end
 
     it "resolves aliases to canonical provider metadata" do
@@ -252,6 +328,9 @@ RSpec.describe AgentHarness::Providers::Registry do
         supports_registry_checks: false,
         lightweight: false
       )
+      expect(metadata[:identity]).to eq(
+        bot_usernames: ["legacy_provider", "legacy"]
+      )
     end
 
     it "raises ConfigurationError for unknown providers" do
@@ -269,6 +348,12 @@ RSpec.describe AgentHarness::Providers::Registry do
       expect(catalog[:codex][:auth]).to include(
         service: :openai,
         api_family: :openai
+      )
+      expect(catalog[:codex][:identity]).to eq(
+        bot_usernames: ["codex"]
+      )
+      expect(catalog[:github_copilot][:identity]).to eq(
+        bot_usernames: ["github_copilot", "copilot", "github-copilot-cli"]
       )
     end
   end

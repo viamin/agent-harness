@@ -232,7 +232,9 @@ RSpec.describe AgentHarness::Providers::Adapter do
           configuration_validation: false,
           lightweight: true
         )
-        expect(metadata[:identity]).to eq(bot_usernames: [])
+        expect(metadata[:identity]).to eq(
+          bot_usernames: ["test_adapter", "test_alias", "test"]
+        )
       end
     end
 

@@ -33,15 +33,22 @@ module AgentHarness
       def register(name, klass, aliases: [])
         name = name.to_sym
         validate_provider_class!(klass)
+        normalized_aliases = aliases.map(&:to_sym).uniq - [name]
 
+        validate_aliases!(name, normalized_aliases)
+        unregister_claimed_alias(name)
         unregister_aliases_for(name)
 
         @providers[name] = klass
-        normalized_aliases = aliases.map(&:to_sym).uniq
         @provider_aliases[name] = normalized_aliases
 
         normalized_aliases.each do |alias_name|
-          @aliases[alias_name.to_sym] = name
+          previous_owner = @aliases[alias_name]
+          if previous_owner && previous_owner != name
+            @provider_aliases[previous_owner] = @provider_aliases[previous_owner] - [alias_name]
+          end
+
+          @aliases[alias_name] = name
         end
 
         AgentHarness.logger&.debug("[AgentHarness::Registry] Registered provider: #{name}")
@@ -167,6 +174,13 @@ module AgentHarness
         end
       end
 
+      def unregister_claimed_alias(name)
+        previous_owner = @aliases.delete(name)
+        return unless previous_owner && previous_owner != name
+
+        @provider_aliases[previous_owner] = @provider_aliases[previous_owner] - [name]
+      end
+
       def validate_provider_class!(klass)
         includes_adapter = klass.include?(Adapter)
         has_required_methods = klass.respond_to?(:provider_name) &&
@@ -176,6 +190,13 @@ module AgentHarness
         return if includes_adapter || has_required_methods
 
         raise ConfigurationError, "Provider class must include AgentHarness::Providers::Adapter or implement required class methods"
+      end
+
+      def validate_aliases!(name, aliases)
+        conflicting_provider = aliases.find { |alias_name| alias_name != name && @providers.key?(alias_name) }
+        return unless conflicting_provider
+
+        raise ConfigurationError, "Alias #{conflicting_provider.inspect} conflicts with registered provider #{conflicting_provider.inspect}"
       end
 
       def fallback_provider_metadata(name, klass, aliases)
@@ -217,7 +238,12 @@ module AgentHarness
             lightweight: false
           },
           identity: {
-            bot_usernames: []
+            bot_usernames: [name, *aliases, klass.binary_name]
+              .filter_map do |identity|
+                normalized_identity = identity.to_s.strip
+                normalized_identity unless normalized_identity.empty?
+              end
+              .uniq
           }
         }
       end

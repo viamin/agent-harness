@@ -103,12 +103,13 @@ module AgentHarness
           configuration = provider.configuration_schema
           execution = provider.execution_semantics
           installation = installation_contract
+          normalized_aliases = aliases.map(&:to_sym)
 
           deep_merge_metadata(
             {
               provider: provider_name,
               canonical_provider: provider_name,
-              aliases: aliases.map(&:to_sym),
+              aliases: normalized_aliases,
               display_name: provider_display_name(provider),
               binary_name: binary_name,
               auth: {
@@ -141,7 +142,7 @@ module AgentHarness
                 lightweight: !overrides_instance_method?(:health_status) && !overrides_instance_method?(:validate_config)
               },
               identity: {
-                bot_usernames: []
+                bot_usernames: provider_bot_usernames(aliases: normalized_aliases)
               }
             },
             provider_metadata_overrides
@@ -156,6 +157,15 @@ module AgentHarness
         end
 
         private
+
+        def provider_bot_usernames(aliases: [])
+          [provider_name, *aliases, binary_name]
+            .filter_map do |identity|
+              normalized_identity = identity.to_s.strip
+              normalized_identity unless normalized_identity.empty?
+            end
+            .uniq
+        end
 
         def overrides_instance_method?(method_name)
           instance_method(method_name).owner != AgentHarness::Providers::Adapter
