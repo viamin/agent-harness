@@ -1038,8 +1038,8 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
     def backup_command(path, requested_path: "~/.config/opencode/opencode.json")
       "umask 077 && mkdir -p /tmp/agent-harness-preparation-deadbeefcafebabe && if [ -L #{path} ]; then readlink #{path} > " \
         "/tmp/agent-harness-preparation-deadbeefcafebabe/symlink_target && printf symlink > " \
-        "/tmp/agent-harness-preparation-deadbeefcafebabe/state; elif [ -d #{path} ]; then echo " \
-        "\"preparation target must be a regular file or symlink: #{requested_path}\" >&2; exit 1; elif [ -e #{path} ]; then cp -p #{path} " \
+        "/tmp/agent-harness-preparation-deadbeefcafebabe/state; elif [ -d #{path} ]; then printf '%s\\n' " \
+        "#{Shellwords.escape("preparation target must be a regular file or symlink: #{requested_path}")} >&2; exit 1; elif [ -e #{path} ]; then cp -p #{path} " \
         "/tmp/agent-harness-preparation-deadbeefcafebabe/backup && printf file > /tmp/agent-harness-preparation-deadbeefcafebabe/state; " \
         "else printf missing > /tmp/agent-harness-preparation-deadbeefcafebabe/state; fi"
     end
@@ -1047,8 +1047,8 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
     def symlink_backup_command(path, requested_path: "~/.config/opencode/opencode.json")
       "umask 077 && mkdir -p /tmp/agent-harness-preparation-deadbeefcafebabe && if [ -L #{path} ]; then readlink #{path} > " \
         "/tmp/agent-harness-preparation-deadbeefcafebabe/symlink_target && printf symlink > " \
-        "/tmp/agent-harness-preparation-deadbeefcafebabe/state; elif [ -d #{path} ]; then echo " \
-        "\"preparation target must be a regular file or symlink: #{requested_path}\" >&2; exit 1; elif [ -e #{path} ]; then cp -p #{path} " \
+        "/tmp/agent-harness-preparation-deadbeefcafebabe/state; elif [ -d #{path} ]; then printf '%s\\n' " \
+        "#{Shellwords.escape("preparation target must be a regular file or symlink: #{requested_path}")} >&2; exit 1; elif [ -e #{path} ]; then cp -p #{path} " \
         "/tmp/agent-harness-preparation-deadbeefcafebabe/backup && printf file > /tmp/agent-harness-preparation-deadbeefcafebabe/state; " \
         "else printf missing > /tmp/agent-harness-preparation-deadbeefcafebabe/state; fi"
     end
