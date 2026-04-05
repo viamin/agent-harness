@@ -383,6 +383,37 @@ RSpec.describe AgentHarness::Providers::Adapter do
         expect(result[:status]).to eq("error")
         expect(result[:error_category]).to eq(:rate_limited)
       end
+
+      it "fails when expected_output does not match" do
+        allow(adapter).to receive(:smoke_test_contract).and_return(
+          {
+            prompt: "Reply with exactly OK.",
+            timeout: 5,
+            require_output: true,
+            expected_output: "OK",
+            success_message: "Smoke test passed"
+          }
+        )
+        allow(adapter).to receive(:send_message).and_return(
+          AgentHarness::Response.new(
+            output: "Banner text",
+            exit_code: 0,
+            duration: 0.2,
+            provider: :test_adapter
+          )
+        )
+
+        result = adapter.smoke_test
+
+        expect(result).to include(
+          ok: false,
+          status: "error",
+          message: "Banner text",
+          error_category: :unknown,
+          output: "Banner text",
+          exit_code: 0
+        )
+      end
     end
 
     describe "#execution_semantics" do

@@ -261,6 +261,44 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
       end
     end
 
+    context "when the provider does not publish a smoke-test contract" do
+      let(:provider_class) do
+        Class.new(AgentHarness::Providers::Base) do
+          class << self
+            def provider_name
+              :test_provider
+            end
+
+            def binary_name
+              "test-cli"
+            end
+
+            def available?
+              true
+            end
+          end
+        end
+      end
+
+      before do
+        registry.register(:test_provider, provider_class)
+        allow(AgentHarness::Authentication).to receive(:auth_status)
+          .with(:test_provider)
+          .and_return({valid: true, expires_at: nil, error: nil})
+      end
+
+      it "returns degraded without attempting a smoke test" do
+        result = described_class.check(:test_provider)
+
+        expect(result[:status]).to eq("degraded")
+        expect(result[:message]).to eq(
+          "Registered and authenticated; health/config checks use defaults and smoke test is unavailable"
+        )
+        expect(result[:error_category]).to eq(:configuration)
+        expect(result[:check]).to eq(:smoke_test)
+      end
+    end
+
     context "when provider overrides health_status" do
       let(:provider_class) do
         Class.new(AgentHarness::Providers::Base) do
@@ -895,6 +933,10 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
 
           def available?
             true
+          end
+
+          def smoke_test_contract
+            AgentHarness::Providers::Base::DEFAULT_SMOKE_TEST_CONTRACT
           end
         end
 

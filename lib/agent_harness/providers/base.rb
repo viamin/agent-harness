@@ -28,6 +28,7 @@ module AgentHarness
 
       DEFAULT_SMOKE_TEST_CONTRACT = {
         prompt: "Reply with exactly OK.",
+        expected_output: "OK",
         timeout: 30,
         require_output: true,
         success_message: "Smoke test passed"
@@ -66,7 +67,7 @@ module AgentHarness
 
       class << self
         def smoke_test_contract
-          DEFAULT_SMOKE_TEST_CONTRACT
+          nil
         end
       end
 

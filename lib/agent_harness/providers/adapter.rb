@@ -322,7 +322,11 @@ module AgentHarness
         )
 
         output = response.output.to_s.strip
-        if response.success? && (!contract.fetch(:require_output, true) || !output.empty?)
+        expected_output = contract[:expected_output]&.strip
+        success = response.success? && (!contract.fetch(:require_output, true) || !output.empty?)
+        success &&= expected_output.nil? || output == expected_output
+
+        if success
           return {
             ok: true,
             status: "ok",

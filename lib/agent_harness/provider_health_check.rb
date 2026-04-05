@@ -244,6 +244,27 @@ module AgentHarness
           )
         end
 
+        smoke_contract = provider_instance.smoke_test_contract
+        unless smoke_contract || provider_overrides_method?(provider_instance, :smoke_test)
+          message = if auth_degraded
+            "Auth status check not implemented; health and config checks passed (smoke test unavailable)"
+          elsif provider_overrides_method?(provider_instance, :health_status) ||
+              provider_overrides_method?(provider_instance, :validate_config)
+            "Health and config checks passed (smoke test unavailable)"
+          else
+            "Registered and authenticated; health/config checks use defaults and smoke test is unavailable"
+          end
+
+          return build_result(
+            name: provider_name,
+            status: "degraded",
+            message: message,
+            start_time: start_time,
+            error_category: :configuration,
+            check: :smoke_test
+          )
+        end
+
         smoke = provider_instance.smoke_test(timeout: timeout, provider_runtime: provider_runtime)
         unless smoke[:ok]
           return build_result(
