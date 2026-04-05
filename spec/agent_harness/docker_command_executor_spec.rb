@@ -186,38 +186,38 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
       expect(Open3).not_to have_received(:popen3)
     end
 
-    it "preserves shell env expansion in container preparation paths" do
+    it "quotes env-backed container preparation paths for shell execution" do
       allow(SecureRandom).to receive(:hex).and_return("deadbeefcafebabe")
 
       expect_popen3_sequence(
         [
           {
             env: {},
-            cmd: ["docker", "exec", "--env", "XDG_CONFIG_HOME=/tmp/opencode-config", container_id, "sh", "-lc", "[ ! -e $XDG_CONFIG_HOME/opencode.json ] || cp -p $XDG_CONFIG_HOME/opencode.json /tmp/agent-harness-preparation-deadbeefcafebabe"]
+            cmd: ["docker", "exec", "--env", "XDG_CONFIG_HOME=/tmp/my config", container_id, "sh", "-lc", "[ ! -e \"${XDG_CONFIG_HOME}\"/opencode.json ] || cp -p \"${XDG_CONFIG_HOME}\"/opencode.json /tmp/agent-harness-preparation-deadbeefcafebabe"]
           },
           {
             env: {},
-            cmd: ["docker", "exec", "--env", "XDG_CONFIG_HOME=/tmp/opencode-config", container_id, "sh", "-lc", "mkdir -p $XDG_CONFIG_HOME"]
+            cmd: ["docker", "exec", "--env", "XDG_CONFIG_HOME=/tmp/my config", container_id, "sh", "-lc", "mkdir -p \"${XDG_CONFIG_HOME}\""]
           },
           {
             env: {},
-            cmd: ["docker", "exec", "--env", "XDG_CONFIG_HOME=/tmp/opencode-config", "-i", container_id, "sh", "-lc", "cat > $XDG_CONFIG_HOME/opencode.json"],
+            cmd: ["docker", "exec", "--env", "XDG_CONFIG_HOME=/tmp/my config", "-i", container_id, "sh", "-lc", "cat > \"${XDG_CONFIG_HOME}\"/opencode.json"],
             stdin: "{\"ok\":true}"
           },
           {
             env: {},
-            cmd: ["docker", "exec", "--env", "XDG_CONFIG_HOME=/tmp/opencode-config", container_id, "echo", "hello"]
+            cmd: ["docker", "exec", "--env", "XDG_CONFIG_HOME=/tmp/my config", container_id, "echo", "hello"]
           },
           {
             env: {},
-            cmd: ["docker", "exec", "--env", "XDG_CONFIG_HOME=/tmp/opencode-config", container_id, "sh", "-lc", "if [ -e /tmp/agent-harness-preparation-deadbeefcafebabe ]; then mkdir -p $XDG_CONFIG_HOME && cp -p /tmp/agent-harness-preparation-deadbeefcafebabe $XDG_CONFIG_HOME/opencode.json && rm -f /tmp/agent-harness-preparation-deadbeefcafebabe; else rm -f $XDG_CONFIG_HOME/opencode.json; fi"]
+            cmd: ["docker", "exec", "--env", "XDG_CONFIG_HOME=/tmp/my config", container_id, "sh", "-lc", "if [ -e /tmp/agent-harness-preparation-deadbeefcafebabe ]; then mkdir -p \"${XDG_CONFIG_HOME}\" && cp -p /tmp/agent-harness-preparation-deadbeefcafebabe \"${XDG_CONFIG_HOME}\"/opencode.json && rm -f /tmp/agent-harness-preparation-deadbeefcafebabe; else rm -f \"${XDG_CONFIG_HOME}\"/opencode.json; fi"]
           }
         ]
       )
 
       executor.execute(
         ["echo", "hello"],
-        env: {"XDG_CONFIG_HOME" => "/tmp/opencode-config"},
+        env: {"XDG_CONFIG_HOME" => "/tmp/my config"},
         preparation: AgentHarness::ExecutionPreparation.new(
           file_writes: [{path: "$XDG_CONFIG_HOME/opencode.json", content: "{\"ok\":true}"}]
         )

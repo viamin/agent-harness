@@ -208,7 +208,10 @@ module AgentHarness
     end
 
     def shell_path(path)
-      return path if path.match?(/\A\$(?:\{[A-Za-z_][A-Za-z0-9_]*\}|[A-Za-z_][A-Za-z0-9_]*)\z/)
+      if (match = path.match(/\A\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))\z/))
+        var_name = match[1] || match[2]
+        return %("${#{var_name}}")
+      end
       return shell_escaped_path(path) unless path.start_with?("~/")
 
       suffix = path.delete_prefix("~/")
@@ -224,7 +227,10 @@ module AgentHarness
     end
 
     def shell_path_segment(segment)
-      return segment if segment.match?(/\A\$(?:\{[A-Za-z_][A-Za-z0-9_]*\}|[A-Za-z_][A-Za-z0-9_]*)\z/)
+      if (match = segment.match(/\A\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))\z/))
+        var_name = match[1] || match[2]
+        return %("${#{var_name}}")
+      end
 
       Shellwords.escape(segment)
     end

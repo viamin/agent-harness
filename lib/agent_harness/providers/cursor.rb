@@ -190,7 +190,13 @@ module AgentHarness
         env = build_env(options)
         preparation = build_execution_preparation(options)
         start_time = Time.now
-        result = @executor.execute(command, timeout: timeout, stdin_data: prompt, env: env, preparation: preparation)
+        result = execute_with_timeout(
+          command,
+          timeout: timeout,
+          stdin_data: prompt,
+          env: env,
+          preparation: preparation
+        )
         duration = Time.now - start_time
 
         # Parse response

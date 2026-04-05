@@ -291,8 +291,12 @@ module AgentHarness
         options.merge(mcp_servers: normalized)
       end
 
-      def execute_with_timeout(command, timeout:, env:, preparation:)
-        @executor.execute(command, timeout: timeout, env: env, preparation: preparation)
+      def execute_with_timeout(command, timeout:, env:, preparation:, stdin_data: nil)
+        @executor.execute(command, timeout: timeout, env: env, stdin_data: stdin_data, preparation: preparation)
+      rescue ArgumentError => e
+        raise unless e.message.include?("unknown keyword: :preparation")
+
+        @executor.execute(command, timeout: timeout, env: env, stdin_data: stdin_data)
       end
 
       def track_tokens(response)

@@ -175,6 +175,40 @@ RSpec.describe "ProviderRuntime integration" do
 
       provider.send_message(prompt: "Hello", provider_runtime: runtime)
     end
+
+    it "falls back for legacy executors that do not accept preparation" do
+      legacy_executor = Object.new
+      captured = nil
+      legacy_executor.define_singleton_method(:execute) do |command, timeout:, env:, stdin_data: nil|
+        captured = {command: command, timeout: timeout, env: env, stdin_data: stdin_data}
+        AgentHarness::CommandExecutor::Result.new(
+          stdout: "ok",
+          stderr: "",
+          exit_code: 0,
+          duration: 1.0
+        )
+      end
+
+      provider_with_legacy_executor = Class.new(test_provider_class) do
+        protected
+
+        def build_execution_preparation(_options)
+          AgentHarness::ExecutionPreparation.new(
+            file_writes: [{path: "/tmp/test-runtime.json", content: "{\"ok\":true}"}]
+          )
+        end
+      end.new(executor: legacy_executor)
+
+      response = provider_with_legacy_executor.send_message(prompt: "Hello")
+
+      expect(response.output).to eq("ok")
+      expect(captured).to eq(
+        command: ["test-cli", "Hello"],
+        timeout: 300,
+        env: {},
+        stdin_data: nil
+      )
+    end
   end
 
   describe AgentHarness::Providers::Opencode do
@@ -394,6 +428,43 @@ RSpec.describe "ProviderRuntime integration" do
         session: "sess-123",
         provider_runtime: runtime
       )
+    end
+  end
+
+  describe AgentHarness::Providers::Cursor do
+    let(:provider_class) do
+      Class.new(described_class) do
+        protected
+
+        def build_execution_preparation(_options)
+          AgentHarness::ExecutionPreparation.new(
+            file_writes: [{path: "/tmp/cursor-runtime.json", content: "{\"ok\":true}"}]
+          )
+        end
+      end
+    end
+    let(:provider) { provider_class.new(executor: legacy_executor) }
+    let(:legacy_executor) do
+      Object.new.tap do |executor|
+        executor.define_singleton_method(:execute) do |command, timeout:, env:, stdin_data: nil|
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: stdin_data,
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        end
+      end
+    end
+
+    it "falls back for legacy executors that do not accept preparation" do
+      runtime = AgentHarness::ProviderRuntime.new(
+        metadata: {config: {"theme" => "system"}}
+      )
+
+      response = provider.send_message(prompt: "Hello", provider_runtime: runtime)
+
+      expect(response.output).to eq("Hello")
     end
   end
 end
