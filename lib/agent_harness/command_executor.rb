@@ -193,7 +193,7 @@ module AgentHarness
       preparation.file_writes.each do |write|
         resolved_path = expand_preparation_path(write.path, env)
         snapshot = snapshot_file_state(resolved_path)
-        applied_preparation << {path: resolved_path, snapshot:}
+        applied_preparation << {path: resolved_path, snapshot: snapshot}
 
         within_timeout(deadline, timeout:, command_name:) do
           FileUtils.mkdir_p(File.dirname(resolved_path))
