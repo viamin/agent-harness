@@ -106,6 +106,28 @@ RSpec.describe AgentHarness::CommandExecutor do
         expect(result.stdout).to eq("tick\n")
       end
 
+      it "enforces wall-clock timeouts even while output stays readable" do
+        stdin = instance_double(IO, close: nil, closed?: false)
+        stdout_io = instance_double(IO, close: nil)
+        stderr_io = instance_double(IO, close: nil)
+        wait_thr = instance_double(Thread)
+
+        allow(Open3).to receive(:popen3).and_yield(stdin, stdout_io, stderr_io, wait_thr)
+        allow(executor).to receive(:selectable_streams?).and_return(true)
+        allow(IO).to receive(:select).and_return(
+          [[stdout_io, stderr_io], [stdin], nil],
+          [[stdout_io], nil, nil]
+        )
+        allow(stdout_io).to receive(:read_nonblock).and_return("tick\n", "tick\n")
+        allow(stderr_io).to receive(:read_nonblock).and_return(nil, nil)
+        allow(executor).to receive(:monotonic_time).and_return(0.0, 0.03, 0.031, 0.06)
+        allow(executor).to receive(:terminate_process)
+
+        expect {
+          executor.execute(["ruby", "-e", "loop { puts 'tick' }"], timeout: 0.05)
+        }.to raise_error(AgentHarness::TimeoutError)
+      end
+
       it "completes before timeout" do
         result = executor.execute(["echo", "quick"], timeout: 5)
 
@@ -221,6 +243,36 @@ RSpec.describe AgentHarness::CommandExecutor do
         expect(stdin).to be_closed
         expect(stdin.string).to eq("hello from stdin")
         expect(result.stdout).to eq("buffered stdout")
+      end
+
+      it "fails fast when buffered fallback cannot honor idle timeout supervision" do
+        stdin = StringIO.new
+        stdout = StringIO.new("buffered stdout")
+        stderr = StringIO.new
+        wait_thr = instance_double(Thread)
+
+        allow(Open3).to receive(:popen3).and_yield(stdin, stdout, stderr, wait_thr)
+
+        expect {
+          executor.execute(["buffered-command"], idle_timeout: 1)
+        }.to raise_error(ArgumentError, /does not support idle timeouts or heartbeats/)
+      end
+
+      it "fails fast when buffered fallback cannot honor heartbeats" do
+        stdin = StringIO.new
+        stdout = StringIO.new("buffered stdout")
+        stderr = StringIO.new
+        wait_thr = instance_double(Thread)
+
+        allow(Open3).to receive(:popen3).and_yield(stdin, stdout, stderr, wait_thr)
+
+        expect {
+          executor.execute(
+            ["buffered-command"],
+            on_heartbeat: ->(**_heartbeat) {},
+            heartbeat_interval: 1
+          )
+        }.to raise_error(ArgumentError, /does not support idle timeouts or heartbeats/)
       end
     end
 

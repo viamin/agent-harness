@@ -142,9 +142,12 @@ module AgentHarness
             stdout: stdout,
             stderr: stderr,
             timeout: timeout,
+            idle_timeout: idle_timeout,
             cmd_array: cmd_array,
             on_stdout_chunk: on_stdout_chunk,
             on_stderr_chunk: on_stderr_chunk,
+            on_heartbeat: on_heartbeat,
+            heartbeat_interval: heartbeat_interval,
             observer: observer
           )
         end
@@ -160,7 +163,48 @@ module AgentHarness
         }
 
         until streams.empty? && stdin.nil?
+          ready = IO.select(streams.keys, stdin ? [stdin] : nil, nil, 0)
+
+          if ready
+            stdin, stdin_offset, last_activity_at = process_ready_streams(
+              ready,
+              streams: streams,
+              stdin: stdin,
+              stdin_buffer: stdin_buffer,
+              stdin_offset: stdin_offset,
+              last_activity_at: last_activity_at,
+              observer: observer
+            )
+
+            now = monotonic_time
+            if should_emit_heartbeat?(on_heartbeat, observer, heartbeat_interval, now - last_heartbeat_at)
+              emit_heartbeat(
+                on_heartbeat,
+                observer,
+                elapsed: now - start_time,
+                idle_for: now - last_activity_at
+              )
+              last_heartbeat_at = now
+            end
+
+            check_wall_timeout!(timeout, now - start_time, wait_thr, cmd_array)
+            check_idle_timeout!(idle_timeout, now - last_activity_at, wait_thr, cmd_array)
+            next
+          end
+
           now = monotonic_time
+          check_wall_timeout!(timeout, now - start_time, wait_thr, cmd_array)
+          check_idle_timeout!(idle_timeout, now - last_activity_at, wait_thr, cmd_array)
+
+          if should_emit_heartbeat?(on_heartbeat, observer, heartbeat_interval, now - last_heartbeat_at)
+            emit_heartbeat(
+              on_heartbeat,
+              observer,
+              elapsed: now - start_time,
+              idle_for: now - last_activity_at
+            )
+            last_heartbeat_at = now
+          end
 
           ready = IO.select(
             streams.keys,
@@ -177,51 +221,17 @@ module AgentHarness
             )
           )
 
-          unless ready
-            now = monotonic_time
-            check_wall_timeout!(timeout, now - start_time, wait_thr, cmd_array)
-            check_idle_timeout!(idle_timeout, now - last_activity_at, wait_thr, cmd_array)
+          next unless ready
 
-            if should_emit_heartbeat?(on_heartbeat, observer, heartbeat_interval, now - last_heartbeat_at)
-              emit_heartbeat(
-                on_heartbeat,
-                observer,
-                elapsed: now - start_time,
-                idle_for: now - last_activity_at
-              )
-              last_heartbeat_at = now
-            end
-
-            next
-          end
-
-          ready[1]&.each do |io|
-            stdin_offset = write_stdin_nonblock(io, stdin_buffer, stdin_offset)
-            next unless stdin_offset >= stdin_buffer.bytesize
-
-            close_stream(io)
-            stdin = nil
-          rescue Errno::EPIPE, IOError
-            close_stream(io)
-            stdin = nil
-          end
-
-          ready[0]&.each do |io|
-            chunk = io.read_nonblock(4096, exception: false)
-
-            case chunk
-            when :wait_readable
-              next
-            when nil
-              streams.delete(io)
-              io.close
-            else
-              buffer, callback, observer_method = streams.fetch(io)
-              buffer << chunk
-              last_activity_at = monotonic_time
-              emit_chunk(callback, observer, observer_method, chunk)
-            end
-          end
+          stdin, stdin_offset, last_activity_at = process_ready_streams(
+            ready,
+            streams: streams,
+            stdin: stdin,
+            stdin_buffer: stdin_buffer,
+            stdin_offset: stdin_offset,
+            last_activity_at: last_activity_at,
+            observer: observer
+          )
         end
 
         [stdout, stderr, wait_thr.value]
@@ -236,8 +246,15 @@ module AgentHarness
       streams.all? { |stream| stream.is_a?(IO) }
     end
 
-    def execute_buffered(stdin, stdout_io, stderr_io, wait_thr, stdin_data:, stdout:, stderr:, timeout:, cmd_array:,
-      on_stdout_chunk:, on_stderr_chunk:, observer:)
+    def execute_buffered(stdin, stdout_io, stderr_io, wait_thr, stdin_data:, stdout:, stderr:, timeout:, idle_timeout:,
+      cmd_array:, on_stdout_chunk:, on_stderr_chunk:, on_heartbeat:, heartbeat_interval:, observer:)
+      validate_buffered_execution_support!(
+        idle_timeout: idle_timeout,
+        on_heartbeat: on_heartbeat,
+        heartbeat_interval: heartbeat_interval,
+        observer: observer
+      )
+
       result = lambda do
         write_stdin_buffered(stdin, stdin_data)
 
@@ -286,6 +303,40 @@ module AgentHarness
       stdin_offset + written
     end
 
+    def process_ready_streams(ready, streams:, stdin:, stdin_buffer:, stdin_offset:, last_activity_at:, observer:)
+      ready[1]&.each do |io|
+        stdin_offset = write_stdin_nonblock(io, stdin_buffer, stdin_offset)
+        next unless stdin_offset >= stdin_buffer.bytesize
+
+        close_stream(io)
+        stdin = nil
+      rescue Errno::EPIPE, IOError
+        close_stream(io)
+        stdin = nil
+      end
+
+      ready[0]&.each do |io|
+        chunk = io.read_nonblock(4096, exception: false)
+
+        case chunk
+        when :wait_readable
+          next
+        when nil
+          streams.delete(io)
+          io.close
+        else
+          buffer, callback, observer_method = streams.fetch(io) do
+            raise KeyError, "Unexpected ready stream for command execution"
+          end
+          buffer << chunk
+          last_activity_at = monotonic_time
+          emit_chunk(callback, observer, observer_method, chunk)
+        end
+      end
+
+      [stdin, stdin_offset, last_activity_at]
+    end
+
     def close_stream(stream)
       stream.close unless stream.closed?
     rescue IOError
@@ -297,6 +348,14 @@ module AgentHarness
       return if value.is_a?(Numeric) && value.positive?
 
       raise ArgumentError, "#{name} must be a positive number"
+    end
+
+    def validate_buffered_execution_support!(idle_timeout:, on_heartbeat:, heartbeat_interval:, observer:)
+      heartbeat_requested = on_heartbeat || observer_responds_to?(observer, :on_heartbeat)
+      unsupported_supervision = idle_timeout || (heartbeat_requested && !heartbeat_interval.nil?)
+      return unless unsupported_supervision
+
+      raise ArgumentError, "Buffered command execution does not support idle timeouts or heartbeats"
     end
 
     def monotonic_time
