@@ -398,7 +398,7 @@ RSpec.describe AgentHarness::Providers::Adapter do
       it "reports registry checks for adapters with a compatible initializer contract" do
         command_executor = instance_double("AgentHarness::CommandExecutor")
         allow(AgentHarness.configuration).to receive(:command_executor).and_return(command_executor)
-        allow(AgentHarness).to receive(:logger).and_return(instance_double(Logger))
+        allow(AgentHarness).to receive(:logger).and_return(instance_double("Logger"))
 
         metadata = registry_compatible_adapter_class.provider_metadata
 
@@ -504,7 +504,7 @@ RSpec.describe AgentHarness::Providers::Adapter do
       end
 
       it "falls back to default metadata when safe construction raises" do
-        logger = instance_double(Logger, debug: nil)
+        logger = instance_double("Logger", debug: nil)
         allow(AgentHarness).to receive(:logger).and_return(logger)
 
         metadata = raising_metadata_adapter_class.provider_metadata(aliases: [:raising_alias])
@@ -543,6 +543,17 @@ RSpec.describe AgentHarness::Providers::Adapter do
 
         expect(adapter_class.provider_metadata(refresh: true)[:runtime][:available]).to be true
         expect(calls).to eq(2)
+      end
+
+      it "normalizes direct alias input into a stable contract" do
+        metadata = adapter_class.provider_metadata(
+          aliases: [:test_alias, " test_alias ", :test_adapter, " ", nil, "second_alias"]
+        )
+
+        expect(metadata[:aliases]).to eq([:test_alias, :second_alias])
+        expect(metadata[:identity]).to eq(
+          bot_usernames: ["test_adapter", "test_alias", "second_alias"]
+        )
       end
     end
 

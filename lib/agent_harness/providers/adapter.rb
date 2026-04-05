@@ -99,7 +99,7 @@ module AgentHarness
         #   for this provider
         # @return [Hash] provider metadata
         def provider_metadata(aliases: [], refresh: false)
-          normalized_aliases = aliases.map(&:to_sym)
+          normalized_aliases = normalize_metadata_aliases(aliases)
           provider = metadata_provider_instance
           configuration = provider&.configuration_schema || default_configuration_schema
           execution = provider&.execution_semantics || default_execution_semantics
@@ -161,6 +161,18 @@ module AgentHarness
         end
 
         private
+
+        def normalize_metadata_aliases(aliases)
+          Array(aliases)
+            .filter_map do |alias_name|
+              normalized_alias = alias_name.to_s.strip
+              next if normalized_alias.empty?
+
+              normalized_alias.to_sym
+            end
+            .uniq
+            .reject { |alias_name| alias_name == provider_name }
+        end
 
         def provider_bot_usernames(aliases: [])
           [provider_name, *aliases]

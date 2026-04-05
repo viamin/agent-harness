@@ -205,12 +205,21 @@ module AgentHarness
       end
 
       def fallback_provider_metadata(name, klass, aliases, refresh: false)
+        normalized_aliases = aliases
+          .filter_map do |alias_name|
+            normalized_alias = alias_name.to_s.strip
+            next if normalized_alias.empty?
+
+            normalized_alias.to_sym
+          end
+          .uniq
+          .reject { |alias_name| alias_name == name }
         installation = klass.respond_to?(:installation_contract) ? klass.installation_contract : nil
 
         {
           provider: name,
           canonical_provider: name,
-          aliases: aliases.dup,
+          aliases: normalized_aliases,
           display_name: name.to_s.split("_").map(&:capitalize).join(" "),
           binary_name: klass.binary_name,
           auth: {
@@ -243,7 +252,7 @@ module AgentHarness
             lightweight: false
           },
           identity: {
-            bot_usernames: [name, *aliases]
+            bot_usernames: [name, *normalized_aliases]
               .filter_map do |identity|
                 normalized_identity = identity.to_s.strip
                 normalized_identity unless normalized_identity.empty?

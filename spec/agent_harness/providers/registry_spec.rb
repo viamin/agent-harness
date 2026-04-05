@@ -348,6 +348,23 @@ RSpec.describe AgentHarness::Providers::Registry do
       expect(registry.provider_metadata(:legacy_provider)[:aliases]).to eq([:legacy])
     end
 
+    it "normalizes fallback aliases exposed through metadata" do
+      legacy_provider = Class.new do
+        def self.provider_name = :legacy_provider
+        def self.available? = true
+        def self.binary_name = "legacy"
+      end
+
+      registry.register(:legacy_provider, legacy_provider, aliases: [:legacy, " legacy ", :legacy_provider])
+
+      metadata = registry.provider_metadata(:legacy_provider)
+
+      expect(metadata[:aliases]).to eq([:legacy])
+      expect(metadata[:identity]).to eq(
+        bot_usernames: ["legacy_provider", "legacy"]
+      )
+    end
+
     it "returns adapter metadata even when the provider requires constructor arguments" do
       required_initializer_provider = Class.new do
         include AgentHarness::Providers::Adapter
@@ -439,7 +456,7 @@ RSpec.describe AgentHarness::Providers::Registry do
 
       command_executor = instance_double("AgentHarness::CommandExecutor")
       allow(AgentHarness.configuration).to receive(:command_executor).and_return(command_executor)
-      allow(AgentHarness).to receive(:logger).and_return(instance_double(Logger, debug: nil))
+      allow(AgentHarness).to receive(:logger).and_return(instance_double("Logger", debug: nil))
 
       registry.register(:registry_compatible_provider, registry_compatible_provider, aliases: [:registry_compatible])
 
