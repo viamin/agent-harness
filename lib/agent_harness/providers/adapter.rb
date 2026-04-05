@@ -461,9 +461,11 @@ module AgentHarness
         end
 
         def metadata_default_auth_mode(provider, supported_modes:)
+          provider_auth_type = provider&.auth_type&.to_sym
+          return provider_auth_type if provider_auth_type && supported_modes.include?(provider_auth_type)
           return supported_modes.first unless supported_modes.empty?
 
-          provider&.auth_type&.to_sym
+          provider_auth_type
         end
 
         def default_configuration_schema

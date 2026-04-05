@@ -653,14 +653,14 @@ RSpec.describe AgentHarness::Providers::Adapter do
         )
       end
 
-      it "prefers the published auth mode order for default_mode" do
+      it "prefers provider auth_type for default_mode when it is supported" do
         command_executor = instance_double("AgentHarness::CommandExecutor", which: nil)
         allow(AgentHarness.configuration).to receive(:command_executor).and_return(command_executor)
 
         metadata = AgentHarness::Providers::Gemini.provider_metadata
 
         expect(metadata[:auth]).to include(
-          default_mode: :api_key,
+          default_mode: :oauth,
           supported_modes: %i[api_key oauth]
         )
       end
