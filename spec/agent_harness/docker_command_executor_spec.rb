@@ -789,12 +789,12 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
 
     def cleanup_command(path, dir)
       "cleanup_status=0; state_value=$(cat /tmp/agent-harness-preparation-state-facefeedcafed00d 2>/dev/null); " \
-        "if [ \"$state_value\" = symlink ]; then mkdir -p #{dir} && rm -f #{path} && " \
+        "if [ \"$state_value\" = symlink ]; then mkdir -p #{dir} && rm -rf -- #{path} && " \
         "ln -s \"$(cat /tmp/agent-harness-preparation-symlink-beadfeedcafef00d)\" #{path} || cleanup_status=$?; " \
-        "elif [ \"$state_value\" = file ]; then if [ -f /tmp/agent-harness-preparation-deadbeefcafebabe ]; then mkdir -p #{dir} && rm -f #{path} && " \
+        "elif [ \"$state_value\" = file ]; then if [ -f /tmp/agent-harness-preparation-deadbeefcafebabe ]; then mkdir -p #{dir} && rm -rf -- #{path} && " \
         "cp -p /tmp/agent-harness-preparation-deadbeefcafebabe #{path} || cleanup_status=$?; else echo " \
         "\"missing runtime preparation backup: /tmp/agent-harness-preparation-deadbeefcafebabe\" >&2; cleanup_status=1; fi; " \
-        "elif [ \"$state_value\" = missing ]; then rm -f #{path} || cleanup_status=$?; else cleanup_status=1; fi; rm -f /tmp/agent-harness-preparation-deadbeefcafebabe " \
+        "elif [ \"$state_value\" = missing ]; then rm -rf -- #{path} || cleanup_status=$?; else cleanup_status=1; fi; rm -f /tmp/agent-harness-preparation-deadbeefcafebabe " \
         "/tmp/agent-harness-preparation-state-facefeedcafed00d /tmp/agent-harness-preparation-symlink-beadfeedcafef00d; " \
         "exit $cleanup_status"
     end

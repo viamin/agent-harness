@@ -308,6 +308,23 @@ RSpec.describe AgentHarness::CommandExecutor do
         end
       end
 
+      it "cleans up prepared files when the command replaces them with directories" do
+        Dir.mktmpdir do |dir|
+          file_path = File.join(dir, "config.json")
+          preparation = AgentHarness::ExecutionPreparation.new(
+            file_writes: [{path: file_path, content: "{\"ok\":true}"}]
+          )
+
+          result = executor.execute(
+            ["ruby", "-e", "path = ARGV.fetch(0); File.delete(path); Dir.mkdir(path); print File.directory?(path)", file_path],
+            preparation: preparation
+          )
+
+          expect(result.stdout).to eq("true")
+          expect(File.exist?(file_path)).to be false
+        end
+      end
+
       it "restores files if preparation fails after writing" do
         Dir.mktmpdir do |dir|
           file_path = File.join(dir, "config.json")

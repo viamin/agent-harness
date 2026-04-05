@@ -342,7 +342,11 @@ module AgentHarness
     def delete_preparation_path(path)
       return unless File.exist?(path) || File.symlink?(path)
 
-      File.delete(path)
+      if File.directory?(path) && !File.symlink?(path)
+        FileUtils.rm_rf(path)
+      else
+        File.delete(path)
+      end
     end
 
     def timeout_deadline(timeout)

@@ -158,11 +158,11 @@ module AgentHarness
       cleanup = {
         command: build_container_shell_command(
           "cleanup_status=0; state_value=$(cat #{state} 2>/dev/null); if [ \"$state_value\" = symlink ]; then " \
-            "mkdir -p #{dir} && rm -f #{path} && ln -s \"$(cat #{symlink_target})\" #{path} || cleanup_status=$?; " \
+            "mkdir -p #{dir} && rm -rf -- #{path} && ln -s \"$(cat #{symlink_target})\" #{path} || cleanup_status=$?; " \
             "elif [ \"$state_value\" = file ]; then " \
-            "if [ -f #{backup} ]; then mkdir -p #{dir} && rm -f #{path} && cp -p #{backup} #{path} || cleanup_status=$?; " \
+            "if [ -f #{backup} ]; then mkdir -p #{dir} && rm -rf -- #{path} && cp -p #{backup} #{path} || cleanup_status=$?; " \
             "else echo \"missing runtime preparation backup: #{backup}\" >&2; cleanup_status=1; fi; " \
-            "elif [ \"$state_value\" = missing ]; then rm -f #{path} || cleanup_status=$?; " \
+            "elif [ \"$state_value\" = missing ]; then rm -rf -- #{path} || cleanup_status=$?; " \
             "else cleanup_status=1; " \
             "fi; rm -f #{backup} #{state} #{symlink_target}; exit $cleanup_status",
           env: env
