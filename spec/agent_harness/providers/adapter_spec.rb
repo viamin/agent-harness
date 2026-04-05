@@ -683,8 +683,8 @@ RSpec.describe AgentHarness::Providers::Adapter do
           binary_name: "required"
         )
         expect(metadata[:auth]).to include(
-          default_mode: :api_key,
-          supported_modes: [:api_key],
+          default_mode: nil,
+          supported_modes: [],
           service: nil,
           api_family: nil
         )
@@ -795,8 +795,8 @@ RSpec.describe AgentHarness::Providers::Adapter do
           binary_name: "raising-metadata"
         )
         expect(metadata[:auth]).to include(
-          default_mode: :api_key,
-          supported_modes: [:api_key]
+          default_mode: nil,
+          supported_modes: []
         )
         expect(metadata[:configuration]).to include(
           fields: [],
@@ -804,7 +804,7 @@ RSpec.describe AgentHarness::Providers::Adapter do
           openai_compatible: false
         )
         expect(logger).to have_received(:debug).with(
-          include("Falling back to default metadata for raising_metadata_adapter: ArgumentError: invalid config")
+          include("Falling back to default metadata for raising_metadata_adapter: ArgumentError")
         )
       end
 

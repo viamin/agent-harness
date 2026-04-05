@@ -124,8 +124,8 @@ module AgentHarness
               display_name: provider_display_name(provider),
               binary_name: binary_name,
               auth: {
-                default_mode: provider&.auth_type || default_auth_type,
-                supported_modes: Array(configuration[:auth_modes]).map(&:to_sym),
+                default_mode: provider&.auth_type,
+                supported_modes: provider ? Array(configuration[:auth_modes]).map(&:to_sym) : [],
                 service: configuration[:openai_compatible] ? :openai : nil,
                 api_family: configuration[:openai_compatible] ? :openai : nil
               },
@@ -197,7 +197,7 @@ module AgentHarness
           new(**metadata_provider_kwargs(requested_name: requested_name))
         rescue => e
           AgentHarness.logger&.debug(
-            "[AgentHarness::Providers::Adapter] Falling back to default metadata for #{provider_name}: #{e.class}: #{e.message}"
+            "[AgentHarness::Providers::Adapter] Falling back to default metadata for #{provider_name}: #{e.class}"
           )
           nil
         end
