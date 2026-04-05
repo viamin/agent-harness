@@ -35,7 +35,6 @@ module AgentHarness
       # @raise [NoProvidersAvailableError] if no providers available
       def select_provider(preferred = nil, executor: nil)
         preferred ||= @current_provider
-        return get_provider(preferred, executor: executor) if executor
 
         # Check circuit breaker
         if circuit_open?(preferred)
@@ -220,11 +219,9 @@ module AgentHarness
 
         chain.each do |fallback_name|
           next if fallback_name == provider_name
-          unless executor
-            next if circuit_open?(fallback_name)
-            next if rate_limited?(fallback_name)
-            next unless healthy?(fallback_name)
-          end
+          next if circuit_open?(fallback_name)
+          next if rate_limited?(fallback_name)
+          next unless healthy?(fallback_name)
 
           AgentHarness.logger&.debug(
             "[AgentHarness::ProviderManager] Falling back from #{provider_name} to #{fallback_name} (#{reason})"
