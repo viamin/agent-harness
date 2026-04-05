@@ -153,7 +153,7 @@ module AgentHarness
         end
 
         start_time = monotonic_time
-        last_activity_at = start_time
+        last_output_at = start_time
         last_heartbeat_at = start_time
         stdin_buffer = stdin_data.is_a?(String) ? stdin_data : stdin_data.to_s
         stdin_offset = 0
@@ -166,18 +166,19 @@ module AgentHarness
           ready = IO.select(streams.keys, stdin ? [stdin] : nil, nil, 0)
 
           if ready
-            stdin, stdin_offset, last_activity_at = process_ready_streams(
+            stdin, stdin_offset, last_output_at = process_ready_streams(
               ready,
               streams: streams,
               stdin: stdin,
               stdin_buffer: stdin_buffer,
               stdin_offset: stdin_offset,
-              last_activity_at: last_activity_at,
-              observer: observer
+              last_output_at: last_output_at,
+              observer: observer,
+              wait_thr: wait_thr
             )
 
             if process_exited?(wait_thr)
-              stdin, last_activity_at = finalize_exited_process(stdin, streams, observer, last_activity_at)
+              stdin, last_output_at = finalize_exited_process(stdin, streams, observer, last_output_at, wait_thr)
               next
             end
 
@@ -187,31 +188,33 @@ module AgentHarness
                 on_heartbeat,
                 observer,
                 elapsed: now - start_time,
-                idle_for: now - last_activity_at
+                idle_for: now - last_output_at,
+                wait_thr: wait_thr
               )
               last_heartbeat_at = now
             end
 
             check_wall_timeout!(timeout, now - start_time, wait_thr, cmd_array)
-            check_idle_timeout!(idle_timeout, now - last_activity_at, wait_thr, cmd_array)
+            check_idle_timeout!(idle_timeout, now - last_output_at, wait_thr, cmd_array)
             next
           end
 
           if process_exited?(wait_thr)
-            stdin, last_activity_at = finalize_exited_process(stdin, streams, observer, last_activity_at)
+            stdin, last_output_at = finalize_exited_process(stdin, streams, observer, last_output_at, wait_thr)
             next
           end
 
           now = monotonic_time
           check_wall_timeout!(timeout, now - start_time, wait_thr, cmd_array)
-          check_idle_timeout!(idle_timeout, now - last_activity_at, wait_thr, cmd_array)
+          check_idle_timeout!(idle_timeout, now - last_output_at, wait_thr, cmd_array)
 
           if should_emit_heartbeat?(on_heartbeat, observer, heartbeat_interval, now - last_heartbeat_at)
             emit_heartbeat(
               on_heartbeat,
               observer,
               elapsed: now - start_time,
-              idle_for: now - last_activity_at
+              idle_for: now - last_output_at,
+              wait_thr: wait_thr
             )
             last_heartbeat_at = now
           end
@@ -225,7 +228,7 @@ module AgentHarness
               idle_timeout,
               heartbeat_interval,
               elapsed: now - start_time,
-              idle_for: now - last_activity_at,
+              idle_for: now - last_output_at,
               heartbeat_age: now - last_heartbeat_at,
               heartbeat_requested: on_heartbeat || observer_responds_to?(observer, :on_heartbeat)
             )
@@ -233,23 +236,24 @@ module AgentHarness
 
           unless ready
             if process_exited?(wait_thr)
-              stdin, last_activity_at = finalize_exited_process(stdin, streams, observer, last_activity_at)
+              stdin, last_output_at = finalize_exited_process(stdin, streams, observer, last_output_at, wait_thr)
             end
             next
           end
 
-          stdin, stdin_offset, last_activity_at = process_ready_streams(
+          stdin, stdin_offset, last_output_at = process_ready_streams(
             ready,
             streams: streams,
             stdin: stdin,
             stdin_buffer: stdin_buffer,
             stdin_offset: stdin_offset,
-            last_activity_at: last_activity_at,
-            observer: observer
+            last_output_at: last_output_at,
+            observer: observer,
+            wait_thr: wait_thr
           )
 
           if process_exited?(wait_thr)
-            stdin, last_activity_at = finalize_exited_process(stdin, streams, observer, last_activity_at)
+            stdin, last_output_at = finalize_exited_process(stdin, streams, observer, last_output_at, wait_thr)
           end
         end
 
@@ -282,12 +286,12 @@ module AgentHarness
 
         unless stdout_chunk.empty?
           stdout << stdout_chunk
-          emit_chunk(on_stdout_chunk, observer, :on_stdout_chunk, stdout_chunk)
+          emit_chunk(on_stdout_chunk, observer, :on_stdout_chunk, stdout_chunk, wait_thr: wait_thr)
         end
 
         unless stderr_chunk.empty?
           stderr << stderr_chunk
-          emit_chunk(on_stderr_chunk, observer, :on_stderr_chunk, stderr_chunk)
+          emit_chunk(on_stderr_chunk, observer, :on_stderr_chunk, stderr_chunk, wait_thr: wait_thr)
         end
 
         [stdout, stderr, wait_thr.value]
@@ -322,11 +326,9 @@ module AgentHarness
       stdin_offset + written
     end
 
-    def process_ready_streams(ready, streams:, stdin:, stdin_buffer:, stdin_offset:, last_activity_at:, observer:)
+    def process_ready_streams(ready, streams:, stdin:, stdin_buffer:, stdin_offset:, last_output_at:, observer:, wait_thr:)
       ready[1]&.each do |io|
-        written_before = stdin_offset
         stdin_offset = write_stdin_nonblock(io, stdin_buffer, stdin_offset)
-        last_activity_at = monotonic_time if stdin_offset > written_before
         next unless stdin_offset >= stdin_buffer.bytesize
 
         close_stream(io)
@@ -350,12 +352,12 @@ module AgentHarness
             raise KeyError, "Unexpected ready stream for command execution"
           end
           buffer << chunk
-          last_activity_at = monotonic_time
-          emit_chunk(callback, observer, observer_method, chunk)
+          last_output_at = monotonic_time
+          emit_chunk(callback, observer, observer_method, chunk, wait_thr: wait_thr)
         end
       end
 
-      [stdin, stdin_offset, last_activity_at]
+      [stdin, stdin_offset, last_output_at]
     end
 
     def close_stream(stream)
@@ -370,7 +372,7 @@ module AgentHarness
       !wait_thr.join(0).nil?
     end
 
-    def finalize_exited_process(stdin, streams, observer, last_activity_at)
+    def finalize_exited_process(stdin, streams, observer, last_output_at, wait_thr)
       close_stream(stdin) if stdin
 
       streams.each do |io, (buffer, callback, observer_method)|
@@ -378,14 +380,14 @@ module AgentHarness
         next if chunk.empty?
 
         buffer << chunk
-        last_activity_at = monotonic_time
-        emit_chunk(callback, observer, observer_method, chunk)
+        last_output_at = monotonic_time
+        emit_chunk(callback, observer, observer_method, chunk, wait_thr: wait_thr)
       ensure
         close_stream(io)
       end
 
       streams.clear
-      [nil, last_activity_at]
+      [nil, last_output_at]
     end
 
     def validate_duration!(value, name:, allow_nil: false)
@@ -429,14 +431,20 @@ module AgentHarness
       heartbeat_age >= heartbeat_interval
     end
 
-    def emit_chunk(callback, observer, observer_method, chunk)
+    def emit_chunk(callback, observer, observer_method, chunk, wait_thr: nil)
       callback&.call(chunk)
       observer.public_send(observer_method, chunk) if observer_responds_to?(observer, observer_method)
+    rescue
+      terminate_process(wait_thr) if wait_thr
+      raise
     end
 
-    def emit_heartbeat(callback, observer, elapsed:, idle_for:)
+    def emit_heartbeat(callback, observer, elapsed:, idle_for:, wait_thr: nil)
       callback&.call(elapsed: elapsed, idle_for: idle_for)
       observer.on_heartbeat(elapsed: elapsed, idle_for: idle_for) if observer_responds_to?(observer, :on_heartbeat)
+    rescue
+      terminate_process(wait_thr) if wait_thr
+      raise
     end
 
     def observer_responds_to?(observer, method_name)

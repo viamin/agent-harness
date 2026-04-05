@@ -238,6 +238,35 @@ RSpec.describe AgentHarness::CommandExecutor do
           executor.execute(["echo", "quick"], heartbeat_interval: 0)
         }.to raise_error(ArgumentError, /heartbeat_interval must be a positive number/)
       end
+
+      it "terminates the process before re-raising stdout callback failures" do
+        started_at = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+
+        expect {
+          executor.execute(
+            ["ruby", "-e", "$stdout.sync = true; puts :hi; sleep 2"],
+            on_stdout_chunk: ->(_chunk) { raise "boom" }
+          )
+        }.to raise_error(RuntimeError, "boom")
+
+        elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - started_at
+        expect(elapsed).to be < 1
+      end
+
+      it "terminates the process before re-raising heartbeat callback failures" do
+        started_at = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+
+        expect {
+          executor.execute(
+            ["ruby", "-e", "sleep 2"],
+            on_heartbeat: ->(**_heartbeat) { raise "boom" },
+            heartbeat_interval: 0.05
+          )
+        }.to raise_error(RuntimeError, "boom")
+
+        elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - started_at
+        expect(elapsed).to be < 1
+      end
     end
 
     context "with stdin_data" do
@@ -271,30 +300,28 @@ RSpec.describe AgentHarness::CommandExecutor do
         executor.execute(["cat"], stdin_data: input)
       end
 
-      it "treats successful stdin writes as idle-timeout activity until output begins" do
+      it "does not treat successful stdin writes as output activity for idle timeouts" do
         input = "x" * 8192
         stdin = instance_double(IO, close: nil, closed?: false)
-        stdout = instance_double(IO, close: nil, read: "")
-        stderr = instance_double(IO, close: nil, read: "")
-        status = instance_double(Process::Status, exitstatus: 0, success?: true)
-        wait_thr = instance_double(Thread, value: status)
+        stdout = instance_double(IO, close: nil)
+        stderr = instance_double(IO, close: nil)
+        wait_thr = double("wait thread", pid: 12_345)
 
         allow(Open3).to receive(:popen3).and_yield(stdin, stdout, stderr, wait_thr)
         allow(executor).to receive(:selectable_streams?).and_return(true)
         allow(IO).to receive(:select).and_return(
           [[], [stdin], nil],
           [[], [stdin], nil],
-          [[stdout, stderr], nil, nil]
+          nil
         )
-        allow(wait_thr).to receive(:join).with(0).and_return(nil, nil, wait_thr)
+        allow(wait_thr).to receive(:join).with(0).and_return(nil, nil, nil)
         allow(stdin).to receive(:write_nonblock).and_return(4096, 4096)
-        allow(stdout).to receive(:read_nonblock).and_return("ok\n")
-        allow(stderr).to receive(:read_nonblock).and_return(nil)
-        allow(executor).to receive(:monotonic_time).and_return(0.0, 0.02, 0.03, 0.06, 0.07, 0.08)
+        allow(executor).to receive(:monotonic_time).and_return(0.0, 0.02, 0.03, 0.06)
+        allow(executor).to receive(:terminate_process)
 
-        result = executor.execute(["cat"], stdin_data: input, idle_timeout: 0.05)
-
-        expect(result.stdout).to eq("ok\n")
+        expect {
+          executor.execute(["cat"], stdin_data: input, idle_timeout: 0.05)
+        }.to raise_error(AgentHarness::IdleTimeoutError)
       end
 
       it "writes stdin data before buffered fallback reads output" do
