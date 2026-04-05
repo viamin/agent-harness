@@ -154,6 +154,7 @@ module AgentHarness
           if @config.orchestration_config.auto_switch_on_error
             new_provider = begin
               @provider_manager.switch_provider(
+                from: provider_name,
                 reason: error.class.name,
                 context: {error: error.message},
                 executor: executor

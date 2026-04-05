@@ -68,14 +68,15 @@ module AgentHarness
 
       # Switch to next available provider
       #
+      # @param from [Symbol, String] provider that failed and should be switched from
       # @param reason [Symbol, String] reason for switch
       # @param context [Hash] additional context
       # @param executor [CommandExecutor, nil] per-request executor override
       # @return [Providers::Base, nil] new provider or nil if none available
-      def switch_provider(reason:, context: {}, executor: nil)
-        old_provider = @current_provider
+      def switch_provider(reason:, context: {}, executor: nil, from: @current_provider)
+        old_provider = from.to_sym
 
-        fallback = select_fallback(@current_provider, reason: reason, executor: executor)
+        fallback = select_fallback(old_provider, reason: reason, executor: executor)
         return nil unless fallback
 
         return fallback if executor

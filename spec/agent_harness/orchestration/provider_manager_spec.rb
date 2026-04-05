@@ -292,6 +292,19 @@ RSpec.describe AgentHarness::Orchestration::ProviderManager do
         anything
       )
     end
+
+    it "derives request-scoped fallback chains from the failing provider" do
+      executor = instance_double(AgentHarness::CommandExecutor)
+
+      manager.switch_provider(reason: :manual_failover)
+      5.times { manager.record_failure(:claude) }
+
+      result = manager.switch_provider(from: :claude, reason: :circuit_open, executor: executor)
+
+      expect(result.class.provider_name).to eq(:cursor)
+      expect(result.executor).to be(executor)
+      expect(manager.current_provider).to eq(:cursor)
+    end
   end
 
   describe "#select_provider with fallback" do
