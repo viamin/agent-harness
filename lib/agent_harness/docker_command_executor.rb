@@ -152,14 +152,17 @@ module AgentHarness
       validate_home_relative_preparation_path!(write.path, env)
       path = shell_path(write.path)
       dir = shell_path(File.dirname(write.path))
-      backup = shell_path("/tmp/agent-harness-preparation-#{SecureRandom.hex(8)}")
-      state = shell_path("/tmp/agent-harness-preparation-state-#{SecureRandom.hex(8)}")
-      symlink_target = shell_path("/tmp/agent-harness-preparation-symlink-#{SecureRandom.hex(8)}")
+      state_dir_path = "/tmp/agent-harness-preparation-#{SecureRandom.hex(8)}"
+      state_dir = shell_path(state_dir_path)
+      backup = shell_path(File.join(state_dir_path, "backup"))
+      state = shell_path(File.join(state_dir_path, "state"))
+      symlink_target = shell_path(File.join(state_dir_path, "symlink_target"))
       directory_change_message = Shellwords.escape(
         "preparation target changed into a directory during execution: #{write.path}"
       )
+      cleanup_state_dir_cmd = build_container_shell_command("rm -rf #{state_dir}", env: env)
       backup_cmd = build_container_shell_command(
-        "if [ -L #{path} ]; then readlink #{path} > #{symlink_target} && printf symlink > #{state}; " \
+        "umask 077 && mkdir -p #{state_dir} && if [ -L #{path} ]; then readlink #{path} > #{symlink_target} && printf symlink > #{state}; " \
           "elif [ -e #{path} ]; then cp -p #{path} #{backup} && printf file > #{state}; " \
           "else printf missing > #{state}; fi",
         env: env
@@ -176,7 +179,7 @@ module AgentHarness
             "else echo \"missing runtime preparation backup: #{backup}\" >&2; cleanup_status=1; fi; " \
             "elif [ \"$state_value\" = missing ]; then rm -f -- #{path} || cleanup_status=$?; " \
             "else cleanup_status=1; " \
-            "fi; rm -f #{backup} #{state} #{symlink_target}; exit $cleanup_status",
+            "fi; rm -rf #{state_dir}; exit $cleanup_status",
           env: env
         )
       }
@@ -202,6 +205,15 @@ module AgentHarness
         begin
           run_host_command(
             cleanup[:command],
+            timeout: remaining_timeout(deadline, timeout:, command_name: "docker")
+          )
+        rescue => cleanup_error
+          log_debug("Failed to clean up container runtime preparation", error: cleanup_error.message)
+        end
+      elsif defined?(cleanup_state_dir_cmd)
+        begin
+          run_host_command(
+            cleanup_state_dir_cmd,
             timeout: remaining_timeout(deadline, timeout:, command_name: "docker")
           )
         rescue => cleanup_error

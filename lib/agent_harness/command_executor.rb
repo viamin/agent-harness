@@ -22,7 +22,6 @@ module AgentHarness
   class CommandExecutor
     PREPARATION_LOCK_REGISTRY_MUTEX = Mutex.new
     PREPARATION_LOCK_REGISTRY = {}
-    PREPARATION_CLEANUP_GRACE_PERIOD = 5
     PREPARATION_LOCK_POLL_INTERVAL = 0.01
 
     # Result of a command execution
@@ -370,7 +369,7 @@ module AgentHarness
     def cleanup_deadline(deadline, timeout:)
       return nil if timeout.nil?
 
-      [deadline, current_time + PREPARATION_CLEANUP_GRACE_PERIOD].compact.max
+      deadline
     end
 
     def remaining_timeout(deadline, timeout:, command_name:)

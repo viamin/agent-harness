@@ -476,14 +476,18 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
       )
     end
 
-    it "cleans up prepared files after the main container command timeout expires" do
+    it "does not run cleanup past the main container command timeout" do
       allow(SecureRandom).to receive(:hex).and_return("deadbeefcafebabe", "facefeedcafed00d", "beadfeedcafef00d")
       calls = []
+      timed_out = false
+
+      allow(executor).to receive(:current_time) { timed_out ? 100.01 : 100.0 }
 
       allow(executor).to receive(:execute_with_timeout) do |cmd_array, timeout:, env:, stdin_data:, configured_timeout: timeout|
         calls << {cmd: cmd_array, timeout: timeout, env: env, stdin_data: stdin_data}
 
         if cmd_array == ["docker", "exec", container_id, "echo", "hello"]
+          timed_out = true
           raise AgentHarness::TimeoutError, "Command timed out after #{timeout} seconds: echo"
         end
 
@@ -505,8 +509,7 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
           ["docker", "exec", container_id, "sh", "-lc", backup_command("#{guarded_home_path}/.config/opencode/opencode.json")],
           ["docker", "exec", container_id, "sh", "-lc", "mkdir -p #{guarded_home_path}/.config/opencode"],
           ["docker", "exec", "-i", container_id, "sh", "-lc", "cat > #{guarded_home_path}/.config/opencode/opencode.json"],
-          ["docker", "exec", container_id, "echo", "hello"],
-          ["docker", "exec", container_id, "sh", "-lc", cleanup_command("#{guarded_home_path}/.config/opencode/opencode.json", "#{guarded_home_path}/.config/opencode")]
+          ["docker", "exec", container_id, "echo", "hello"]
         ]
       )
       expect(calls.last[:timeout]).to be > 0
@@ -596,7 +599,7 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
       allow(Open3).to receive(:popen3) do |actual_env, *actual_cmd, &block|
         calls << {env: actual_env, cmd: actual_cmd}
         stderr = if actual_cmd == ["docker", "exec", container_id, "sh", "-lc", cleanup_command("#{guarded_home_path}/.config/opencode/opencode.json", "#{guarded_home_path}/.config/opencode")]
-          StringIO.new("missing runtime preparation backup: /tmp/agent-harness-preparation-deadbeefcafebabe")
+          StringIO.new("missing runtime preparation backup: /tmp/agent-harness-preparation-deadbeefcafebabe/backup")
         else
           StringIO.new("")
         end
@@ -877,30 +880,31 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
     end
 
     def backup_command(path)
-      "if [ -L #{path} ]; then readlink #{path} > /tmp/agent-harness-preparation-symlink-beadfeedcafef00d && printf symlink > " \
-        "/tmp/agent-harness-preparation-state-facefeedcafed00d; elif [ -e #{path} ]; then cp -p #{path} " \
-        "/tmp/agent-harness-preparation-deadbeefcafebabe && printf file > /tmp/agent-harness-preparation-state-facefeedcafed00d; " \
-        "else printf missing > /tmp/agent-harness-preparation-state-facefeedcafed00d; fi"
+      "umask 077 && mkdir -p /tmp/agent-harness-preparation-deadbeefcafebabe && if [ -L #{path} ]; then readlink #{path} > " \
+        "/tmp/agent-harness-preparation-deadbeefcafebabe/symlink_target && printf symlink > " \
+        "/tmp/agent-harness-preparation-deadbeefcafebabe/state; elif [ -e #{path} ]; then cp -p #{path} " \
+        "/tmp/agent-harness-preparation-deadbeefcafebabe/backup && printf file > /tmp/agent-harness-preparation-deadbeefcafebabe/state; " \
+        "else printf missing > /tmp/agent-harness-preparation-deadbeefcafebabe/state; fi"
     end
 
     def symlink_backup_command(path)
-      "if [ -L #{path} ]; then readlink #{path} > /tmp/agent-harness-preparation-symlink-beadfeedcafef00d && printf symlink > " \
-        "/tmp/agent-harness-preparation-state-facefeedcafed00d; elif [ -e #{path} ]; then cp -p #{path} " \
-        "/tmp/agent-harness-preparation-deadbeefcafebabe && printf file > /tmp/agent-harness-preparation-state-facefeedcafed00d; " \
-        "else printf missing > /tmp/agent-harness-preparation-state-facefeedcafed00d; fi"
+      "umask 077 && mkdir -p /tmp/agent-harness-preparation-deadbeefcafebabe && if [ -L #{path} ]; then readlink #{path} > " \
+        "/tmp/agent-harness-preparation-deadbeefcafebabe/symlink_target && printf symlink > " \
+        "/tmp/agent-harness-preparation-deadbeefcafebabe/state; elif [ -e #{path} ]; then cp -p #{path} " \
+        "/tmp/agent-harness-preparation-deadbeefcafebabe/backup && printf file > /tmp/agent-harness-preparation-deadbeefcafebabe/state; " \
+        "else printf missing > /tmp/agent-harness-preparation-deadbeefcafebabe/state; fi"
     end
 
     def cleanup_command(path, dir, requested_path: "~/.config/opencode/opencode.json")
-      "cleanup_status=0; state_value=$(cat /tmp/agent-harness-preparation-state-facefeedcafed00d 2>/dev/null); " \
+      "cleanup_status=0; state_value=$(cat /tmp/agent-harness-preparation-deadbeefcafebabe/state 2>/dev/null); " \
         "if [ -d #{path} ] && [ ! -L #{path} ]; then printf '%s\\n' " \
         "#{Shellwords.escape("preparation target changed into a directory during execution: #{requested_path}")} >&2; cleanup_status=1; " \
         "elif [ \"$state_value\" = symlink ]; then mkdir -p #{dir} && rm -f -- #{path} && " \
-        "ln -s \"$(cat /tmp/agent-harness-preparation-symlink-beadfeedcafef00d)\" #{path} || cleanup_status=$?; " \
-        "elif [ \"$state_value\" = file ]; then if [ -f /tmp/agent-harness-preparation-deadbeefcafebabe ]; then mkdir -p #{dir} && rm -f -- #{path} && " \
-        "cp -p /tmp/agent-harness-preparation-deadbeefcafebabe #{path} || cleanup_status=$?; else echo " \
-        "\"missing runtime preparation backup: /tmp/agent-harness-preparation-deadbeefcafebabe\" >&2; cleanup_status=1; fi; " \
-        "elif [ \"$state_value\" = missing ]; then rm -f -- #{path} || cleanup_status=$?; else cleanup_status=1; fi; rm -f /tmp/agent-harness-preparation-deadbeefcafebabe " \
-        "/tmp/agent-harness-preparation-state-facefeedcafed00d /tmp/agent-harness-preparation-symlink-beadfeedcafef00d; " \
+        "ln -s \"$(cat /tmp/agent-harness-preparation-deadbeefcafebabe/symlink_target)\" #{path} || cleanup_status=$?; " \
+        "elif [ \"$state_value\" = file ]; then if [ -f /tmp/agent-harness-preparation-deadbeefcafebabe/backup ]; then mkdir -p #{dir} && rm -f -- #{path} && " \
+        "cp -p /tmp/agent-harness-preparation-deadbeefcafebabe/backup #{path} || cleanup_status=$?; else echo " \
+        "\"missing runtime preparation backup: /tmp/agent-harness-preparation-deadbeefcafebabe/backup\" >&2; cleanup_status=1; fi; " \
+        "elif [ \"$state_value\" = missing ]; then rm -f -- #{path} || cleanup_status=$?; else cleanup_status=1; fi; rm -rf /tmp/agent-harness-preparation-deadbeefcafebabe; " \
         "exit $cleanup_status"
     end
 

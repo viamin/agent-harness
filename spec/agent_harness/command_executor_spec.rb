@@ -314,19 +314,8 @@ RSpec.describe AgentHarness::CommandExecutor do
         end
       end
 
-      it "cleans up prepared files after the main command timeout expires" do
-        Dir.mktmpdir do |dir|
-          file_path = File.join(dir, "config.json")
-          preparation = AgentHarness::ExecutionPreparation.new(
-            file_writes: [{path: file_path, content: "{\"ok\":true}"}]
-          )
-
-          expect {
-            executor.execute(["ruby", "-e", "sleep 0.05"], timeout: 0.001, preparation: preparation)
-          }.to raise_error(AgentHarness::TimeoutError)
-
-          expect(File.exist?(file_path)).to be false
-        end
+      it "does not extend cleanup past the configured timeout" do
+        expect(executor.send(:cleanup_deadline, 101.0, timeout: 1.0)).to eq(101.0)
       end
 
       it "fails cleanup without deleting nested contents when the command replaces a prepared file with a directory" do
