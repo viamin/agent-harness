@@ -447,7 +447,7 @@ module AgentHarness
       wait_thr = nil
 
       Timeout.timeout(timeout) do
-        Open3.popen3(env, *cmd_array) do |stdin, stdout_io, stderr_io, child_wait_thr|
+        Open3.popen3(env, *cmd_array, pgroup: true) do |stdin, stdout_io, stderr_io, child_wait_thr|
           wait_thr = child_wait_thr
           if stdin_data
             stdin.write(stdin_data)
@@ -470,12 +470,14 @@ module AgentHarness
     def terminate_timed_out_process(wait_thr)
       return if wait_thr.nil?
 
+      process_group_id = -wait_thr.pid
+
       begin
-        Process.kill("TERM", wait_thr.pid)
+        Process.kill("TERM", process_group_id)
         Timeout.timeout(1) { wait_thr.value }
       rescue Errno::ESRCH, Timeout::Error
         begin
-          Process.kill("KILL", wait_thr.pid)
+          Process.kill("KILL", process_group_id)
         rescue Errno::ESRCH
         end
 

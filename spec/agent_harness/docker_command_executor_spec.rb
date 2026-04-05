@@ -1082,7 +1082,7 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
       expect(Timeout).to receive(:timeout).with(be_within(0.01).of(5)).and_call_original
       allow(Open3).to receive(:popen3) do |actual_env, *actual_cmd, &block|
         expect(actual_env).to eq({})
-        expect(actual_cmd).to eq(["docker", "exec", container_id, "which", "ruby"])
+        expect(actual_cmd).to eq(["docker", "exec", container_id, "which", "ruby", {pgroup: true}])
         stdin = StringIO.new
         stdout = StringIO.new("/usr/bin/ruby\n")
         stderr = StringIO.new("")
@@ -1096,7 +1096,7 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
     it "returns nil when binary is not found" do
       allow(Open3).to receive(:popen3) do |actual_env, *actual_cmd, &block|
         expect(actual_env).to eq({})
-        expect(actual_cmd).to eq(["docker", "exec", container_id, "which", "nonexistent"])
+        expect(actual_cmd).to eq(["docker", "exec", container_id, "which", "nonexistent", {pgroup: true}])
         stdin = StringIO.new
         stdout = StringIO.new("")
         stderr = StringIO.new("which: no nonexistent in PATH")

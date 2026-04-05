@@ -577,6 +577,15 @@ RSpec.describe AgentHarness::CommandExecutor do
     let(:stdout) { instance_double(IO, read: "") }
     let(:stderr) { instance_double(IO, read: "") }
     let(:wait_thr) { instance_double(Process::Waiter, pid: 12_345) }
+    let(:status) { instance_double(Process::Status) }
+    let(:process_group_id) { -12_345 }
+
+    it "spawns timed commands in their own process group" do
+      expect(Open3).to receive(:popen3).with({}, "ruby", "-e", "sleep 10", pgroup: true).and_yield(stdin, stdout, stderr, wait_thr)
+      allow(wait_thr).to receive(:value).and_return(status)
+
+      executor.send(:execute_with_timeout, ["ruby", "-e", "sleep 10"], timeout: 1, env: {}, stdin_data: nil)
+    end
 
     it "terminates and reaps the child process before raising TimeoutError" do
       allow(Open3).to receive(:popen3).and_yield(stdin, stdout, stderr, wait_thr)
@@ -584,7 +593,7 @@ RSpec.describe AgentHarness::CommandExecutor do
       allow(Timeout).to receive(:timeout).and_call_original
       allow(Timeout).to receive(:timeout).with(1).and_yield
 
-      expect(Process).to receive(:kill).with("TERM", 12_345).ordered
+      expect(Process).to receive(:kill).with("TERM", process_group_id).ordered
       expect(wait_thr).to receive(:value).ordered
 
       expect {
@@ -598,8 +607,8 @@ RSpec.describe AgentHarness::CommandExecutor do
       allow(Timeout).to receive(:timeout).and_call_original
       allow(Timeout).to receive(:timeout).with(1).and_raise(Timeout::Error)
 
-      expect(Process).to receive(:kill).with("TERM", 12_345).ordered
-      expect(Process).to receive(:kill).with("KILL", 12_345).ordered
+      expect(Process).to receive(:kill).with("TERM", process_group_id).ordered
+      expect(Process).to receive(:kill).with("KILL", process_group_id).ordered
       expect(wait_thr).to receive(:value).ordered.and_raise(Errno::ECHILD)
 
       expect {
