@@ -172,7 +172,7 @@ module AgentHarness
         end
 
         def metadata_provider_instance
-          return nil unless registry_check_initializer_compatible?
+          return nil unless metadata_initializer_compatible?
 
           parameters = instance_method(:initialize).parameters
           accepts = lambda do |name|
@@ -187,21 +187,37 @@ module AgentHarness
           new(**kwargs)
         end
 
+        def metadata_initializer_compatible?
+          keyword_names, required_keywords = initializer_keyword_parameters
+          return false if instance_method(:initialize).parameters.any? { |type, _name| type == :req }
+          return false unless (required_keywords - supported_initializer_keywords).empty?
+          return true if instance_method(:initialize).parameters.any? { |type, _| type == :keyrest }
+
+          (keyword_names - supported_initializer_keywords).empty?
+        end
+
         def registry_check_initializer_compatible?
+          return false unless metadata_initializer_compatible?
+
+          keyword_names, = initializer_keyword_parameters
+          return true if instance_method(:initialize).parameters.any? { |type, _| type == :keyrest }
+
+          (supported_initializer_keywords - keyword_names).empty?
+        end
+
+        def initializer_keyword_parameters
           parameters = instance_method(:initialize).parameters
-          return false if parameters.any? { |type, _name| type == :req }
-          return true if parameters.any? { |type, _name| type == :keyrest }
 
           keyword_names = parameters
             .filter_map { |type, name| name if type == :key || type == :keyreq }
-
-          supported_keywords = %i[config executor logger]
           required_keywords = parameters
             .filter_map { |type, name| name if type == :keyreq }
 
-          return false unless (required_keywords - supported_keywords).empty?
+          [keyword_names, required_keywords]
+        end
 
-          (supported_keywords - keyword_names).empty?
+        def supported_initializer_keywords
+          %i[config executor logger]
         end
 
         def overrides_instance_method?(method_name)

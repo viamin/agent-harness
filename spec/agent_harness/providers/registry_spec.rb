@@ -473,6 +473,54 @@ RSpec.describe AgentHarness::Providers::Registry do
       )
     end
 
+    it "exposes instance metadata for providers that only accept a registry keyword subset" do
+      metadata_compatible_provider = Class.new do
+        include AgentHarness::Providers::Adapter
+
+        class << self
+          def provider_name = :metadata_compatible_provider
+          def available? = true
+          def binary_name = "metadata-compatible"
+        end
+
+        def initialize(config: nil)
+          @config = config
+        end
+
+        def auth_type
+          :oauth
+        end
+
+        def configuration_schema
+          {
+            fields: [{name: :workspace, type: :string}],
+            auth_modes: [:oauth],
+            openai_compatible: false
+          }
+        end
+      end
+
+      registry.register(:metadata_compatible_provider, metadata_compatible_provider, aliases: [:metadata_compatible])
+
+      metadata = registry.provider_metadata(:metadata_compatible)
+
+      expect(metadata[:auth]).to include(
+        default_mode: :oauth,
+        supported_modes: [:oauth]
+      )
+      expect(metadata[:configuration]).to include(
+        fields: [{name: :workspace, type: :string}],
+        auth_modes: [:oauth],
+        openai_compatible: false
+      )
+      expect(metadata[:health_check]).to include(
+        supports_registry_checks: false,
+        provider_status: false,
+        configuration_validation: false,
+        lightweight: false
+      )
+    end
+
     it "raises ConfigurationError for unknown providers" do
       expect {
         registry.provider_metadata(:nonexistent_provider_xyz)

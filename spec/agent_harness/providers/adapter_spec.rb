@@ -158,6 +158,42 @@ RSpec.describe AgentHarness::Providers::Adapter do
     end
   end
 
+  let(:metadata_compatible_adapter_class) do
+    Class.new do
+      include AgentHarness::Providers::Adapter
+
+      class << self
+        def provider_name
+          :metadata_compatible_adapter
+        end
+
+        def available?
+          true
+        end
+
+        def binary_name
+          "metadata-compatible"
+        end
+      end
+
+      def initialize(config: nil)
+        @config = config
+      end
+
+      def auth_type
+        :oauth
+      end
+
+      def configuration_schema
+        {
+          fields: [{name: :workspace, type: :string}],
+          auth_modes: [:oauth],
+          openai_compatible: false
+        }
+      end
+    end
+  end
+
   let(:package_only_installing_adapter_class) do
     Class.new do
       include AgentHarness::Providers::Adapter
@@ -413,6 +449,33 @@ RSpec.describe AgentHarness::Providers::Adapter do
           provider_status: false,
           configuration_validation: false,
           lightweight: false
+        )
+      end
+
+      it "instantiates metadata for adapters that accept a registry keyword subset" do
+        metadata = metadata_compatible_adapter_class.provider_metadata(aliases: [:metadata_alias])
+
+        expect(metadata).to include(
+          display_name: "Metadata compatible adapter"
+        )
+        expect(metadata[:auth]).to include(
+          default_mode: :oauth,
+          supported_modes: [:oauth],
+          api_family: :metadata_compatible_adapter
+        )
+        expect(metadata[:configuration]).to include(
+          fields: [{name: :workspace, type: :string}],
+          auth_modes: [:oauth],
+          openai_compatible: false
+        )
+        expect(metadata[:health_check]).to include(
+          supports_registry_checks: false,
+          provider_status: false,
+          configuration_validation: false,
+          lightweight: false
+        )
+        expect(metadata[:identity]).to eq(
+          bot_usernames: ["metadata_compatible_adapter", "metadata_alias"]
         )
       end
     end
