@@ -47,7 +47,13 @@ module AgentHarness
       command_name = normalized_command.first
       deadline = timeout_deadline(timeout)
       cleanup_steps = []
-      held_preparation_locks = acquire_preparation_locks(preparation, env: env)
+      held_preparation_locks = acquire_preparation_locks(
+        preparation,
+        env: env,
+        timeout: timeout,
+        deadline: deadline,
+        command_name: command_name
+      )
 
       apply_container_preparation(preparation, timeout: timeout, deadline: deadline, env: env, cleanup_steps: cleanup_steps)
       docker_cmd = build_docker_command(normalized_command, env: env, stdin_data: stdin_data)
@@ -148,8 +154,10 @@ module AgentHarness
           "cleanup_status=0; state_value=$(cat #{state} 2>/dev/null); if [ \"$state_value\" = symlink ]; then " \
             "mkdir -p #{dir} && rm -f #{path} && ln -s \"$(cat #{symlink_target})\" #{path} || cleanup_status=$?; " \
             "elif [ \"$state_value\" = file ]; then " \
-            "mkdir -p #{dir} && rm -f #{path} && cp -p #{backup} #{path} || cleanup_status=$?; " \
-            "else rm -f #{path} || cleanup_status=$?; " \
+            "if [ -f #{backup} ]; then mkdir -p #{dir} && rm -f #{path} && cp -p #{backup} #{path} || cleanup_status=$?; " \
+            "else echo \"missing runtime preparation backup: #{backup}\" >&2; cleanup_status=1; fi; " \
+            "elif [ \"$state_value\" = missing ]; then rm -f #{path} || cleanup_status=$?; " \
+            "else cleanup_status=1; " \
             "fi; rm -f #{backup} #{state} #{symlink_target}; exit $cleanup_status",
           env: env
         )

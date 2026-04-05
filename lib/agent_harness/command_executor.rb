@@ -22,6 +22,7 @@ module AgentHarness
     PREPARATION_LOCK_REGISTRY_MUTEX = Mutex.new
     PREPARATION_LOCK_REGISTRY = {}
     PREPARATION_CLEANUP_GRACE_PERIOD = 5
+    PREPARATION_LOCK_POLL_INTERVAL = 0.01
 
     # Result of a command execution
     Result = Struct.new(:stdout, :stderr, :exit_code, :duration, keyword_init: true) do
@@ -61,7 +62,13 @@ module AgentHarness
       held_preparation_locks = []
 
       log_debug("Executing command", command: cmd_string, timeout: timeout)
-      held_preparation_locks = acquire_preparation_locks(preparation, env: env)
+      held_preparation_locks = acquire_preparation_locks(
+        preparation,
+        env: env,
+        timeout: timeout,
+        deadline: deadline,
+        command_name: command_name
+      )
       apply_preparation(
         preparation,
         env: env,
@@ -151,18 +158,40 @@ module AgentHarness
 
     private
 
-    def acquire_preparation_locks(preparation, env:)
+    def acquire_preparation_locks(preparation, env:, timeout:, deadline:, command_name:)
       return [] if preparation.nil? || preparation.empty?
 
       preparation_lock_keys(preparation, env).map do |key|
-        entry = PREPARATION_LOCK_REGISTRY_MUTEX.synchronize do
-          PREPARATION_LOCK_REGISTRY[key] ||= {mutex: Mutex.new, refcount: 0}
-          PREPARATION_LOCK_REGISTRY[key][:refcount] += 1
-          PREPARATION_LOCK_REGISTRY[key]
-        end
-        entry[:mutex].lock
-        {key: key, mutex: entry[:mutex]}
+        acquire_preparation_lock(key, timeout:, deadline:, command_name:)
       end
+    end
+
+    def acquire_preparation_lock(key, timeout:, deadline:, command_name:)
+      entry = PREPARATION_LOCK_REGISTRY_MUTEX.synchronize do
+        PREPARATION_LOCK_REGISTRY[key] ||= {mutex: Mutex.new, refcount: 0}
+        PREPARATION_LOCK_REGISTRY[key][:refcount] += 1
+        PREPARATION_LOCK_REGISTRY[key]
+      end
+
+      if timeout.nil?
+        entry[:mutex].lock
+      else
+        until entry[:mutex].try_lock
+          remaining = remaining_timeout(deadline, timeout:, command_name:)
+          sleep([PREPARATION_LOCK_POLL_INTERVAL, remaining].min)
+        end
+      end
+
+      {key: key, mutex: entry[:mutex]}
+    rescue
+      PREPARATION_LOCK_REGISTRY_MUTEX.synchronize do
+        registry_entry = PREPARATION_LOCK_REGISTRY[key]
+        next unless registry_entry
+
+        registry_entry[:refcount] -= 1
+        PREPARATION_LOCK_REGISTRY.delete(key) if registry_entry[:refcount].zero?
+      end
+      raise
     end
 
     def release_preparation_locks(held_preparation_locks)

@@ -582,7 +582,7 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
       allow(Open3).to receive(:popen3) do |actual_env, *actual_cmd, &block|
         calls << {env: actual_env, cmd: actual_cmd}
         stderr = if actual_cmd == ["docker", "exec", container_id, "sh", "-lc", cleanup_command("#{guarded_home_path}/.config/opencode/opencode.json", "#{guarded_home_path}/.config/opencode")]
-          StringIO.new("cp: cannot stat '/tmp/agent-harness-preparation-deadbeefcafebabe'")
+          StringIO.new("missing runtime preparation backup: /tmp/agent-harness-preparation-deadbeefcafebabe")
         else
           StringIO.new("")
         end
@@ -600,7 +600,7 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
             file_writes: [{path: "~/.config/opencode/opencode.json", content: "{\"ok\":true}"}]
           )
         )
-      }.to raise_error(AgentHarness::CommandExecutionError, /cannot stat/)
+      }.to raise_error(AgentHarness::CommandExecutionError, /missing runtime preparation backup/)
 
       expect(calls).to include(
         {env: {}, cmd: ["docker", "exec", container_id, "sh", "-lc", cleanup_command("#{guarded_home_path}/.config/opencode/opencode.json", "#{guarded_home_path}/.config/opencode")]},
@@ -685,6 +685,45 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
       end
     end
 
+    it "counts lock acquisition wait against the timeout budget" do
+      signal = Queue.new
+      wait = Queue.new
+
+      allow(executor).to receive(:apply_container_preparation)
+      allow(executor).to receive(:cleanup_container_preparation)
+      allow(executor).to receive(:execute_without_timeout) do |cmd_array, env:, stdin_data:|
+        if cmd_array.last == "hold-a"
+          signal.push(:entered)
+          wait.pop
+        end
+        ["", stdin_data.to_s, instance_double(Process::Status, exitstatus: 0)]
+      end
+
+      thread = Thread.new do
+        executor.execute(
+          ["echo", "hold-a"],
+          preparation: AgentHarness::ExecutionPreparation.new(
+            file_writes: [{path: "~/.config/opencode/opencode.json", content: "A"}]
+          )
+        )
+      end
+
+      expect(signal.pop).to eq(:entered)
+
+      expect {
+        executor.execute(
+          ["echo", "hold-b"],
+          timeout: 0.01,
+          preparation: AgentHarness::ExecutionPreparation.new(
+            file_writes: [{path: "~/.config/opencode/opencode.json", content: "B"}]
+          )
+        )
+      }.to raise_error(AgentHarness::TimeoutError, /Command timed out after 0\.01 seconds: echo/)
+    ensure
+      wait << :continue
+      thread&.join
+    end
+
     private
 
     def expect_popen3_with(expected_cmd, env: {})
@@ -738,8 +777,10 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
       "cleanup_status=0; state_value=$(cat /tmp/agent-harness-preparation-state-facefeedcafed00d 2>/dev/null); " \
         "if [ \"$state_value\" = symlink ]; then mkdir -p #{dir} && rm -f #{path} && " \
         "ln -s \"$(cat /tmp/agent-harness-preparation-symlink-beadfeedcafef00d)\" #{path} || cleanup_status=$?; " \
-        "elif [ \"$state_value\" = file ]; then mkdir -p #{dir} && rm -f #{path} && cp -p /tmp/agent-harness-preparation-deadbeefcafebabe #{path} || " \
-        "cleanup_status=$?; else rm -f #{path} || cleanup_status=$?; fi; rm -f /tmp/agent-harness-preparation-deadbeefcafebabe " \
+        "elif [ \"$state_value\" = file ]; then if [ -f /tmp/agent-harness-preparation-deadbeefcafebabe ]; then mkdir -p #{dir} && rm -f #{path} && " \
+        "cp -p /tmp/agent-harness-preparation-deadbeefcafebabe #{path} || cleanup_status=$?; else echo " \
+        "\"missing runtime preparation backup: /tmp/agent-harness-preparation-deadbeefcafebabe\" >&2; cleanup_status=1; fi; " \
+        "elif [ \"$state_value\" = missing ]; then rm -f #{path} || cleanup_status=$?; else cleanup_status=1; fi; rm -f /tmp/agent-harness-preparation-deadbeefcafebabe " \
         "/tmp/agent-harness-preparation-state-facefeedcafed00d /tmp/agent-harness-preparation-symlink-beadfeedcafef00d; " \
         "exit $cleanup_status"
     end

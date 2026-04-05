@@ -375,6 +375,45 @@ RSpec.describe AgentHarness::CommandExecutor do
           expect(File.binread(file_path)).to eq("old")
         end
       end
+
+      it "counts lock acquisition wait against the timeout budget" do
+        Dir.mktmpdir do |dir|
+          file_path = File.join(dir, "config.json")
+          signal = Queue.new
+          wait = Queue.new
+
+          allow(executor).to receive(:execute_without_timeout) do |_cmd_array, env:, stdin_data:|
+            env["SIGNAL"]&.push(:entered)
+            env["WAIT"]&.pop
+            ["", stdin_data.to_s, instance_double(Process::Status, exitstatus: 0)]
+          end
+
+          thread = Thread.new do
+            executor.execute(
+              ["true"],
+              env: {"SIGNAL" => signal, "WAIT" => wait},
+              preparation: AgentHarness::ExecutionPreparation.new(
+                file_writes: [{path: file_path, content: "A"}]
+              )
+            )
+          end
+
+          expect(signal.pop).to eq(:entered)
+
+          expect {
+            executor.execute(
+              ["true"],
+              timeout: 0.01,
+              preparation: AgentHarness::ExecutionPreparation.new(
+                file_writes: [{path: file_path, content: "B"}]
+              )
+            )
+          }.to raise_error(AgentHarness::TimeoutError, /Command timed out after 0\.01 seconds: true/)
+        ensure
+          wait << :continue
+          thread&.join
+        end
+      end
     end
   end
 
