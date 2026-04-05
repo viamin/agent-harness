@@ -324,7 +324,9 @@ module AgentHarness
 
     def process_ready_streams(ready, streams:, stdin:, stdin_buffer:, stdin_offset:, last_activity_at:, observer:)
       ready[1]&.each do |io|
+        written_before = stdin_offset
         stdin_offset = write_stdin_nonblock(io, stdin_buffer, stdin_offset)
+        last_activity_at = monotonic_time if stdin_offset > written_before
         next unless stdin_offset >= stdin_buffer.bytesize
 
         close_stream(io)

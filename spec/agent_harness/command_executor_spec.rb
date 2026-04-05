@@ -271,6 +271,32 @@ RSpec.describe AgentHarness::CommandExecutor do
         executor.execute(["cat"], stdin_data: input)
       end
 
+      it "treats successful stdin writes as idle-timeout activity until output begins" do
+        input = "x" * 8192
+        stdin = instance_double(IO, close: nil, closed?: false)
+        stdout = instance_double(IO, close: nil, read: "")
+        stderr = instance_double(IO, close: nil, read: "")
+        status = instance_double(Process::Status, exitstatus: 0, success?: true)
+        wait_thr = instance_double(Thread, value: status)
+
+        allow(Open3).to receive(:popen3).and_yield(stdin, stdout, stderr, wait_thr)
+        allow(executor).to receive(:selectable_streams?).and_return(true)
+        allow(IO).to receive(:select).and_return(
+          [[], [stdin], nil],
+          [[], [stdin], nil],
+          [[stdout, stderr], nil, nil]
+        )
+        allow(wait_thr).to receive(:join).with(0).and_return(nil, nil, wait_thr)
+        allow(stdin).to receive(:write_nonblock).and_return(4096, 4096)
+        allow(stdout).to receive(:read_nonblock).and_return("ok\n")
+        allow(stderr).to receive(:read_nonblock).and_return(nil)
+        allow(executor).to receive(:monotonic_time).and_return(0.0, 0.02, 0.03, 0.06, 0.07, 0.08)
+
+        result = executor.execute(["cat"], stdin_data: input, idle_timeout: 0.05)
+
+        expect(result.stdout).to eq("ok\n")
+      end
+
       it "writes stdin data before buffered fallback reads output" do
         stdin = StringIO.new
         stdout = StringIO.new("buffered stdout")
