@@ -394,7 +394,7 @@ module AgentHarness
       return if allow_nil && value.nil?
       return if value.is_a?(Numeric) && value.positive?
 
-      raise ArgumentError, "#{name} must be a positive number"
+      raise InvalidDurationError, "#{name} must be a positive number"
     end
 
     def validate_buffered_execution_support!(idle_timeout:, on_heartbeat:, heartbeat_interval:, observer:)

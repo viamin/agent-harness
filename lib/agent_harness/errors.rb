@@ -22,6 +22,9 @@ module AgentHarness
   # Execution errors
   class TimeoutError < Error; end
 
+  # Raised when a duration argument is invalid (non-positive)
+  class InvalidDurationError < ArgumentError; end
+
   class IdleTimeoutError < TimeoutError; end
 
   class CommandExecutionError < Error; end
