@@ -48,6 +48,7 @@ module AgentHarness
       command_name = normalized_command.first
       deadline = timeout_deadline(timeout)
       cleanup_steps = []
+      execution_tracking = nil
       held_preparation_locks = acquire_preparation_locks(
         preparation,
         env: env,
@@ -58,7 +59,13 @@ module AgentHarness
       background_cleanup_scheduled = false
 
       apply_container_preparation(preparation, timeout: timeout, deadline: deadline, env: env, cleanup_steps: cleanup_steps)
-      docker_cmd = build_docker_command(normalized_command, env: env, stdin_data: stdin_data)
+      execution_tracking = build_container_execution_tracking(normalized_command, env: env) if timeout && preparation && !preparation.empty?
+      docker_cmd = build_docker_command_for_execution(
+        normalized_command,
+        env: env,
+        stdin_data: stdin_data,
+        execution_tracking: execution_tracking
+      )
       begin
         result = super(
           docker_cmd,
@@ -70,7 +77,9 @@ module AgentHarness
         schedule_container_cleanup_preparation(
           cleanup_steps,
           held_preparation_locks,
-          command_name: command_name
+          command_name: command_name,
+          termination_command: execution_tracking && execution_tracking[:terminate_command],
+          finalizer_command: execution_tracking && execution_tracking[:cleanup_command]
         )
         background_cleanup_scheduled = true
         held_preparation_locks = []
@@ -82,6 +91,13 @@ module AgentHarness
         deadline: cleanup_deadline(deadline, timeout:),
         command_name: command_name
       )
+      cleanup_container_execution_tracking(
+        execution_tracking,
+        timeout:,
+        deadline: cleanup_deadline(deadline, timeout:),
+        command_name: command_name
+      )
+      execution_tracking = nil
       Result.new(
         stdout: result.stdout,
         stderr: result.stderr,
@@ -98,13 +114,21 @@ module AgentHarness
             deadline: cleanup_deadline(deadline, timeout:),
             command_name: command_name
           )
+          cleanup_container_execution_tracking(
+            execution_tracking,
+            timeout:,
+            deadline: cleanup_deadline(deadline, timeout:),
+            command_name: command_name
+          )
         rescue TimeoutError => e
           raise e if pending_exception.nil? || !pending_exception.is_a?(TimeoutError)
 
           schedule_container_cleanup_preparation(
             cleanup_steps,
             held_preparation_locks,
-            command_name: command_name
+            command_name: command_name,
+            termination_command: execution_tracking && execution_tracking[:terminate_command],
+            finalizer_command: execution_tracking && execution_tracking[:cleanup_command]
           )
           background_cleanup_scheduled = true
           held_preparation_locks = []
@@ -167,12 +191,31 @@ module AgentHarness
       cleanup_steps.clear
     end
 
-    def schedule_container_cleanup_preparation(cleanup_steps, held_preparation_locks, command_name:)
+    def schedule_container_cleanup_preparation(
+      cleanup_steps,
+      held_preparation_locks,
+      command_name:,
+      termination_command: nil,
+      finalizer_command: nil
+    )
       cleanup_deadline = timeout_deadline(PREPARATION_CLEANUP_GRACE_PERIOD)
-      Thread.new(cleanup_steps, held_preparation_locks, cleanup_deadline, command_name) do |steps, locks, deadline_at, cleanup_command_name|
+      Thread.new(
+        cleanup_steps,
+        held_preparation_locks,
+        cleanup_deadline,
+        command_name,
+        termination_command,
+        finalizer_command
+      ) do |steps, locks, deadline_at, cleanup_command_name, terminate_cmd, finalizer_cmd|
         Thread.current.report_on_exception = false if Thread.current.respond_to?(:report_on_exception=)
 
         begin
+          if terminate_cmd
+            run_host_command(
+              terminate_cmd,
+              timeout: remaining_timeout(deadline_at, timeout: PREPARATION_CLEANUP_GRACE_PERIOD, command_name: cleanup_command_name)
+            )
+          end
           cleanup_container_preparation(
             steps,
             timeout: PREPARATION_CLEANUP_GRACE_PERIOD,
@@ -182,9 +225,57 @@ module AgentHarness
         rescue => e
           log_debug("Failed to clean up container runtime preparation after timeout", error: e.message)
         ensure
+          if finalizer_cmd
+            begin
+              run_host_command(
+                finalizer_cmd,
+                timeout: remaining_timeout(deadline_at, timeout: PREPARATION_CLEANUP_GRACE_PERIOD, command_name: cleanup_command_name)
+              )
+            rescue => e
+              log_debug("Failed to clean up container execution tracking after timeout", error: e.message)
+            end
+          end
           release_preparation_locks(locks) unless locks.nil? || locks.empty?
         end
       end
+    end
+
+    def build_container_execution_tracking(command, env:)
+      state_dir_path = "/tmp/agent-harness-execution-#{SecureRandom.hex(8)}"
+      state_dir = shell_path(state_dir_path)
+      pid_file = shell_path(File.join(state_dir_path, "pid"))
+      tracked_command = [
+        "sh",
+        "-lc",
+        "umask 077 && mkdir -p #{state_dir} && printf %s $$ > #{pid_file} && exec #{Shellwords.join(normalize_command(command))}"
+      ]
+
+      {
+        command: tracked_command,
+        terminate_command: build_container_shell_command(
+          "if [ -f #{pid_file} ]; then pid=$(cat #{pid_file} 2>/dev/null); if [ -n \"$pid\" ]; then " \
+            "kill -TERM -- \"-$pid\" 2>/dev/null || kill -TERM \"$pid\" 2>/dev/null || true; " \
+            "i=0; while kill -0 \"$pid\" 2>/dev/null && [ \"$i\" -lt 10 ]; do sleep 0.1; i=$((i + 1)); done; " \
+            "kill -KILL -- \"-$pid\" 2>/dev/null || kill -KILL \"$pid\" 2>/dev/null || true; fi; fi",
+          env: env
+        ),
+        cleanup_command: build_container_shell_command("rm -rf #{state_dir}", env: env)
+      }
+    end
+
+    def build_docker_command_for_execution(command, env:, stdin_data:, execution_tracking:)
+      actual_command = execution_tracking ? execution_tracking[:command] : command
+      build_docker_command(actual_command, env: env, stdin_data: stdin_data)
+    end
+
+    def cleanup_container_execution_tracking(execution_tracking, timeout:, deadline:, command_name:)
+      return if execution_tracking.nil?
+
+      run_host_command(
+        execution_tracking.fetch(:cleanup_command),
+        timeout: remaining_timeout(deadline, timeout:, command_name:),
+        stdin_data: nil
+      )
     end
 
     def materialize_file_write(write, timeout:, deadline:, env:)

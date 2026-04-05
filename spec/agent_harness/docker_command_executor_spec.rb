@@ -103,7 +103,7 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
     end
 
     it "materializes preparation file writes inside the container before executing" do
-      allow(SecureRandom).to receive(:hex).and_return("deadbeefcafebabe", "facefeedcafed00d", "beadfeedcafef00d")
+      allow(SecureRandom).to receive(:hex).and_return("deadbeefcafebabe", "facefeedcafed00d")
 
       expect_popen3_sequence(
         [
@@ -148,7 +148,7 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
     end
 
     it "uses request env overrides for container preparation commands" do
-      allow(SecureRandom).to receive(:hex).and_return("deadbeefcafebabe", "facefeedcafed00d", "beadfeedcafef00d")
+      allow(SecureRandom).to receive(:hex).and_return("deadbeefcafebabe", "facefeedcafed00d")
 
       expect_popen3_sequence(
         [
@@ -190,7 +190,7 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
     end
 
     it "supports preparation targets directly under HOME" do
-      allow(SecureRandom).to receive(:hex).and_return("deadbeefcafebabe", "facefeedcafed00d", "beadfeedcafef00d")
+      allow(SecureRandom).to receive(:hex).and_return("deadbeefcafebabe", "facefeedcafed00d")
 
       expect_popen3_sequence(
         [
@@ -245,7 +245,7 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
     end
 
     it "guards home-relative preparation paths against missing container HOME" do
-      allow(SecureRandom).to receive(:hex).and_return("deadbeefcafebabe", "facefeedcafed00d", "beadfeedcafef00d")
+      allow(SecureRandom).to receive(:hex).and_return("deadbeefcafebabe", "facefeedcafed00d")
 
       expect_popen3_sequence(
         [
@@ -286,7 +286,7 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
     end
 
     it "quotes env-backed container preparation paths for shell execution" do
-      allow(SecureRandom).to receive(:hex).and_return("deadbeefcafebabe", "facefeedcafed00d", "beadfeedcafef00d")
+      allow(SecureRandom).to receive(:hex).and_return("deadbeefcafebabe", "facefeedcafed00d")
 
       expect_popen3_sequence(
         [
@@ -328,7 +328,7 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
     end
 
     it "expands env refs embedded within container path segments" do
-      allow(SecureRandom).to receive(:hex).and_return("deadbeefcafebabe", "facefeedcafed00d", "beadfeedcafef00d")
+      allow(SecureRandom).to receive(:hex).and_return("deadbeefcafebabe", "facefeedcafed00d")
 
       expect_popen3_sequence(
         [
@@ -398,7 +398,7 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
     end
 
     it "uses the remaining timeout budget for preparation and execution" do
-      allow(SecureRandom).to receive(:hex).and_return("deadbeefcafebabe", "facefeedcafed00d", "beadfeedcafef00d")
+      allow(SecureRandom).to receive(:hex).and_return("deadbeefcafebabe", "facefeedcafed00d")
       time_values = [
         100.0, 100.0, 100.0, 100.0, 100.0,
         105.0, 105.0, 105.0, 105.0, 105.0,
@@ -428,14 +428,14 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
         )
       )
 
-      expect(timeouts.length).to eq(6)
+      expect(timeouts.length).to eq(7)
       expect(timeouts).to all(be > 0)
       expect(timeouts).to eq(timeouts.sort.reverse)
       expect(timeouts.last).to be < timeouts.first
     end
 
     it "unlinks the current path before restoring originally existing files" do
-      allow(SecureRandom).to receive(:hex).and_return("deadbeefcafebabe", "facefeedcafed00d", "beadfeedcafef00d")
+      allow(SecureRandom).to receive(:hex).and_return("deadbeefcafebabe", "facefeedcafed00d")
 
       expect_popen3_sequence(
         [
@@ -476,7 +476,7 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
     end
 
     it "cleans up the current prepared file if container preparation fails after writing" do
-      allow(SecureRandom).to receive(:hex).and_return("deadbeefcafebabe", "facefeedcafed00d", "beadfeedcafef00d")
+      allow(SecureRandom).to receive(:hex).and_return("deadbeefcafebabe", "facefeedcafed00d")
       calls = []
 
       allow(Open3).to receive(:popen3) do |actual_env, *actual_cmd, &block|
@@ -515,11 +515,13 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
     end
 
     it "cleans up timed out container preparation in the background" do
-      allow(SecureRandom).to receive(:hex).and_return("deadbeefcafebabe", "facefeedcafed00d", "beadfeedcafef00d")
+      allow(SecureRandom).to receive(:hex).and_return("deadbeefcafebabe", "facefeedcafed00d")
       calls = Queue.new
       cleanup_started = Queue.new
       cleanup_finished = Queue.new
       cleanup_command_cmd = ["docker", "exec", container_id, "sh", "-lc", cleanup_command("#{guarded_home_path}/.config/opencode/opencode.json", "#{guarded_home_path}/.config/opencode")]
+      terminate_command_cmd = ["docker", "exec", container_id, "sh", "-lc", terminate_execution_command]
+      execution_cleanup_command_cmd = ["docker", "exec", container_id, "sh", "-lc", "rm -rf /tmp/agent-harness-execution-facefeedcafed00d"]
       preparation = AgentHarness::ExecutionPreparation.new(
         file_writes: [{path: "~/.config/opencode/opencode.json", content: "{\"ok\":true}"}]
       )
@@ -528,7 +530,7 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
       allow(executor).to receive(:execute_with_timeout) do |cmd_array, timeout:, env:, stdin_data:, configured_timeout: timeout|
         calls << {cmd: cmd_array, timeout: timeout, env: env, stdin_data: stdin_data}
 
-        if cmd_array == ["docker", "exec", container_id, "echo", "hello"]
+        if cmd_array == tracked_execution_command(["echo", "hello"])
           raise AgentHarness::TimeoutError, "Command timed out after #{timeout} seconds: echo"
         end
 
@@ -571,17 +573,19 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
           ["docker", "exec", container_id, "sh", "-lc", "mkdir -p #{guarded_home_path}/.config/opencode"],
           ["docker", "exec", container_id, "sh", "-lc", remove_symlink_command("#{guarded_home_path}/.config/opencode/opencode.json")],
           ["docker", "exec", "-i", container_id, "sh", "-lc", "cat > #{guarded_home_path}/.config/opencode/opencode.json"],
-          ["docker", "exec", container_id, "echo", "hello"],
-          cleanup_command_cmd
+          tracked_execution_command(["echo", "hello"]),
+          terminate_command_cmd,
+          cleanup_command_cmd,
+          execution_cleanup_command_cmd
         ]
       )
     end
 
     it "preserves the original timeout message for container commands after preparation" do
-      allow(SecureRandom).to receive(:hex).and_return("deadbeefcafebabe", "facefeedcafed00d", "beadfeedcafef00d")
+      allow(SecureRandom).to receive(:hex).and_return("deadbeefcafebabe", "facefeedcafed00d")
 
       allow(executor).to receive(:execute_with_timeout) do |cmd_array, timeout:, env:, stdin_data:, configured_timeout: timeout|
-        if cmd_array == ["docker", "exec", container_id, "echo", "hello"]
+        if cmd_array == tracked_execution_command(["echo", "hello"])
           raise AgentHarness::TimeoutError, "Command timed out after #{timeout} seconds: docker"
         end
 
@@ -609,12 +613,22 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
         cleanup_steps.clear
         sleep 0.02
       end
+      allow(executor).to receive(:cleanup_container_execution_tracking) do |execution_tracking, timeout:, deadline:, command_name:|
+        sleep 0.02 unless execution_tracking.nil?
+      end
 
-      expect_popen3_with(["docker", "exec", container_id, "echo", "hello"])
+      allow(SecureRandom).to receive(:hex).and_return("facefeedcafed00d")
+      expect_popen3_with(tracked_execution_command(["echo", "hello"]) + [{pgroup: true}])
 
-      result = executor.execute(["echo", "hello"])
+      result = executor.execute(
+        ["echo", "hello"],
+        timeout: 30,
+        preparation: AgentHarness::ExecutionPreparation.new(
+          file_writes: [{path: "~/.config/opencode/opencode.json", content: "{\"ok\":true}"}]
+        )
+      )
 
-      expect(result.duration).to be >= 0.04
+      expect(result.duration).to be >= 0.06
     end
 
     it "restores originally existing symlinks after container execution" do
@@ -1068,6 +1082,25 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
 
     def remove_symlink_command(path)
       "state_value=$(cat /tmp/agent-harness-preparation-deadbeefcafebabe/state 2>/dev/null); if [ \"$state_value\" = symlink ]; then rm -f -- #{path}; fi"
+    end
+
+    def tracked_execution_command(command)
+      [
+        "docker",
+        "exec",
+        container_id,
+        "sh",
+        "-lc",
+        "umask 077 && mkdir -p /tmp/agent-harness-execution-facefeedcafed00d && printf %s $$ > " \
+          "/tmp/agent-harness-execution-facefeedcafed00d/pid && exec #{Shellwords.join(command)}"
+      ]
+    end
+
+    def terminate_execution_command
+      "if [ -f /tmp/agent-harness-execution-facefeedcafed00d/pid ]; then pid=$(cat /tmp/agent-harness-execution-facefeedcafed00d/pid 2>/dev/null); " \
+        "if [ -n \"$pid\" ]; then kill -TERM -- \"-$pid\" 2>/dev/null || kill -TERM \"$pid\" 2>/dev/null || true; " \
+        "i=0; while kill -0 \"$pid\" 2>/dev/null && [ \"$i\" -lt 10 ]; do sleep 0.1; i=$((i + 1)); done; " \
+        "kill -KILL -- \"-$pid\" 2>/dev/null || kill -KILL \"$pid\" 2>/dev/null || true; fi; fi"
     end
 
     def guarded_home_path
