@@ -176,55 +176,59 @@ module AgentHarness
           )
         end
 
-        # Step 2: Check CLI availability
         klass = registry.get(provider_name)
-        unless klass.available?
-          return build_result(
-            name: provider_name,
-            status: "error",
-            message: "CLI '#{klass.binary_name}' not found in PATH",
-            start_time: start_time,
-            error_category: :installation,
-            check: :availability
-          )
-        end
+        provider_instance = build_provider(provider_name, klass, executor: executor)
+        host_preflight_allowed = host_preflight_allowed?(executor: executor, provider_runtime: provider_runtime)
 
-        # Step 3: Check authentication
-        # Treat "not implemented" auth status as degraded rather than error,
-        # since most built-in providers don't implement auth_status hooks.
-        # In either case, continue to steps 4/5 so health and config issues
-        # are still surfaced for providers that lack an auth_status hook.
-        auth = Authentication.auth_status(provider_name)
         auth_degraded = false
-        unless auth[:valid]
-          unless auth_not_implemented?(auth)
+        if host_preflight_allowed
+          # Step 2: Check CLI availability
+          unless klass.available?
             return build_result(
               name: provider_name,
               status: "error",
-              message: auth[:error] || "Authentication failed",
+              message: "CLI '#{klass.binary_name}' not found in PATH",
               start_time: start_time,
-              error_category: :authentication,
-              check: :authentication
+              error_category: :installation,
+              check: :availability
             )
           end
-          auth_degraded = true
-        end
 
-        # Step 4: Check provider-level health (e.g., endpoint reachability)
-        # The Adapter default always returns {healthy: true}, so providers
-        # that haven't implemented a real health check are reported as ok
-        # with a note that the check is not implemented.
-        provider_instance = build_provider(provider_name, klass, executor: executor)
-        health = provider_instance.health_status
-        unless health[:healthy]
-          return build_result(
-            name: provider_name,
-            status: "degraded",
-            message: health[:message] || "Provider health check failed",
-            start_time: start_time,
-            error_category: :transient,
-            check: :provider_health
-          )
+          # Step 3: Check authentication
+          # Treat "not implemented" auth status as degraded rather than error,
+          # since most built-in providers don't implement auth_status hooks.
+          # In either case, continue to steps 4/5 so health and config issues
+          # are still surfaced for providers that lack an auth_status hook.
+          auth = Authentication.auth_status(provider_name)
+          unless auth[:valid]
+            unless auth_not_implemented?(auth)
+              return build_result(
+                name: provider_name,
+                status: "error",
+                message: auth[:error] || "Authentication failed",
+                start_time: start_time,
+                error_category: :authentication,
+                check: :authentication
+              )
+            end
+            auth_degraded = true
+          end
+
+          # Step 4: Check provider-level health (e.g., endpoint reachability)
+          # The Adapter default always returns {healthy: true}, so providers
+          # that haven't implemented a real health check are reported as ok
+          # with a note that the check is not implemented.
+          health = provider_instance.health_status
+          unless health[:healthy]
+            return build_result(
+              name: provider_name,
+              status: "degraded",
+              message: health[:message] || "Provider health check failed",
+              start_time: start_time,
+              error_category: :transient,
+              check: :provider_health
+            )
+          end
         end
 
         # Step 5: Validate provider config
@@ -246,13 +250,17 @@ module AgentHarness
 
         smoke_contract = provider_instance.smoke_test_contract
         unless smoke_contract || provider_overrides_method?(provider_instance, :smoke_test)
-          message = if auth_degraded
+          message = if host_preflight_allowed && auth_degraded
             "Auth status check not implemented; health and config checks passed (smoke test unavailable)"
-          elsif provider_overrides_method?(provider_instance, :health_status) ||
-              provider_overrides_method?(provider_instance, :validate_config)
+          elsif host_preflight_allowed && (provider_overrides_method?(provider_instance, :health_status) ||
+            provider_overrides_method?(provider_instance, :validate_config))
             "Health and config checks passed (smoke test unavailable)"
-          else
+          elsif host_preflight_allowed
             "Registered and authenticated; health/config checks use defaults and smoke test is unavailable"
+          elsif provider_overrides_method?(provider_instance, :validate_config)
+            "Configuration checks passed, but smoke test is unavailable for the supplied execution context"
+          else
+            "Smoke test is unavailable for the supplied execution context"
           end
 
           return build_result(
@@ -272,7 +280,7 @@ module AgentHarness
             status: smoke[:status] || "error",
             message: smoke[:message] || "Smoke test failed",
             start_time: start_time,
-            error_category: smoke[:error_category] || :unknown,
+            error_category: normalize_smoke_error_category(smoke[:error_category], smoke[:message]),
             check: :smoke_test
           )
         end
@@ -289,7 +297,11 @@ module AgentHarness
           )
         end
 
-        message = if provider_overrides_method?(provider_instance, :health_status) ||
+        message = if !host_preflight_allowed && provider_overrides_method?(provider_instance, :validate_config)
+          "Configuration and smoke test passed using the supplied execution context"
+        elsif !host_preflight_allowed
+          "Smoke test passed using the supplied execution context"
+        elsif provider_overrides_method?(provider_instance, :health_status) ||
             provider_overrides_method?(provider_instance, :validate_config)
           "All checks passed"
         else
@@ -316,6 +328,41 @@ module AgentHarness
 
         error = auth[:error].to_s
         error.include?("not implemented")
+      end
+
+      def host_preflight_allowed?(executor:, provider_runtime:)
+        executor.nil? && provider_runtime.nil?
+      end
+
+      def normalize_smoke_error_category(category, message)
+        normalized = if installation_failure_message?(message)
+          :installation
+        else
+          category || ErrorTaxonomy.classify_message(message)
+        end
+
+        case normalized&.to_sym
+        when :installation
+          :installation
+        when :auth_expired, :authentication
+          :authentication
+        when :rate_limited, :rate_limit
+          :rate_limit
+        when :quota_exceeded, :quota
+          :quota
+        when :timeout
+          :timeout
+        when :transient
+          :transient
+        when :sandbox_failure, :configuration, :permanent
+          :configuration
+        else
+          :unknown
+        end
+      end
+
+      def installation_failure_message?(message)
+        message.to_s.match?(/(not found in PATH|command not found|No such file or directory|is not installed)/i)
       end
 
       def provider_overrides_method?(provider_instance, method_name)

@@ -535,12 +535,12 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
           .and_return({valid: true, expires_at: nil, error: nil})
       end
 
-      it "returns the normalized smoke-test failure details" do
+      it "maps adapter taxonomy categories onto the public health-check vocabulary" do
         result = described_class.check(:test_provider, timeout: 7, provider_runtime: {model: "test-model"})
 
         expect(result[:status]).to eq("error")
         expect(result[:message]).to eq("Rate limit exceeded")
-        expect(result[:error_category]).to eq(:rate_limited)
+        expect(result[:error_category]).to eq(:rate_limit)
         expect(result[:check]).to eq(:smoke_test)
       end
     end
@@ -561,8 +561,12 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
             end
 
             def available?
-              true
+              false
             end
+          end
+
+          def health_status
+            {healthy: false, message: "Host auth check should not run here"}
           end
 
           def smoke_test(timeout: nil, provider_runtime: nil)
@@ -576,17 +580,67 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
 
       before do
         registry.register(:test_provider, provider_class)
+      end
+
+      it "skips host-only preflight checks and runs the smoke test through the supplied executor" do
+        expect(AgentHarness::Authentication).not_to receive(:auth_status)
+
+        result = described_class.check(
+          :test_provider,
+          timeout: 9,
+          executor: custom_executor,
+          provider_runtime: {model: "runtime-model"}
+        )
+
+        expect(result[:status]).to eq("ok")
+        expect(result[:message]).to eq("Smoke test passed using the supplied execution context")
+        expect(provider_class.last_executor).to eq(custom_executor)
+        expect(provider_class.last_timeout).to eq(9)
+        expect(provider_class.last_provider_runtime).to eq({model: "runtime-model"})
+      end
+    end
+
+    context "when the smoke test reports an authentication-specific adapter category" do
+      let(:provider_class) do
+        Class.new(AgentHarness::Providers::Base) do
+          class << self
+            def provider_name
+              :test_provider
+            end
+
+            def binary_name
+              "test-cli"
+            end
+
+            def available?
+              true
+            end
+          end
+
+          def smoke_test(timeout: nil, provider_runtime: nil)
+            {
+              ok: false,
+              status: "error",
+              message: "Session expired",
+              error_category: :auth_expired
+            }
+          end
+        end
+      end
+
+      before do
+        registry.register(:test_provider, provider_class)
         allow(AgentHarness::Authentication).to receive(:auth_status)
           .with(:test_provider)
           .and_return({valid: true, expires_at: nil, error: nil})
       end
 
-      it "builds the provider with the supplied executor and forwards runtime overrides" do
-        described_class.check(:test_provider, timeout: 9, executor: custom_executor, provider_runtime: {model: "runtime-model"})
+      it "normalizes the failure to :authentication" do
+        result = described_class.check(:test_provider)
 
-        expect(provider_class.last_executor).to eq(custom_executor)
-        expect(provider_class.last_timeout).to eq(9)
-        expect(provider_class.last_provider_runtime).to eq({model: "runtime-model"})
+        expect(result[:status]).to eq("error")
+        expect(result[:error_category]).to eq(:authentication)
+        expect(result[:check]).to eq(:smoke_test)
       end
     end
 
