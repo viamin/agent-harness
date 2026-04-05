@@ -21,6 +21,7 @@ module AgentHarness
   class CommandExecutor
     PREPARATION_LOCK_REGISTRY_MUTEX = Mutex.new
     PREPARATION_LOCK_REGISTRY = {}
+    PREPARATION_CLEANUP_GRACE_PERIOD = 5
 
     # Result of a command execution
     Result = Struct.new(:stdout, :stderr, :exit_code, :duration, keyword_init: true) do
@@ -50,8 +51,10 @@ module AgentHarness
     # @return [Result] execution result
     # @raise [TimeoutError] if the command times out
     def execute(command, timeout: nil, env: {}, stdin_data: nil, preparation: nil)
+      cmd_array = nil
       cmd_array = normalize_command(command)
       cmd_string = cmd_array.shelljoin
+      command_name = cmd_array.first
       start_time = current_time
       deadline = timeout_deadline(timeout)
       applied_preparation = []
@@ -64,14 +67,14 @@ module AgentHarness
         env: env,
         timeout: timeout,
         deadline: deadline,
-        command_name: cmd_array.first,
+        command_name: command_name,
         applied_preparation: applied_preparation
       )
 
       stdout, stderr, status = if timeout
         execute_with_timeout(
           cmd_array,
-          timeout: remaining_timeout(deadline, timeout:, command_name: cmd_array.first),
+          timeout: remaining_timeout(deadline, timeout:, command_name: command_name),
           env: env,
           stdin_data: stdin_data
         )
@@ -79,7 +82,12 @@ module AgentHarness
         execute_without_timeout(cmd_array, env: env, stdin_data: stdin_data)
       end
 
-      cleanup_preparation(applied_preparation, command_name: cmd_array.first, timeout: timeout, deadline: deadline)
+      cleanup_preparation(
+        applied_preparation,
+        command_name: command_name,
+        timeout: timeout,
+        deadline: cleanup_deadline(deadline, timeout:)
+      )
       duration = current_time - start_time
 
       Result.new(
@@ -94,9 +102,9 @@ module AgentHarness
         begin
           cleanup_preparation(
             applied_preparation,
-            command_name: cmd_array.first,
+            command_name: command_name,
             timeout: timeout,
-            deadline: deadline
+            deadline: cleanup_deadline(deadline, timeout:)
           )
         rescue => e
           raise e if pending_exception.nil?
@@ -198,7 +206,7 @@ module AgentHarness
             applied_preparation,
             command_name: command_name,
             timeout: timeout,
-            deadline: deadline
+            deadline: cleanup_deadline(deadline, timeout:)
           )
         rescue => cleanup_error
           log_debug("Failed to clean up runtime preparation", error: cleanup_error.message)
@@ -258,6 +266,12 @@ module AgentHarness
       return nil if timeout.nil?
 
       current_time + timeout
+    end
+
+    def cleanup_deadline(deadline, timeout:)
+      return nil if timeout.nil?
+
+      [deadline, current_time + PREPARATION_CLEANUP_GRACE_PERIOD].compact.max
     end
 
     def remaining_timeout(deadline, timeout:, command_name:)

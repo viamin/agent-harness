@@ -43,25 +43,37 @@ module AgentHarness
     #   work to materialize inside the container before the main command runs
     # @return [Result] execution result
     def execute(command, timeout: nil, env: {}, stdin_data: nil, preparation: nil)
+      normalized_command = normalize_command(command)
+      command_name = normalized_command.first
       deadline = timeout_deadline(timeout)
       cleanup_steps = []
       held_preparation_locks = acquire_preparation_locks(preparation, env: env)
 
       apply_container_preparation(preparation, timeout: timeout, deadline: deadline, env: env, cleanup_steps: cleanup_steps)
-      docker_cmd = build_docker_command(command, env: env, stdin_data: stdin_data)
+      docker_cmd = build_docker_command(normalized_command, env: env, stdin_data: stdin_data)
       result = super(
         docker_cmd,
-        timeout: remaining_timeout(deadline, timeout:, command_name: normalize_command(command).first),
+        timeout: remaining_timeout(deadline, timeout:, command_name: command_name),
         env: {},
         stdin_data: stdin_data
       )
-      cleanup_container_preparation(cleanup_steps, timeout:, deadline:, command_name: normalize_command(command).first)
+      cleanup_container_preparation(
+        cleanup_steps,
+        timeout:,
+        deadline: cleanup_deadline(deadline, timeout:),
+        command_name: command_name
+      )
       result
     ensure
       pending_exception = $!
       unless cleanup_steps.nil? || cleanup_steps.empty?
         begin
-          cleanup_container_preparation(cleanup_steps, timeout:, deadline:, command_name: normalize_command(command).first)
+          cleanup_container_preparation(
+            cleanup_steps,
+            timeout:,
+            deadline: cleanup_deadline(deadline, timeout:),
+            command_name: command_name
+          )
         rescue => e
           raise e if pending_exception.nil?
 
@@ -121,7 +133,7 @@ module AgentHarness
       run_host_command(backup_cmd, timeout: remaining_timeout(deadline, timeout:, command_name: "docker"))
       cleanup = {
         command: build_container_shell_command(
-          "if [ -e #{backup} ]; then cp -p #{backup} #{path} && rm -f #{backup}; else rm -f #{path}; fi",
+          "if [ -e #{backup} ]; then mkdir -p #{dir} && cp -p #{backup} #{path} && rm -f #{backup}; else rm -f #{path}; fi",
           env: env
         )
       }
