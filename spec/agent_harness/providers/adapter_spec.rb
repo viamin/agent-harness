@@ -601,11 +601,11 @@ RSpec.describe AgentHarness::Providers::Adapter do
         )
       end
 
-      it "reports auth checks for api key adapters" do
+      it "does not report auth checks for api key adapters without auth_status support" do
         metadata = api_key_adapter_class.provider_metadata
 
         expect(metadata[:health_check]).to include(
-          auth_check_supported: true
+          auth_check_supported: false
         )
       end
 
@@ -752,8 +752,8 @@ RSpec.describe AgentHarness::Providers::Adapter do
       end
 
       it "memoizes auth status availability for repeated checks" do
-        expect(auth_status_cached_adapter_class.send(:auth_status_available?)).to be true
-        expect(auth_status_cached_adapter_class.send(:auth_status_available?)).to be true
+        expect(auth_status_cached_adapter_class.send(:auth_status_available?)).to be false
+        expect(auth_status_cached_adapter_class.send(:auth_status_available?)).to be false
         expect(auth_status_cached_adapter_class.initialization_count).to eq(1)
       end
 

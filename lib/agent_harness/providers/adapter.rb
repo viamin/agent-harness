@@ -270,7 +270,7 @@ module AgentHarness
 
           case provider_instance.auth_type
           when :api_key
-            true
+            false
           when :oauth
             SUPPORTED_OAUTH_AUTH_STATUS_PROVIDERS.include?(provider_instance.name.to_sym)
           else

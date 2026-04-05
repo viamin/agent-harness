@@ -41,6 +41,13 @@ RSpec.describe AgentHarness::Providers::Registry do
       expect(registry.registered?(:testing)).to be true
     end
 
+    it "normalizes aliases consistently at registration time" do
+      registry.register(:test, mock_provider, aliases: [" legacy ", :legacy, "", " ", :test])
+
+      expect(registry.registered?(:legacy)).to be true
+      expect(registry.provider_metadata(:test)[:aliases]).to eq([:legacy])
+    end
+
     it "replaces stale aliases when a provider is re-registered" do
       registry.register(:test, mock_provider, aliases: [:t, :testing])
       registry.register(:test, mock_provider, aliases: [:renamed])
@@ -126,7 +133,7 @@ RSpec.describe AgentHarness::Providers::Registry do
       metadata = registry.provider_metadata(:adapter_provider)
 
       expect(metadata[:runtime][:available]).to be true
-      expect(metadata[:health_check][:auth_check_supported]).to be true
+      expect(metadata[:health_check][:auth_check_supported]).to be false
 
       adapter_provider.available_flag = false
       adapter_provider.auth_type_value = :oauth
@@ -703,7 +710,7 @@ RSpec.describe AgentHarness::Providers::Registry do
       metadata = registry.provider_metadata(:adapter_provider)
 
       expect(metadata[:runtime][:available]).to be true
-      expect(metadata[:health_check][:auth_check_supported]).to be true
+      expect(metadata[:health_check][:auth_check_supported]).to be false
 
       adapter_provider.available_flag = false
       adapter_provider.auth_type_value = :oauth

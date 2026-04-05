@@ -34,7 +34,14 @@ module AgentHarness
       def register(name, klass, aliases: [])
         name = name.to_sym
         validate_provider_class!(klass)
-        normalized_aliases = aliases.map(&:to_sym).uniq - [name]
+        normalized_aliases = aliases
+          .filter_map do |alias_name|
+            normalized_alias = alias_name.to_s.strip
+            next if normalized_alias.empty?
+
+            normalized_alias.to_sym
+          end
+          .uniq - [name]
 
         validate_aliases!(name, normalized_aliases)
         unregister_claimed_alias(name)
