@@ -622,6 +622,49 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
       end
     end
 
+    context "when a non-host executor is configured globally" do
+      let(:container_executor) { instance_double(AgentHarness::DockerCommandExecutor) }
+      let(:provider_class) do
+        Class.new(AgentHarness::Providers::Base) do
+          class << self
+            attr_reader :last_executor
+
+            def provider_name
+              :test_provider
+            end
+
+            def binary_name
+              "test-cli"
+            end
+
+            def available?
+              false
+            end
+          end
+
+          def smoke_test(timeout: nil, provider_runtime: nil)
+            self.class.instance_variable_set(:@last_executor, executor)
+            {ok: true, status: "ok", message: "Smoke test passed", error_category: nil}
+          end
+        end
+      end
+
+      before do
+        registry.register(:test_provider, provider_class)
+        allow(AgentHarness.configuration).to receive(:command_executor).and_return(container_executor)
+      end
+
+      it "skips host-only preflight checks and uses the configured executor for the smoke test" do
+        expect(AgentHarness::Authentication).not_to receive(:auth_status)
+
+        result = described_class.check(:test_provider)
+
+        expect(result[:status]).to eq("ok")
+        expect(result[:message]).to eq("Smoke test passed using the supplied execution context")
+        expect(provider_class.last_executor).to eq(container_executor)
+      end
+    end
+
     context "when the smoke test reports an authentication-specific adapter category" do
       let(:provider_class) do
         Class.new(AgentHarness::Providers::Base) do

@@ -333,7 +333,8 @@ module AgentHarness
       end
 
       def host_preflight_allowed?(executor:, provider_runtime: nil)
-        executor.nil?
+        effective_executor = executor || AgentHarness.configuration.command_executor
+        effective_executor.instance_of?(CommandExecutor)
       end
 
       def normalize_smoke_error_category(category, message)
