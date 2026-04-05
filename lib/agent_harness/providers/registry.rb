@@ -267,6 +267,7 @@ module AgentHarness
           capabilities: {streaming: false, file_upload: false, vision: false, tool_use: false, json_mode: false, mcp: false, dangerous_mode: false},
           health_check: {
             supports_registry_checks: false,
+            auth_check_supported: false,
             provider_status: false,
             configuration_validation: false,
             lightweight: false

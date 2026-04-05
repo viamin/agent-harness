@@ -447,6 +447,7 @@ RSpec.describe AgentHarness::Providers::Registry do
       )
       expect(metadata[:health_check]).to include(
         supports_registry_checks: false,
+        auth_check_supported: false,
         provider_status: false,
         configuration_validation: false,
         lightweight: false

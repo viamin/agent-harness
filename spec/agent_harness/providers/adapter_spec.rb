@@ -250,8 +250,10 @@ RSpec.describe AgentHarness::Providers::Adapter do
         end
       end
 
-      def initialize(config: nil)
+      def initialize(config: nil, executor: nil, logger: nil)
         @config = config
+        @executor = executor
+        @logger = logger
       end
 
       def name
@@ -282,8 +284,10 @@ RSpec.describe AgentHarness::Providers::Adapter do
         end
       end
 
-      def initialize(config: nil)
+      def initialize(config: nil, executor: nil, logger: nil)
         @config = config
+        @executor = executor
+        @logger = logger
       end
 
       def auth_type
@@ -310,8 +314,10 @@ RSpec.describe AgentHarness::Providers::Adapter do
         end
       end
 
-      def initialize(config: nil)
+      def initialize(config: nil, executor: nil, logger: nil)
         @config = config
+        @executor = executor
+        @logger = logger
       end
 
       def auth_type
@@ -346,9 +352,11 @@ RSpec.describe AgentHarness::Providers::Adapter do
 
       self.initialization_count = 0
 
-      def initialize(config: nil)
+      def initialize(config: nil, executor: nil, logger: nil)
         self.class.initialization_count += 1
         @config = config
+        @executor = executor
+        @logger = logger
       end
 
       def auth_type
@@ -621,7 +629,46 @@ RSpec.describe AgentHarness::Providers::Adapter do
         metadata = oauth_supported_adapter_class.provider_metadata
 
         expect(metadata[:health_check]).to include(
-          auth_check_supported: true
+          auth_check_supported: false
+        )
+      end
+
+      it "does not report auth checks for subset-safe adapters that cannot satisfy the runtime auth constructor" do
+        subset_safe_auth_adapter_class = Class.new do
+          include AgentHarness::Providers::Adapter
+
+          class << self
+            def provider_name
+              :subset_safe_auth_adapter
+            end
+
+            def available?
+              true
+            end
+
+            def binary_name
+              "subset-safe-auth"
+            end
+          end
+
+          def initialize(config: nil)
+            @config = config
+          end
+
+          def auth_type
+            :oauth
+          end
+
+          def auth_status
+            {valid: true, expires_at: nil, error: nil}
+          end
+        end
+
+        metadata = subset_safe_auth_adapter_class.provider_metadata
+
+        expect(metadata[:health_check]).to include(
+          supports_registry_checks: false,
+          auth_check_supported: false
         )
       end
 

@@ -257,6 +257,8 @@ module AgentHarness
           return @auth_status_available if defined?(@auth_status_available)
 
           @auth_status_available = begin
+            return false unless registry_check_initializer_compatible?
+
             provider_instance ||= safe_metadata_provider_instance
             auth_status_supported_by?(provider_instance)
           rescue
@@ -272,7 +274,7 @@ module AgentHarness
           when :api_key
             false
           when :oauth
-            SUPPORTED_OAUTH_AUTH_STATUS_PROVIDERS.include?(provider_instance.name.to_sym)
+            SUPPORTED_OAUTH_AUTH_STATUS_PROVIDERS.include?(provider_name)
           else
             false
           end
