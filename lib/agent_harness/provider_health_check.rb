@@ -185,7 +185,7 @@ module AgentHarness
         auth_degraded = false
         if host_preflight_allowed
           # Step 2: Check CLI availability
-          unless klass.available?
+          unless provider_instance.executor.which(klass.binary_name)
             return build_result(
               name: provider_name,
               status: "error",

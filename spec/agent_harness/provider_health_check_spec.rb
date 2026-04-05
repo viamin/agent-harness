@@ -5,6 +5,12 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
 
   before do
     registry.reset!
+    allow_any_instance_of(AgentHarness::CommandExecutor).to receive(:which) do |_executor, binary|
+      case binary
+      when "test-cli", "provider-a"
+        "/tmp/#{binary}"
+      end
+    end
   end
 
   describe ".check" do
@@ -40,6 +46,7 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
 
       before do
         registry.register(:test_provider, provider_class)
+        allow_any_instance_of(AgentHarness::CommandExecutor).to receive(:which).with("test-cli").and_return(nil)
       end
 
       it "returns error status with CLI info" do
@@ -622,6 +629,60 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
       end
     end
 
+    context "when a local CommandExecutor subclass is provided explicitly" do
+      let(:logging_executor_class) do
+        Class.new(AgentHarness::CommandExecutor) do
+          def which(binary)
+            return "/tmp/#{binary}" if binary == "test-cli"
+
+            super
+          end
+        end
+      end
+      let(:logging_executor) { logging_executor_class.new }
+      let(:provider_class) do
+        Class.new(AgentHarness::Providers::Base) do
+          class << self
+            attr_reader :last_executor
+
+            def provider_name
+              :test_provider
+            end
+
+            def binary_name
+              "test-cli"
+            end
+
+            def available?
+              false
+            end
+          end
+
+          def smoke_test(timeout: nil, provider_runtime: nil)
+            self.class.instance_variable_set(:@last_executor, executor)
+            {ok: true, status: "ok", message: "Smoke test passed", error_category: nil}
+          end
+        end
+      end
+
+      before do
+        registry.register(:test_provider, provider_class)
+        allow(AgentHarness::Authentication).to receive(:auth_status)
+          .with(:test_provider)
+          .and_return({valid: true, expires_at: nil, error: nil})
+      end
+
+      it "runs host preflight against the supplied executor" do
+        result = described_class.check(:test_provider, executor: logging_executor)
+
+        expect(result[:status]).to eq("ok")
+        expect(result[:message]).to eq(
+          "Registered, authenticated, and smoke test passed (health/config checks use defaults)"
+        )
+        expect(provider_class.last_executor).to eq(logging_executor)
+      end
+    end
+
     context "when a non-host executor is configured globally" do
       let(:container_executor) { AgentHarness::DockerCommandExecutor.allocate }
       let(:provider_class) do
@@ -693,6 +754,7 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
       before do
         registry.register(:test_provider, provider_class)
         allow(AgentHarness.configuration).to receive(:command_executor).and_return(logging_executor)
+        allow(logging_executor).to receive(:which).with("test-cli").and_return(nil)
       end
 
       it "still runs host preflight checks" do
@@ -833,6 +895,7 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
             def available? = false
           end
         end)
+        allow_any_instance_of(AgentHarness::CommandExecutor).to receive(:which).with("test-cli").and_return(nil)
       end
 
       it "falls back to configured timeout when nil is passed" do
