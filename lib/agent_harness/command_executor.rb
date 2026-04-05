@@ -152,7 +152,7 @@ module AgentHarness
         start_time = monotonic_time
         last_activity_at = start_time
         last_heartbeat_at = start_time
-        stdin_buffer = stdin_data.to_s.b
+        stdin_buffer = stdin_data.is_a?(String) ? stdin_data : stdin_data.to_s
         stdin_offset = 0
         streams = {
           stdout_io => [stdout, on_stdout_chunk, :on_stdout_chunk],
@@ -161,18 +161,6 @@ module AgentHarness
 
         until streams.empty? && stdin.nil?
           now = monotonic_time
-          check_wall_timeout!(timeout, now - start_time, wait_thr, cmd_array)
-          check_idle_timeout!(idle_timeout, now - last_activity_at, wait_thr, cmd_array)
-
-          if should_emit_heartbeat?(on_heartbeat, observer, heartbeat_interval, now - last_heartbeat_at)
-            emit_heartbeat(
-              on_heartbeat,
-              observer,
-              elapsed: now - start_time,
-              idle_for: now - last_activity_at
-            )
-            last_heartbeat_at = now
-          end
 
           ready = IO.select(
             streams.keys,
@@ -189,7 +177,23 @@ module AgentHarness
             )
           )
 
-          next unless ready
+          unless ready
+            now = monotonic_time
+            check_wall_timeout!(timeout, now - start_time, wait_thr, cmd_array)
+            check_idle_timeout!(idle_timeout, now - last_activity_at, wait_thr, cmd_array)
+
+            if should_emit_heartbeat?(on_heartbeat, observer, heartbeat_interval, now - last_heartbeat_at)
+              emit_heartbeat(
+                on_heartbeat,
+                observer,
+                elapsed: now - start_time,
+                idle_for: now - last_activity_at
+              )
+              last_heartbeat_at = now
+            end
+
+            next
+          end
 
           ready[1]&.each do |io|
             stdin_offset = write_stdin_nonblock(io, stdin_buffer, stdin_offset)

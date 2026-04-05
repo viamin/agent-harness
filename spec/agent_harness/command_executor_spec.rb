@@ -84,6 +84,28 @@ RSpec.describe AgentHarness::CommandExecutor do
         }.to raise_error(AgentHarness::IdleTimeoutError)
       end
 
+      it "drains readable output before enforcing the idle timeout" do
+        stdin = instance_double(IO, close: nil, closed?: false)
+        stdout_io = instance_double(IO, close: nil)
+        stderr_io = instance_double(IO, close: nil)
+        status = instance_double(Process::Status, exitstatus: 0, success?: true)
+        wait_thr = instance_double(Thread, value: status)
+
+        allow(Open3).to receive(:popen3).and_yield(stdin, stdout_io, stderr_io, wait_thr)
+        allow(executor).to receive(:selectable_streams?).and_return(true)
+        allow(IO).to receive(:select).and_return(
+          [[stdout_io, stderr_io], [stdin], nil],
+          [[stdout_io], nil, nil]
+        )
+        allow(stdout_io).to receive(:read_nonblock).and_return("tick\n", nil)
+        allow(stderr_io).to receive(:read_nonblock).and_return(nil)
+        allow(executor).to receive(:monotonic_time).and_return(0.0, 0.05, 0.051, 0.06)
+
+        result = executor.execute(["ruby", "-e", "puts 'tick'"], idle_timeout: 0.05)
+
+        expect(result.stdout).to eq("tick\n")
+      end
+
       it "completes before timeout" do
         result = executor.execute(["echo", "quick"], timeout: 5)
 
@@ -160,6 +182,29 @@ RSpec.describe AgentHarness::CommandExecutor do
         result = executor.execute(["cat"], stdin_data: "hello from stdin")
 
         expect(result.stdout).to eq("hello from stdin")
+      end
+
+      it "streams the original stdin string without duplicating it" do
+        input = +"hello from stdin"
+        stdin = instance_double(IO, close: nil, closed?: false)
+        stdout = instance_double(IO, close: nil)
+        stderr = instance_double(IO, close: nil)
+        status = instance_double(Process::Status, exitstatus: 0, success?: true)
+        wait_thr = instance_double(Thread, value: status)
+
+        allow(Open3).to receive(:popen3).and_yield(stdin, stdout, stderr, wait_thr)
+        allow(executor).to receive(:selectable_streams?).and_return(true)
+        allow(IO).to receive(:select).and_return(
+          [[], [stdin], nil],
+          [[stdout, stderr], nil, nil]
+        )
+        allow(stdin).to receive(:write_nonblock).and_return(input.bytesize)
+        allow(stdout).to receive(:read_nonblock).and_return(nil)
+        allow(stderr).to receive(:read_nonblock).and_return(nil)
+        allow(executor).to receive(:monotonic_time).and_return(0.0, 0.01, 0.02)
+        expect(executor).to receive(:write_stdin_nonblock).with(stdin, input, 0).and_call_original
+
+        executor.execute(["cat"], stdin_data: input)
       end
 
       it "writes stdin data before buffered fallback reads output" do
