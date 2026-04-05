@@ -201,7 +201,7 @@ RSpec.describe AgentHarness do
       metadata = {provider: :claude, auth: {service: :anthropic}}
 
       expect(AgentHarness::Providers::Registry.instance)
-        .to receive(:provider_metadata).with(:claude).and_return(metadata)
+        .to receive(:provider_metadata).with(:claude, refresh: false).and_return(metadata)
 
       expect(AgentHarness.provider_metadata(:claude)).to eq(metadata)
     end
@@ -212,7 +212,7 @@ RSpec.describe AgentHarness do
       metadata = {claude: {provider: :claude}}
 
       expect(AgentHarness::Providers::Registry.instance)
-        .to receive(:provider_metadata_catalog).and_return(metadata)
+        .to receive(:provider_metadata_catalog).with(refresh: false).and_return(metadata)
 
       expect(AgentHarness.provider_metadata_catalog).to eq(metadata)
     end

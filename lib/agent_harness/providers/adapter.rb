@@ -98,7 +98,7 @@ module AgentHarness
         # @param aliases [Array<Symbol, String>] alternate identifiers registered
         #   for this provider
         # @return [Hash] provider metadata
-        def provider_metadata(aliases: [])
+        def provider_metadata(aliases: [], refresh: false)
           normalized_aliases = aliases.map(&:to_sym)
           provider = metadata_provider_instance
           configuration = provider&.configuration_schema || default_configuration_schema
@@ -125,7 +125,7 @@ module AgentHarness
               runtime: {
                 interface: :cli,
                 requires_cli: true,
-                available: available?,
+                available: metadata_runtime_available(refresh: refresh),
                 installable: !installation.nil?,
                 installation: installation,
                 prompt_delivery: execution[:prompt_delivery],
@@ -185,6 +185,11 @@ module AgentHarness
           kwargs[:executor] = AgentHarness.configuration.command_executor if accepts.call(:executor)
           kwargs[:logger] = AgentHarness.logger if accepts.call(:logger)
           new(**kwargs)
+        rescue => e
+          AgentHarness.logger&.debug(
+            "[AgentHarness::Providers::Adapter] Falling back to default metadata for #{provider_name}: #{e.class}: #{e.message}"
+          )
+          nil
         end
 
         def metadata_initializer_compatible?
@@ -218,6 +223,14 @@ module AgentHarness
 
         def supported_initializer_keywords
           %i[config executor logger]
+        end
+
+        def metadata_runtime_available(refresh: false)
+          if refresh || !instance_variable_defined?(:@metadata_runtime_available)
+            @metadata_runtime_available = available?
+          end
+
+          @metadata_runtime_available
         end
 
         def overrides_instance_method?(method_name)

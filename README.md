@@ -226,6 +226,14 @@ AgentHarness.provider_metadata_catalog
 # => { claude: {...}, cursor: {...}, gemini: {...}, ... }
 ```
 
+CLI availability in metadata is cached so repeated catalog reads stay cheap.
+Pass `refresh: true` to re-run live availability checks when needed:
+
+```ruby
+AgentHarness.provider_metadata(:anthropic, refresh: true)
+AgentHarness.provider_metadata_catalog(refresh: true)
+```
+
 For providers with install contracts, the metadata tracks the CLI version
 supported by the current `agent-harness` release, and the runtime adapter
 tests assert that the expected binary remains aligned with that contract.

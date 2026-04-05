@@ -21,6 +21,7 @@ module AgentHarness
         @providers = {}
         @aliases = {}
         @provider_aliases = Hash.new { |hash, key| hash[key] = [] }
+        @metadata_runtime_available = {}
         @builtin_registered = false
       end
 
@@ -41,6 +42,7 @@ module AgentHarness
 
         @providers[name] = klass
         @provider_aliases[name] = normalized_aliases
+        @metadata_runtime_available.delete(name)
 
         normalized_aliases.each do |alias_name|
           previous_owner = @aliases[alias_name]
@@ -124,7 +126,7 @@ module AgentHarness
       # @param name [Symbol, String] the provider name or alias
       # @return [Hash] provider metadata
       # @raise [ConfigurationError] if provider not found
-      def provider_metadata(name)
+      def provider_metadata(name, refresh: false)
         ensure_builtin_providers_registered
 
         canonical_name = resolve_alias(name.to_sym)
@@ -132,20 +134,22 @@ module AgentHarness
         aliases = @provider_aliases[canonical_name]
 
         if klass.respond_to?(:provider_metadata)
-          return klass.provider_metadata(aliases: aliases)
+          return klass.provider_metadata(aliases: aliases, refresh: refresh)
         end
 
-        fallback_provider_metadata(canonical_name, klass, aliases)
+        fallback_provider_metadata(canonical_name, klass, aliases, refresh: refresh)
       end
 
       # Get consolidated metadata for all registered providers.
       #
+      # @param refresh [Boolean] when true, refresh live runtime metadata such
+      #   as CLI availability instead of reusing cached values
       # @return [Hash<Symbol, Hash>] provider metadata keyed by canonical provider
-      def provider_metadata_catalog
+      def provider_metadata_catalog(refresh: false)
         ensure_builtin_providers_registered
 
         @providers.keys.each_with_object({}) do |name, catalog|
-          catalog[name] = provider_metadata(name)
+          catalog[name] = provider_metadata(name, refresh: refresh)
         end
       end
 
@@ -156,6 +160,7 @@ module AgentHarness
         @providers.clear
         @aliases.clear
         @provider_aliases.clear
+        @metadata_runtime_available.clear
         @builtin_registered = false
       end
 
@@ -199,7 +204,7 @@ module AgentHarness
         raise ConfigurationError, "Alias #{conflicting_provider.inspect} conflicts with registered provider #{conflicting_provider.inspect}"
       end
 
-      def fallback_provider_metadata(name, klass, aliases)
+      def fallback_provider_metadata(name, klass, aliases, refresh: false)
         installation = klass.respond_to?(:installation_contract) ? klass.installation_contract : nil
 
         {
@@ -217,7 +222,7 @@ module AgentHarness
           runtime: {
             interface: :cli,
             requires_cli: true,
-            available: klass.available?,
+            available: metadata_runtime_available(name, klass, refresh: refresh),
             installable: !installation.nil?,
             installation: installation,
             prompt_delivery: nil,
@@ -246,6 +251,14 @@ module AgentHarness
               .uniq
           }
         }
+      end
+
+      def metadata_runtime_available(name, klass, refresh: false)
+        if refresh || !@metadata_runtime_available.key?(name)
+          @metadata_runtime_available[name] = klass.available?
+        end
+
+        @metadata_runtime_available[name]
       end
 
       def ensure_builtin_providers_registered

@@ -120,17 +120,21 @@ module AgentHarness
     # Get consolidated metadata for a provider.
     #
     # @param provider_name [Symbol, String] the provider name or alias
+    # @param refresh [Boolean] when true, refresh live runtime metadata such as
+    #   CLI availability instead of reusing cached values
     # @return [Hash] provider metadata
     # @raise [ConfigurationError] if the provider name is not registered
-    def provider_metadata(provider_name)
-      Providers::Registry.instance.provider_metadata(provider_name)
+    def provider_metadata(provider_name, refresh: false)
+      Providers::Registry.instance.provider_metadata(provider_name, refresh: refresh)
     end
 
     # Get consolidated metadata for all registered providers.
     #
+    # @param refresh [Boolean] when true, refresh live runtime metadata such as
+    #   CLI availability instead of reusing cached values
     # @return [Hash<Symbol, Hash>] provider metadata keyed by canonical provider
-    def provider_metadata_catalog
-      Providers::Registry.instance.provider_metadata_catalog
+    def provider_metadata_catalog(refresh: false)
+      Providers::Registry.instance.provider_metadata_catalog(refresh: refresh)
     end
 
     # Check if authentication is valid for a provider

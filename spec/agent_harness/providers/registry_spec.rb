@@ -526,6 +526,33 @@ RSpec.describe AgentHarness::Providers::Registry do
         registry.provider_metadata(:nonexistent_provider_xyz)
       }.to raise_error(AgentHarness::ConfigurationError, /Unknown provider/)
     end
+
+    it "caches fallback availability until explicitly refreshed" do
+      legacy_provider = Class.new do
+        class << self
+          attr_accessor :available_calls
+
+          def provider_name = :legacy_provider
+
+          def available?
+            self.available_calls ||= 0
+            self.available_calls += 1
+            true
+          end
+
+          def binary_name = "legacy"
+        end
+      end
+
+      registry.register(:legacy_provider, legacy_provider, aliases: [:legacy])
+
+      expect(registry.provider_metadata(:legacy)[:runtime][:available]).to be true
+      expect(registry.provider_metadata(:legacy)[:runtime][:available]).to be true
+      expect(legacy_provider.available_calls).to eq(1)
+
+      expect(registry.provider_metadata(:legacy, refresh: true)[:runtime][:available]).to be true
+      expect(legacy_provider.available_calls).to eq(2)
+    end
   end
 
   describe "#provider_metadata_catalog" do
@@ -543,6 +570,35 @@ RSpec.describe AgentHarness::Providers::Registry do
       expect(catalog[:github_copilot][:identity]).to eq(
         bot_usernames: ["github_copilot", "copilot"]
       )
+    end
+
+    it "reuses cached fallback availability across catalog reads" do
+      legacy_provider = Class.new do
+        class << self
+          attr_accessor :available_calls
+
+          def provider_name = :legacy_provider
+
+          def available?
+            self.available_calls ||= 0
+            self.available_calls += 1
+            true
+          end
+
+          def binary_name = "legacy"
+        end
+      end
+
+      registry.register(:legacy_provider, legacy_provider)
+
+      registry.provider_metadata_catalog
+      registry.provider_metadata_catalog
+
+      expect(legacy_provider.available_calls).to eq(1)
+
+      registry.provider_metadata_catalog(refresh: true)
+
+      expect(legacy_provider.available_calls).to eq(2)
     end
   end
 

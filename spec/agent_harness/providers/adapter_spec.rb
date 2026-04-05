@@ -194,6 +194,30 @@ RSpec.describe AgentHarness::Providers::Adapter do
     end
   end
 
+  let(:raising_metadata_adapter_class) do
+    Class.new do
+      include AgentHarness::Providers::Adapter
+
+      class << self
+        def provider_name
+          :raising_metadata_adapter
+        end
+
+        def available?
+          true
+        end
+
+        def binary_name
+          "raising-metadata"
+        end
+      end
+
+      def initialize(config: nil)
+        raise ArgumentError, "invalid config"
+      end
+    end
+  end
+
   let(:package_only_installing_adapter_class) do
     Class.new do
       include AgentHarness::Providers::Adapter
@@ -477,6 +501,48 @@ RSpec.describe AgentHarness::Providers::Adapter do
         expect(metadata[:identity]).to eq(
           bot_usernames: ["metadata_compatible_adapter", "metadata_alias"]
         )
+      end
+
+      it "falls back to default metadata when safe construction raises" do
+        logger = instance_double(Logger, debug: nil)
+        allow(AgentHarness).to receive(:logger).and_return(logger)
+
+        metadata = raising_metadata_adapter_class.provider_metadata(aliases: [:raising_alias])
+
+        expect(metadata).to include(
+          provider: :raising_metadata_adapter,
+          canonical_provider: :raising_metadata_adapter,
+          aliases: [:raising_alias],
+          display_name: "Raising metadata adapter",
+          binary_name: "raising-metadata"
+        )
+        expect(metadata[:auth]).to include(
+          default_mode: :api_key,
+          supported_modes: [:api_key]
+        )
+        expect(metadata[:configuration]).to include(
+          fields: [],
+          auth_modes: [:api_key],
+          openai_compatible: false
+        )
+        expect(logger).to have_received(:debug).with(
+          include("Falling back to default metadata for raising_metadata_adapter: ArgumentError: invalid config")
+        )
+      end
+
+      it "caches runtime availability until explicitly refreshed" do
+        calls = 0
+        allow(adapter_class).to receive(:available?) do
+          calls += 1
+          true
+        end
+
+        expect(adapter_class.provider_metadata[:runtime][:available]).to be true
+        expect(adapter_class.provider_metadata[:runtime][:available]).to be true
+        expect(calls).to eq(1)
+
+        expect(adapter_class.provider_metadata(refresh: true)[:runtime][:available]).to be true
+        expect(calls).to eq(2)
       end
     end
 
