@@ -1050,7 +1050,9 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
     end
 
     def backup_command(path, requested_path: "~/.config/opencode/opencode.json")
-      "umask 077 && mkdir -p /tmp/agent-harness-preparation-deadbeefcafebabe && if [ -L #{path} ]; then readlink #{path} > " \
+      "umask 077 && mkdir -p /tmp/agent-harness-preparation-deadbeefcafebabe && : > /tmp/agent-harness-preparation-deadbeefcafebabe/created_directories && " \
+        "#{record_created_directories_command(requested_path)}" \
+        "if [ -L #{path} ]; then readlink #{path} > " \
         "/tmp/agent-harness-preparation-deadbeefcafebabe/symlink_target && printf symlink > " \
         "/tmp/agent-harness-preparation-deadbeefcafebabe/state; elif [ -d #{path} ]; then printf '%s\\n' " \
         "#{Shellwords.escape("preparation target must be a regular file or symlink: #{requested_path}")} >&2; exit 1; elif [ -e #{path} ]; then cp -p #{path} " \
@@ -1059,7 +1061,9 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
     end
 
     def symlink_backup_command(path, requested_path: "~/.config/opencode/opencode.json")
-      "umask 077 && mkdir -p /tmp/agent-harness-preparation-deadbeefcafebabe && if [ -L #{path} ]; then readlink #{path} > " \
+      "umask 077 && mkdir -p /tmp/agent-harness-preparation-deadbeefcafebabe && : > /tmp/agent-harness-preparation-deadbeefcafebabe/created_directories && " \
+        "#{record_created_directories_command(requested_path)}" \
+        "if [ -L #{path} ]; then readlink #{path} > " \
         "/tmp/agent-harness-preparation-deadbeefcafebabe/symlink_target && printf symlink > " \
         "/tmp/agent-harness-preparation-deadbeefcafebabe/state; elif [ -d #{path} ]; then printf '%s\\n' " \
         "#{Shellwords.escape("preparation target must be a regular file or symlink: #{requested_path}")} >&2; exit 1; elif [ -e #{path} ]; then cp -p #{path} " \
@@ -1076,8 +1080,66 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
         "elif [ \"$state_value\" = file ]; then if [ -f /tmp/agent-harness-preparation-deadbeefcafebabe/backup ]; then mkdir -p #{dir} && rm -f -- #{path} && " \
         "cp -p /tmp/agent-harness-preparation-deadbeefcafebabe/backup #{path} || cleanup_status=$?; else echo " \
         "\"missing runtime preparation backup: /tmp/agent-harness-preparation-deadbeefcafebabe/backup\" >&2; cleanup_status=1; fi; " \
-        "elif [ \"$state_value\" = missing ]; then rm -f -- #{path} || cleanup_status=$?; else cleanup_status=1; fi; rm -rf /tmp/agent-harness-preparation-deadbeefcafebabe; " \
+        "elif [ \"$state_value\" = missing ]; then rm -f -- #{path} || cleanup_status=$?; else cleanup_status=1; fi; " \
+        "while IFS= read -r cleanup_dir; do if [ -d \"$cleanup_dir\" ] && [ ! -L \"$cleanup_dir\" ]; then rmdir -- \"$cleanup_dir\" 2>/dev/null || true; fi; " \
+        "done < /tmp/agent-harness-preparation-deadbeefcafebabe/created_directories; rm -rf /tmp/agent-harness-preparation-deadbeefcafebabe; " \
         "exit $cleanup_status"
+    end
+
+    def record_created_directories_command(requested_path)
+      parent_requested_paths(requested_path).map do |parent_path|
+        rendered_parent = rendered_shell_path(parent_path)
+        "if [ ! -e #{rendered_parent} ]; then printf '%s\\n' #{rendered_parent} >> /tmp/agent-harness-preparation-deadbeefcafebabe/created_directories; fi; "
+      end.join
+    end
+
+    def parent_requested_paths(path)
+      parents = []
+      current = File.dirname(path)
+
+      until current == "." || current == "/" || current == File.dirname(current)
+        parents << current
+        current = File.dirname(current)
+      end
+
+      parents << current if current == "~"
+      parents
+    end
+
+    def rendered_shell_path(path)
+      return guarded_home_path if path == "~"
+      return shell_escaped_path(path) unless path.start_with?("~/")
+
+      suffix = path.delete_prefix("~/")
+      escaped_suffix = suffix.split("/").map { |segment| rendered_shell_path_segment(segment) }.join("/")
+      "#{guarded_home_path}/#{escaped_suffix}"
+    end
+
+    def shell_escaped_path(path)
+      prefix = path.start_with?("/") ? "/" : ""
+      trimmed_path = path.delete_prefix("/")
+      escaped_segments = trimmed_path.split("/").map { |segment| rendered_shell_path_segment(segment) }
+      "#{prefix}#{escaped_segments.join("/")}"
+    end
+
+    def rendered_shell_path_segment(segment)
+      rendered = +""
+      index = 0
+
+      segment.to_enum(:scan, /\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))/).each do
+        match = Regexp.last_match
+        literal = segment[index...match.begin(0)]
+        rendered << Shellwords.escape(literal) unless literal.empty?
+
+        var_name = match[1] || match[2]
+        rendered << %("${#{var_name}}")
+        index = match.end(0)
+      end
+
+      tail = segment[index..]
+      rendered << Shellwords.escape(tail) unless tail.nil? || tail.empty?
+
+      rendered.empty? ? "''" : rendered
     end
 
     def remove_symlink_command(path)

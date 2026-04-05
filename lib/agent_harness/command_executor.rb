@@ -248,10 +248,15 @@ module AgentHarness
 
       preparation.file_writes.each do |write|
         resolved_path = expand_preparation_path(write.path, env)
+        created_directories = missing_parent_directories(resolved_path)
         snapshot = within_timeout(deadline, timeout:, command_name:) do
           snapshot_file_state(resolved_path)
         end
-        applied_preparation << {path: resolved_path, snapshot: snapshot}
+        applied_preparation << {
+          path: resolved_path,
+          snapshot: snapshot,
+          created_directories: created_directories
+        }
 
         within_timeout(deadline, timeout:, command_name:) do
           FileUtils.mkdir_p(File.dirname(resolved_path))
@@ -278,9 +283,34 @@ module AgentHarness
       applied_preparation.reverse_each do |entry|
         within_timeout(deadline, timeout:, command_name:) do
           restore_file_state(entry[:path], entry[:snapshot])
+          cleanup_created_directories(entry[:created_directories])
         end
       end
       applied_preparation.clear
+    end
+
+    def missing_parent_directories(path)
+      directories = []
+      current = File.dirname(path)
+
+      until current == File.dirname(current) || File.exist?(current) || File.symlink?(current)
+        directories << current
+        current = File.dirname(current)
+      end
+
+      directories
+    end
+
+    def cleanup_created_directories(directories)
+      directories.each do |directory|
+        next unless File.directory?(directory) && !File.symlink?(directory)
+
+        Dir.rmdir(directory)
+      rescue Errno::ENOENT
+        next
+      rescue Errno::ENOTEMPTY, Errno::EEXIST
+        break
+      end
     end
 
     def schedule_cleanup_preparation(applied_preparation, held_preparation_locks, command_name:)

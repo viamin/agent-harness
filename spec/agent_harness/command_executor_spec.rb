@@ -131,6 +131,21 @@ RSpec.describe AgentHarness::CommandExecutor do
         end
       end
 
+      it "removes empty parent directories created for request-scoped files" do
+        Dir.mktmpdir do |dir|
+          file_path = File.join(dir, "config", "nested", "runtime.json")
+          preparation = AgentHarness::ExecutionPreparation.new(
+            file_writes: [{path: file_path, content: "{\"ok\":true}"}]
+          )
+
+          executor.execute(["true"], preparation: preparation)
+
+          expect(File.exist?(file_path)).to be false
+          expect(File.exist?(File.join(dir, "config", "nested"))).to be false
+          expect(File.exist?(File.join(dir, "config"))).to be false
+        end
+      end
+
       it "rejects home-relative preparation paths when HOME is explicitly unset" do
         preparation = AgentHarness::ExecutionPreparation.new(
           file_writes: [{path: "~/.config/test.json", content: "{\"ok\":true}"}]

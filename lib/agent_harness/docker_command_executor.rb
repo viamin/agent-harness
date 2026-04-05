@@ -288,6 +288,7 @@ module AgentHarness
       backup = shell_path(File.join(state_dir_path, "backup"))
       state = shell_path(File.join(state_dir_path, "state"))
       symlink_target = shell_path(File.join(state_dir_path, "symlink_target"))
+      created_directories = shell_path(File.join(state_dir_path, "created_directories"))
       invalid_target_message = Shellwords.escape(
         "preparation target must be a regular file or symlink: #{write.path}"
       )
@@ -296,7 +297,8 @@ module AgentHarness
       )
       cleanup_state_dir_cmd = build_container_shell_command("rm -rf #{state_dir}", env: env)
       backup_cmd = build_container_shell_command(
-        "umask 077 && mkdir -p #{state_dir} && if [ -L #{path} ]; then readlink #{path} > #{symlink_target} && printf symlink > #{state}; " \
+        "umask 077 && mkdir -p #{state_dir} && : > #{created_directories} && #{record_created_directories_script(write.path, created_directories)}" \
+          "if [ -L #{path} ]; then readlink #{path} > #{symlink_target} && printf symlink > #{state}; " \
           "elif [ -d #{path} ]; then printf '%s\\n' #{invalid_target_message} >&2; exit 1; " \
           "elif [ -e #{path} ]; then cp -p #{path} #{backup} && printf file > #{state}; " \
           "else printf missing > #{state}; fi",
@@ -314,7 +316,7 @@ module AgentHarness
             "else echo \"missing runtime preparation backup: #{backup}\" >&2; cleanup_status=1; fi; " \
             "elif [ \"$state_value\" = missing ]; then rm -f -- #{path} || cleanup_status=$?; " \
             "else cleanup_status=1; " \
-            "fi; rm -rf #{state_dir}; exit $cleanup_status",
+            "fi; #{cleanup_created_directories_script(created_directories)}rm -rf #{state_dir}; exit $cleanup_status",
           env: env
         )
       }
@@ -362,6 +364,32 @@ module AgentHarness
         end
       end
       raise e
+    end
+
+    def record_created_directories_script(path, created_directories_file)
+      parent_preparation_paths(path).map do |parent_path|
+        rendered_parent = shell_path(parent_path)
+        "if [ ! -e #{rendered_parent} ]; then printf '%s\\n' #{rendered_parent} >> #{created_directories_file}; fi; "
+      end.join
+    end
+
+    def cleanup_created_directories_script(created_directories_file)
+      "while IFS= read -r cleanup_dir; do " \
+        "if [ -d \"$cleanup_dir\" ] && [ ! -L \"$cleanup_dir\" ]; then rmdir -- \"$cleanup_dir\" 2>/dev/null || true; fi; " \
+        "done < #{created_directories_file}; "
+    end
+
+    def parent_preparation_paths(path)
+      parents = []
+      current = File.dirname(path)
+
+      until current == "." || current == "/" || current == File.dirname(current)
+        parents << current
+        current = File.dirname(current)
+      end
+
+      parents << current if current == "~"
+      parents
     end
 
     def run_host_command(command, timeout:, stdin_data: nil)
