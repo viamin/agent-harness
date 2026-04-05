@@ -216,8 +216,8 @@ RSpec.describe AgentHarness::Providers::Registry do
       )
     end
 
-    it "returns nil for github copilot until it exposes a provider-specific smoke test" do
-      expect(registry.smoke_test_contract(:github_copilot)).to be_nil
+    it "returns smoke test contract for github_copilot" do
+      expect(registry.smoke_test_contract(:github_copilot)).to eq(AgentHarness::Providers::Base::DEFAULT_SMOKE_TEST_CONTRACT)
     end
 
     it "raises ConfigurationError for an unknown provider" do
@@ -242,7 +242,7 @@ RSpec.describe AgentHarness::Providers::Registry do
       contracts = registry.smoke_test_contracts
 
       expect(contracts).to include(:codex)
-      expect(contracts).not_to include(:github_copilot)
+      expect(contracts).to include(:github_copilot)
       expect(contracts[:codex][:prompt]).to eq("Reply with exactly OK.")
     end
 
