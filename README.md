@@ -118,9 +118,8 @@ cursor_install
 #      source: {
 #        type: :shell_script,
 #        url: "https://cursor.com/install",
-#        command: "curl -fsSL https://cursor.com/install | bash",
+#        command: "tmp=$(mktemp) && trap 'rm -f \"$tmp\"' EXIT && curl -fsSL https://cursor.com/install -o \"$tmp\" && if command -v sha256sum >/dev/null 2>&1; then echo \"8371988b483abec13c07c10e95cccc839da81ebf9596e430d3c90835a227cbad  $tmp\" | sha256sum -c -; else echo \"8371988b483abec13c07c10e95cccc839da81ebf9596e430d3c90835a227cbad  $tmp\" | shasum -a 256 -c -; fi && bash \"$tmp\"",
 #        resolved_version: "2026.03.30-a5d3e17",
-#        artifact_url_template: "https://downloads.cursor.com/lab/2026.03.30-a5d3e17/%<os>s/%<arch>s/agent-cli-package.tar.gz",
 #        default_artifact_url: "https://downloads.cursor.com/lab/2026.03.30-a5d3e17/linux/x64/agent-cli-package.tar.gz"
 #      },
 #      checksum: {

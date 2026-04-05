@@ -20,13 +20,13 @@ RSpec.describe AgentHarness::Providers::Cursor do
       build = described_class::INSTALL_BUILD
       script_url = described_class::INSTALL_SCRIPT_URL
       linux_x64_package_url = "https://downloads.cursor.com/lab/#{build}/linux/x64/agent-cli-package.tar.gz"
+      verified_install_command = described_class.install_command
 
       expect(metadata[:source]).to eq(
         type: :shell_script,
         url: script_url,
-        command: "curl -fsSL #{script_url} | bash",
+        command: verified_install_command,
         resolved_version: build,
-        artifact_url_template: "https://downloads.cursor.com/lab/#{build}/%<os>s/%<arch>s/agent-cli-package.tar.gz",
         default_artifact_url: linux_x64_package_url
       )
       expect(metadata[:checksum]).to eq(
@@ -65,7 +65,10 @@ RSpec.describe AgentHarness::Providers::Cursor do
 
   describe ".install_command" do
     it "returns the install command from the contract" do
-      expect(described_class.install_command).to eq("curl -fsSL https://cursor.com/install | bash")
+      expect(described_class.install_command).to include("curl -fsSL https://cursor.com/install -o \"$tmp\"")
+      expect(described_class.install_command).to include("sha256sum -c -")
+      expect(described_class.install_command).to include("shasum -a 256 -c -")
+      expect(described_class.install_command).to include("bash \"$tmp\"")
     end
   end
 

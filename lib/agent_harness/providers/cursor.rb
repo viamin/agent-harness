@@ -98,9 +98,8 @@ module AgentHarness
             source: {
               type: :shell_script,
               url: INSTALL_SCRIPT_URL,
-              command: "curl -fsSL #{INSTALL_SCRIPT_URL} | bash",
+              command: verified_install_command,
               resolved_version: INSTALL_BUILD,
-              artifact_url_template: "https://downloads.cursor.com/lab/#{INSTALL_BUILD}/%<os>s/%<arch>s/agent-cli-package.tar.gz",
               default_artifact_url: linux_x64_package_url
             },
             checksum: {
@@ -140,6 +139,28 @@ module AgentHarness
             os: os,
             arch: arch
           )
+        end
+
+        def verified_install_command
+          [
+            "tmp=$(mktemp)",
+            "trap 'rm -f \"$tmp\"' EXIT",
+            "curl -fsSL #{INSTALL_SCRIPT_URL} -o \"$tmp\"",
+            checksum_verification_command,
+            "bash \"$tmp\""
+          ].join(" && ")
+        end
+
+        def checksum_verification_command
+          expected_checksum = "#{INSTALL_SCRIPT_SHA256}  $tmp"
+
+          [
+            "if command -v sha256sum >/dev/null 2>&1; then",
+            "echo \"#{expected_checksum}\" | sha256sum -c -",
+            "else",
+            "echo \"#{expected_checksum}\" | shasum -a 256 -c -",
+            "fi"
+          ].join(" ")
         end
 
         def normalize_install_target(version)
