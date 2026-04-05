@@ -284,7 +284,7 @@ RSpec.describe AgentHarness::Providers::Opencode do
         provider.send_message(prompt: "Hello")
       end
 
-      it "builds runtime config bootstrap from metadata" do
+      it "builds runtime config bootstrap from normalized runtime fields and metadata extras" do
         allow(mock_executor).to receive(:execute).and_return(
           AgentHarness::CommandExecutor::Result.new(
             stdout: "response",
@@ -301,7 +301,12 @@ RSpec.describe AgentHarness::Providers::Opencode do
               file_writes: [
                 have_attributes(
                   path: "~/.config/opencode/opencode.json",
-                  content: include("\"model\": \"gpt-5.4\""),
+                  content: include(
+                    "\"model\": \"gpt-5.4\"",
+                    "\"provider\": \"openrouter\"",
+                    "\"baseURL\": \"https://openrouter.ai/api/v1\"",
+                    "\"theme\": \"system\""
+                  ),
                   mode: 0o600
                 )
               ]
@@ -312,9 +317,12 @@ RSpec.describe AgentHarness::Providers::Opencode do
         provider.send_message(
           prompt: "Hello",
           provider_runtime: {
+            model: "gpt-5.4",
+            api_provider: "openrouter",
+            base_url: "https://openrouter.ai/api/v1",
             metadata: {
               config: {
-                model: "gpt-5.4"
+                theme: "system"
               }
             }
           }

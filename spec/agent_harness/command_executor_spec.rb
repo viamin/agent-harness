@@ -169,6 +169,28 @@ RSpec.describe AgentHarness::CommandExecutor do
           }.to raise_error(AgentHarness::TimeoutError)
         end
       end
+
+      it "counts cleanup time against the timeout budget" do
+        Dir.mktmpdir do |dir|
+          file_path = File.join(dir, "config.json")
+          preparation = AgentHarness::ExecutionPreparation.new(
+            file_writes: [{path: file_path, content: "{\"ok\":true}"}]
+          )
+
+          allow(Process).to receive(:clock_gettime).with(Process::CLOCK_MONOTONIC)
+            .and_return(100.0, 100.0, 105.0, 110.0, 125.0)
+          timeouts = []
+          allow(Timeout).to receive(:timeout).and_wrap_original do |original, value, &block|
+            timeouts << value
+            original.call(value, &block)
+          end
+
+          result = executor.execute(["true"], timeout: 30, preparation: preparation)
+
+          expect(result).to be_success
+          expect(timeouts).to eq([25.0, 20.0, 5.0])
+        end
+      end
     end
   end
 

@@ -74,7 +74,7 @@ module AgentHarness
         execute_without_timeout(cmd_array, env: env, stdin_data: stdin_data)
       end
 
-      cleanup_preparation(applied_preparation)
+      cleanup_preparation(applied_preparation, command_name: cmd_array.first, timeout: timeout, deadline: deadline)
       duration = current_time - start_time
 
       Result.new(
@@ -87,7 +87,12 @@ module AgentHarness
       pending_exception = $!
       unless applied_preparation.nil? || applied_preparation.empty?
         begin
-          cleanup_preparation(applied_preparation)
+          cleanup_preparation(
+            applied_preparation,
+            command_name: cmd_array.first,
+            timeout: timeout,
+            deadline: deadline
+          )
         rescue => e
           raise e if pending_exception.nil?
 
@@ -145,14 +150,21 @@ module AgentHarness
 
         applied_preparation << {path: resolved_path, snapshot:}
       rescue
-        cleanup_preparation(applied_preparation)
+        cleanup_preparation(
+          applied_preparation,
+          command_name: command_name,
+          timeout: timeout,
+          deadline: deadline
+        )
         raise
       end
     end
 
-    def cleanup_preparation(applied_preparation)
+    def cleanup_preparation(applied_preparation, command_name:, timeout: nil, deadline: nil)
       applied_preparation.reverse_each do |entry|
-        restore_file_state(entry[:path], entry[:snapshot])
+        within_timeout(deadline, timeout:, command_name:) do
+          restore_file_state(entry[:path], entry[:snapshot])
+        end
       end
       applied_preparation.clear
     end

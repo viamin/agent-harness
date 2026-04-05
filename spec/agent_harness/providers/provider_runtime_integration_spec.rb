@@ -229,12 +229,14 @@ RSpec.describe "ProviderRuntime integration" do
       expect(response.model).to eq("anthropic/claude-opus-4.1")
     end
 
-    it "passes structured runtime preparation for config-file bootstrap" do
+    it "derives structured runtime preparation for config-file bootstrap from normalized runtime fields" do
       runtime = AgentHarness::ProviderRuntime.new(
+        model: "anthropic/claude-opus-4.1",
+        base_url: "https://openrouter.ai/api/v1",
+        api_provider: "openrouter",
         metadata: {
           config: {
-            provider: "openrouter",
-            model: "anthropic/claude-opus-4.1"
+            theme: "system"
           }
         }
       )
@@ -246,7 +248,12 @@ RSpec.describe "ProviderRuntime integration" do
             file_writes: [
               have_attributes(
                 path: "~/.config/opencode/opencode.json",
-                content: include("\"provider\": \"openrouter\"", "\"model\": \"anthropic/claude-opus-4.1\""),
+                content: include(
+                  "\"provider\": \"openrouter\"",
+                  "\"model\": \"anthropic/claude-opus-4.1\"",
+                  "\"baseURL\": \"https://openrouter.ai/api/v1\"",
+                  "\"theme\": \"system\""
+                ),
                 mode: 0o600
               )
             ]

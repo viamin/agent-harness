@@ -198,7 +198,16 @@ module AgentHarness
 
       def opencode_config_payload(runtime)
         metadata = runtime.metadata
-        metadata[:config] || metadata["config"]
+        config_extras = metadata[:config] || metadata["config"] || {}
+        unless config_extras.is_a?(Hash)
+          raise ArgumentError, "OpenCode runtime metadata config must be a Hash of provider-specific extras (got #{config_extras.class})"
+        end
+
+        payload = stringify_keys(config_extras)
+        payload["model"] = runtime.model if runtime.model
+        payload["provider"] = runtime.api_provider if runtime.api_provider
+        payload["baseURL"] = runtime.base_url if runtime.base_url
+        payload.empty? ? nil : payload
       end
 
       def opencode_config_path(runtime)
@@ -207,13 +216,12 @@ module AgentHarness
       end
 
       def serialize_opencode_config(payload)
-        case payload
-        when String
-          payload
-        when Hash
-          JSON.pretty_generate(payload)
-        else
-          raise ArgumentError, "OpenCode runtime metadata config must be a String or Hash (got #{payload.class})"
+        JSON.pretty_generate(payload)
+      end
+
+      def stringify_keys(hash)
+        hash.each_with_object({}) do |(key, value), result|
+          result[key.to_s] = value
         end
       end
     end
