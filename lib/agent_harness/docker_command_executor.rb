@@ -148,7 +148,7 @@ module AgentHarness
           "cleanup_status=0; state_value=$(cat #{state} 2>/dev/null); if [ \"$state_value\" = symlink ]; then " \
             "mkdir -p #{dir} && rm -f #{path} && ln -s \"$(cat #{symlink_target})\" #{path} || cleanup_status=$?; " \
             "elif [ \"$state_value\" = file ]; then " \
-            "mkdir -p #{dir} && cp -p #{backup} #{path} || cleanup_status=$?; " \
+            "mkdir -p #{dir} && rm -f #{path} && cp -p #{backup} #{path} || cleanup_status=$?; " \
             "else rm -f #{path} || cleanup_status=$?; " \
             "fi; rm -f #{backup} #{state} #{symlink_target}; exit $cleanup_status",
           env: env
@@ -228,12 +228,16 @@ module AgentHarness
         var_name = match[1] || match[2]
         return %("${#{var_name}}")
       end
-      return %("$HOME") if path == "~"
+      return guarded_home_shell_path if path == "~"
       return shell_escaped_path(path) unless path.start_with?("~/")
 
       suffix = path.delete_prefix("~/")
       escaped_suffix = suffix.split("/").map { |segment| shell_path_segment(segment) }.join("/")
-      %("$HOME"/#{escaped_suffix})
+      %(#{guarded_home_shell_path}/#{escaped_suffix})
+    end
+
+    def guarded_home_shell_path
+      %("${HOME:?HOME cannot be nil or empty for home-relative preparation paths}")
     end
 
     def shell_escaped_path(path)

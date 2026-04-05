@@ -182,6 +182,28 @@ RSpec.describe AgentHarness::CommandExecutor do
         end
       end
 
+      it "restores previously existing files even if the command swaps them for symlinks" do
+        Dir.mktmpdir do |dir|
+          file_path = File.join(dir, "config.json")
+          redirected_path = File.join(dir, "redirected.json")
+          File.binwrite(file_path, "{\"before\":true}")
+          File.binwrite(redirected_path, "{\"redirected\":true}")
+          preparation = AgentHarness::ExecutionPreparation.new(
+            file_writes: [{path: file_path, content: "{\"after\":true}", mode: 0o600}]
+          )
+
+          result = executor.execute(
+            ["ruby", "-e", "path, redirected = ARGV; File.delete(path); File.symlink(redirected, path); print File.binread(path)", file_path, redirected_path],
+            preparation: preparation
+          )
+
+          expect(result.stdout).to eq("{\"redirected\":true}")
+          expect(File.symlink?(file_path)).to be false
+          expect(File.binread(file_path)).to eq("{\"before\":true}")
+          expect(File.binread(redirected_path)).to eq("{\"redirected\":true}")
+        end
+      end
+
       it "restores previously existing symlinks after execution" do
         Dir.mktmpdir do |dir|
           target_path = File.join(dir, "managed.json")

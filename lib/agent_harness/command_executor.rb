@@ -297,6 +297,7 @@ module AgentHarness
         FileUtils.mkdir_p(File.dirname(path))
         File.symlink(snapshot[:target], path)
       elsif snapshot[:existed]
+        delete_preparation_path(path)
         FileUtils.mkdir_p(File.dirname(path))
         File.binwrite(path, snapshot[:content])
         File.chmod(snapshot[:mode], path)
