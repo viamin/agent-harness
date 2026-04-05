@@ -251,7 +251,11 @@ module AgentHarness
     end
 
     def resolve_preparation_path_env_var(key, env)
-      value = env.key?(key) ? env[key] : ENV[key]
+      unless env.key?(key)
+        raise ArgumentError, "#{key} cannot be nil or empty for env-backed preparation paths"
+      end
+
+      value = env[key]
       raise ArgumentError, "#{key} cannot be nil or empty for env-backed preparation paths" if value.nil? || value.empty?
 
       value

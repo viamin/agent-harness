@@ -298,6 +298,44 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
       )
     end
 
+    it "expands env refs embedded within container path segments" do
+      allow(SecureRandom).to receive(:hex).and_return("deadbeefcafebabe", "facefeedcafed00d", "beadfeedcafef00d")
+
+      expect_popen3_sequence(
+        [
+          {
+            env: {},
+            cmd: ["docker", "exec", "--env", "XDG_CONFIG_HOME=/tmp/my config", "--env", "BAR=baz qux", container_id, "sh", "-lc", backup_command("\"${XDG_CONFIG_HOME}\"/foo-\"${BAR}\".json")]
+          },
+          {
+            env: {},
+            cmd: ["docker", "exec", "--env", "XDG_CONFIG_HOME=/tmp/my config", "--env", "BAR=baz qux", container_id, "sh", "-lc", "mkdir -p \"${XDG_CONFIG_HOME}\""]
+          },
+          {
+            env: {},
+            cmd: ["docker", "exec", "--env", "XDG_CONFIG_HOME=/tmp/my config", "--env", "BAR=baz qux", "-i", container_id, "sh", "-lc", "cat > \"${XDG_CONFIG_HOME}\"/foo-\"${BAR}\".json"],
+            stdin: "{\"ok\":true}"
+          },
+          {
+            env: {},
+            cmd: ["docker", "exec", "--env", "XDG_CONFIG_HOME=/tmp/my config", "--env", "BAR=baz qux", container_id, "echo", "hello"]
+          },
+          {
+            env: {},
+            cmd: ["docker", "exec", "--env", "XDG_CONFIG_HOME=/tmp/my config", "--env", "BAR=baz qux", container_id, "sh", "-lc", cleanup_command("\"${XDG_CONFIG_HOME}\"/foo-\"${BAR}\".json", "\"${XDG_CONFIG_HOME}\"")]
+          }
+        ]
+      )
+
+      executor.execute(
+        ["echo", "hello"],
+        env: {"XDG_CONFIG_HOME" => "/tmp/my config", "BAR" => "baz qux"},
+        preparation: AgentHarness::ExecutionPreparation.new(
+          file_writes: [{path: "$XDG_CONFIG_HOME/foo-$BAR.json", content: "{\"ok\":true}"}]
+        )
+      )
+    end
+
     it "rejects env-backed container preparation paths when the env var is missing" do
       expect {
         executor.execute(

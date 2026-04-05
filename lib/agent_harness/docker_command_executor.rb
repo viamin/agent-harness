@@ -224,10 +224,6 @@ module AgentHarness
     end
 
     def shell_path(path)
-      if (match = path.match(/\A\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))\z/))
-        var_name = match[1] || match[2]
-        return %("${#{var_name}}")
-      end
       return guarded_home_shell_path if path == "~"
       return shell_escaped_path(path) unless path.start_with?("~/")
 
@@ -248,12 +244,23 @@ module AgentHarness
     end
 
     def shell_path_segment(segment)
-      if (match = segment.match(/\A\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))\z/))
+      rendered = +""
+      index = 0
+
+      segment.to_enum(:scan, /\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))/).each do
+        match = Regexp.last_match
+        literal = segment[index...match.begin(0)]
+        rendered << Shellwords.escape(literal) unless literal.empty?
+
         var_name = match[1] || match[2]
-        return %("${#{var_name}}")
+        rendered << %("${#{var_name}}")
+        index = match.end(0)
       end
 
-      Shellwords.escape(segment)
+      tail = segment[index..]
+      rendered << Shellwords.escape(tail) unless tail.nil? || tail.empty?
+
+      rendered.empty? ? "''" : rendered
     end
 
     def build_docker_command(command, env:, stdin_data:)
