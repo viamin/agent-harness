@@ -294,13 +294,17 @@ module AgentHarness
       def execute_with_timeout(command, timeout:, env:, preparation:, stdin_data: nil)
         @executor.execute(command, timeout: timeout, env: env, stdin_data: stdin_data, preparation: preparation)
       rescue ArgumentError => e
-        raise unless e.message.include?("unknown keyword: :preparation")
+        unknown_keyword_message = e.message
+        raise unless unknown_keyword_message.start_with?("unknown keyword", "unknown keywords")
+        raise unless unknown_keyword_message.include?(":preparation")
 
         # Preserve compatibility with downstream injected executors that still
         # implement the pre-bootstrap execute signature. Providers now always
         # pass the structured preparation contract; unsupported custom
         # executors are responsible for rejecting or implementing it explicitly.
-        @executor.execute(command, timeout: timeout, env: env, stdin_data: stdin_data)
+        legacy_kwargs = {timeout: timeout, env: env}
+        legacy_kwargs[:stdin_data] = stdin_data unless stdin_data.nil?
+        @executor.execute(command, **legacy_kwargs)
       end
 
       def track_tokens(response)

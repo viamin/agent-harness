@@ -538,6 +538,20 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
       }.to raise_error(AgentHarness::TimeoutError, "Command timed out after 30 seconds: echo")
     end
 
+    it "reports end-to-end duration including preparation and cleanup" do
+      allow(executor).to receive(:apply_container_preparation) { sleep 0.02 }
+      allow(executor).to receive(:cleanup_container_preparation) do |cleanup_steps, timeout:, deadline:, command_name:|
+        cleanup_steps.clear
+        sleep 0.02
+      end
+
+      expect_popen3_with(["docker", "exec", container_id, "echo", "hello"])
+
+      result = executor.execute(["echo", "hello"])
+
+      expect(result.duration).to be >= 0.04
+    end
+
     it "restores originally existing symlinks after container execution" do
       allow(SecureRandom).to receive(:hex).and_return("deadbeefcafebabe", "facefeedcafed00d", "beadfeedcafef00d")
 

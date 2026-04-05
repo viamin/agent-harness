@@ -43,6 +43,7 @@ module AgentHarness
     #   work to materialize inside the container before the main command runs
     # @return [Result] execution result
     def execute(command, timeout: nil, env: {}, stdin_data: nil, preparation: nil)
+      start_time = current_time
       normalized_command = normalize_command(command)
       command_name = normalized_command.first
       deadline = timeout_deadline(timeout)
@@ -73,7 +74,12 @@ module AgentHarness
         deadline: cleanup_deadline(deadline, timeout:),
         command_name: command_name
       )
-      result
+      Result.new(
+        stdout: result.stdout,
+        stderr: result.stderr,
+        exit_code: result.exit_code,
+        duration: current_time - start_time
+      )
     ensure
       pending_exception = $!
       unless cleanup_steps.nil? || cleanup_steps.empty?

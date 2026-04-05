@@ -179,8 +179,8 @@ RSpec.describe "ProviderRuntime integration" do
     it "falls back for legacy executors that do not accept preparation" do
       legacy_executor = Object.new
       captured = nil
-      legacy_executor.define_singleton_method(:execute) do |command, timeout:, env:, stdin_data: nil|
-        captured = {command: command, timeout: timeout, env: env, stdin_data: stdin_data}
+      legacy_executor.define_singleton_method(:execute) do |command, timeout:, env:|
+        captured = {command: command, timeout: timeout, env: env}
         AgentHarness::CommandExecutor::Result.new(
           stdout: "ok",
           stderr: "",
@@ -205,8 +205,7 @@ RSpec.describe "ProviderRuntime integration" do
       expect(captured).to eq(
         command: ["test-cli", "Hello"],
         timeout: 300,
-        env: {},
-        stdin_data: nil
+        env: {}
       )
     end
   end
@@ -465,6 +464,33 @@ RSpec.describe "ProviderRuntime integration" do
       response = provider.send_message(prompt: "Hello", provider_runtime: runtime)
 
       expect(response.output).to eq("Hello")
+    end
+
+    it "preserves stdin_data when falling back for legacy executors" do
+      captured = nil
+      provider = provider_class.new(
+        executor: Object.new.tap do |executor|
+          executor.define_singleton_method(:execute) do |command, timeout:, env:, stdin_data:|
+            captured = {command: command, timeout: timeout, env: env, stdin_data: stdin_data}
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: stdin_data,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          end
+        end
+      )
+
+      response = provider.send_message(prompt: "Hello")
+
+      expect(response.output).to eq("Hello")
+      expect(captured).to eq(
+        command: ["cursor-agent", "-p"],
+        timeout: 300,
+        env: {},
+        stdin_data: "Hello"
+      )
     end
   end
 end
