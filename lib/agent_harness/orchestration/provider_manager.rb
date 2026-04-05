@@ -78,6 +78,8 @@ module AgentHarness
         fallback = select_fallback(@current_provider, reason: reason, executor: executor)
         return nil unless fallback
 
+        return fallback if executor
+
         @current_provider = fallback.class.provider_name
 
         AgentHarness.logger&.info(

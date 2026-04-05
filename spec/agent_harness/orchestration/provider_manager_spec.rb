@@ -270,6 +270,28 @@ RSpec.describe AgentHarness::Orchestration::ProviderManager do
 
       expect(result.executor).to be(executor)
     end
+
+    it "does not update the global current provider for request-scoped fallbacks" do
+      executor = instance_double(AgentHarness::CommandExecutor)
+      5.times { manager.record_failure(:claude) }
+
+      manager.switch_provider(reason: :circuit_open, executor: executor)
+
+      expect(manager.current_provider).to eq(:claude)
+    end
+
+    it "does not emit a provider switch callback for request-scoped fallbacks" do
+      executor = instance_double(AgentHarness::CommandExecutor)
+      5.times { manager.record_failure(:claude) }
+      allow(config.callbacks).to receive(:emit)
+
+      manager.switch_provider(reason: :circuit_open, executor: executor)
+
+      expect(config.callbacks).not_to have_received(:emit).with(
+        :provider_switch,
+        anything
+      )
+    end
   end
 
   describe "#select_provider with fallback" do
