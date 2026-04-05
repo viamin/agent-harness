@@ -12,6 +12,15 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
     allow(ENV).to receive(:[]).with("PATH").and_return("/usr/local/bin:/usr/bin")
     allow(File).to receive(:executable?).and_call_original
     allow(File).to receive(:executable?).with("/usr/local/bin/docker").and_return(true)
+    AgentHarness::CommandExecutor::PREPARATION_LOCK_REGISTRY_MUTEX.synchronize do
+      AgentHarness::CommandExecutor::PREPARATION_LOCK_REGISTRY.clear
+    end
+  end
+
+  after do
+    AgentHarness::CommandExecutor::PREPARATION_LOCK_REGISTRY_MUTEX.synchronize do
+      AgentHarness::CommandExecutor::PREPARATION_LOCK_REGISTRY.clear
+    end
   end
 
   describe "#initialize" do
@@ -476,43 +485,66 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
       )
     end
 
-    it "does not run cleanup past the main container command timeout" do
+    it "cleans up timed out container preparation in the background" do
       allow(SecureRandom).to receive(:hex).and_return("deadbeefcafebabe", "facefeedcafed00d", "beadfeedcafef00d")
-      calls = []
-      timed_out = false
-
-      allow(executor).to receive(:current_time) { timed_out ? 100.01 : 100.0 }
+      calls = Queue.new
+      cleanup_started = Queue.new
+      cleanup_finished = Queue.new
+      cleanup_command_cmd = ["docker", "exec", container_id, "sh", "-lc", cleanup_command("#{guarded_home_path}/.config/opencode/opencode.json", "#{guarded_home_path}/.config/opencode")]
+      preparation = AgentHarness::ExecutionPreparation.new(
+        file_writes: [{path: "~/.config/opencode/opencode.json", content: "{\"ok\":true}"}]
+      )
+      lock_key = executor.send(:preparation_lock_keys, preparation, {}).fetch(0)
 
       allow(executor).to receive(:execute_with_timeout) do |cmd_array, timeout:, env:, stdin_data:, configured_timeout: timeout|
         calls << {cmd: cmd_array, timeout: timeout, env: env, stdin_data: stdin_data}
 
         if cmd_array == ["docker", "exec", container_id, "echo", "hello"]
-          timed_out = true
           raise AgentHarness::TimeoutError, "Command timed out after #{timeout} seconds: echo"
+        end
+
+        if cmd_array == cleanup_command_cmd
+          cleanup_started << timeout
+          sleep 0.1
+          cleanup_finished << true
         end
 
         ["output", "", instance_double(Process::Status, exitstatus: 0)]
       end
 
+      started_at = Process.clock_gettime(Process::CLOCK_MONOTONIC)
       expect {
         executor.execute(
           ["echo", "hello"],
           timeout: 0.001,
-          preparation: AgentHarness::ExecutionPreparation.new(
-            file_writes: [{path: "~/.config/opencode/opencode.json", content: "{\"ok\":true}"}]
-          )
+          preparation: preparation
         )
       }.to raise_error(AgentHarness::TimeoutError)
+      elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - started_at
 
-      expect(calls.map { |call| call[:cmd] }).to eq(
+      expect(elapsed).to be < 0.1
+      cleanup_timeout = Timeout.timeout(1) { cleanup_started.pop }
+      expect(cleanup_timeout).to be_within(0.05).of(AgentHarness::CommandExecutor::PREPARATION_CLEANUP_GRACE_PERIOD)
+      expect(cleanup_finished).to be_empty
+      Timeout.timeout(1) { cleanup_finished.pop }
+      Timeout.timeout(1) do
+        while AgentHarness::CommandExecutor::PREPARATION_LOCK_REGISTRY.key?(lock_key)
+          sleep 0.01
+        end
+      end
+
+      observed_calls = []
+      observed_calls << calls.pop until calls.empty?
+
+      expect(observed_calls.map { |call| call[:cmd] }).to eq(
         [
           ["docker", "exec", container_id, "sh", "-lc", backup_command("#{guarded_home_path}/.config/opencode/opencode.json")],
           ["docker", "exec", container_id, "sh", "-lc", "mkdir -p #{guarded_home_path}/.config/opencode"],
           ["docker", "exec", "-i", container_id, "sh", "-lc", "cat > #{guarded_home_path}/.config/opencode/opencode.json"],
-          ["docker", "exec", container_id, "echo", "hello"]
+          ["docker", "exec", container_id, "echo", "hello"],
+          cleanup_command_cmd
         ]
       )
-      expect(calls.last[:timeout]).to be > 0
     end
 
     it "preserves the original timeout message for container commands after preparation" do

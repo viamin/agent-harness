@@ -55,6 +55,7 @@ module AgentHarness
         deadline: deadline,
         command_name: command_name
       )
+      background_cleanup_scheduled = false
 
       apply_container_preparation(preparation, timeout: timeout, deadline: deadline, env: env, cleanup_steps: cleanup_steps)
       docker_cmd = build_docker_command(normalized_command, env: env, stdin_data: stdin_data)
@@ -66,6 +67,13 @@ module AgentHarness
           stdin_data: stdin_data
         )
       rescue TimeoutError
+        schedule_container_cleanup_preparation(
+          cleanup_steps,
+          held_preparation_locks,
+          command_name: command_name
+        )
+        background_cleanup_scheduled = true
+        held_preparation_locks = []
         raise TimeoutError, "Command timed out after #{timeout} seconds: #{command_name}"
       end
       cleanup_container_preparation(
@@ -82,7 +90,7 @@ module AgentHarness
       )
     ensure
       pending_exception = $!
-      unless cleanup_steps.nil? || cleanup_steps.empty?
+      unless background_cleanup_scheduled || cleanup_steps.nil? || cleanup_steps.empty?
         begin
           cleanup_container_preparation(
             cleanup_steps,
@@ -90,13 +98,25 @@ module AgentHarness
             deadline: cleanup_deadline(deadline, timeout:),
             command_name: command_name
           )
+        rescue TimeoutError => e
+          raise e if pending_exception.nil? || !pending_exception.is_a?(TimeoutError)
+
+          schedule_container_cleanup_preparation(
+            cleanup_steps,
+            held_preparation_locks,
+            command_name: command_name
+          )
+          background_cleanup_scheduled = true
+          held_preparation_locks = []
         rescue => e
           raise e if pending_exception.nil?
 
           log_debug("Failed to clean up container runtime preparation", error: e.message)
         end
       end
-      release_preparation_locks(held_preparation_locks) unless held_preparation_locks.nil? || held_preparation_locks.empty?
+      unless background_cleanup_scheduled || held_preparation_locks.nil? || held_preparation_locks.empty?
+        release_preparation_locks(held_preparation_locks)
+      end
     end
 
     # Check if a binary exists inside the container
@@ -145,6 +165,26 @@ module AgentHarness
         )
       end
       cleanup_steps.clear
+    end
+
+    def schedule_container_cleanup_preparation(cleanup_steps, held_preparation_locks, command_name:)
+      cleanup_deadline = timeout_deadline(PREPARATION_CLEANUP_GRACE_PERIOD)
+      Thread.new(cleanup_steps, held_preparation_locks, cleanup_deadline, command_name) do |steps, locks, deadline_at, cleanup_command_name|
+        Thread.current.report_on_exception = false if Thread.current.respond_to?(:report_on_exception=)
+
+        begin
+          cleanup_container_preparation(
+            steps,
+            timeout: PREPARATION_CLEANUP_GRACE_PERIOD,
+            deadline: deadline_at,
+            command_name: cleanup_command_name
+          )
+        rescue => e
+          log_debug("Failed to clean up container runtime preparation after timeout", error: e.message)
+        ensure
+          release_preparation_locks(locks) unless locks.nil? || locks.empty?
+        end
+      end
     end
 
     def materialize_file_write(write, timeout:, deadline:, env:)

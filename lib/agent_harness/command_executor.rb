@@ -181,40 +181,46 @@ module AgentHarness
     end
 
     def acquire_preparation_lock(key, timeout:, deadline:, command_name:)
-      entry = PREPARATION_LOCK_REGISTRY_MUTEX.synchronize do
-        PREPARATION_LOCK_REGISTRY[key] ||= {mutex: Mutex.new, refcount: 0}
-        PREPARATION_LOCK_REGISTRY[key][:refcount] += 1
-        PREPARATION_LOCK_REGISTRY[key]
-      end
+      PREPARATION_LOCK_REGISTRY_MUTEX.synchronize do
+        entry = PREPARATION_LOCK_REGISTRY[key] ||= {
+          locked: false,
+          refcount: 0,
+          condition: ConditionVariable.new
+        }
+        entry[:refcount] += 1
 
-      if timeout.nil?
-        entry[:mutex].lock
-      else
-        until entry[:mutex].try_lock
-          remaining = remaining_timeout(deadline, timeout:, command_name:)
-          sleep([PREPARATION_LOCK_POLL_INTERVAL, remaining].min)
+        begin
+          if timeout.nil?
+            entry[:condition].wait(PREPARATION_LOCK_REGISTRY_MUTEX) while entry[:locked]
+          else
+            while entry[:locked]
+              remaining = remaining_timeout(deadline, timeout:, command_name:)
+              entry[:condition].wait(
+                PREPARATION_LOCK_REGISTRY_MUTEX,
+                [PREPARATION_LOCK_POLL_INTERVAL, remaining].min
+              )
+            end
+          end
+
+          entry[:locked] = true
+        rescue
+          entry[:refcount] -= 1
+          PREPARATION_LOCK_REGISTRY.delete(key) if entry[:refcount].zero?
+          raise
         end
       end
 
-      {key: key, mutex: entry[:mutex]}
-    rescue
-      PREPARATION_LOCK_REGISTRY_MUTEX.synchronize do
-        registry_entry = PREPARATION_LOCK_REGISTRY[key]
-        next unless registry_entry
-
-        registry_entry[:refcount] -= 1
-        PREPARATION_LOCK_REGISTRY.delete(key) if registry_entry[:refcount].zero?
-      end
-      raise
+      {key: key}
     end
 
     def release_preparation_locks(held_preparation_locks)
       held_preparation_locks.reverse_each do |lock|
-        lock[:mutex].unlock
         PREPARATION_LOCK_REGISTRY_MUTEX.synchronize do
           entry = PREPARATION_LOCK_REGISTRY[lock[:key]]
           next unless entry
 
+          entry[:locked] = false
+          entry[:condition].signal
           entry[:refcount] -= 1
           PREPARATION_LOCK_REGISTRY.delete(lock[:key]) if entry[:refcount].zero?
         end
