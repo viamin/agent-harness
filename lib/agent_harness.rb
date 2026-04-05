@@ -122,6 +122,8 @@ module AgentHarness
     # @return [Hash, nil] smoke-test contract
     # @raise [ConfigurationError] if the provider name is not registered
     def smoke_test_contract(provider_name)
+      # Explicitly raise if provider is not registered to match documentation
+      raise ConfigurationError, "Unknown provider: #{provider_name}" unless Providers::Registry.instance.registered?(provider_name)
       Providers::Registry.instance.smoke_test_contract(provider_name)
     end
 
