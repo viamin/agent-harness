@@ -1171,6 +1171,28 @@ RSpec.describe AgentHarness::Providers::Adapter do
         )
       end
 
+      it "uses the canonical name for display when a custom provider inherits Base defaults" do
+        custom_base_provider_class = Class.new(AgentHarness::Providers::Base) do
+          class << self
+            def provider_name = :internal_provider_name
+            def available? = true
+            def binary_name = "internal-provider"
+          end
+        end
+
+        metadata = custom_base_provider_class.provider_metadata(
+          aliases: [:external_alias],
+          canonical_name: :external_provider_name
+        )
+
+        expect(metadata).to include(
+          provider: :external_provider_name,
+          canonical_provider: :external_provider_name,
+          aliases: [:external_alias],
+          display_name: "External provider name"
+        )
+      end
+
       it "preserves provider-specific bot identities for custom Anthropic registrations" do
         metadata = AgentHarness::Providers::Anthropic.provider_metadata(
           aliases: [:external_alias],

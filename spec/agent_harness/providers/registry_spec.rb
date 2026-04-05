@@ -685,6 +685,27 @@ RSpec.describe AgentHarness::Providers::Registry do
       )
     end
 
+    it "uses the registry canonical key for display when a custom provider inherits Base defaults" do
+      custom_provider = Class.new(AgentHarness::Providers::Base) do
+        class << self
+          def provider_name = :internal_provider_name
+          def available? = true
+          def binary_name = "internal-provider"
+        end
+      end
+
+      registry.register(:external_provider_name, custom_provider, aliases: [:external_alias])
+
+      metadata = registry.provider_metadata(:external_alias)
+
+      expect(metadata).to include(
+        provider: :external_provider_name,
+        canonical_provider: :external_provider_name,
+        aliases: [:external_alias],
+        display_name: "External provider name"
+      )
+    end
+
     it "does not report auth checks for custom Anthropic registrations unsupported by Authentication" do
       registry.register(:external_provider_name, AgentHarness::Providers::Anthropic, aliases: [:external_alias])
 

@@ -446,7 +446,10 @@ module AgentHarness
         end
 
         def provider_display_name(provider, canonical_name: provider_name)
-          return provider.display_name if provider.respond_to?(:display_name)
+          if provider&.respond_to?(:display_name) &&
+              provider.method(:display_name).owner != AgentHarness::Providers::Base
+            return provider.display_name
+          end
 
           canonical_name.to_s.tr("_", " ").capitalize
         end
