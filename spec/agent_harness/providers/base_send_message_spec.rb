@@ -290,5 +290,24 @@ RSpec.describe AgentHarness::Providers::Base, "#send_message" do
         execution_observer: observer
       )
     end
+
+    it "preserves an explicit nil heartbeat interval" do
+      expect(mock_executor).to receive(:execute).with(
+        anything,
+        hash_including(
+          timeout: 120,
+          on_heartbeat: kind_of(Proc),
+          heartbeat_interval: nil
+        )
+      ).and_return(
+        AgentHarness::CommandExecutor::Result.new(stdout: "ok", stderr: "", exit_code: 0, duration: 1.0)
+      )
+
+      provider.send_message(
+        prompt: "Hello",
+        on_heartbeat: ->(**_heartbeat) {},
+        heartbeat_interval: nil
+      )
+    end
   end
 end

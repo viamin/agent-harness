@@ -39,6 +39,11 @@ module AgentHarness
         action: :retry_with_backoff,
         retryable: true
       },
+      idle_timeout: {
+        description: "Operation exceeded idle timeout",
+        action: :escalate,
+        retryable: false
+      },
       sandbox_failure: {
         description: "Sandbox setup failed",
         action: :escalate,
@@ -58,6 +63,7 @@ module AgentHarness
       # @param patterns [Hash<Symbol, Array<Regexp>>] provider-specific patterns
       # @return [Symbol] error category
       def classify(error, patterns = {})
+        return :idle_timeout if error.is_a?(IdleTimeoutError)
         return :timeout if error.is_a?(TimeoutError)
 
         message = error.message.to_s.downcase
@@ -114,6 +120,8 @@ module AgentHarness
 
       def classify_generic(message)
         case message
+        when /idle.?timeout/i
+          :idle_timeout
         when /rate.?limit|too many requests|429/i
           :rate_limited
         when /quota|usage.?limit|billing/i

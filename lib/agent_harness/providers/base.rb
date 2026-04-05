@@ -290,7 +290,7 @@ module AgentHarness
           on_heartbeat: options[:on_heartbeat],
           heartbeat_interval: options[:heartbeat_interval],
           observer: options[:execution_observer] || options[:observer]
-        }.reject { |_, value| value.nil? }
+        }.reject { |key, value| value.nil? && key != :heartbeat_interval }
       end
 
       def execute_with_timeout(command, timeout:, env:, stdin_data: nil, **execution_options)
@@ -336,6 +336,10 @@ module AgentHarness
           return original_error if original_error.is_a?(TimeoutError)
 
           TimeoutError.new(original_error.message, original_error: original_error)
+        when :idle_timeout
+          return original_error if original_error.is_a?(IdleTimeoutError)
+
+          IdleTimeoutError.new(original_error.message, original_error: original_error)
         else
           ProviderError.new(original_error.message, original_error: original_error)
         end

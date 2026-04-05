@@ -118,6 +118,24 @@ RSpec.describe AgentHarness::Orchestration::Conductor, "#send_message" do
     end
   end
 
+  describe "idle timeout error without retry" do
+    before do
+      allow(mock_provider).to receive(:send_message).and_raise(
+        AgentHarness::IdleTimeoutError.new("command exceeded idle timeout")
+      )
+    end
+
+    it "raises without retrying the run" do
+      expect(mock_provider).to receive(:send_message).once
+      expect { conductor.send_message("Hello") }.to raise_error(AgentHarness::IdleTimeoutError)
+    end
+
+    it "records the provider failure" do
+      expect(mock_provider_manager).to receive(:record_failure).with(:test_provider)
+      expect { conductor.send_message("Hello") }.to raise_error(AgentHarness::IdleTimeoutError)
+    end
+  end
+
   describe "authentication error" do
     before do
       allow(mock_provider).to receive(:send_message).and_raise(

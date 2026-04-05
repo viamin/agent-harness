@@ -121,6 +121,10 @@ module AgentHarness
           handle_provider_failure(e, provider_name, :switch)
           retry if should_retry?(retries += 1, max_retries)
           raise
+        rescue IdleTimeoutError => e
+          @metrics.record_failure(provider_name, e)
+          @provider_manager.record_failure(provider_name)
+          raise
         rescue TimeoutError, ProviderError => e
           @provider_manager.record_failure(provider_name)
           handle_provider_failure(e, provider_name, :retry)

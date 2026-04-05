@@ -336,6 +336,10 @@ module AgentHarness
           raise error if error.is_a?(TimeoutError)
 
           raise TimeoutError.new(error.message, original_error: error)
+        when :idle_timeout
+          raise error if error.is_a?(IdleTimeoutError)
+
+          raise IdleTimeoutError.new(error.message, original_error: error)
         else
           raise ProviderError.new(error.message, original_error: error)
         end
