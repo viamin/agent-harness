@@ -823,6 +823,26 @@ RSpec.describe AgentHarness::Providers::Adapter do
         AgentHarness.configuration.providers.delete(:config_sensitive_adapter)
       end
 
+      it "falls back to canonical-name config for custom registrations" do
+        canonical_provider_config = AgentHarness::ProviderConfig.new(:external_provider_name)
+        AgentHarness.configuration.providers[:external_provider_name] = canonical_provider_config
+
+        metadata = config_sensitive_adapter_class.provider_metadata(
+          canonical_name: :external_provider_name
+        )
+
+        expect(metadata[:configuration]).to include(
+          fields: [{name: :external_provider_name, type: :string}],
+          auth_modes: [:api_key],
+          openai_compatible: false
+        )
+        expect(metadata[:runtime]).to include(
+          prompt_delivery: :external_provider_name
+        )
+      ensure
+        AgentHarness.configuration.providers.delete(:external_provider_name)
+      end
+
       it "falls back to default metadata when safe construction raises" do
         logger = instance_double("Logger", debug: nil)
         allow(AgentHarness).to receive(:logger).and_return(logger)
@@ -996,6 +1016,33 @@ RSpec.describe AgentHarness::Providers::Adapter do
         expect(metadata[:aliases]).to eq([:test_alias, :second_alias])
         expect(metadata[:identity]).to eq(
           bot_usernames: ["test_adapter", "test_alias", "second_alias"]
+        )
+      end
+
+      it "uses the canonical name for fallback display and alias normalization" do
+        custom_registered_adapter_class = Class.new do
+          include AgentHarness::Providers::Adapter
+
+          class << self
+            def provider_name = :internal_provider_name
+            def available? = true
+            def binary_name = "internal-provider"
+          end
+        end
+
+        metadata = custom_registered_adapter_class.provider_metadata(
+          aliases: [:external_provider_name, :external_alias],
+          canonical_name: :external_provider_name
+        )
+
+        expect(metadata).to include(
+          provider: :external_provider_name,
+          canonical_provider: :external_provider_name,
+          aliases: [:external_alias],
+          display_name: "External provider name"
+        )
+        expect(metadata[:identity]).to eq(
+          bot_usernames: ["external_provider_name", "external_alias"]
         )
       end
     end

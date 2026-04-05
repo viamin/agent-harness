@@ -106,10 +106,13 @@ module AgentHarness
         #   for this provider; used for the public stable metadata contract
         # @return [Hash] provider metadata
         def provider_metadata(aliases: [], refresh: false, requested_name: provider_name, canonical_name: provider_name)
-          normalized_aliases = normalize_metadata_aliases(aliases)
+          normalized_aliases = normalize_metadata_aliases(aliases, canonical_name: canonical_name)
           requested_provider_name = requested_name.to_sym
           canonical_provider_name = canonical_name.to_sym
-          provider = metadata_provider_instance(requested_name: requested_provider_name)
+          provider = metadata_provider_instance(
+            requested_name: requested_provider_name,
+            canonical_name: canonical_provider_name
+          )
           configuration = deep_merge_metadata(default_configuration_schema, provider&.configuration_schema || {})
           execution = deep_merge_metadata(default_execution_semantics, provider&.execution_semantics || {})
           installation = installation_contract
@@ -124,7 +127,7 @@ module AgentHarness
               provider: canonical_provider_name,
               canonical_provider: canonical_provider_name,
               aliases: normalized_aliases,
-              display_name: provider_display_name(provider),
+              display_name: provider_display_name(provider, canonical_name: canonical_provider_name),
               binary_name: binary_name,
               auth: {
                 default_mode: provider&.auth_type,
@@ -176,7 +179,9 @@ module AgentHarness
 
         private
 
-        def normalize_metadata_aliases(aliases)
+        def normalize_metadata_aliases(aliases, canonical_name: provider_name)
+          canonical_provider_name = canonical_name.to_sym
+
           Array(aliases)
             .filter_map do |alias_name|
               normalized_alias = alias_name.to_s.strip
@@ -185,7 +190,7 @@ module AgentHarness
               normalized_alias.to_sym
             end
             .uniq
-            .reject { |alias_name| alias_name == provider_name }
+            .reject { |alias_name| alias_name == canonical_provider_name }
         end
 
         def provider_bot_usernames(canonical_name: provider_name, aliases: [])
@@ -197,10 +202,10 @@ module AgentHarness
             .uniq
         end
 
-        def metadata_provider_instance(requested_name: provider_name)
+        def metadata_provider_instance(requested_name: provider_name, canonical_name: provider_name)
           return nil unless metadata_initializer_compatible?
 
-          new(**metadata_provider_kwargs(requested_name: requested_name))
+          new(**metadata_provider_kwargs(requested_name: requested_name, canonical_name: canonical_name))
         rescue => e
           AgentHarness.logger&.debug(
             "[AgentHarness::Providers::Adapter] Falling back to default metadata for #{provider_name}: #{e.class}"
@@ -208,16 +213,16 @@ module AgentHarness
           nil
         end
 
-        def safe_metadata_provider_instance(requested_name: provider_name)
+        def safe_metadata_provider_instance(requested_name: provider_name, canonical_name: provider_name)
           return nil unless metadata_initializer_compatible?
 
-          new(**metadata_provider_kwargs(requested_name: requested_name))
+          new(**metadata_provider_kwargs(requested_name: requested_name, canonical_name: canonical_name))
         rescue
           # Return nil without logging - caller is responsible for handling
           nil
         end
 
-        def metadata_provider_kwargs(requested_name: provider_name)
+        def metadata_provider_kwargs(requested_name: provider_name, canonical_name: provider_name)
           parameters = instance_method(:initialize).parameters
           accepts = lambda do |name|
             parameters.any? { |type, param_name| [:key, :keyreq].include?(type) && param_name == name } ||
@@ -226,7 +231,7 @@ module AgentHarness
 
           kwargs = {}
           if accepts.call(:config)
-            kwargs[:config] = metadata_provider_config(requested_name)
+            kwargs[:config] = metadata_provider_config(requested_name, canonical_name: canonical_name)
           end
           kwargs[:executor] = AgentHarness.configuration.command_executor if accepts.call(:executor)
           kwargs[:logger] = AgentHarness.logger if accepts.call(:logger)
@@ -234,10 +239,12 @@ module AgentHarness
           kwargs
         end
 
-        def metadata_provider_config(requested_name)
+        def metadata_provider_config(requested_name, canonical_name: provider_name)
           requested_provider_name = requested_name.to_sym
+          canonical_provider_name = canonical_name.to_sym
 
           AgentHarness.configuration.providers[requested_provider_name] ||
+            AgentHarness.configuration.providers[canonical_provider_name] ||
             AgentHarness.configuration.providers[provider_name] ||
             AgentHarness::ProviderConfig.new(requested_provider_name)
         end
@@ -334,10 +341,10 @@ module AgentHarness
           end
         end
 
-        def provider_display_name(provider)
+        def provider_display_name(provider, canonical_name: provider_name)
           return provider.display_name if provider.respond_to?(:display_name)
 
-          provider_name.to_s.tr("_", " ").capitalize
+          canonical_name.to_s.tr("_", " ").capitalize
         end
 
         def default_configuration_schema

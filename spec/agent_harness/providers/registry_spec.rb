@@ -608,11 +608,50 @@ RSpec.describe AgentHarness::Providers::Registry do
       expect(metadata).to include(
         provider: :external_provider_name,
         canonical_provider: :external_provider_name,
-        aliases: [:external_alias]
+        aliases: [:external_alias],
+        display_name: "External provider name"
       )
       expect(metadata[:identity]).to include(
         bot_usernames: ["external_provider_name", "external_alias"]
       )
+    end
+
+    it "uses canonical-name config for custom registrations when requested-name config is absent" do
+      custom_provider = Class.new do
+        include AgentHarness::Providers::Adapter
+
+        class << self
+          def provider_name = :internal_provider_name
+          def available? = true
+          def binary_name = "internal-provider"
+        end
+
+        def initialize(config: nil)
+          @config = config
+        end
+
+        def configuration_schema
+          {
+            fields: [{name: @config.name, type: :string}],
+            auth_modes: [:api_key],
+            openai_compatible: false
+          }
+        end
+      end
+
+      AgentHarness.configuration.providers[:external_provider_name] =
+        AgentHarness::ProviderConfig.new(:external_provider_name)
+      registry.register(:external_provider_name, custom_provider, aliases: [:external_alias])
+
+      metadata = registry.provider_metadata(:external_alias)
+
+      expect(metadata[:configuration]).to include(
+        fields: [{name: :external_provider_name, type: :string}],
+        auth_modes: [:api_key],
+        openai_compatible: false
+      )
+    ensure
+      AgentHarness.configuration.providers.delete(:external_provider_name)
     end
 
     it "exposes instance metadata for providers that only accept a registry keyword subset" do
