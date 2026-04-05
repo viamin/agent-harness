@@ -616,6 +616,32 @@ RSpec.describe AgentHarness::Providers::Registry do
       )
     end
 
+    it "does not report auth checks for custom Anthropic registrations unsupported by Authentication" do
+      registry.register(:external_provider_name, AgentHarness::Providers::Anthropic, aliases: [:external_alias])
+
+      metadata = registry.provider_metadata(:external_provider_name)
+
+      expect(metadata[:health_check]).to include(
+        supports_registry_checks: true,
+        auth_check_supported: false
+      )
+    end
+
+    it "preserves Anthropic bot identities for custom registrations" do
+      registry.register(:external_provider_name, AgentHarness::Providers::Anthropic, aliases: [:external_alias])
+
+      metadata = registry.provider_metadata(:external_alias)
+
+      expect(metadata).to include(
+        provider: :external_provider_name,
+        canonical_provider: :external_provider_name,
+        aliases: [:external_alias]
+      )
+      expect(metadata[:identity]).to eq(
+        bot_usernames: ["claude", "anthropic"]
+      )
+    end
+
     it "uses canonical-name config for custom registrations when requested-name config is absent" do
       custom_provider = Class.new do
         include AgentHarness::Providers::Adapter

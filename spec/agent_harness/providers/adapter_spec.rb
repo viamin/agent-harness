@@ -1008,6 +1008,18 @@ RSpec.describe AgentHarness::Providers::Adapter do
         expect(alias_sensitive_auth_adapter_class.initialization_names).to eq([:first_alias, :second_alias])
       end
 
+      it "does not report oauth auth checks for custom registrations unsupported by Authentication" do
+        metadata = AgentHarness::Providers::Anthropic.provider_metadata(
+          requested_name: :external_provider_name,
+          canonical_name: :external_provider_name
+        )
+
+        expect(metadata[:health_check]).to include(
+          supports_registry_checks: true,
+          auth_check_supported: false
+        )
+      end
+
       it "normalizes direct alias input into a stable contract" do
         metadata = adapter_class.provider_metadata(
           aliases: [:test_alias, " test_alias ", :test_adapter, " ", nil, "second_alias"]
@@ -1043,6 +1055,23 @@ RSpec.describe AgentHarness::Providers::Adapter do
         )
         expect(metadata[:identity]).to eq(
           bot_usernames: ["external_provider_name", "external_alias"]
+        )
+      end
+
+      it "preserves provider-specific bot identities for custom Anthropic registrations" do
+        metadata = AgentHarness::Providers::Anthropic.provider_metadata(
+          aliases: [:external_alias],
+          requested_name: :external_alias,
+          canonical_name: :external_provider_name
+        )
+
+        expect(metadata).to include(
+          provider: :external_provider_name,
+          canonical_provider: :external_provider_name,
+          aliases: [:external_alias]
+        )
+        expect(metadata[:identity]).to eq(
+          bot_usernames: ["claude", "anthropic"]
         )
       end
     end

@@ -117,7 +117,11 @@ module AgentHarness
           execution = deep_merge_metadata(default_execution_semantics, provider&.execution_semantics || {})
           installation = installation_contract
           supports_registry_checks = !provider.nil? && registry_check_initializer_compatible?
-          auth_check_supported = auth_status_available?(provider, requested_name: requested_provider_name)
+          auth_check_supported = auth_status_available?(
+            provider,
+            requested_name: requested_provider_name,
+            canonical_name: canonical_provider_name
+          )
           provider_status_check = supports_registry_checks && overrides_instance_method?(:health_status)
           configuration_validation = supports_registry_checks && overrides_instance_method?(:validate_config)
           lightweight_checks = supports_registry_checks && !provider_status_check && !configuration_validation
@@ -271,9 +275,9 @@ module AgentHarness
         #
         # This differs from supports_registry_checks - it specifically indicates whether
         # the auth status check will succeed or return "not implemented"
-        def auth_status_available?(provider_instance = nil, requested_name: provider_name)
+        def auth_status_available?(provider_instance = nil, requested_name: provider_name, canonical_name: provider_name)
           @auth_status_available = {} unless instance_variable_defined?(:@auth_status_available)
-          cache_key = requested_name.to_sym
+          cache_key = [requested_name.to_sym, canonical_name.to_sym]
           return @auth_status_available[cache_key] if @auth_status_available.key?(cache_key)
 
           @auth_status_available[cache_key] = if !registry_check_initializer_compatible?
@@ -281,14 +285,18 @@ module AgentHarness
           else
             begin
               provider_instance ||= safe_metadata_provider_instance(requested_name: requested_name)
-              auth_status_supported_by?(provider_instance)
+              auth_status_supported_by?(
+                provider_instance,
+                requested_name: requested_name,
+                canonical_name: canonical_name
+              )
             rescue
               false
             end
           end
         end
 
-        def auth_status_supported_by?(provider_instance)
+        def auth_status_supported_by?(provider_instance, requested_name: provider_name, canonical_name: provider_name)
           return false unless provider_instance
           return true if provider_instance.respond_to?(:auth_status)
 
@@ -296,7 +304,9 @@ module AgentHarness
           when :api_key
             false
           when :oauth
-            SUPPORTED_OAUTH_AUTH_STATUS_PROVIDERS.include?(provider_name)
+            [requested_name, canonical_name]
+              .map(&:to_sym)
+              .any? { |name| SUPPORTED_OAUTH_AUTH_STATUS_PROVIDERS.include?(name) }
           else
             false
           end

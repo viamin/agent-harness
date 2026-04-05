@@ -35,6 +35,9 @@ module AgentHarness
             auth: {
               service: :anthropic,
               api_family: :anthropic
+            },
+            identity: {
+              bot_usernames: %w[claude anthropic]
             }
           }
         end
