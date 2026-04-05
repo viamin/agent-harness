@@ -590,6 +590,31 @@ RSpec.describe AgentHarness::Providers::Registry do
       )
     end
 
+    it "publishes the registry canonical key for custom provider registrations" do
+      custom_provider = Class.new do
+        include AgentHarness::Providers::Adapter
+
+        class << self
+          def provider_name = :internal_provider_name
+          def available? = true
+          def binary_name = "internal-provider"
+        end
+      end
+
+      registry.register(:external_provider_name, custom_provider, aliases: [:external_alias])
+
+      metadata = registry.provider_metadata(:external_alias)
+
+      expect(metadata).to include(
+        provider: :external_provider_name,
+        canonical_provider: :external_provider_name,
+        aliases: [:external_alias]
+      )
+      expect(metadata[:identity]).to include(
+        bot_usernames: ["external_provider_name", "external_alias"]
+      )
+    end
+
     it "exposes instance metadata for providers that only accept a registry keyword subset" do
       metadata_compatible_provider = Class.new do
         include AgentHarness::Providers::Adapter

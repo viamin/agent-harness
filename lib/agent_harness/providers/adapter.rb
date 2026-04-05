@@ -102,10 +102,13 @@ module AgentHarness
         # @param requested_name [Symbol, String] provider identifier originally
         #   requested by the caller; used to prefer alias-keyed config when
         #   metadata construction is config-sensitive
+        # @param canonical_name [Symbol, String] canonical registry identifier
+        #   for this provider; used for the public stable metadata contract
         # @return [Hash] provider metadata
-        def provider_metadata(aliases: [], refresh: false, requested_name: provider_name)
+        def provider_metadata(aliases: [], refresh: false, requested_name: provider_name, canonical_name: provider_name)
           normalized_aliases = normalize_metadata_aliases(aliases)
           requested_provider_name = requested_name.to_sym
+          canonical_provider_name = canonical_name.to_sym
           provider = metadata_provider_instance(requested_name: requested_provider_name)
           configuration = deep_merge_metadata(default_configuration_schema, provider&.configuration_schema || {})
           execution = deep_merge_metadata(default_execution_semantics, provider&.execution_semantics || {})
@@ -118,8 +121,8 @@ module AgentHarness
 
           deep_merge_metadata(
             {
-              provider: provider_name,
-              canonical_provider: provider_name,
+              provider: canonical_provider_name,
+              canonical_provider: canonical_provider_name,
               aliases: normalized_aliases,
               display_name: provider_display_name(provider),
               binary_name: binary_name,
@@ -154,7 +157,10 @@ module AgentHarness
                 lightweight: lightweight_checks
               },
               identity: {
-                bot_usernames: provider_bot_usernames(aliases: normalized_aliases)
+                bot_usernames: provider_bot_usernames(
+                  canonical_name: canonical_provider_name,
+                  aliases: normalized_aliases
+                )
               }
             },
             provider_metadata_overrides
@@ -182,8 +188,8 @@ module AgentHarness
             .reject { |alias_name| alias_name == provider_name }
         end
 
-        def provider_bot_usernames(aliases: [])
-          [provider_name, *aliases]
+        def provider_bot_usernames(canonical_name: provider_name, aliases: [])
+          [canonical_name, *aliases]
             .filter_map do |identity|
               normalized_identity = identity.to_s.strip
               normalized_identity unless normalized_identity.empty?
