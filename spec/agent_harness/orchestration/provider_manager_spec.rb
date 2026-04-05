@@ -63,7 +63,23 @@ RSpec.describe AgentHarness::Orchestration::ProviderManager do
       end
     end
 
-    context "when preferred provider falls back with an executor override" do
+    context "when the preferred provider is globally unhealthy with an executor override" do
+      let(:claude_class) do
+        Class.new(AgentHarness::Providers::Base) do
+          def self.provider_name
+            :claude
+          end
+
+          def self.binary_name
+            "claude"
+          end
+
+          def self.available?
+            true
+          end
+        end
+      end
+
       let(:cursor_class) do
         Class.new(AgentHarness::Providers::Base) do
           def self.provider_name
@@ -81,11 +97,21 @@ RSpec.describe AgentHarness::Orchestration::ProviderManager do
       end
 
       before do
-        allow_any_instance_of(AgentHarness::Providers::Registry).to receive(:get).and_return(cursor_class)
+        allow_any_instance_of(AgentHarness::Providers::Registry).to receive(:get).with(:claude).and_return(claude_class)
+        allow_any_instance_of(AgentHarness::Providers::Registry).to receive(:get).with(:cursor).and_return(cursor_class)
         5.times { manager.record_failure(:claude) }
       end
 
-      it "preserves the override on the fallback provider" do
+      it "bypasses shared health gates for the requested provider" do
+        executor = instance_double(AgentHarness::CommandExecutor)
+
+        provider = manager.select_provider(:claude, executor: executor)
+
+        expect(provider.class.provider_name).to eq(:claude)
+        expect(provider.executor).to be(executor)
+      end
+
+      it "preserves the override on the request-scoped provider" do
         executor = instance_double(AgentHarness::CommandExecutor)
 
         provider = manager.select_provider(:claude, executor: executor)
@@ -304,6 +330,18 @@ RSpec.describe AgentHarness::Orchestration::ProviderManager do
       expect(result.class.provider_name).to eq(:cursor)
       expect(result.executor).to be(executor)
       expect(manager.current_provider).to eq(:cursor)
+    end
+
+    it "bypasses shared fallback health gates for request-scoped failover" do
+      executor = instance_double(AgentHarness::CommandExecutor)
+
+      5.times { manager.record_failure(:cursor) }
+
+      result = manager.switch_provider(from: :claude, reason: :circuit_open, executor: executor)
+
+      expect(result.class.provider_name).to eq(:cursor)
+      expect(result.executor).to be(executor)
+      expect(manager.current_provider).to eq(:claude)
     end
   end
 
