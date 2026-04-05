@@ -605,4 +605,67 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
       expect(executor.available?("nonexistent")).to be false
     end
   end
+
+  describe "#materialize_file_write" do
+    let(:executor) { described_class.new(container_id: container_id) }
+    let(:write) do
+      AgentHarness::ExecutionPreparation::FileWrite.new(
+        path: "test.txt",
+        content: "test content"
+      )
+    end
+
+    context "with command injection attempts" do
+      it "raises ArgumentError for paths with backticks" do
+        malicious_write = AgentHarness::ExecutionPreparation::FileWrite.new(
+          path: "$(echo malicious)`whoami`.txt",
+          content: "malicious content"
+        )
+        expect {
+          executor.send(:materialize_file_write, malicious_write, timeout: 5, deadline: nil, env: {})
+        }.to raise_error(ArgumentError, /contains command injection characters/)
+      end
+
+      it "raises ArgumentError for paths with semicolons" do
+        malicious_write = AgentHarness::ExecutionPreparation::FileWrite.new(
+          path: "test; rm -rf /",
+          content: "malicious content"
+        )
+        expect {
+          executor.send(:materialize_file_write, malicious_write, timeout: 5, deadline: nil, env: {})
+        }.to raise_error(ArgumentError, /contains command injection characters/)
+      end
+
+      it "raises ArgumentError for paths with pipes" do
+        malicious_write = AgentHarness::ExecutionPreparation::FileWrite.new(
+          path: "test | sh",
+          content: "malicious content"
+        )
+        expect {
+          executor.send(:materialize_file_write, malicious_write, timeout: 5, deadline: nil, env: {})
+        }.to raise_error(ArgumentError, /contains command injection characters/)
+      end
+    end
+
+    context "with path traversal attempts" do
+      it "raises ArgumentError for paths with .." do
+        traversal_write = AgentHarness::ExecutionPreparation::FileWrite.new(
+          path: "../etc/passwd",
+          content: "content"
+        )
+        expect {
+          executor.send(:materialize_file_write, traversal_write, timeout: 5, deadline: nil, env: {})
+        }.to raise_error(ArgumentError, /Path traversal detected/)
+      end
+
+      it "allows valid environment variables" do
+        env_write = AgentHarness::ExecutionPreparation::FileWrite.new(
+          path: "$HOME/.config/file.txt",
+          content: "content"
+        )
+        # Should not raise an error for valid env vars during validation
+        expect { executor.send(:validate_preparation_path_security!, env_write.path) }.not_to raise_error
+      end
+    end
+  end
 end

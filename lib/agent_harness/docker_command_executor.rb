@@ -127,6 +127,7 @@ module AgentHarness
 
     def materialize_file_write(write, timeout:, deadline:, env:)
       validate_preparation_path_env!(write.path, env)
+      validate_preparation_path_security!(write.path)
       path = shell_path(write.path)
       dir = shell_path(File.dirname(write.path))
       backup = shell_path("/tmp/agent-harness-preparation-#{SecureRandom.hex(8)}")
@@ -212,6 +213,18 @@ module AgentHarness
       raise ArgumentError, "#{key} cannot be nil or empty for env-backed preparation paths" if value.nil? || value.empty?
 
       value
+    end
+
+    def validate_preparation_path_security!(path)
+      # Command injection protection
+      if path.include?("`") || path.include?(";") || path.include?("|")
+        raise ArgumentError, "Invalid path: #{path} (contains command injection characters)"
+      end
+
+      # Path traversal protection - only check if it's not an env var reference
+      if path.include?("..") && !path.start_with?("$")
+        raise ArgumentError, "Path traversal detected in: #{path}"
+      end
     end
 
     def shell_path(path)
