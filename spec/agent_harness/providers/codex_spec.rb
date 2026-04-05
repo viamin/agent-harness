@@ -23,14 +23,14 @@ RSpec.describe AgentHarness::Providers::Codex do
       expect(contract).to include(
         source: :npm,
         package_name: "@openai/codex",
-        version: "0.117.0",
+        version: "0.116.0",
         binary_name: "codex"
       )
-      expect(contract[:package]).to eq("@openai/codex@0.117.0")
-      expect(contract[:supported_versions]).to eq(["0.117.0"])
-      expect(contract[:version_requirement]).to eq([">= 0.117.0", "< 0.118.0"])
+      expect(contract[:package]).to eq("@openai/codex@0.116.0")
+      expect(contract[:supported_versions]).to eq(["0.116.0"])
+      expect(contract[:version_requirement]).to eq([">= 0.116.0", "< 0.117.0"])
       expect(contract[:install_command]).to eq(
-        ["npm", "install", "-g", "--ignore-scripts", "@openai/codex@0.117.0"]
+        ["npm", "install", "-g", "--ignore-scripts", "@openai/codex@0.116.0"]
       )
     end
 
@@ -53,7 +53,7 @@ RSpec.describe AgentHarness::Providers::Codex do
   describe ".install_command" do
     it "builds the default install command from the contract" do
       expect(described_class.install_command).to eq(
-        ["npm", "install", "-g", "--ignore-scripts", "@openai/codex@0.117.0"]
+        ["npm", "install", "-g", "--ignore-scripts", "@openai/codex@0.116.0"]
       )
     end
 
