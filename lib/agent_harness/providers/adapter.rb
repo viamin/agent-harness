@@ -178,7 +178,7 @@ module AgentHarness
             provider_name: canonical_provider_name,
             binary_name: binary_name
           )
-          supported_auth_modes = provider ? Array(configuration[:auth_modes]).map(&:to_sym) : []
+          supported_auth_modes = Array(configuration[:auth_modes]).map(&:to_sym)
           supports_registry_checks = !provider.nil? && registry_check_initializer_compatible?
           auth_check_supported = auth_status_available?(
             provider,
@@ -199,8 +199,8 @@ module AgentHarness
               auth: {
                 default_mode: metadata_default_auth_mode(provider, supported_modes: supported_auth_modes),
                 supported_modes: supported_auth_modes,
-                service: configuration[:openai_compatible] ? :openai : nil,
-                api_family: configuration[:openai_compatible] ? :openai : nil
+                service: nil,
+                api_family: nil
               },
               runtime: {
                 interface: :cli,

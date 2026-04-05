@@ -511,8 +511,8 @@ RSpec.describe AgentHarness::Providers::Registry do
         binary_name: "required"
       )
       expect(metadata[:auth]).to include(
-        default_mode: nil,
-        supported_modes: []
+        default_mode: :api_key,
+        supported_modes: [:api_key]
       )
       expect(metadata[:health_check]).to include(
         supports_registry_checks: false,
