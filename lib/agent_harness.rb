@@ -117,6 +117,14 @@ module AgentHarness
       Providers::Registry.instance.installation_contracts
     end
 
+    # Get smoke-test metadata for a provider CLI when the provider exposes it.
+    #
+    # @param provider_name [Symbol, String] the provider name
+    # @return [Hash, nil] smoke-test contract
+    def provider_smoke_test_contract(provider_name)
+      smoke_test_contract(provider_name)
+    end
+
     # Get smoke-test metadata for a provider CLI.
     # @param provider_name [Symbol, String] the provider name
     # @return [Hash, nil] smoke-test contract

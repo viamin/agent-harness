@@ -1243,5 +1243,11 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
 
       expect(contract).to include(prompt: "Reply with exactly OK.")
     end
+
+    it "exposes provider_smoke_test_contract wrapper on the module" do
+      contract = AgentHarness.provider_smoke_test_contract(:test_provider)
+
+      expect(contract).to include(prompt: "Reply with exactly OK.")
+    end
   end
 end
