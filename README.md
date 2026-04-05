@@ -186,8 +186,9 @@ opencode_install
 ### Provider Metadata
 
 Downstream apps can also query a consolidated provider metadata contract for
-configuration UIs and policy decisions.
+ configuration UIs and policy decisions.
 
+The following example shows how to retrieve metadata for the Anthropic provider:
 ```ruby
 metadata = AgentHarness.provider_metadata(:anthropic)
 
