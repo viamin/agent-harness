@@ -1076,7 +1076,7 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
         "if [ -d #{path} ] && [ ! -L #{path} ]; then printf '%s\\n' " \
         "#{Shellwords.escape("preparation target changed into a directory during execution: #{requested_path}")} >&2; cleanup_status=1; " \
         "elif [ \"$state_value\" = symlink ]; then mkdir -p #{dir} && rm -f -- #{path} && " \
-        "ln -s \"$(cat /tmp/agent-harness-preparation-deadbeefcafebabe/symlink_target)\" #{path} || cleanup_status=$?; " \
+        "ln -s -- \"$(cat /tmp/agent-harness-preparation-deadbeefcafebabe/symlink_target)\" #{path} || cleanup_status=$?; " \
         "elif [ \"$state_value\" = file ]; then if [ -f /tmp/agent-harness-preparation-deadbeefcafebabe/backup ]; then mkdir -p #{dir} && rm -f -- #{path} && " \
         "cp -p /tmp/agent-harness-preparation-deadbeefcafebabe/backup #{path} || cleanup_status=$?; else echo " \
         "\"missing runtime preparation backup: /tmp/agent-harness-preparation-deadbeefcafebabe/backup\" >&2; cleanup_status=1; fi; " \

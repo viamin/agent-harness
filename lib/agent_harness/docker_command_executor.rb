@@ -310,7 +310,7 @@ module AgentHarness
           "cleanup_status=0; state_value=$(cat #{state} 2>/dev/null); if [ -d #{path} ] && [ ! -L #{path} ]; then " \
             "printf '%s\\n' #{directory_change_message} >&2; cleanup_status=1; " \
             "elif [ \"$state_value\" = symlink ]; then " \
-            "mkdir -p #{dir} && rm -f -- #{path} && ln -s \"$(cat #{symlink_target})\" #{path} || cleanup_status=$?; " \
+            "mkdir -p #{dir} && rm -f -- #{path} && ln -s -- \"$(cat #{symlink_target})\" #{path} || cleanup_status=$?; " \
             "elif [ \"$state_value\" = file ]; then " \
             "if [ -f #{backup} ]; then mkdir -p #{dir} && rm -f -- #{path} && cp -p #{backup} #{path} || cleanup_status=$?; " \
             "else echo \"missing runtime preparation backup: #{backup}\" >&2; cleanup_status=1; fi; " \
