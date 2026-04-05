@@ -130,11 +130,18 @@ module AgentHarness
       path = shell_path(write.path)
       dir = shell_path(File.dirname(write.path))
       backup = shell_path("/tmp/agent-harness-preparation-#{SecureRandom.hex(8)}")
-      backup_cmd = build_container_shell_command("[ ! -e #{path} ] || cp -p #{path} #{backup}", env: env)
+      state = shell_path("/tmp/agent-harness-preparation-state-#{SecureRandom.hex(8)}")
+      backup_cmd = build_container_shell_command(
+        "if [ -e #{path} ]; then cp -p #{path} #{backup} && printf 1 > #{state}; else printf 0 > #{state}; fi",
+        env: env
+      )
       run_host_command(backup_cmd, timeout: remaining_timeout(deadline, timeout:, command_name: "docker"))
       cleanup = {
         command: build_container_shell_command(
-          "if [ -e #{backup} ]; then mkdir -p #{dir} && cp -p #{backup} #{path} && rm -f #{backup}; else rm -f #{path}; fi",
+          "if [ \"$(cat #{state} 2>/dev/null)\" = 1 ]; then " \
+            "mkdir -p #{dir} && cp -p #{backup} #{path}; " \
+            "else rm -f #{path}; " \
+            "fi; rm -f #{backup} #{state}",
           env: env
         )
       }

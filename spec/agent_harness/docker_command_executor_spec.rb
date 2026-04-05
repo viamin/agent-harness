@@ -94,13 +94,13 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
     end
 
     it "materializes preparation file writes inside the container before executing" do
-      allow(SecureRandom).to receive(:hex).and_return("deadbeefcafebabe")
+      allow(SecureRandom).to receive(:hex).and_return("deadbeefcafebabe", "facefeedcafed00d")
 
       expect_popen3_sequence(
         [
           {
             env: {},
-            cmd: ["docker", "exec", container_id, "sh", "-lc", "[ ! -e \"$HOME\"/.config/opencode/opencode.json ] || cp -p \"$HOME\"/.config/opencode/opencode.json /tmp/agent-harness-preparation-deadbeefcafebabe"]
+            cmd: ["docker", "exec", container_id, "sh", "-lc", backup_command("\"$HOME\"/.config/opencode/opencode.json")]
           },
           {
             env: {},
@@ -121,7 +121,7 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
           },
           {
             env: {},
-            cmd: ["docker", "exec", container_id, "sh", "-lc", "if [ -e /tmp/agent-harness-preparation-deadbeefcafebabe ]; then mkdir -p \"$HOME\"/.config/opencode && cp -p /tmp/agent-harness-preparation-deadbeefcafebabe \"$HOME\"/.config/opencode/opencode.json && rm -f /tmp/agent-harness-preparation-deadbeefcafebabe; else rm -f \"$HOME\"/.config/opencode/opencode.json; fi"]
+            cmd: ["docker", "exec", container_id, "sh", "-lc", cleanup_command("\"$HOME\"/.config/opencode/opencode.json", "\"$HOME\"/.config/opencode")]
           }
         ]
       )
@@ -135,13 +135,13 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
     end
 
     it "uses request env overrides for container preparation commands" do
-      allow(SecureRandom).to receive(:hex).and_return("deadbeefcafebabe")
+      allow(SecureRandom).to receive(:hex).and_return("deadbeefcafebabe", "facefeedcafed00d")
 
       expect_popen3_sequence(
         [
           {
             env: {},
-            cmd: ["docker", "exec", "--env", "HOME=/tmp/request-home", container_id, "sh", "-lc", "[ ! -e \"$HOME\"/.config/opencode/opencode.json ] || cp -p \"$HOME\"/.config/opencode/opencode.json /tmp/agent-harness-preparation-deadbeefcafebabe"]
+            cmd: ["docker", "exec", "--env", "HOME=/tmp/request-home", container_id, "sh", "-lc", backup_command("\"$HOME\"/.config/opencode/opencode.json")]
           },
           {
             env: {},
@@ -158,7 +158,7 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
           },
           {
             env: {},
-            cmd: ["docker", "exec", "--env", "HOME=/tmp/request-home", container_id, "sh", "-lc", "if [ -e /tmp/agent-harness-preparation-deadbeefcafebabe ]; then mkdir -p \"$HOME\"/.config/opencode && cp -p /tmp/agent-harness-preparation-deadbeefcafebabe \"$HOME\"/.config/opencode/opencode.json && rm -f /tmp/agent-harness-preparation-deadbeefcafebabe; else rm -f \"$HOME\"/.config/opencode/opencode.json; fi"]
+            cmd: ["docker", "exec", "--env", "HOME=/tmp/request-home", container_id, "sh", "-lc", cleanup_command("\"$HOME\"/.config/opencode/opencode.json", "\"$HOME\"/.config/opencode")]
           }
         ]
       )
@@ -187,13 +187,13 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
     end
 
     it "quotes env-backed container preparation paths for shell execution" do
-      allow(SecureRandom).to receive(:hex).and_return("deadbeefcafebabe")
+      allow(SecureRandom).to receive(:hex).and_return("deadbeefcafebabe", "facefeedcafed00d")
 
       expect_popen3_sequence(
         [
           {
             env: {},
-            cmd: ["docker", "exec", "--env", "XDG_CONFIG_HOME=/tmp/my config", container_id, "sh", "-lc", "[ ! -e \"${XDG_CONFIG_HOME}\"/opencode.json ] || cp -p \"${XDG_CONFIG_HOME}\"/opencode.json /tmp/agent-harness-preparation-deadbeefcafebabe"]
+            cmd: ["docker", "exec", "--env", "XDG_CONFIG_HOME=/tmp/my config", container_id, "sh", "-lc", backup_command("\"${XDG_CONFIG_HOME}\"/opencode.json")]
           },
           {
             env: {},
@@ -210,7 +210,7 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
           },
           {
             env: {},
-            cmd: ["docker", "exec", "--env", "XDG_CONFIG_HOME=/tmp/my config", container_id, "sh", "-lc", "if [ -e /tmp/agent-harness-preparation-deadbeefcafebabe ]; then mkdir -p \"${XDG_CONFIG_HOME}\" && cp -p /tmp/agent-harness-preparation-deadbeefcafebabe \"${XDG_CONFIG_HOME}\"/opencode.json && rm -f /tmp/agent-harness-preparation-deadbeefcafebabe; else rm -f \"${XDG_CONFIG_HOME}\"/opencode.json; fi"]
+            cmd: ["docker", "exec", "--env", "XDG_CONFIG_HOME=/tmp/my config", container_id, "sh", "-lc", cleanup_command("\"${XDG_CONFIG_HOME}\"/opencode.json", "\"${XDG_CONFIG_HOME}\"")]
           }
         ]
       )
@@ -290,7 +290,7 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
     end
 
     it "cleans up the current prepared file if container preparation fails after writing" do
-      allow(SecureRandom).to receive(:hex).and_return("deadbeefcafebabe")
+      allow(SecureRandom).to receive(:hex).and_return("deadbeefcafebabe", "facefeedcafed00d")
       calls = []
 
       allow(Open3).to receive(:popen3) do |actual_env, *actual_cmd, &block|
@@ -318,17 +318,17 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
 
       expect(calls).to eq(
         [
-          {env: {}, cmd: ["docker", "exec", container_id, "sh", "-lc", "[ ! -e \"$HOME\"/.config/opencode/opencode.json ] || cp -p \"$HOME\"/.config/opencode/opencode.json /tmp/agent-harness-preparation-deadbeefcafebabe"]},
+          {env: {}, cmd: ["docker", "exec", container_id, "sh", "-lc", backup_command("\"$HOME\"/.config/opencode/opencode.json")]},
           {env: {}, cmd: ["docker", "exec", container_id, "sh", "-lc", "mkdir -p \"$HOME\"/.config/opencode"]},
           {env: {}, cmd: ["docker", "exec", "-i", container_id, "sh", "-lc", "cat > \"$HOME\"/.config/opencode/opencode.json"]},
           {env: {}, cmd: ["docker", "exec", container_id, "sh", "-lc", "chmod 600 \"$HOME\"/.config/opencode/opencode.json"]},
-          {env: {}, cmd: ["docker", "exec", container_id, "sh", "-lc", "if [ -e /tmp/agent-harness-preparation-deadbeefcafebabe ]; then mkdir -p \"$HOME\"/.config/opencode && cp -p /tmp/agent-harness-preparation-deadbeefcafebabe \"$HOME\"/.config/opencode/opencode.json && rm -f /tmp/agent-harness-preparation-deadbeefcafebabe; else rm -f \"$HOME\"/.config/opencode/opencode.json; fi"]}
+          {env: {}, cmd: ["docker", "exec", container_id, "sh", "-lc", cleanup_command("\"$HOME\"/.config/opencode/opencode.json", "\"$HOME\"/.config/opencode")]}
         ]
       )
     end
 
     it "cleans up prepared files after the main container command timeout expires" do
-      allow(SecureRandom).to receive(:hex).and_return("deadbeefcafebabe")
+      allow(SecureRandom).to receive(:hex).and_return("deadbeefcafebabe", "facefeedcafed00d")
       calls = []
 
       allow(executor).to receive(:execute_with_timeout) do |cmd_array, timeout:, env:, stdin_data:|
@@ -353,14 +353,47 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
 
       expect(calls.map { |call| call[:cmd] }).to eq(
         [
-          ["docker", "exec", container_id, "sh", "-lc", "[ ! -e \"$HOME\"/.config/opencode/opencode.json ] || cp -p \"$HOME\"/.config/opencode/opencode.json /tmp/agent-harness-preparation-deadbeefcafebabe"],
+          ["docker", "exec", container_id, "sh", "-lc", backup_command("\"$HOME\"/.config/opencode/opencode.json")],
           ["docker", "exec", container_id, "sh", "-lc", "mkdir -p \"$HOME\"/.config/opencode"],
           ["docker", "exec", "-i", container_id, "sh", "-lc", "cat > \"$HOME\"/.config/opencode/opencode.json"],
           ["docker", "exec", container_id, "echo", "hello"],
-          ["docker", "exec", container_id, "sh", "-lc", "if [ -e /tmp/agent-harness-preparation-deadbeefcafebabe ]; then mkdir -p \"$HOME\"/.config/opencode && cp -p /tmp/agent-harness-preparation-deadbeefcafebabe \"$HOME\"/.config/opencode/opencode.json && rm -f /tmp/agent-harness-preparation-deadbeefcafebabe; else rm -f \"$HOME\"/.config/opencode/opencode.json; fi"]
+          ["docker", "exec", container_id, "sh", "-lc", cleanup_command("\"$HOME\"/.config/opencode/opencode.json", "\"$HOME\"/.config/opencode")]
         ]
       )
       expect(calls.last[:timeout]).to be > 0
+    end
+
+    it "does not delete an originally existing file when the cleanup backup is missing" do
+      allow(SecureRandom).to receive(:hex).and_return("deadbeefcafebabe", "facefeedcafed00d")
+      calls = []
+
+      allow(Open3).to receive(:popen3) do |actual_env, *actual_cmd, &block|
+        calls << {env: actual_env, cmd: actual_cmd}
+        stderr = if actual_cmd == ["docker", "exec", container_id, "sh", "-lc", cleanup_command("\"$HOME\"/.config/opencode/opencode.json", "\"$HOME\"/.config/opencode")]
+          StringIO.new("cp: cannot stat '/tmp/agent-harness-preparation-deadbeefcafebabe'")
+        else
+          StringIO.new("")
+        end
+        exit_code = stderr.string.empty? ? 0 : 1
+        stdin = StringIO.new
+        stdout = StringIO.new("output")
+        wait_thr = instance_double(Process::Waiter, value: instance_double(Process::Status, exitstatus: exit_code))
+        block.call(stdin, stdout, stderr, wait_thr)
+      end
+
+      expect {
+        executor.execute(
+          ["echo", "hello"],
+          preparation: AgentHarness::ExecutionPreparation.new(
+            file_writes: [{path: "~/.config/opencode/opencode.json", content: "{\"ok\":true}"}]
+          )
+        )
+      }.to raise_error(AgentHarness::CommandExecutionError, /cannot stat/)
+
+      expect(calls).to include(
+        {env: {}, cmd: ["docker", "exec", container_id, "sh", "-lc", cleanup_command("\"$HOME\"/.config/opencode/opencode.json", "\"$HOME\"/.config/opencode")]},
+        {env: {}, cmd: ["docker", "exec", container_id, "echo", "hello"]}
+      )
     end
 
     it "handles string commands" do
@@ -473,6 +506,19 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
         expect(stdin.string).to eq(expected[:stdin]) if expected.key?(:stdin)
         result
       end
+    end
+
+    def backup_command(path)
+      "if [ -e #{path} ]; then cp -p #{path} /tmp/agent-harness-preparation-deadbeefcafebabe && printf 1 > " \
+        "/tmp/agent-harness-preparation-state-facefeedcafed00d; else printf 0 > " \
+        "/tmp/agent-harness-preparation-state-facefeedcafed00d; fi"
+    end
+
+    def cleanup_command(path, dir)
+      "if [ \"$(cat /tmp/agent-harness-preparation-state-facefeedcafed00d 2>/dev/null)\" = 1 ]; then " \
+        "mkdir -p #{dir} && cp -p /tmp/agent-harness-preparation-deadbeefcafebabe #{path}; " \
+        "else rm -f #{path}; " \
+        "fi; rm -f /tmp/agent-harness-preparation-deadbeefcafebabe /tmp/agent-harness-preparation-state-facefeedcafed00d"
     end
   end
 
