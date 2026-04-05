@@ -17,13 +17,33 @@ RSpec.describe AgentHarness::Providers::Cursor do
     it "returns the first-class install contract" do
       metadata = described_class.install_metadata
       binary_name = described_class.binary_name
+      build = described_class::INSTALL_BUILD
+      script_url = described_class::INSTALL_SCRIPT_URL
+      linux_x64_package_url = "https://downloads.cursor.com/lab/#{build}/linux/x64/agent-cli-package.tar.gz"
 
       expect(metadata[:source]).to eq(
         type: :shell_script,
-        url: "https://cursor.com/install",
-        command: "curl -fsSL https://cursor.com/install | bash"
+        url: script_url,
+        command: "curl -fsSL #{script_url} | bash",
+        resolved_version: build,
+        artifact_url_template: "https://downloads.cursor.com/lab/#{build}/%<os>s/%<arch>s/agent-cli-package.tar.gz",
+        default_artifact_url: linux_x64_package_url
       )
-      expect(metadata[:checksum]).to include(strategy: :none, optional: true)
+      expect(metadata[:checksum]).to eq(
+        strategy: :sha256,
+        targets: {
+          script: {
+            url: script_url,
+            value: described_class::INSTALL_SCRIPT_SHA256
+          },
+          artifacts: {
+            "linux/x64" => {
+              url: linux_x64_package_url,
+              value: described_class::INSTALL_LINUX_X64_PACKAGE_SHA256
+            }
+          }
+        }
+      )
       expect(metadata.dig(:binary, :name)).to eq(binary_name)
       expect(metadata.dig(:binary, :path)).to eq("$HOME/.local/bin/#{binary_name}")
       expect(metadata.dig(:binary, :suggested_global_path)).to eq("/usr/local/bin/#{binary_name}")

@@ -95,7 +95,8 @@ module AgentHarness
         #   when the provider does not expose an install contract
         def install_command(version: nil)
           metadata = install_metadata(version: version)
-          return metadata.dig(:source, :command) if metadata
+          command = metadata&.dig(:source, :command)
+          return command if command
 
           contract = installation_contract
           return nil unless contract

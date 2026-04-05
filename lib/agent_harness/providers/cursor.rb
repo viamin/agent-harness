@@ -14,6 +14,9 @@ module AgentHarness
     class Cursor < Base
       INSTALL_SCRIPT_URL = "https://cursor.com/install"
       INSTALL_TARGET_LATEST = "latest"
+      INSTALL_BUILD = "2026.03.30-a5d3e17"
+      INSTALL_SCRIPT_SHA256 = "8371988b483abec13c07c10e95cccc839da81ebf9596e430d3c90835a227cbad"
+      INSTALL_LINUX_X64_PACKAGE_SHA256 = "e0d4b611db111d2dbe76474386271bff3e1dbb2cc6ddf527f9d5d5801b2ce2a0"
 
       class << self
         def provider_name
@@ -89,17 +92,31 @@ module AgentHarness
 
         def install_metadata(version: nil)
           install_target = normalize_install_target(version)
+          linux_x64_package_url = package_url_for(os: "linux", arch: "x64")
 
           {
             source: {
               type: :shell_script,
               url: INSTALL_SCRIPT_URL,
-              command: "curl -fsSL #{INSTALL_SCRIPT_URL} | bash"
+              command: "curl -fsSL #{INSTALL_SCRIPT_URL} | bash",
+              resolved_version: INSTALL_BUILD,
+              artifact_url_template: "https://downloads.cursor.com/lab/#{INSTALL_BUILD}/%<os>s/%<arch>s/agent-cli-package.tar.gz",
+              default_artifact_url: linux_x64_package_url
             },
             checksum: {
-              strategy: :none,
-              optional: true,
-              reason: "Cursor distributes a rolling latest-channel install script without a stable pinned checksum contract."
+              strategy: :sha256,
+              targets: {
+                script: {
+                  url: INSTALL_SCRIPT_URL,
+                  value: INSTALL_SCRIPT_SHA256
+                },
+                artifacts: {
+                  "linux/x64" => {
+                    url: linux_x64_package_url,
+                    value: INSTALL_LINUX_X64_PACKAGE_SHA256
+                  }
+                }
+              }
             },
             binary: {
               name: binary_name,
@@ -115,6 +132,15 @@ module AgentHarness
         end
 
         private
+
+        def package_url_for(os:, arch:)
+          format(
+            "https://downloads.cursor.com/lab/%<build>s/%<os>s/%<arch>s/agent-cli-package.tar.gz",
+            build: INSTALL_BUILD,
+            os: os,
+            arch: arch
+          )
+        end
 
         def normalize_install_target(version)
           target = version.nil? ? INSTALL_TARGET_LATEST : version.to_s

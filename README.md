@@ -118,9 +118,18 @@ cursor_install
 #      source: {
 #        type: :shell_script,
 #        url: "https://cursor.com/install",
-#        command: "curl -fsSL https://cursor.com/install | bash"
+#        command: "curl -fsSL https://cursor.com/install | bash",
+#        resolved_version: "2026.03.30-a5d3e17",
+#        artifact_url_template: "https://downloads.cursor.com/lab/2026.03.30-a5d3e17/%<os>s/%<arch>s/agent-cli-package.tar.gz",
+#        default_artifact_url: "https://downloads.cursor.com/lab/2026.03.30-a5d3e17/linux/x64/agent-cli-package.tar.gz"
 #      },
-#      checksum: { strategy: :none, optional: true, ... },
+#      checksum: {
+#        strategy: :sha256,
+#        targets: {
+#          script: { ... },
+#          artifacts: { "linux/x64" => { ... } }
+#        }
+#      },
 #      binary: {
 #        name: "cursor-agent",
 #        path: "$HOME/.local/bin/cursor-agent",
