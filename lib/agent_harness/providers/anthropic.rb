@@ -26,22 +26,23 @@ module AgentHarness
         end
 
         def install_contract
+          installed_binary_path = "/usr/local/bin/claude"
           local_binary_path = "~/.local/bin/claude"
 
           {
             provider: provider_name,
             binary_name: binary_name,
             binary_paths: [
-              "/usr/local/bin/claude",
+              installed_binary_path,
               local_binary_path,
               binary_name
             ],
             install: {
               strategy: :shell,
               source: "official",
-              command: "tmp_script=$(mktemp) && trap 'rm -f \"$tmp_script\"' EXIT && curl -fsSL https://claude.ai/install.sh -o \"$tmp_script\" && bash \"$tmp_script\"",
+              command: "tmp_script=$(mktemp) && trap 'rm -f \"$tmp_script\"' EXIT && curl -fsSL https://claude.ai/install.sh -o \"$tmp_script\" && bash \"$tmp_script\" && cp -L \"$HOME/.local/bin/claude\" \"#{installed_binary_path}\" && chmod +x \"#{installed_binary_path}\"",
               warning: "Review the downloaded installer before execution and verify any published checksum or signature metadata when available.",
-              post_install_binary_path: local_binary_path
+              post_install_binary_path: installed_binary_path
             },
             supported_versions: {
               default: "latest",
