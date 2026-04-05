@@ -193,7 +193,9 @@ module AgentHarness
           end
 
           kwargs = {}
-          kwargs[:config] = nil if accepts.call(:config)
+          if accepts.call(:config)
+            kwargs[:config] = AgentHarness.configuration.providers[provider_name] || AgentHarness::ProviderConfig.new(provider_name)
+          end
           kwargs[:executor] = AgentHarness.configuration.command_executor if accepts.call(:executor)
           kwargs[:logger] = AgentHarness.logger if accepts.call(:logger)
           new(**kwargs)

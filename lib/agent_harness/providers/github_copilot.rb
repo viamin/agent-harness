@@ -28,6 +28,9 @@ module AgentHarness
             auth: {
               service: :github,
               api_family: :github_copilot
+            },
+            identity: {
+              bot_usernames: ["github-copilot[bot]"]
             }
           }
         end

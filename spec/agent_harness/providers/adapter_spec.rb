@@ -194,6 +194,44 @@ RSpec.describe AgentHarness::Providers::Adapter do
     end
   end
 
+  let(:config_sensitive_adapter_class) do
+    Class.new do
+      include AgentHarness::Providers::Adapter
+
+      class << self
+        def provider_name
+          :config_sensitive_adapter
+        end
+
+        def available?
+          true
+        end
+
+        def binary_name
+          "config-sensitive"
+        end
+      end
+
+      def initialize(config:)
+        @config = config
+      end
+
+      def configuration_schema
+        {
+          fields: [{name: @config.name, type: :string}],
+          auth_modes: [:api_key],
+          openai_compatible: false
+        }
+      end
+
+      def execution_semantics
+        {
+          prompt_delivery: @config.name
+        }
+      end
+    end
+  end
+
   let(:raising_metadata_adapter_class) do
     Class.new do
       include AgentHarness::Providers::Adapter
@@ -501,6 +539,24 @@ RSpec.describe AgentHarness::Providers::Adapter do
         expect(metadata[:identity]).to eq(
           bot_usernames: ["metadata_compatible_adapter", "metadata_alias"]
         )
+      end
+
+      it "passes a real provider config into metadata-safe adapter construction" do
+        provider_config = AgentHarness::ProviderConfig.new(:config_sensitive_adapter)
+        AgentHarness.configuration.providers[:config_sensitive_adapter] = provider_config
+
+        metadata = config_sensitive_adapter_class.provider_metadata
+
+        expect(metadata[:configuration]).to include(
+          fields: [{name: :config_sensitive_adapter, type: :string}],
+          auth_modes: [:api_key],
+          openai_compatible: false
+        )
+        expect(metadata[:runtime]).to include(
+          prompt_delivery: :config_sensitive_adapter
+        )
+      ensure
+        AgentHarness.configuration.providers.delete(:config_sensitive_adapter)
       end
 
       it "falls back to default metadata when safe construction raises" do

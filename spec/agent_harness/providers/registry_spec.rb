@@ -608,7 +608,7 @@ RSpec.describe AgentHarness::Providers::Registry do
         bot_usernames: ["codex"]
       )
       expect(catalog[:github_copilot][:identity]).to eq(
-        bot_usernames: ["github_copilot", "copilot"]
+        bot_usernames: ["github-copilot[bot]"]
       )
     end
 
