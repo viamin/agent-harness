@@ -172,6 +172,20 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
       )
     end
 
+    it "rejects home-relative preparation paths when HOME is explicitly unset" do
+      expect {
+        executor.execute(
+          ["echo", "hello"],
+          env: {"HOME" => nil},
+          preparation: AgentHarness::ExecutionPreparation.new(
+            file_writes: [{path: "~/.config/opencode/opencode.json", content: "{\"ok\":true}"}]
+          )
+        )
+      }.to raise_error(ArgumentError, /HOME cannot be nil or empty/)
+
+      expect(Open3).not_to have_received(:popen3)
+    end
+
     it "preserves shell env expansion in container preparation paths" do
       allow(SecureRandom).to receive(:hex).and_return("deadbeefcafebabe")
 

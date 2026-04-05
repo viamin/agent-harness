@@ -230,16 +230,26 @@ module AgentHarness
         env.fetch(key) { ENV[key] }.to_s
       end
 
-      home = env.key?("HOME") ? env["HOME"] : ENV["HOME"]
       if expanded_path == "~"
-        return File.expand_path(home || expanded_path)
+        return File.expand_path(resolve_preparation_home(env))
       end
 
       if expanded_path.start_with?("~/")
-        return File.expand_path(File.join(home || Dir.home, expanded_path.delete_prefix("~/")))
+        return File.expand_path(File.join(resolve_preparation_home(env), expanded_path.delete_prefix("~/")))
       end
 
       File.expand_path(expanded_path)
+    end
+
+    def resolve_preparation_home(env)
+      if env.key?("HOME")
+        home = env["HOME"]
+        raise ArgumentError, "HOME cannot be nil or empty for home-relative preparation paths" if home.nil? || home.empty?
+
+        return home
+      end
+
+      ENV["HOME"] || Dir.home
     end
 
     def snapshot_file_state(path)

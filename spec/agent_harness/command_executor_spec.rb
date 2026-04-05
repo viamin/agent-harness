@@ -119,6 +119,16 @@ RSpec.describe AgentHarness::CommandExecutor do
         end
       end
 
+      it "rejects home-relative preparation paths when HOME is explicitly unset" do
+        preparation = AgentHarness::ExecutionPreparation.new(
+          file_writes: [{path: "~/.config/test.json", content: "{\"ok\":true}"}]
+        )
+
+        expect {
+          executor.execute(["true"], env: {"HOME" => nil}, preparation: preparation)
+        }.to raise_error(ArgumentError, /HOME cannot be nil or empty/)
+      end
+
       it "expands env vars in preparation paths against request env overrides" do
         Dir.mktmpdir do |dir|
           preparation = AgentHarness::ExecutionPreparation.new(
