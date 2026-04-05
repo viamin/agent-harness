@@ -292,6 +292,45 @@ RSpec.describe AgentHarness::CommandExecutor do
         end
       end
 
+      it "removes newly prepared files after a timed out command without blocking past the timeout" do
+        Dir.mktmpdir do |dir|
+          file_path = File.join(dir, "config.json")
+          preparation = AgentHarness::ExecutionPreparation.new(
+            file_writes: [{path: file_path, content: "{\"ok\":true}"}]
+          )
+
+          expect {
+            executor.execute(["ruby", "-e", "sleep 0.05"], timeout: 0.01, preparation: preparation)
+          }.to raise_error(AgentHarness::TimeoutError, /Command timed out after 0\.01 seconds: ruby/)
+
+          Timeout.timeout(1) do
+            sleep 0.01 while File.exist?(file_path)
+          end
+
+          expect(File.exist?(file_path)).to be false
+        end
+      end
+
+      it "restores overwritten files after a timed out command" do
+        Dir.mktmpdir do |dir|
+          file_path = File.join(dir, "config.json")
+          File.binwrite(file_path, "{\"before\":true}")
+          preparation = AgentHarness::ExecutionPreparation.new(
+            file_writes: [{path: file_path, content: "{\"ok\":true}"}]
+          )
+
+          expect {
+            executor.execute(["ruby", "-e", "sleep 0.05"], timeout: 0.01, preparation: preparation)
+          }.to raise_error(AgentHarness::TimeoutError, /Command timed out after 0\.01 seconds: ruby/)
+
+          Timeout.timeout(1) do
+            sleep 0.01 until File.exist?(file_path) && File.binread(file_path) == "{\"before\":true}"
+          end
+
+          expect(File.binread(file_path)).to eq("{\"before\":true}")
+        end
+      end
+
       it "counts cleanup time against the timeout budget" do
         Dir.mktmpdir do |dir|
           file_path = File.join(dir, "config.json")

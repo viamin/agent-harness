@@ -298,13 +298,10 @@ module AgentHarness
         raise unless unknown_keyword_message.start_with?("unknown keyword", "unknown keywords")
         raise unless unknown_keyword_message.include?(":preparation")
 
-        # Preserve compatibility with downstream injected executors that still
-        # implement the pre-bootstrap execute signature. Providers now always
-        # pass the structured preparation contract; unsupported custom
-        # executors are responsible for rejecting or implementing it explicitly.
-        legacy_kwargs = {timeout: timeout, env: env}
-        legacy_kwargs[:stdin_data] = stdin_data unless stdin_data.nil?
-        @executor.execute(command, **legacy_kwargs)
+        raise ProviderError.new(
+          "Injected executor #{@executor.class}#execute must accept the preparation: keyword argument",
+          original_error: e
+        )
       end
 
       def track_tokens(response)

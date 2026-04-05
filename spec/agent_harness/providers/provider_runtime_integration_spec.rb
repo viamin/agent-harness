@@ -176,17 +176,10 @@ RSpec.describe "ProviderRuntime integration" do
       provider.send_message(prompt: "Hello", provider_runtime: runtime)
     end
 
-    it "falls back for legacy executors that do not accept preparation" do
+    it "fails loudly for legacy executors that do not accept preparation" do
       legacy_executor = Object.new
-      captured = nil
       legacy_executor.define_singleton_method(:execute) do |command, timeout:, env:|
-        captured = {command: command, timeout: timeout, env: env}
-        AgentHarness::CommandExecutor::Result.new(
-          stdout: "ok",
-          stderr: "",
-          exit_code: 0,
-          duration: 1.0
-        )
+        raise ArgumentError, "unknown keyword: :preparation"
       end
 
       provider_with_legacy_executor = Class.new(test_provider_class) do
@@ -199,13 +192,11 @@ RSpec.describe "ProviderRuntime integration" do
         end
       end.new(executor: legacy_executor)
 
-      response = provider_with_legacy_executor.send_message(prompt: "Hello")
-
-      expect(response.output).to eq("ok")
-      expect(captured).to eq(
-        command: ["test-cli", "Hello"],
-        timeout: 300,
-        env: {}
+      expect {
+        provider_with_legacy_executor.send_message(prompt: "Hello")
+      }.to raise_error(
+        AgentHarness::ProviderError,
+        /must accept the preparation: keyword argument/
       )
     end
   end
@@ -456,40 +447,16 @@ RSpec.describe "ProviderRuntime integration" do
       end
     end
 
-    it "falls back for legacy executors that do not accept preparation" do
+    it "fails loudly for legacy executors that do not accept preparation" do
       runtime = AgentHarness::ProviderRuntime.new(
         metadata: {config: {"theme" => "system"}}
       )
 
-      response = provider.send_message(prompt: "Hello", provider_runtime: runtime)
-
-      expect(response.output).to eq("Hello")
-    end
-
-    it "preserves stdin_data when falling back for legacy executors" do
-      captured = nil
-      provider = provider_class.new(
-        executor: Object.new.tap do |executor|
-          executor.define_singleton_method(:execute) do |command, timeout:, env:, stdin_data:|
-            captured = {command: command, timeout: timeout, env: env, stdin_data: stdin_data}
-            AgentHarness::CommandExecutor::Result.new(
-              stdout: stdin_data,
-              stderr: "",
-              exit_code: 0,
-              duration: 1.0
-            )
-          end
-        end
-      )
-
-      response = provider.send_message(prompt: "Hello")
-
-      expect(response.output).to eq("Hello")
-      expect(captured).to eq(
-        command: ["cursor-agent", "-p"],
-        timeout: 300,
-        env: {},
-        stdin_data: "Hello"
+      expect {
+        provider.send_message(prompt: "Hello", provider_runtime: runtime)
+      }.to raise_error(
+        AgentHarness::ProviderError,
+        /must accept the preparation: keyword argument/
       )
     end
   end

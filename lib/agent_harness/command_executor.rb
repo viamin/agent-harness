@@ -23,6 +23,7 @@ module AgentHarness
     PREPARATION_LOCK_REGISTRY_MUTEX = Mutex.new
     PREPARATION_LOCK_REGISTRY = {}
     PREPARATION_LOCK_POLL_INTERVAL = 0.01
+    PREPARATION_CLEANUP_GRACE_PERIOD = 5
 
     # Result of a command execution
     Result = Struct.new(:stdout, :stderr, :exit_code, :duration, keyword_init: true) do
@@ -60,6 +61,7 @@ module AgentHarness
       deadline = timeout_deadline(timeout)
       applied_preparation = []
       held_preparation_locks = []
+      background_cleanup_scheduled = false
 
       log_debug("Executing command", command: cmd_string, timeout: timeout)
       held_preparation_locks = acquire_preparation_locks(
@@ -114,13 +116,25 @@ module AgentHarness
             timeout: timeout,
             deadline: cleanup_deadline(deadline, timeout:)
           )
+        rescue TimeoutError => e
+          raise e if pending_exception.nil? || !pending_exception.is_a?(TimeoutError)
+
+          schedule_cleanup_preparation(
+            applied_preparation,
+            held_preparation_locks,
+            command_name: command_name
+          )
+          background_cleanup_scheduled = true
+          held_preparation_locks = []
         rescue => e
           raise e if pending_exception.nil?
 
           log_debug("Failed to clean up runtime preparation", error: e.message)
         end
       end
-      release_preparation_locks(held_preparation_locks) unless held_preparation_locks.nil? || held_preparation_locks.empty?
+      unless background_cleanup_scheduled || held_preparation_locks.nil? || held_preparation_locks.empty?
+        release_preparation_locks(held_preparation_locks)
+      end
     end
 
     # Check if a binary exists in PATH
@@ -255,6 +269,26 @@ module AgentHarness
         end
       end
       applied_preparation.clear
+    end
+
+    def schedule_cleanup_preparation(applied_preparation, held_preparation_locks, command_name:)
+      cleanup_deadline = timeout_deadline(PREPARATION_CLEANUP_GRACE_PERIOD)
+      Thread.new(applied_preparation, held_preparation_locks, cleanup_deadline, command_name) do |entries, locks, deadline_at, cleanup_command_name|
+        Thread.current.report_on_exception = false if Thread.current.respond_to?(:report_on_exception=)
+
+        begin
+          cleanup_preparation(
+            entries,
+            command_name: cleanup_command_name,
+            timeout: PREPARATION_CLEANUP_GRACE_PERIOD,
+            deadline: deadline_at
+          )
+        rescue => e
+          log_debug("Failed to clean up runtime preparation after timeout", error: e.message)
+        ensure
+          release_preparation_locks(locks) unless locks.nil? || locks.empty?
+        end
+      end
     end
 
     def expand_preparation_path(path, env)
