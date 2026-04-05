@@ -210,6 +210,8 @@ module AgentHarness
           end
         when Array
           value.map { |nested_value| duplicate_metadata(nested_value) }
+        when String
+          value.dup
         else
           value
         end
@@ -377,7 +379,9 @@ module AgentHarness
       def builtin_aliases_for(name, aliases)
         Array(aliases).reject do |alias_name|
           alias_key = alias_name.to_sym
-          @providers.key?(alias_key) && alias_key != name
+          next false if alias_key == name
+
+          @providers.key?(alias_key) || @aliases.key?(alias_key)
         end
       end
     end

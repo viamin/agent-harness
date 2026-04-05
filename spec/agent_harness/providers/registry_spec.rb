@@ -117,6 +117,15 @@ RSpec.describe AgentHarness::Providers::Registry do
       expect(registry.registered?(:anthropic)).to be true
     end
 
+    it "bootstraps builtins after a custom provider claims a future builtin alias via aliases" do
+      registry.register(:custom_provider, mock_provider, aliases: [:anthropic])
+
+      expect { registry.all }.not_to raise_error
+      expect(registry.get(:anthropic)).to eq(mock_provider)
+      expect(registry.get(:claude)).to eq(AgentHarness::Providers::Anthropic)
+      expect(registry.registered?(:anthropic)).to be true
+    end
+
     it "rejects aliases that conflict with builtin aliases during external registration" do
       registry.send(:ensure_builtin_providers_registered)
 
@@ -1114,6 +1123,14 @@ RSpec.describe AgentHarness::Providers::Registry do
       registry.provider_metadata_catalog(refresh: true)
 
       expect(metadata_provider.provider_metadata_calls).to eq(2)
+    end
+
+    it "returns defensive copies for mutable string leaves" do
+      metadata = registry.provider_metadata(:codex)
+      original_display_name = metadata[:display_name].dup
+      metadata[:display_name].replace("Mutated display")
+
+      expect(registry.provider_metadata(:codex)[:display_name]).to eq(original_display_name)
     end
 
     it "invalidates the cached catalog when a single provider metadata entry is refreshed" do
