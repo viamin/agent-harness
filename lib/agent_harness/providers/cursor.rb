@@ -156,9 +156,9 @@ module AgentHarness
 
           [
             "if command -v sha256sum >/dev/null 2>&1; then",
-            "echo \"#{expected_checksum}\" | sha256sum -c -",
+            "echo \"#{expected_checksum}\" | sha256sum -c -;",
             "else",
-            "echo \"#{expected_checksum}\" | shasum -a 256 -c -",
+            "echo \"#{expected_checksum}\" | shasum -a 256 -c -;",
             "fi"
           ].join(" ")
         end

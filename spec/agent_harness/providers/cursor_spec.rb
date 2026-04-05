@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "open3"
+
 RSpec.describe AgentHarness::Providers::Cursor do
   describe ".provider_name" do
     it "returns :cursor" do
@@ -69,6 +71,12 @@ RSpec.describe AgentHarness::Providers::Cursor do
       expect(described_class.install_command).to include("sha256sum -c -")
       expect(described_class.install_command).to include("shasum -a 256 -c -")
       expect(described_class.install_command).to include("bash \"$tmp\"")
+    end
+
+    it "publishes a shell command with valid bash syntax" do
+      _stdout, stderr, status = Open3.capture3("bash", "-n", stdin_data: described_class.install_command)
+
+      expect(status.success?).to be(true), stderr
     end
   end
 
