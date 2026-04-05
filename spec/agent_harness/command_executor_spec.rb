@@ -191,6 +191,24 @@ RSpec.describe AgentHarness::CommandExecutor do
           expect(timeouts).to eq([25.0, 20.0, 5.0])
         end
       end
+
+      it "restores files if preparation fails after writing" do
+        Dir.mktmpdir do |dir|
+          file_path = File.join(dir, "config.json")
+          preparation = AgentHarness::ExecutionPreparation.new(
+            file_writes: [{path: file_path, content: "{\"ok\":true}", mode: 0o600}]
+          )
+
+          allow(File).to receive(:chmod).and_call_original
+          allow(File).to receive(:chmod).with(0o600, file_path).and_raise(Errno::EPERM)
+
+          expect {
+            executor.execute(["true"], preparation: preparation)
+          }.to raise_error(Errno::EPERM)
+
+          expect(File.exist?(file_path)).to be false
+        end
+      end
     end
   end
 

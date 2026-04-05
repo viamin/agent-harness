@@ -86,9 +86,13 @@ module AgentHarness
       preparation.file_writes.each do |write|
         cleanup = materialize_file_write(write, timeout:, deadline:, env:)
         cleanup_steps << cleanup
-      rescue
-        cleanup_container_preparation(cleanup_steps, timeout:, deadline:, command_name: "docker")
-        raise
+      rescue => e
+        begin
+          cleanup_container_preparation(cleanup_steps, timeout:, deadline:, command_name: "docker")
+        rescue => cleanup_error
+          log_debug("Failed to clean up container runtime preparation", error: cleanup_error.message)
+        end
+        raise e
       end
     end
 
@@ -109,6 +113,12 @@ module AgentHarness
       backup = shell_path("/tmp/agent-harness-preparation-#{SecureRandom.hex(8)}")
       backup_cmd = build_container_shell_command("[ ! -e #{path} ] || cp -p #{path} #{backup}", env: env)
       run_host_command(backup_cmd, timeout: remaining_timeout(deadline, timeout:, command_name: "docker"))
+      cleanup = {
+        command: build_container_shell_command(
+          "if [ -e #{backup} ]; then cp -p #{backup} #{path} && rm -f #{backup}; else rm -f #{path}; fi",
+          env: env
+        )
+      }
 
       mkdir_cmd = build_container_shell_command("mkdir -p #{dir}", env: env)
       run_host_command(mkdir_cmd, timeout: remaining_timeout(deadline, timeout:, command_name: "docker"))
@@ -125,12 +135,19 @@ module AgentHarness
         run_host_command(chmod_cmd, timeout: remaining_timeout(deadline, timeout:, command_name: "docker"))
       end
 
-      {
-        command: build_container_shell_command(
-          "if [ -e #{backup} ]; then cp -p #{backup} #{path} && rm -f #{backup}; else rm -f #{path}; fi",
-          env: env
-        )
-      }
+      cleanup
+    rescue => e
+      if cleanup
+        begin
+          run_host_command(
+            cleanup[:command],
+            timeout: remaining_timeout(deadline, timeout:, command_name: "docker")
+          )
+        rescue => cleanup_error
+          log_debug("Failed to clean up container runtime preparation", error: cleanup_error.message)
+        end
+      end
+      raise e
     end
 
     def run_host_command(command, timeout:, stdin_data: nil)

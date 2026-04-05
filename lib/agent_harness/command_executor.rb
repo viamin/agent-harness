@@ -142,21 +142,25 @@ module AgentHarness
       preparation.file_writes.each do |write|
         resolved_path = expand_preparation_path(write.path, env)
         snapshot = snapshot_file_state(resolved_path)
+        applied_preparation << {path: resolved_path, snapshot:}
+
         within_timeout(deadline, timeout:, command_name:) do
           FileUtils.mkdir_p(File.dirname(resolved_path))
           File.binwrite(resolved_path, write.content)
           File.chmod(write.mode, resolved_path) if write.mode
         end
-
-        applied_preparation << {path: resolved_path, snapshot:}
-      rescue
-        cleanup_preparation(
-          applied_preparation,
-          command_name: command_name,
-          timeout: timeout,
-          deadline: deadline
-        )
-        raise
+      rescue => e
+        begin
+          cleanup_preparation(
+            applied_preparation,
+            command_name: command_name,
+            timeout: timeout,
+            deadline: deadline
+          )
+        rescue => cleanup_error
+          log_debug("Failed to clean up runtime preparation", error: cleanup_error.message)
+        end
+        raise e
       end
     end
 

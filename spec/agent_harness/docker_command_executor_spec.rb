@@ -247,6 +247,44 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
       expect(timeouts.last).to be < timeouts.first
     end
 
+    it "cleans up the current prepared file if container preparation fails after writing" do
+      allow(SecureRandom).to receive(:hex).and_return("deadbeefcafebabe")
+      calls = []
+
+      allow(Open3).to receive(:popen3) do |actual_env, *actual_cmd, &block|
+        calls << {env: actual_env, cmd: actual_cmd}
+        stderr = if actual_cmd == ["docker", "exec", container_id, "sh", "-lc", "chmod 600 \"$HOME\"/.config/opencode/opencode.json"]
+          StringIO.new("chmod failed")
+        else
+          StringIO.new("")
+        end
+        exit_code = stderr.string.empty? ? 0 : 1
+        stdin = StringIO.new
+        stdout = StringIO.new("output")
+        wait_thr = instance_double(Process::Waiter, value: instance_double(Process::Status, exitstatus: exit_code))
+        block.call(stdin, stdout, stderr, wait_thr)
+      end
+
+      expect {
+        executor.execute(
+          ["echo", "hello"],
+          preparation: AgentHarness::ExecutionPreparation.new(
+            file_writes: [{path: "~/.config/opencode/opencode.json", content: "{\"ok\":true}", mode: 0o600}]
+          )
+        )
+      }.to raise_error(AgentHarness::CommandExecutionError, /chmod failed/)
+
+      expect(calls).to eq(
+        [
+          {env: {}, cmd: ["docker", "exec", container_id, "sh", "-lc", "[ ! -e \"$HOME\"/.config/opencode/opencode.json ] || cp -p \"$HOME\"/.config/opencode/opencode.json /tmp/agent-harness-preparation-deadbeefcafebabe"]},
+          {env: {}, cmd: ["docker", "exec", container_id, "sh", "-lc", "mkdir -p \"$HOME\"/.config/opencode"]},
+          {env: {}, cmd: ["docker", "exec", "-i", container_id, "sh", "-lc", "cat > \"$HOME\"/.config/opencode/opencode.json"]},
+          {env: {}, cmd: ["docker", "exec", container_id, "sh", "-lc", "chmod 600 \"$HOME\"/.config/opencode/opencode.json"]},
+          {env: {}, cmd: ["docker", "exec", container_id, "sh", "-lc", "if [ -e /tmp/agent-harness-preparation-deadbeefcafebabe ]; then cp -p /tmp/agent-harness-preparation-deadbeefcafebabe \"$HOME\"/.config/opencode/opencode.json && rm -f /tmp/agent-harness-preparation-deadbeefcafebabe; else rm -f \"$HOME\"/.config/opencode/opencode.json; fi"]}
+        ]
+      )
+    end
+
     it "handles string commands" do
       expect_popen3_with(["docker", "exec", container_id, "echo", "hello world"])
       executor.execute("echo hello\\ world")
