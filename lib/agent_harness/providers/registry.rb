@@ -234,8 +234,8 @@ module AgentHarness
             supports_sessions: false,
             supports_dangerous_mode: false
           },
-          configuration: {},
-          capabilities: {},
+          configuration: {fields: [], auth_modes: [], openai_compatible: false},
+          capabilities: {streaming: false, file_upload: false, vision: false, tool_use: false, json_mode: false, mcp: false, dangerous_mode: false},
           health_check: {
             supports_registry_checks: false,
             provider_status: false,
