@@ -227,7 +227,7 @@ module AgentHarness
     def expand_preparation_path(path, env)
       expanded_path = path.gsub(/\$(\w+)|\$\{([^}]+)\}/) do
         key = Regexp.last_match(1) || Regexp.last_match(2)
-        env.fetch(key) { ENV[key] }.to_s
+        resolve_preparation_path_env_var(key, env)
       end
 
       if expanded_path == "~"
@@ -239,6 +239,20 @@ module AgentHarness
       end
 
       File.expand_path(expanded_path)
+    end
+
+    def validate_preparation_path_env!(path, env)
+      path.scan(/\$(\w+)|\$\{([^}]+)\}/) do |match|
+        key = match.compact.first
+        resolve_preparation_path_env_var(key, env)
+      end
+    end
+
+    def resolve_preparation_path_env_var(key, env)
+      value = env.key?(key) ? env[key] : ENV[key]
+      raise ArgumentError, "#{key} cannot be nil or empty for env-backed preparation paths" if value.nil? || value.empty?
+
+      value
     end
 
     def resolve_preparation_home(env)

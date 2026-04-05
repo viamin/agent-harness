@@ -126,6 +126,7 @@ module AgentHarness
     end
 
     def materialize_file_write(write, timeout:, deadline:, env:)
+      validate_preparation_path_env!(write.path, env)
       path = shell_path(write.path)
       dir = shell_path(File.dirname(write.path))
       backup = shell_path("/tmp/agent-harness-preparation-#{SecureRandom.hex(8)}")
@@ -193,6 +194,17 @@ module AgentHarness
 
     def build_container_shell_command(script, env:, stdin_data: nil)
       build_docker_command(["sh", "-lc", script], env: env, stdin_data: stdin_data)
+    end
+
+    def resolve_preparation_path_env_var(key, env)
+      unless env.key?(key)
+        raise ArgumentError, "#{key} cannot be nil or empty for env-backed preparation paths"
+      end
+
+      value = env[key]
+      raise ArgumentError, "#{key} cannot be nil or empty for env-backed preparation paths" if value.nil? || value.empty?
+
+      value
     end
 
     def shell_path(path)

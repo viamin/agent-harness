@@ -141,6 +141,26 @@ RSpec.describe AgentHarness::CommandExecutor do
         end
       end
 
+      it "rejects env-backed preparation paths when the env var is missing" do
+        preparation = AgentHarness::ExecutionPreparation.new(
+          file_writes: [{path: "$AGENT_HARNESS_TEST_CONFIG_HOME/test.json", content: "{\"ok\":true}"}]
+        )
+
+        expect {
+          executor.execute(["true"], env: {}, preparation: preparation)
+        }.to raise_error(ArgumentError, /AGENT_HARNESS_TEST_CONFIG_HOME cannot be nil or empty/)
+      end
+
+      it "rejects env-backed preparation paths when the env var is blank" do
+        preparation = AgentHarness::ExecutionPreparation.new(
+          file_writes: [{path: "$AGENT_HARNESS_TEST_CONFIG_HOME/test.json", content: "{\"ok\":true}"}]
+        )
+
+        expect {
+          executor.execute(["true"], env: {"AGENT_HARNESS_TEST_CONFIG_HOME" => ""}, preparation: preparation)
+        }.to raise_error(ArgumentError, /AGENT_HARNESS_TEST_CONFIG_HOME cannot be nil or empty/)
+      end
+
       it "restores previously existing files after execution" do
         Dir.mktmpdir do |dir|
           file_path = File.join(dir, "config.json")

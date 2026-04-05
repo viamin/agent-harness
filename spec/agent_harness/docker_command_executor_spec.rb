@@ -224,6 +224,34 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
       )
     end
 
+    it "rejects env-backed container preparation paths when the env var is missing" do
+      expect {
+        executor.execute(
+          ["echo", "hello"],
+          env: {},
+          preparation: AgentHarness::ExecutionPreparation.new(
+            file_writes: [{path: "$AGENT_HARNESS_TEST_CONFIG_HOME/opencode.json", content: "{\"ok\":true}"}]
+          )
+        )
+      }.to raise_error(ArgumentError, /AGENT_HARNESS_TEST_CONFIG_HOME cannot be nil or empty/)
+
+      expect(Open3).not_to have_received(:popen3)
+    end
+
+    it "rejects env-backed container preparation paths when the env var is blank" do
+      expect {
+        executor.execute(
+          ["echo", "hello"],
+          env: {"AGENT_HARNESS_TEST_CONFIG_HOME" => ""},
+          preparation: AgentHarness::ExecutionPreparation.new(
+            file_writes: [{path: "$AGENT_HARNESS_TEST_CONFIG_HOME/opencode.json", content: "{\"ok\":true}"}]
+          )
+        )
+      }.to raise_error(ArgumentError, /AGENT_HARNESS_TEST_CONFIG_HOME cannot be nil or empty/)
+
+      expect(Open3).not_to have_received(:popen3)
+    end
+
     it "uses the remaining timeout budget for preparation and execution" do
       allow(SecureRandom).to receive(:hex).and_return("deadbeefcafebabe")
       time_values = [
