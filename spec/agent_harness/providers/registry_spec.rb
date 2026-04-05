@@ -72,7 +72,7 @@ RSpec.describe AgentHarness::Providers::Registry do
       }.to raise_error(AgentHarness::ConfigurationError, /Alias :shared conflicts with registered provider :first/)
     end
 
-    it "drops an alias claim when that identifier becomes a canonical provider name" do
+    it "rejects canonical provider names that conflict with an existing alias" do
       other_provider = Class.new do
         def self.provider_name = :other_provider
         def self.available? = true
@@ -80,11 +80,10 @@ RSpec.describe AgentHarness::Providers::Registry do
       end
 
       registry.register(:first, mock_provider, aliases: [:second])
-      registry.register(:second, other_provider)
 
-      expect(registry.get(:second)).to be(other_provider)
-      expect(registry.provider_metadata(:first)[:aliases]).to eq([])
-      expect(registry.provider_metadata(:second)[:provider]).to eq(:second)
+      expect {
+        registry.register(:second, other_provider)
+      }.to raise_error(AgentHarness::ConfigurationError, /Provider :second conflicts with registered alias for :first/)
     end
 
     it "rejects aliases that conflict with another canonical provider name" do
@@ -102,12 +101,13 @@ RSpec.describe AgentHarness::Providers::Registry do
     end
 
     it "bootstraps builtin providers before external registration to avoid deferred conflicts" do
-      registry.register(:anthropic, mock_provider)
+      expect {
+        registry.register(:anthropic, mock_provider)
+      }.to raise_error(AgentHarness::ConfigurationError, /Provider :anthropic conflicts with registered alias for :claude/)
 
-      expect(registry.get(:anthropic)).to be(mock_provider)
       expect { registry.all }.not_to raise_error
-      expect(registry.all).to include(:claude, :anthropic)
-      expect(registry.provider_metadata(:claude)[:aliases]).not_to include(:anthropic)
+      expect(registry.all).to include(:claude)
+      expect(registry.provider_metadata(:claude)[:aliases]).to include(:anthropic)
     end
 
     it "rejects aliases that conflict with builtin aliases during external registration" do

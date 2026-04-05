@@ -46,8 +46,8 @@ module AgentHarness
           end
           .uniq - [name]
 
+        validate_provider_name!(name)
         validate_aliases!(name, normalized_aliases)
-        unregister_claimed_alias(name)
         unregister_aliases_for(name)
 
         @providers[name] = klass
@@ -197,13 +197,6 @@ module AgentHarness
         end
       end
 
-      def unregister_claimed_alias(name)
-        previous_owner = @aliases.delete(name)
-        return unless previous_owner && previous_owner != name
-
-        @provider_aliases[previous_owner] = @provider_aliases[previous_owner] - [name]
-      end
-
       def clear_metadata_caches!(klass)
         clear_class_metadata_cache!(klass, :@metadata_runtime_available)
         clear_class_metadata_cache!(klass, :@auth_status_available)
@@ -224,6 +217,13 @@ module AgentHarness
         return if includes_adapter || has_required_methods
 
         raise ConfigurationError, "Provider class must include AgentHarness::Providers::Adapter or implement required class methods"
+      end
+
+      def validate_provider_name!(name)
+        conflicting_provider = @aliases[name]
+        return unless conflicting_provider && conflicting_provider != name
+
+        raise ConfigurationError, "Provider #{name.inspect} conflicts with registered alias for #{conflicting_provider.inspect}"
       end
 
       def validate_aliases!(name, aliases)
