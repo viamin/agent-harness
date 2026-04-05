@@ -99,11 +99,11 @@ module AgentHarness
         #   for this provider
         # @return [Hash] provider metadata
         def provider_metadata(aliases: [])
-          provider = new
-          configuration = provider.configuration_schema
-          execution = provider.execution_semantics
-          installation = installation_contract
           normalized_aliases = aliases.map(&:to_sym)
+          provider = metadata_provider_instance
+          configuration = provider&.configuration_schema || default_configuration_schema
+          execution = provider&.execution_semantics || default_execution_semantics
+          installation = installation_contract
 
           deep_merge_metadata(
             {
@@ -113,7 +113,7 @@ module AgentHarness
               display_name: provider_display_name(provider),
               binary_name: binary_name,
               auth: {
-                default_mode: provider.auth_type,
+                default_mode: provider&.auth_type || default_auth_type,
                 supported_modes: Array(configuration[:auth_modes]).map(&:to_sym),
                 service: provider_name,
                 api_family: configuration[:openai_compatible] ? :openai : provider_name
@@ -128,13 +128,13 @@ module AgentHarness
                 output_format: execution[:output_format],
                 sandbox_aware: execution[:sandbox_aware],
                 uses_subcommand: execution[:uses_subcommand],
-                supports_mcp: provider.supports_mcp?,
-                supported_mcp_transports: provider.supported_mcp_transports,
-                supports_sessions: provider.supports_sessions?,
-                supports_dangerous_mode: provider.supports_dangerous_mode?
+                supports_mcp: provider&.supports_mcp? || default_supports_mcp,
+                supported_mcp_transports: provider&.supported_mcp_transports || default_supported_mcp_transports,
+                supports_sessions: provider&.supports_sessions? || default_supports_sessions,
+                supports_dangerous_mode: provider&.supports_dangerous_mode? || default_supports_dangerous_mode
               },
               configuration: configuration,
-              capabilities: provider.capabilities,
+              capabilities: provider&.capabilities || default_capabilities,
               health_check: {
                 supports_registry_checks: true,
                 provider_status: overrides_instance_method?(:health_status),
@@ -159,12 +159,24 @@ module AgentHarness
         private
 
         def provider_bot_usernames(aliases: [])
-          [provider_name, *aliases, binary_name]
+          [provider_name, *aliases]
             .filter_map do |identity|
               normalized_identity = identity.to_s.strip
               normalized_identity unless normalized_identity.empty?
             end
             .uniq
+        end
+
+        def metadata_provider_instance
+          return nil unless parameterless_initializer?
+
+          new
+        end
+
+        def parameterless_initializer?
+          instance_method(:initialize).parameters.none? do |type, _name|
+            type == :req || type == :keyreq
+          end
         end
 
         def overrides_instance_method?(method_name)
@@ -187,6 +199,59 @@ module AgentHarness
           return provider.display_name if provider.respond_to?(:display_name)
 
           provider_name.to_s.tr("_", " ").capitalize
+        end
+
+        def default_configuration_schema
+          {
+            fields: [],
+            auth_modes: [default_auth_type],
+            openai_compatible: false
+          }
+        end
+
+        def default_execution_semantics
+          {
+            prompt_delivery: :arg,
+            output_format: :text,
+            sandbox_aware: false,
+            uses_subcommand: false,
+            non_interactive_flag: nil,
+            legitimate_exit_codes: [0],
+            stderr_is_diagnostic: true,
+            parses_rate_limit_reset: false
+          }
+        end
+
+        def default_auth_type
+          :api_key
+        end
+
+        def default_capabilities
+          {
+            streaming: false,
+            file_upload: false,
+            vision: false,
+            tool_use: false,
+            json_mode: false,
+            mcp: false,
+            dangerous_mode: false
+          }
+        end
+
+        def default_supports_mcp
+          false
+        end
+
+        def default_supported_mcp_transports
+          []
+        end
+
+        def default_supports_sessions
+          false
+        end
+
+        def default_supports_dangerous_mode
+          false
         end
 
         public

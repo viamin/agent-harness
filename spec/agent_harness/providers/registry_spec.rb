@@ -333,6 +333,40 @@ RSpec.describe AgentHarness::Providers::Registry do
       )
     end
 
+    it "returns adapter metadata even when the provider requires constructor arguments" do
+      required_initializer_provider = Class.new do
+        include AgentHarness::Providers::Adapter
+
+        class << self
+          def provider_name = :required_initializer_provider
+          def available? = true
+          def binary_name = "required"
+        end
+
+        def initialize(required:)
+          @required = required
+        end
+      end
+
+      registry.register(:required_initializer_provider, required_initializer_provider, aliases: [:required])
+
+      metadata = registry.provider_metadata(:required)
+
+      expect(metadata).to include(
+        provider: :required_initializer_provider,
+        canonical_provider: :required_initializer_provider,
+        aliases: [:required],
+        binary_name: "required"
+      )
+      expect(metadata[:auth]).to include(
+        default_mode: :api_key,
+        supported_modes: [:api_key]
+      )
+      expect(metadata[:identity]).to eq(
+        bot_usernames: ["required_initializer_provider", "required"]
+      )
+    end
+
     it "raises ConfigurationError for unknown providers" do
       expect {
         registry.provider_metadata(:nonexistent_provider_xyz)
@@ -353,7 +387,7 @@ RSpec.describe AgentHarness::Providers::Registry do
         bot_usernames: ["codex"]
       )
       expect(catalog[:github_copilot][:identity]).to eq(
-        bot_usernames: ["github_copilot", "copilot", "github-copilot-cli"]
+        bot_usernames: ["github_copilot", "copilot"]
       )
     end
   end

@@ -238,7 +238,7 @@ module AgentHarness
             lightweight: false
           },
           identity: {
-            bot_usernames: [name, *aliases, klass.binary_name]
+            bot_usernames: [name, *aliases]
               .filter_map do |identity|
                 normalized_identity = identity.to_s.strip
                 normalized_identity unless normalized_identity.empty?

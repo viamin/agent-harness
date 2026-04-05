@@ -60,6 +60,30 @@ RSpec.describe AgentHarness::Providers::Adapter do
     end
   end
 
+  let(:required_initializer_adapter_class) do
+    Class.new do
+      include AgentHarness::Providers::Adapter
+
+      class << self
+        def provider_name
+          :required_initializer_adapter
+        end
+
+        def available?
+          true
+        end
+
+        def binary_name
+          "required"
+        end
+      end
+
+      def initialize(required:)
+        @required = required
+      end
+    end
+  end
+
   let(:package_only_installing_adapter_class) do
     Class.new do
       include AgentHarness::Providers::Adapter
@@ -233,7 +257,40 @@ RSpec.describe AgentHarness::Providers::Adapter do
           lightweight: true
         )
         expect(metadata[:identity]).to eq(
-          bot_usernames: ["test_adapter", "test_alias", "test"]
+          bot_usernames: ["test_adapter", "test_alias"]
+        )
+      end
+
+      it "does not require parameterless construction to expose metadata" do
+        metadata = required_initializer_adapter_class.provider_metadata(aliases: [:required_alias])
+
+        expect(metadata).to include(
+          provider: :required_initializer_adapter,
+          canonical_provider: :required_initializer_adapter,
+          aliases: [:required_alias],
+          display_name: "Required initializer adapter",
+          binary_name: "required"
+        )
+        expect(metadata[:auth]).to include(
+          default_mode: :api_key,
+          supported_modes: [:api_key],
+          service: :required_initializer_adapter,
+          api_family: :required_initializer_adapter
+        )
+        expect(metadata[:runtime]).to include(
+          available: true,
+          installable: false,
+          supports_mcp: false,
+          supports_sessions: false,
+          supports_dangerous_mode: false
+        )
+        expect(metadata[:configuration]).to include(
+          fields: [],
+          auth_modes: [:api_key],
+          openai_compatible: false
+        )
+        expect(metadata[:identity]).to eq(
+          bot_usernames: ["required_initializer_adapter", "required_alias"]
         )
       end
     end
