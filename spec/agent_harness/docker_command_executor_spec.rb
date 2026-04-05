@@ -172,6 +172,43 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
       )
     end
 
+    it "supports preparation targets directly under HOME" do
+      allow(SecureRandom).to receive(:hex).and_return("deadbeefcafebabe", "facefeedcafed00d")
+
+      expect_popen3_sequence(
+        [
+          {
+            env: {},
+            cmd: ["docker", "exec", container_id, "sh", "-lc", backup_command("\"$HOME\"/opencode.json")]
+          },
+          {
+            env: {},
+            cmd: ["docker", "exec", container_id, "sh", "-lc", "mkdir -p \"$HOME\""]
+          },
+          {
+            env: {},
+            cmd: ["docker", "exec", "-i", container_id, "sh", "-lc", "cat > \"$HOME\"/opencode.json"],
+            stdin: "{\"ok\":true}"
+          },
+          {
+            env: {},
+            cmd: ["docker", "exec", container_id, "echo", "hello"]
+          },
+          {
+            env: {},
+            cmd: ["docker", "exec", container_id, "sh", "-lc", cleanup_command("\"$HOME\"/opencode.json", "\"$HOME\"")]
+          }
+        ]
+      )
+
+      executor.execute(
+        ["echo", "hello"],
+        preparation: AgentHarness::ExecutionPreparation.new(
+          file_writes: [{path: "~/opencode.json", content: "{\"ok\":true}"}]
+        )
+      )
+    end
+
     it "rejects home-relative preparation paths when HOME is explicitly unset" do
       expect {
         executor.execute(
@@ -331,7 +368,7 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
       allow(SecureRandom).to receive(:hex).and_return("deadbeefcafebabe", "facefeedcafed00d")
       calls = []
 
-      allow(executor).to receive(:execute_with_timeout) do |cmd_array, timeout:, env:, stdin_data:|
+      allow(executor).to receive(:execute_with_timeout) do |cmd_array, timeout:, env:, stdin_data:, configured_timeout: timeout|
         calls << {cmd: cmd_array, timeout: timeout, env: env, stdin_data: stdin_data}
 
         if cmd_array == ["docker", "exec", container_id, "echo", "hello"]

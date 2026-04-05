@@ -219,6 +219,7 @@ module AgentHarness
         var_name = match[1] || match[2]
         return %("${#{var_name}}")
       end
+      return %("$HOME") if path == "~"
       return shell_escaped_path(path) unless path.start_with?("~/")
 
       suffix = path.delete_prefix("~/")

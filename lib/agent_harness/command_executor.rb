@@ -75,6 +75,7 @@ module AgentHarness
         execute_with_timeout(
           cmd_array,
           timeout: remaining_timeout(deadline, timeout:, command_name: command_name),
+          configured_timeout: timeout,
           env: env,
           stdin_data: stdin_data
         )
@@ -320,7 +321,7 @@ module AgentHarness
       Process.clock_gettime(Process::CLOCK_MONOTONIC)
     end
 
-    def execute_with_timeout(cmd_array, timeout:, env:, stdin_data:)
+    def execute_with_timeout(cmd_array, timeout:, env:, stdin_data:, configured_timeout: timeout)
       stdout = ""
       stderr = ""
       status = nil
@@ -341,7 +342,7 @@ module AgentHarness
 
       [stdout, stderr, status]
     rescue Timeout::Error
-      raise TimeoutError, "Command timed out after #{timeout} seconds: #{cmd_array.first}"
+      raise TimeoutError, "Command timed out after #{configured_timeout} seconds: #{cmd_array.first}"
     end
 
     def execute_without_timeout(cmd_array, env:, stdin_data:)

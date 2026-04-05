@@ -200,6 +200,19 @@ RSpec.describe AgentHarness::CommandExecutor do
         end
       end
 
+      it "preserves the configured timeout in timeout errors after preparation" do
+        Dir.mktmpdir do |dir|
+          file_path = File.join(dir, "config.json")
+          preparation = AgentHarness::ExecutionPreparation.new(
+            file_writes: [{path: file_path, content: "{\"ok\":true}"}]
+          )
+
+          expect {
+            executor.execute(["ruby", "-e", "sleep 0.05"], timeout: 0.01, preparation: preparation)
+          }.to raise_error(AgentHarness::TimeoutError, /Command timed out after 0\.01 seconds: ruby/)
+        end
+      end
+
       it "counts cleanup time against the timeout budget" do
         Dir.mktmpdir do |dir|
           file_path = File.join(dir, "config.json")
