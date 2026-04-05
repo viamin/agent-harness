@@ -43,6 +43,7 @@ module AgentHarness
         @providers[name] = klass
         @provider_aliases[name] = normalized_aliases
         @metadata_runtime_available.delete(name)
+        clear_metadata_runtime_available_cache!(klass)
 
         normalized_aliases.each do |alias_name|
           previous_owner = @aliases[alias_name]
@@ -157,6 +158,7 @@ module AgentHarness
       #
       # @return [void]
       def reset!
+        @providers.each_value { |klass| clear_metadata_runtime_available_cache!(klass) }
         @providers.clear
         @aliases.clear
         @provider_aliases.clear
@@ -184,6 +186,12 @@ module AgentHarness
         return unless previous_owner && previous_owner != name
 
         @provider_aliases[previous_owner] = @provider_aliases[previous_owner] - [name]
+      end
+
+      def clear_metadata_runtime_available_cache!(klass)
+        return unless klass.instance_variable_defined?(:@metadata_runtime_available)
+
+        klass.remove_instance_variable(:@metadata_runtime_available)
       end
 
       def validate_provider_class!(klass)

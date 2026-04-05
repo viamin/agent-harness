@@ -94,6 +94,29 @@ RSpec.describe AgentHarness::Providers::Registry do
         registry.register(:second, other_provider, aliases: [:first])
       }.to raise_error(AgentHarness::ConfigurationError, /Alias :first conflicts with registered provider :first/)
     end
+
+    it "clears adapter metadata availability caches when a provider is re-registered" do
+      adapter_provider = Class.new do
+        include AgentHarness::Providers::Adapter
+
+        class << self
+          attr_accessor :available_flag
+
+          def provider_name = :adapter_provider
+          def available? = available_flag
+          def binary_name = "adapter"
+        end
+      end
+      adapter_provider.available_flag = true
+
+      registry.register(:adapter_provider, adapter_provider)
+      expect(registry.provider_metadata(:adapter_provider)[:runtime][:available]).to be true
+
+      adapter_provider.available_flag = false
+      registry.register(:adapter_provider, adapter_provider)
+
+      expect(registry.provider_metadata(:adapter_provider)[:runtime][:available]).to be false
+    end
   end
 
   describe "#get" do
@@ -626,6 +649,30 @@ RSpec.describe AgentHarness::Providers::Registry do
 
       # After reset, builtins should not be registered yet
       expect(registry.instance_variable_get(:@builtin_registered)).to be false
+    end
+
+    it "clears adapter metadata availability caches" do
+      adapter_provider = Class.new do
+        include AgentHarness::Providers::Adapter
+
+        class << self
+          attr_accessor :available_flag
+
+          def provider_name = :adapter_provider
+          def available? = available_flag
+          def binary_name = "adapter"
+        end
+      end
+      adapter_provider.available_flag = true
+
+      registry.register(:adapter_provider, adapter_provider)
+      expect(registry.provider_metadata(:adapter_provider)[:runtime][:available]).to be true
+
+      adapter_provider.available_flag = false
+      registry.reset!
+      registry.register(:adapter_provider, adapter_provider)
+
+      expect(registry.provider_metadata(:adapter_provider)[:runtime][:available]).to be false
     end
   end
 end
