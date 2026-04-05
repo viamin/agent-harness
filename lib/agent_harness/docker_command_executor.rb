@@ -155,6 +155,9 @@ module AgentHarness
       backup = shell_path("/tmp/agent-harness-preparation-#{SecureRandom.hex(8)}")
       state = shell_path("/tmp/agent-harness-preparation-state-#{SecureRandom.hex(8)}")
       symlink_target = shell_path("/tmp/agent-harness-preparation-symlink-#{SecureRandom.hex(8)}")
+      directory_change_message = Shellwords.escape(
+        "preparation target changed into a directory during execution: #{write.path}"
+      )
       backup_cmd = build_container_shell_command(
         "if [ -L #{path} ]; then readlink #{path} > #{symlink_target} && printf symlink > #{state}; " \
           "elif [ -e #{path} ]; then cp -p #{path} #{backup} && printf file > #{state}; " \
@@ -164,12 +167,14 @@ module AgentHarness
       run_host_command(backup_cmd, timeout: remaining_timeout(deadline, timeout:, command_name: "docker"))
       cleanup = {
         command: build_container_shell_command(
-          "cleanup_status=0; state_value=$(cat #{state} 2>/dev/null); if [ \"$state_value\" = symlink ]; then " \
-            "mkdir -p #{dir} && rm -rf -- #{path} && ln -s \"$(cat #{symlink_target})\" #{path} || cleanup_status=$?; " \
+          "cleanup_status=0; state_value=$(cat #{state} 2>/dev/null); if [ -d #{path} ] && [ ! -L #{path} ]; then " \
+            "printf '%s\\n' #{directory_change_message} >&2; cleanup_status=1; " \
+            "elif [ \"$state_value\" = symlink ]; then " \
+            "mkdir -p #{dir} && rm -f -- #{path} && ln -s \"$(cat #{symlink_target})\" #{path} || cleanup_status=$?; " \
             "elif [ \"$state_value\" = file ]; then " \
-            "if [ -f #{backup} ]; then mkdir -p #{dir} && rm -rf -- #{path} && cp -p #{backup} #{path} || cleanup_status=$?; " \
+            "if [ -f #{backup} ]; then mkdir -p #{dir} && rm -f -- #{path} && cp -p #{backup} #{path} || cleanup_status=$?; " \
             "else echo \"missing runtime preparation backup: #{backup}\" >&2; cleanup_status=1; fi; " \
-            "elif [ \"$state_value\" = missing ]; then rm -rf -- #{path} || cleanup_status=$?; " \
+            "elif [ \"$state_value\" = missing ]; then rm -f -- #{path} || cleanup_status=$?; " \
             "else cleanup_status=1; " \
             "fi; rm -f #{backup} #{state} #{symlink_target}; exit $cleanup_status",
           env: env

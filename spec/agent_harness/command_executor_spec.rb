@@ -329,20 +329,28 @@ RSpec.describe AgentHarness::CommandExecutor do
         end
       end
 
-      it "cleans up prepared files when the command replaces them with directories" do
+      it "fails cleanup without deleting nested contents when the command replaces a prepared file with a directory" do
         Dir.mktmpdir do |dir|
           file_path = File.join(dir, "config.json")
+          nested_file_path = File.join(file_path, "nested", "keep.txt")
           preparation = AgentHarness::ExecutionPreparation.new(
             file_writes: [{path: file_path, content: "{\"ok\":true}"}]
           )
 
-          result = executor.execute(
-            ["ruby", "-e", "path = ARGV.fetch(0); File.delete(path); Dir.mkdir(path); print File.directory?(path)", file_path],
-            preparation: preparation
-          )
+          expect {
+            executor.execute(
+              [
+                "ruby", "-e",
+                "path = ARGV.fetch(0); File.delete(path); Dir.mkdir(path); Dir.mkdir(File.join(path, 'nested')); " \
+                  "File.write(File.join(path, 'nested', 'keep.txt'), 'keep')",
+                file_path
+              ],
+              preparation: preparation
+            )
+          }.to raise_error(ArgumentError, /preparation target changed into a directory/)
 
-          expect(result.stdout).to eq("true")
-          expect(File.exist?(file_path)).to be false
+          expect(File).to be_directory(file_path)
+          expect(File.read(nested_file_path)).to eq("keep")
         end
       end
 

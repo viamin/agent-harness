@@ -196,7 +196,7 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
           },
           {
             env: {},
-            cmd: ["docker", "exec", container_id, "sh", "-lc", cleanup_command("#{guarded_home_path}/opencode.json", guarded_home_path)]
+            cmd: ["docker", "exec", container_id, "sh", "-lc", cleanup_command("#{guarded_home_path}/opencode.json", guarded_home_path, requested_path: "~/opencode.json")]
           }
         ]
       )
@@ -284,7 +284,7 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
           },
           {
             env: {},
-            cmd: ["docker", "exec", "--env", "XDG_CONFIG_HOME=/tmp/my config", container_id, "sh", "-lc", cleanup_command("\"${XDG_CONFIG_HOME}\"/opencode.json", "\"${XDG_CONFIG_HOME}\"")]
+            cmd: ["docker", "exec", "--env", "XDG_CONFIG_HOME=/tmp/my config", container_id, "sh", "-lc", cleanup_command("\"${XDG_CONFIG_HOME}\"/opencode.json", "\"${XDG_CONFIG_HOME}\"", requested_path: "$XDG_CONFIG_HOME/opencode.json")]
           }
         ]
       )
@@ -322,7 +322,7 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
           },
           {
             env: {},
-            cmd: ["docker", "exec", "--env", "XDG_CONFIG_HOME=/tmp/my config", "--env", "BAR=baz qux", container_id, "sh", "-lc", cleanup_command("\"${XDG_CONFIG_HOME}\"/foo-\"${BAR}\".json", "\"${XDG_CONFIG_HOME}\"")]
+            cmd: ["docker", "exec", "--env", "XDG_CONFIG_HOME=/tmp/my config", "--env", "BAR=baz qux", container_id, "sh", "-lc", cleanup_command("\"${XDG_CONFIG_HOME}\"/foo-\"${BAR}\".json", "\"${XDG_CONFIG_HOME}\"", requested_path: "$XDG_CONFIG_HOME/foo-$BAR.json")]
           }
         ]
       )
@@ -622,6 +622,32 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
       )
     end
 
+    it "fails cleanup when the prepared container path becomes a directory" do
+      allow(SecureRandom).to receive(:hex).and_return("deadbeefcafebabe", "facefeedcafed00d", "beadfeedcafef00d")
+
+      allow(Open3).to receive(:popen3) do |actual_env, *actual_cmd, &block|
+        stderr = if actual_cmd == ["docker", "exec", container_id, "sh", "-lc", cleanup_command("#{guarded_home_path}/.config/opencode/opencode.json", "#{guarded_home_path}/.config/opencode")]
+          StringIO.new("preparation target changed into a directory during execution: ~/.config/opencode/opencode.json")
+        else
+          StringIO.new("")
+        end
+        exit_code = stderr.string.empty? ? 0 : 1
+        stdin = StringIO.new
+        stdout = StringIO.new("output")
+        wait_thr = instance_double(Process::Waiter, value: instance_double(Process::Status, exitstatus: exit_code))
+        block.call(stdin, stdout, stderr, wait_thr)
+      end
+
+      expect {
+        executor.execute(
+          ["echo", "hello"],
+          preparation: AgentHarness::ExecutionPreparation.new(
+            file_writes: [{path: "~/.config/opencode/opencode.json", content: "{\"ok\":true}"}]
+          )
+        )
+      }.to raise_error(AgentHarness::CommandExecutionError, /preparation target changed into a directory/)
+    end
+
     it "handles string commands" do
       expect_popen3_with(["docker", "exec", container_id, "echo", "hello world"])
       executor.execute("echo hello\\ world")
@@ -864,14 +890,16 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
         "else printf missing > /tmp/agent-harness-preparation-state-facefeedcafed00d; fi"
     end
 
-    def cleanup_command(path, dir)
+    def cleanup_command(path, dir, requested_path: "~/.config/opencode/opencode.json")
       "cleanup_status=0; state_value=$(cat /tmp/agent-harness-preparation-state-facefeedcafed00d 2>/dev/null); " \
-        "if [ \"$state_value\" = symlink ]; then mkdir -p #{dir} && rm -rf -- #{path} && " \
+        "if [ -d #{path} ] && [ ! -L #{path} ]; then printf '%s\\n' " \
+        "#{Shellwords.escape("preparation target changed into a directory during execution: #{requested_path}")} >&2; cleanup_status=1; " \
+        "elif [ \"$state_value\" = symlink ]; then mkdir -p #{dir} && rm -f -- #{path} && " \
         "ln -s \"$(cat /tmp/agent-harness-preparation-symlink-beadfeedcafef00d)\" #{path} || cleanup_status=$?; " \
-        "elif [ \"$state_value\" = file ]; then if [ -f /tmp/agent-harness-preparation-deadbeefcafebabe ]; then mkdir -p #{dir} && rm -rf -- #{path} && " \
+        "elif [ \"$state_value\" = file ]; then if [ -f /tmp/agent-harness-preparation-deadbeefcafebabe ]; then mkdir -p #{dir} && rm -f -- #{path} && " \
         "cp -p /tmp/agent-harness-preparation-deadbeefcafebabe #{path} || cleanup_status=$?; else echo " \
         "\"missing runtime preparation backup: /tmp/agent-harness-preparation-deadbeefcafebabe\" >&2; cleanup_status=1; fi; " \
-        "elif [ \"$state_value\" = missing ]; then rm -rf -- #{path} || cleanup_status=$?; else cleanup_status=1; fi; rm -f /tmp/agent-harness-preparation-deadbeefcafebabe " \
+        "elif [ \"$state_value\" = missing ]; then rm -f -- #{path} || cleanup_status=$?; else cleanup_status=1; fi; rm -f /tmp/agent-harness-preparation-deadbeefcafebabe " \
         "/tmp/agent-harness-preparation-state-facefeedcafed00d /tmp/agent-harness-preparation-symlink-beadfeedcafef00d; " \
         "exit $cleanup_status"
     end

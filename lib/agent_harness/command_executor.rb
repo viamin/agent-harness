@@ -356,11 +356,9 @@ module AgentHarness
     def delete_preparation_path(path)
       return unless File.exist?(path) || File.symlink?(path)
 
-      if File.directory?(path) && !File.symlink?(path)
-        FileUtils.rm_rf(path)
-      else
-        File.delete(path)
-      end
+      raise ArgumentError, "preparation target changed into a directory during execution: #{path}" if File.directory?(path) && !File.symlink?(path)
+
+      File.delete(path)
     end
 
     def timeout_deadline(timeout)
