@@ -61,8 +61,14 @@ module AgentHarness
           ]
         end
 
-        def installation_contract
-          default_package = "aider-chat==#{SUPPORTED_CLI_VERSION}".freeze
+        def installation_contract(version: SUPPORTED_CLI_VERSION)
+          unless SUPPORTED_CLI_REQUIREMENT.satisfied_by?(Gem::Version.new(version))
+            raise ArgumentError,
+              "Unsupported Aider CLI version #{version.inspect}; " \
+              "supported versions must satisfy #{SUPPORTED_CLI_REQUIREMENT}"
+          end
+
+          default_package = "aider-chat==#{version}".freeze
           bootstrap_command = [
             "python3", "-m", "pip", "install", "--no-cache-dir", "--break-system-packages", "uv==#{UV_VERSION}"
           ].freeze
@@ -83,7 +89,7 @@ module AgentHarness
             install_environment: UV_TOOL_ENV,
             package: default_package,
             package_name: "aider-chat",
-            version: SUPPORTED_CLI_VERSION,
+            version: version,
             version_format: "%{package_name}==%{version}",
             version_requirement: version_requirement,
             binary_name: binary_name,

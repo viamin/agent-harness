@@ -176,6 +176,30 @@ RSpec.describe AgentHarness::Providers::Adapter do
         )
       end
 
+      it "rejects explicit version overrides outside the advertised support range" do
+        guarded_installing_adapter_class = Class.new do
+          include AgentHarness::Providers::Adapter
+
+          class << self
+            def provider_name = :guarded_installer
+            def available? = true
+            def binary_name = "installer"
+
+            def installation_contract
+              {
+                package_name: "pkg",
+                version_requirement: [">= 1.2.0", "< 1.3.0"],
+                install_command_prefix: ["tool", "install"]
+              }
+            end
+          end
+        end
+
+        expect {
+          guarded_installing_adapter_class.install_command(version: "1.3.0")
+        }.to raise_error(ArgumentError, /Unsupported guarded_installer CLI version "1.3.0"/)
+      end
+
       it "raises when version override is requested without package_name" do
         expect {
           package_only_installing_adapter_class.install_command(version: "1.2.3")

@@ -46,6 +46,24 @@ RSpec.describe AgentHarness::Providers::Aider do
       expect(File.basename(contract[:binary_path])).to eq(described_class.binary_name)
     end
 
+    it "supports explicit version selection through the published contract API" do
+      contract = described_class.installation_contract(version: "0.86.5")
+
+      expect(contract).to include(
+        package: "aider-chat==0.86.5",
+        version: "0.86.5"
+      )
+      expect(contract[:install_command]).to eq(
+        ["uv", "tool", "install", "--force", "--python", "python3.12", "--with", "pip", "aider-chat==0.86.5"]
+      )
+    end
+
+    it "rejects unsupported version selection through the contract API" do
+      expect {
+        described_class.installation_contract(version: "0.85.0")
+      }.to raise_error(ArgumentError, /Unsupported Aider CLI version "0.85.0"/)
+    end
+
     it "freezes nested command arrays" do
       contract = described_class.installation_contract
 
@@ -64,9 +82,15 @@ RSpec.describe AgentHarness::Providers::Aider do
     end
 
     it "supports explicit version overrides using aider-chat==version formatting" do
-      expect(described_class.install_command(version: "0.85.0")).to eq(
-        ["uv", "tool", "install", "--force", "--python", "python3.12", "--with", "pip", "aider-chat==0.85.0"]
+      expect(described_class.install_command(version: "0.86.5")).to eq(
+        ["uv", "tool", "install", "--force", "--python", "python3.12", "--with", "pip", "aider-chat==0.86.5"]
       )
+    end
+
+    it "rejects unsupported explicit version overrides" do
+      expect {
+        described_class.install_command(version: "999.0.0")
+      }.to raise_error(ArgumentError, /Unsupported aider CLI version "999.0.0"/)
     end
   end
 

@@ -138,6 +138,15 @@ RSpec.describe AgentHarness::Providers::Registry do
       )
     end
 
+    it "forwards version selection options to generic install contracts" do
+      contract = registry.installation_contract(:aider, version: "0.86.5")
+
+      expect(contract).to include(
+        package: "aider-chat==0.86.5",
+        version: "0.86.5"
+      )
+    end
+
     it "raises ConfigurationError for unknown providers" do
       expect {
         registry.installation_contract(:nonexistent_provider_xyz)

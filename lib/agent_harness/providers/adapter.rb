@@ -92,6 +92,16 @@ module AgentHarness
             raise ArgumentError, "installation_contract must define :package_name when overriding version"
           end
 
+          requirement = contract[:version_requirement]
+          if requirement
+            parsed_requirement = Gem::Requirement.new(*Array(requirement))
+            unless parsed_requirement.satisfied_by?(Gem::Version.new(version))
+              raise ArgumentError,
+                "Unsupported #{provider_name} CLI version #{version.inspect}; " \
+                "supported versions must satisfy #{parsed_requirement}"
+            end
+          end
+
           version_format = contract.fetch(:version_format, "%{package_name}@%{version}")
           package_with_version = format(version_format, package_name: package_name, version: version)
 
