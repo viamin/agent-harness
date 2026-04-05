@@ -186,7 +186,7 @@ opencode_install
 ### Provider Metadata
 
 Downstream apps can also query a consolidated provider metadata contract for
- configuration UIs and policy decisions.
+configuration UIs and policy decisions.
 
 The following example shows how to retrieve metadata for the Anthropic provider:
 ```ruby
@@ -212,6 +212,7 @@ metadata
 #      },
 #      health_check: {
 #        supports_registry_checks: true,
+#        auth_check_supported: true,
 #        lightweight: true
 #      },
 #      identity: {

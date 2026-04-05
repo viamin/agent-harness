@@ -232,6 +232,131 @@ RSpec.describe AgentHarness::Providers::Adapter do
     end
   end
 
+  let(:oauth_supported_adapter_class) do
+    Class.new do
+      include AgentHarness::Providers::Adapter
+
+      class << self
+        def provider_name
+          :oauth_supported_adapter
+        end
+
+        def available?
+          true
+        end
+
+        def binary_name
+          "oauth-supported"
+        end
+      end
+
+      def initialize(config: nil)
+        @config = config
+      end
+
+      def name
+        "claude"
+      end
+
+      def auth_type
+        :oauth
+      end
+    end
+  end
+
+  let(:api_key_adapter_class) do
+    Class.new do
+      include AgentHarness::Providers::Adapter
+
+      class << self
+        def provider_name
+          :api_key_adapter
+        end
+
+        def available?
+          true
+        end
+
+        def binary_name
+          "api-key"
+        end
+      end
+
+      def initialize(config: nil)
+        @config = config
+      end
+
+      def auth_type
+        :api_key
+      end
+    end
+  end
+
+  let(:explicit_auth_status_adapter_class) do
+    Class.new do
+      include AgentHarness::Providers::Adapter
+
+      class << self
+        def provider_name
+          :explicit_auth_status_adapter
+        end
+
+        def available?
+          true
+        end
+
+        def binary_name
+          "explicit-auth-status"
+        end
+      end
+
+      def initialize(config: nil)
+        @config = config
+      end
+
+      def auth_type
+        :oauth
+      end
+
+      def auth_status
+        {authenticated: true}
+      end
+    end
+  end
+
+  let(:auth_status_cached_adapter_class) do
+    Class.new do
+      include AgentHarness::Providers::Adapter
+
+      class << self
+        attr_accessor :initialization_count
+
+        def provider_name
+          :auth_status_cached_adapter
+        end
+
+        def available?
+          true
+        end
+
+        def binary_name
+          "auth-status-cached"
+        end
+      end
+
+      self.initialization_count = 0
+
+      def initialize(config: nil)
+        self.class.initialization_count += 1
+        @config = config
+      end
+
+      def auth_type
+        :api_key
+      end
+    end
+  end
+
   let(:raising_metadata_adapter_class) do
     Class.new do
       include AgentHarness::Providers::Adapter
@@ -476,6 +601,30 @@ RSpec.describe AgentHarness::Providers::Adapter do
         )
       end
 
+      it "reports auth checks for api key adapters" do
+        metadata = api_key_adapter_class.provider_metadata
+
+        expect(metadata[:health_check]).to include(
+          auth_check_supported: true
+        )
+      end
+
+      it "reports auth checks for adapters that implement auth_status directly" do
+        metadata = explicit_auth_status_adapter_class.provider_metadata
+
+        expect(metadata[:health_check]).to include(
+          auth_check_supported: true
+        )
+      end
+
+      it "reports auth checks for supported oauth providers" do
+        metadata = oauth_supported_adapter_class.provider_metadata
+
+        expect(metadata[:health_check]).to include(
+          auth_check_supported: true
+        )
+      end
+
       it "does not require parameterless construction to expose metadata" do
         metadata = required_initializer_adapter_class.provider_metadata(aliases: [:required_alias])
 
@@ -600,6 +749,12 @@ RSpec.describe AgentHarness::Providers::Adapter do
 
         expect(adapter_class.provider_metadata(refresh: true)[:runtime][:available]).to be true
         expect(calls).to eq(2)
+      end
+
+      it "memoizes auth status availability for repeated checks" do
+        expect(auth_status_cached_adapter_class.send(:auth_status_available?)).to be true
+        expect(auth_status_cached_adapter_class.send(:auth_status_available?)).to be true
+        expect(auth_status_cached_adapter_class.initialization_count).to eq(1)
       end
 
       it "normalizes direct alias input into a stable contract" do

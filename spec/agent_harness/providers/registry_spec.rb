@@ -95,27 +95,47 @@ RSpec.describe AgentHarness::Providers::Registry do
       }.to raise_error(AgentHarness::ConfigurationError, /Alias :first conflicts with registered provider :first/)
     end
 
-    it "clears adapter metadata availability caches when a provider is re-registered" do
+    it "clears adapter metadata caches when a provider is re-registered" do
       adapter_provider = Class.new do
         include AgentHarness::Providers::Adapter
 
         class << self
           attr_accessor :available_flag
+          attr_accessor :auth_type_value
 
           def provider_name = :adapter_provider
           def available? = available_flag
           def binary_name = "adapter"
         end
+        def initialize(config: nil)
+          @config = config
+        end
+
+        def auth_type
+          self.class.auth_type_value
+        end
+
+        def name
+          "adapter_provider"
+        end
       end
       adapter_provider.available_flag = true
+      adapter_provider.auth_type_value = :api_key
 
       registry.register(:adapter_provider, adapter_provider)
-      expect(registry.provider_metadata(:adapter_provider)[:runtime][:available]).to be true
+      metadata = registry.provider_metadata(:adapter_provider)
+
+      expect(metadata[:runtime][:available]).to be true
+      expect(metadata[:health_check][:auth_check_supported]).to be true
 
       adapter_provider.available_flag = false
+      adapter_provider.auth_type_value = :oauth
       registry.register(:adapter_provider, adapter_provider)
 
-      expect(registry.provider_metadata(:adapter_provider)[:runtime][:available]).to be false
+      metadata = registry.provider_metadata(:adapter_provider)
+
+      expect(metadata[:runtime][:available]).to be false
+      expect(metadata[:health_check][:auth_check_supported]).to be false
     end
   end
 
@@ -307,6 +327,7 @@ RSpec.describe AgentHarness::Providers::Registry do
       )
       expect(metadata[:health_check]).to include(
         supports_registry_checks: true,
+        auth_check_supported: true,
         lightweight: true
       )
       expect(metadata[:identity]).to eq(
@@ -651,28 +672,48 @@ RSpec.describe AgentHarness::Providers::Registry do
       expect(registry.instance_variable_get(:@builtin_registered)).to be false
     end
 
-    it "clears adapter metadata availability caches" do
+    it "clears adapter metadata caches" do
       adapter_provider = Class.new do
         include AgentHarness::Providers::Adapter
 
         class << self
           attr_accessor :available_flag
+          attr_accessor :auth_type_value
 
           def provider_name = :adapter_provider
           def available? = available_flag
           def binary_name = "adapter"
         end
+        def initialize(config: nil)
+          @config = config
+        end
+
+        def auth_type
+          self.class.auth_type_value
+        end
+
+        def name
+          "adapter_provider"
+        end
       end
       adapter_provider.available_flag = true
+      adapter_provider.auth_type_value = :api_key
 
       registry.register(:adapter_provider, adapter_provider)
-      expect(registry.provider_metadata(:adapter_provider)[:runtime][:available]).to be true
+      metadata = registry.provider_metadata(:adapter_provider)
+
+      expect(metadata[:runtime][:available]).to be true
+      expect(metadata[:health_check][:auth_check_supported]).to be true
 
       adapter_provider.available_flag = false
+      adapter_provider.auth_type_value = :oauth
       registry.reset!
       registry.register(:adapter_provider, adapter_provider)
 
-      expect(registry.provider_metadata(:adapter_provider)[:runtime][:available]).to be false
+      metadata = registry.provider_metadata(:adapter_provider)
+
+      expect(metadata[:runtime][:available]).to be false
+      expect(metadata[:health_check][:auth_check_supported]).to be false
     end
   end
 end

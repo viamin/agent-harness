@@ -22,6 +22,8 @@ module AgentHarness
 
       # Class methods that all providers must implement
       module ClassMethods
+        SUPPORTED_OAUTH_AUTH_STATUS_PROVIDERS = %i[anthropic claude].freeze
+
         # Human-readable provider name
         #
         # @return [Symbol] unique identifier for this provider
@@ -105,7 +107,7 @@ module AgentHarness
           execution = provider&.execution_semantics || default_execution_semantics
           installation = installation_contract
           supports_registry_checks = registry_check_initializer_compatible?
-          auth_check_supported = auth_status_available?
+          auth_check_supported = auth_status_available?(provider)
           provider_status_check = supports_registry_checks && overrides_instance_method?(:health_status)
           configuration_validation = supports_registry_checks && overrides_instance_method?(:validate_config)
           lightweight_checks = supports_registry_checks && !provider_status_check && !configuration_validation
@@ -251,35 +253,29 @@ module AgentHarness
         #
         # This differs from supports_registry_checks - it specifically indicates whether
         # the auth status check will succeed or return "not implemented"
-        def auth_status_available?
-          # Try to get a provider instance to check auth capabilities
-          # Use safe instantiation to avoid double logging
-          provider_instance = safe_metadata_provider_instance
-          return false unless provider_instance
+        def auth_status_available?(provider_instance = nil)
+          return @auth_status_available if defined?(@auth_status_available)
 
-          # Check if provider implements auth_status method directly
-          return true if provider_instance.respond_to?(:auth_status)
-
-          # Check if provider has specific auth handling in Authentication module
-          auth_type = provider_instance.auth_type
-          provider_name = provider_instance.name
-
-          case auth_type
-          when :api_key
-            # API key providers generally don't need special auth status implementation
-            # They either have credentials or they don't - treat as supported
-            true
-          when :oauth
-            # OAuth providers need specific auth handling - check if this provider is supported
-            # Currently only Anthropic/Claude have OAuth handling in Authentication module
-            [:anthropic, :claude].include?(provider_name.to_sym)
-          else
-            # Unknown auth type - consider it not implemented
+          @auth_status_available = begin
+            provider_instance ||= safe_metadata_provider_instance
+            auth_status_supported_by?(provider_instance)
+          rescue
             false
           end
-        rescue
-          # If we can't safely check auth implementation, assume it's not supported
-          false
+        end
+
+        def auth_status_supported_by?(provider_instance)
+          return false unless provider_instance
+          return true if provider_instance.respond_to?(:auth_status)
+
+          case provider_instance.auth_type
+          when :api_key
+            true
+          when :oauth
+            SUPPORTED_OAUTH_AUTH_STATUS_PROVIDERS.include?(provider_instance.name.to_sym)
+          else
+            false
+          end
         end
 
         def initializer_keyword_parameters
