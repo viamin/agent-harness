@@ -97,6 +97,7 @@ RSpec.describe AgentHarness::CommandExecutor do
           [[stdout_io, stderr_io], [stdin], nil],
           [[stdout_io], nil, nil]
         )
+        allow(wait_thr).to receive(:join).with(0).and_return(nil)
         allow(stdout_io).to receive(:read_nonblock).and_return("tick\n", nil)
         allow(stderr_io).to receive(:read_nonblock).and_return(nil)
         allow(executor).to receive(:monotonic_time).and_return(0.0, 0.05, 0.051, 0.06)
@@ -104,6 +105,23 @@ RSpec.describe AgentHarness::CommandExecutor do
         result = executor.execute(["ruby", "-e", "puts 'tick'"], idle_timeout: 0.05)
 
         expect(result.stdout).to eq("tick\n")
+      end
+
+      it "does not raise a timeout after the process has already exited" do
+        stdin = instance_double(IO, close: nil, closed?: false)
+        stdout_io = instance_double(IO, read: "", close: nil)
+        stderr_io = instance_double(IO, read: "", close: nil)
+        status = instance_double(Process::Status, exitstatus: 0, success?: true)
+        wait_thr = instance_double(Thread, value: status)
+
+        allow(Open3).to receive(:popen3).and_yield(stdin, stdout_io, stderr_io, wait_thr)
+        allow(executor).to receive(:selectable_streams?).and_return(true)
+        allow(IO).to receive(:select).and_return(nil)
+        allow(wait_thr).to receive(:join).with(0).and_return(wait_thr)
+
+        result = executor.execute(["ruby", "-e", "sleep 0.03"], timeout: 0.05, idle_timeout: 0.05)
+
+        expect(result.exit_code).to eq(0)
       end
 
       it "enforces wall-clock timeouts even while output stays readable" do
@@ -118,6 +136,7 @@ RSpec.describe AgentHarness::CommandExecutor do
           [[stdout_io, stderr_io], [stdin], nil],
           [[stdout_io], nil, nil]
         )
+        allow(wait_thr).to receive(:join).with(0).and_return(nil)
         allow(stdout_io).to receive(:read_nonblock).and_return("tick\n", "tick\n")
         allow(stderr_io).to receive(:read_nonblock).and_return(nil, nil)
         allow(executor).to receive(:monotonic_time).and_return(0.0, 0.03, 0.031, 0.06)
@@ -192,6 +211,28 @@ RSpec.describe AgentHarness::CommandExecutor do
         expect(heartbeats).to all(include(:elapsed, :idle_for))
       end
 
+      it "does not emit heartbeats after the process has exited" do
+        stdin = instance_double(IO, close: nil, closed?: false)
+        stdout_io = instance_double(IO, read: "", close: nil)
+        stderr_io = instance_double(IO, read: "", close: nil)
+        status = instance_double(Process::Status, exitstatus: 0, success?: true)
+        wait_thr = instance_double(Thread, value: status)
+        heartbeats = []
+
+        allow(Open3).to receive(:popen3).and_yield(stdin, stdout_io, stderr_io, wait_thr)
+        allow(executor).to receive(:selectable_streams?).and_return(true)
+        allow(IO).to receive(:select).and_return(nil)
+        allow(wait_thr).to receive(:join).with(0).and_return(wait_thr)
+
+        executor.execute(
+          ["ruby", "-e", "sleep 0.12"],
+          on_heartbeat: ->(**heartbeat) { heartbeats << heartbeat },
+          heartbeat_interval: 0.05
+        )
+
+        expect(heartbeats).to be_empty
+      end
+
       it "rejects non-positive heartbeat interval values" do
         expect {
           executor.execute(["echo", "quick"], heartbeat_interval: 0)
@@ -220,6 +261,7 @@ RSpec.describe AgentHarness::CommandExecutor do
           [[], [stdin], nil],
           [[stdout, stderr], nil, nil]
         )
+        allow(wait_thr).to receive(:join).with(0).and_return(nil)
         allow(stdin).to receive(:write_nonblock).and_return(input.bytesize)
         allow(stdout).to receive(:read_nonblock).and_return(nil)
         allow(stderr).to receive(:read_nonblock).and_return(nil)

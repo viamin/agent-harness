@@ -176,6 +176,11 @@ module AgentHarness
               observer: observer
             )
 
+            if process_exited?(wait_thr)
+              stdin, last_activity_at = finalize_exited_process(stdin, streams, observer, last_activity_at)
+              next
+            end
+
             now = monotonic_time
             if should_emit_heartbeat?(on_heartbeat, observer, heartbeat_interval, now - last_heartbeat_at)
               emit_heartbeat(
@@ -189,6 +194,11 @@ module AgentHarness
 
             check_wall_timeout!(timeout, now - start_time, wait_thr, cmd_array)
             check_idle_timeout!(idle_timeout, now - last_activity_at, wait_thr, cmd_array)
+            next
+          end
+
+          if process_exited?(wait_thr)
+            stdin, last_activity_at = finalize_exited_process(stdin, streams, observer, last_activity_at)
             next
           end
 
@@ -221,7 +231,12 @@ module AgentHarness
             )
           )
 
-          next unless ready
+          unless ready
+            if process_exited?(wait_thr)
+              stdin, last_activity_at = finalize_exited_process(stdin, streams, observer, last_activity_at)
+            end
+            next
+          end
 
           stdin, stdin_offset, last_activity_at = process_ready_streams(
             ready,
@@ -232,6 +247,10 @@ module AgentHarness
             last_activity_at: last_activity_at,
             observer: observer
           )
+
+          if process_exited?(wait_thr)
+            stdin, last_activity_at = finalize_exited_process(stdin, streams, observer, last_activity_at)
+          end
         end
 
         [stdout, stderr, wait_thr.value]
@@ -338,9 +357,33 @@ module AgentHarness
     end
 
     def close_stream(stream)
-      stream.close unless stream.closed?
+      return unless stream
+
+      stream.close
     rescue IOError
       nil
+    end
+
+    def process_exited?(wait_thr)
+      !wait_thr.join(0).nil?
+    end
+
+    def finalize_exited_process(stdin, streams, observer, last_activity_at)
+      close_stream(stdin) if stdin
+
+      streams.each do |io, (buffer, callback, observer_method)|
+        chunk = io.read.to_s
+        next if chunk.empty?
+
+        buffer << chunk
+        last_activity_at = monotonic_time
+        emit_chunk(callback, observer, observer_method, chunk)
+      ensure
+        close_stream(io)
+      end
+
+      streams.clear
+      [nil, last_activity_at]
     end
 
     def validate_duration!(value, name:, allow_nil: false)
