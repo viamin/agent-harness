@@ -50,23 +50,10 @@ module AgentHarness
         # install commands, binary paths, or version targets.
         #
         # @return [Hash] install contract metadata
+        # @raise [NotImplementedError] when the provider has not published a
+        #   maintained install contract
         def install_contract
-          {
-            provider: provider_name,
-            binary_name: binary_name,
-            binary_paths: [binary_name],
-            install: nil,
-            supported_versions: {
-              default: "latest",
-              requirement: "latest",
-              channel: nil
-            },
-            runtime_contract: {
-              available_via: binary_name,
-              build_command: [binary_name],
-              required_features: []
-            }
-          }
+          raise NotImplementedError, "#{self} must implement .install_contract"
         end
 
         # Required domains for firewall configuration

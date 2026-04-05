@@ -93,6 +93,8 @@ module AgentHarness
         end
 
         provider_class.install_contract
+      rescue NotImplementedError
+        raise ConfigurationError, "Provider #{provider_class} does not implement .install_contract"
       end
 
       # Get installation metadata for a provider.

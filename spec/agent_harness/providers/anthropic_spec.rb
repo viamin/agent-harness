@@ -17,11 +17,10 @@ RSpec.describe AgentHarness::Providers::Anthropic do
     it "exposes the official install contract" do
       contract = described_class.install_contract
       installed_binary_path = "/usr/local/bin/claude"
-      local_binary_path = "$HOME/.local/bin/claude"
 
       expect(contract[:provider]).to eq(:claude)
       expect(contract[:binary_name]).to eq("claude")
-      expect(contract[:binary_paths]).to include(installed_binary_path, local_binary_path, "claude")
+      expect(contract[:binary_paths]).to eq([installed_binary_path, "claude"])
       expect(contract.dig(:install, :strategy)).to eq(:shell)
       expect(contract.dig(:install, :command)).to eq(
         "tmp_script=$(mktemp) && trap 'rm -f \"$tmp_script\"' EXIT && curl -fsSL https://claude.ai/install.sh -o \"$tmp_script\" && bash \"$tmp_script\" 2.1.92 && cp -L \"$HOME/.local/bin/claude\" \"#{installed_binary_path}\" && chmod +x \"#{installed_binary_path}\""
@@ -55,6 +54,13 @@ RSpec.describe AgentHarness::Providers::Anthropic do
       expect(contract.dig(:install, :post_install_binary_path)).to eq(contract[:binary_paths].first)
       expect(command.first(contract_build_command.length)).to eq(contract_build_command)
       expect(command[contract_build_command.length]).to eq("prompt")
+    end
+
+    it "keeps shell-specific install paths inside the installer command only" do
+      contract = described_class.install_contract
+
+      expect(contract[:binary_paths]).not_to include("$HOME/.local/bin/claude")
+      expect(contract.dig(:install, :command)).to include("$HOME/.local/bin/claude")
     end
 
     it "pins the installer target to the documented supported version" do

@@ -108,25 +108,10 @@ RSpec.describe AgentHarness::Providers::Adapter do
     end
 
     describe ".install_contract" do
-      it "returns a default install contract" do
-        expect(adapter_class.install_contract).to eq(
-          {
-            provider: :test_adapter,
-            binary_name: "test",
-            binary_paths: ["test"],
-            install: nil,
-            supported_versions: {
-              default: "latest",
-              requirement: "latest",
-              channel: nil
-            },
-            runtime_contract: {
-              available_via: "test",
-              build_command: ["test"],
-              required_features: []
-            }
-          }
-        )
+      it "requires adapters to opt in with a maintained install contract" do
+        expect {
+          adapter_class.install_contract
+        }.to raise_error(NotImplementedError, /must implement \.install_contract/)
       end
     end
 

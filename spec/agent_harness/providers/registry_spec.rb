@@ -17,6 +17,23 @@ RSpec.describe AgentHarness::Providers::Registry do
       end
     end
   end
+  let(:adapter_without_install_contract) do
+    Class.new do
+      include AgentHarness::Providers::Adapter
+
+      def self.provider_name
+        :adapter_without_install_contract
+      end
+
+      def self.available?
+        true
+      end
+
+      def self.binary_name
+        "adapter-without-install-contract"
+      end
+    end
+  end
 
   before do
     registry.reset!
@@ -127,6 +144,14 @@ RSpec.describe AgentHarness::Providers::Registry do
 
       expect {
         registry.install_contract(:legacy)
+      }.to raise_error(AgentHarness::ConfigurationError, /does not implement \.install_contract/)
+    end
+
+    it "raises a configuration error when an adapter has not opted into install_contract" do
+      registry.register(:adapter_without_install_contract, adapter_without_install_contract)
+
+      expect {
+        registry.install_contract(:adapter_without_install_contract)
       }.to raise_error(AgentHarness::ConfigurationError, /does not implement \.install_contract/)
     end
   end

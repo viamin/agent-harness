@@ -29,7 +29,6 @@ module AgentHarness
 
         def install_contract
           installed_binary_path = "/usr/local/bin/claude"
-          local_binary_path = "$HOME/.local/bin/claude"
           version_requirement = SUPPORTED_CLI_REQUIREMENT.requirements
             .map { |op, ver| "#{op} #{ver}" }
             .join(", ")
@@ -39,7 +38,6 @@ module AgentHarness
             binary_name: binary_name,
             binary_paths: [
               installed_binary_path,
-              local_binary_path,
               binary_name
             ],
             install: {
