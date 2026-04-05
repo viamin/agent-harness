@@ -389,6 +389,48 @@ RSpec.describe AgentHarness::Providers::Adapter do
     end
   end
 
+  let(:partial_metadata_adapter_class) do
+    Class.new do
+      include AgentHarness::Providers::Adapter
+
+      class << self
+        def provider_name
+          :partial_metadata_adapter
+        end
+
+        def available?
+          true
+        end
+
+        def binary_name
+          "partial-metadata"
+        end
+      end
+
+      def initialize(config: nil)
+        @config = config
+      end
+
+      def configuration_schema
+        {
+          auth_modes: [:oauth]
+        }
+      end
+
+      def execution_semantics
+        {
+          prompt_delivery: :stdin
+        }
+      end
+
+      def capabilities
+        {
+          streaming: true
+        }
+      end
+    end
+  end
+
   let(:package_only_installing_adapter_class) do
     Class.new do
       include AgentHarness::Providers::Adapter
@@ -805,6 +847,45 @@ RSpec.describe AgentHarness::Providers::Adapter do
         )
         expect(logger).to have_received(:debug).with(
           include("Falling back to default metadata for raising_metadata_adapter: ArgumentError")
+        )
+      end
+
+      it "does not advertise registry checks when metadata construction fails" do
+        allow(AgentHarness).to receive(:logger).and_return(instance_double("Logger", debug: nil))
+
+        metadata = raising_metadata_adapter_class.provider_metadata
+
+        expect(metadata[:health_check]).to include(
+          supports_registry_checks: false,
+          auth_check_supported: false,
+          provider_status: false,
+          configuration_validation: false,
+          lightweight: false
+        )
+      end
+
+      it "deep-merges partial instance metadata onto default sections" do
+        metadata = partial_metadata_adapter_class.provider_metadata
+
+        expect(metadata[:configuration]).to eq(
+          fields: [],
+          auth_modes: [:oauth],
+          openai_compatible: false
+        )
+        expect(metadata[:runtime]).to include(
+          prompt_delivery: :stdin,
+          output_format: :text,
+          sandbox_aware: false,
+          uses_subcommand: false
+        )
+        expect(metadata[:capabilities]).to eq(
+          streaming: true,
+          file_upload: false,
+          vision: false,
+          tool_use: false,
+          json_mode: false,
+          mcp: false,
+          dangerous_mode: false
         )
       end
 

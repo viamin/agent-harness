@@ -638,6 +638,65 @@ RSpec.describe AgentHarness::Providers::Registry do
       )
     end
 
+    it "preserves the stable metadata shape for providers that return partial instance metadata" do
+      partial_metadata_provider = Class.new do
+        include AgentHarness::Providers::Adapter
+
+        class << self
+          def provider_name = :partial_metadata_provider
+          def available? = true
+          def binary_name = "partial-metadata"
+        end
+
+        def initialize(config: nil)
+          @config = config
+        end
+
+        def configuration_schema
+          {
+            auth_modes: [:oauth]
+          }
+        end
+
+        def execution_semantics
+          {
+            prompt_delivery: :stdin
+          }
+        end
+
+        def capabilities
+          {
+            streaming: true
+          }
+        end
+      end
+
+      registry.register(:partial_metadata_provider, partial_metadata_provider)
+
+      metadata = registry.provider_metadata(:partial_metadata_provider)
+
+      expect(metadata[:configuration]).to eq(
+        fields: [],
+        auth_modes: [:oauth],
+        openai_compatible: false
+      )
+      expect(metadata[:runtime]).to include(
+        prompt_delivery: :stdin,
+        output_format: :text,
+        sandbox_aware: false,
+        uses_subcommand: false
+      )
+      expect(metadata[:capabilities]).to eq(
+        streaming: true,
+        file_upload: false,
+        vision: false,
+        tool_use: false,
+        json_mode: false,
+        mcp: false,
+        dangerous_mode: false
+      )
+    end
+
     it "raises ConfigurationError for unknown providers" do
       expect {
         registry.provider_metadata(:nonexistent_provider_xyz)

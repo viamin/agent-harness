@@ -107,10 +107,10 @@ module AgentHarness
           normalized_aliases = normalize_metadata_aliases(aliases)
           requested_provider_name = requested_name.to_sym
           provider = metadata_provider_instance(requested_name: requested_provider_name)
-          configuration = provider&.configuration_schema || default_configuration_schema
-          execution = provider&.execution_semantics || default_execution_semantics
+          configuration = deep_merge_metadata(default_configuration_schema, provider&.configuration_schema || {})
+          execution = deep_merge_metadata(default_execution_semantics, provider&.execution_semantics || {})
           installation = installation_contract
-          supports_registry_checks = registry_check_initializer_compatible?
+          supports_registry_checks = !provider.nil? && registry_check_initializer_compatible?
           auth_check_supported = auth_status_available?(provider, requested_name: requested_provider_name)
           provider_status_check = supports_registry_checks && overrides_instance_method?(:health_status)
           configuration_validation = supports_registry_checks && overrides_instance_method?(:validate_config)
@@ -145,7 +145,7 @@ module AgentHarness
                 supports_dangerous_mode: provider&.supports_dangerous_mode? || default_supports_dangerous_mode
               },
               configuration: configuration,
-              capabilities: provider&.capabilities || default_capabilities,
+              capabilities: deep_merge_metadata(default_capabilities, provider&.capabilities || {}),
               health_check: {
                 supports_registry_checks: supports_registry_checks,
                 auth_check_supported: auth_check_supported,
