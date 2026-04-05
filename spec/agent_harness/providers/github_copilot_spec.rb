@@ -28,13 +28,8 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
   end
 
   describe ".smoke_test_contract" do
-    it "publishes the canonical smoke-test metadata" do
-      expect(described_class.smoke_test_contract).to include(
-        prompt: "Reply with exactly OK.",
-        expected_output: "OK",
-        timeout: 30,
-        require_output: true
-      )
+    it "opts out of the generic smoke test contract" do
+      expect(described_class.smoke_test_contract).to be_nil
     end
   end
 

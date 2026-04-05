@@ -334,7 +334,7 @@ module AgentHarness
 
       def host_preflight_allowed?(executor:, provider_runtime: nil)
         effective_executor = executor || AgentHarness.configuration.command_executor
-        effective_executor.instance_of?(CommandExecutor)
+        effective_executor.is_a?(CommandExecutor) && !effective_executor.is_a?(DockerCommandExecutor)
       end
 
       def normalize_smoke_error_category(category, message)

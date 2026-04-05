@@ -623,7 +623,7 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
     end
 
     context "when a non-host executor is configured globally" do
-      let(:container_executor) { instance_double(AgentHarness::DockerCommandExecutor) }
+      let(:container_executor) { AgentHarness::DockerCommandExecutor.allocate }
       let(:provider_class) do
         Class.new(AgentHarness::Providers::Base) do
           class << self
@@ -662,6 +662,49 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
         expect(result[:status]).to eq("ok")
         expect(result[:message]).to eq("Smoke test passed using the supplied execution context")
         expect(provider_class.last_executor).to eq(container_executor)
+      end
+    end
+
+    context "when a local CommandExecutor subclass is configured globally" do
+      let(:logging_executor_class) { Class.new(AgentHarness::CommandExecutor) }
+      let(:logging_executor) { logging_executor_class.new }
+      let(:provider_class) do
+        Class.new(AgentHarness::Providers::Base) do
+          class << self
+            def provider_name
+              :test_provider
+            end
+
+            def binary_name
+              "test-cli"
+            end
+
+            def available?
+              false
+            end
+          end
+
+          def smoke_test(timeout: nil, provider_runtime: nil)
+            {ok: true, status: "ok", message: "Smoke test passed", error_category: nil}
+          end
+        end
+      end
+
+      before do
+        registry.register(:test_provider, provider_class)
+        allow(AgentHarness.configuration).to receive(:command_executor).and_return(logging_executor)
+      end
+
+      it "still runs host preflight checks" do
+        expect(AgentHarness::Authentication).not_to receive(:auth_status)
+
+        result = described_class.check(:test_provider)
+
+        expect(result[:status]).to eq("error")
+        expect(result[:message]).to include("test-cli")
+        expect(result[:message]).to include("not found")
+        expect(result[:error_category]).to eq(:installation)
+        expect(result[:check]).to eq(:availability)
       end
     end
 
