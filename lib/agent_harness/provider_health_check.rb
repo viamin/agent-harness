@@ -67,18 +67,18 @@ module AgentHarness
           error_category: :timeout,
           check: :timeout
         )
-      rescue NotImplementedError => e
+      rescue NotImplementedError, ConfigurationError => e
         # NotImplementedError inherits from ScriptError, not StandardError,
         # so it must be rescued explicitly. Its messages are safe internal
-        # setup errors (e.g., missing provider methods) that help users
-        # diagnose configuration problems.
+        # setup errors (e.g., missing provider methods or malformed provider
+        # contracts) that help users diagnose configuration problems.
         AgentHarness.logger&.error("ProviderHealthCheck error for #{name}: #{e.class}")
         build_result(
           name: name,
           status: "error",
           message: "Health check failed: #{e.class}: #{e.message}",
           start_time: start_time || monotonic_now,
-          error_category: :unknown,
+          error_category: :configuration,
           check: :provider_health
         )
       rescue => e

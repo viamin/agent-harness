@@ -27,6 +27,17 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
     end
   end
 
+  describe ".smoke_test_contract" do
+    it "publishes the canonical smoke-test metadata" do
+      expect(described_class.smoke_test_contract).to include(
+        prompt: "Reply with exactly OK.",
+        expected_output: "OK",
+        timeout: 30,
+        require_output: true
+      )
+    end
+  end
+
   describe ".supports_model_family?" do
     it "returns true for GPT models" do
       expect(described_class.supports_model_family?("gpt-4o")).to be true

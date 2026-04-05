@@ -56,6 +56,10 @@ module AgentHarness
           ]
         end
 
+        def smoke_test_contract
+          Base::DEFAULT_SMOKE_TEST_CONTRACT
+        end
+
         def model_family(provider_model_name)
           provider_model_name
         end

@@ -216,6 +216,17 @@ RSpec.describe AgentHarness::Providers::Registry do
       )
     end
 
+    it "returns a provider smoke-test contract for github copilot" do
+      contract = registry.smoke_test_contract(:github_copilot)
+
+      expect(contract).to include(
+        prompt: "Reply with exactly OK.",
+        expected_output: "OK",
+        timeout: 30,
+        require_output: true
+      )
+    end
+
     it "raises ConfigurationError for an unknown provider" do
       expect {
         registry.smoke_test_contract(:nonexistent_provider_xyz)
@@ -237,8 +248,9 @@ RSpec.describe AgentHarness::Providers::Registry do
     it "returns providers with smoke-test contracts" do
       contracts = registry.smoke_test_contracts
 
-      expect(contracts).to include(:codex)
+      expect(contracts).to include(:codex, :github_copilot)
       expect(contracts[:codex][:prompt]).to eq("Reply with exactly OK.")
+      expect(contracts[:github_copilot][:expected_output]).to eq("OK")
     end
 
     it "skips registered providers without smoke-test metadata" do

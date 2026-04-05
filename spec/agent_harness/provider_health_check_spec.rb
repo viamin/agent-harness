@@ -704,6 +704,24 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
       end
     end
 
+    context "when a ConfigurationError occurs" do
+      before do
+        allow(AgentHarness::Providers::Registry).to receive(:instance)
+          .and_raise(AgentHarness::ConfigurationError, "smoke_test_contract must define a non-empty :prompt")
+      end
+
+      it "includes the configuration failure details for easier diagnosis" do
+        result = described_class.check(:claude)
+
+        expect(result[:status]).to eq("error")
+        expect(result[:message]).to eq(
+          "Health check failed: AgentHarness::ConfigurationError: smoke_test_contract must define a non-empty :prompt"
+        )
+        expect(result[:error_category]).to eq(:configuration)
+        expect(result[:check]).to eq(:provider_health)
+      end
+    end
+
     context "when the check exceeds the timeout" do
       before do
         allow(Timeout).to receive(:timeout).and_raise(Timeout::Error)
