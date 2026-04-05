@@ -198,6 +198,7 @@ module AgentHarness
 
         within_timeout(deadline, timeout:, command_name:) do
           FileUtils.mkdir_p(File.dirname(resolved_path))
+          delete_preparation_path(resolved_path) if snapshot[:type] == :symlink
           File.binwrite(resolved_path, write.content)
           File.chmod(write.mode, resolved_path) if write.mode
         end
@@ -268,23 +269,46 @@ module AgentHarness
     end
 
     def snapshot_file_state(path)
-      return {existed: false} unless File.exist?(path)
+      stat = File.lstat(path)
 
-      {
-        existed: true,
-        content: File.binread(path),
-        mode: File.stat(path).mode & 0o777
-      }
+      if stat.symlink?
+        {
+          existed: true,
+          type: :symlink,
+          target: File.readlink(path)
+        }
+      elsif stat.file?
+        {
+          existed: true,
+          type: :file,
+          content: File.binread(path),
+          mode: stat.mode & 0o777
+        }
+      else
+        raise ArgumentError, "preparation target must be a regular file or symlink: #{path}"
+      end
+    rescue Errno::ENOENT
+      {existed: false}
     end
 
     def restore_file_state(path, snapshot)
-      if snapshot[:existed]
+      if snapshot[:type] == :symlink
+        delete_preparation_path(path)
+        FileUtils.mkdir_p(File.dirname(path))
+        File.symlink(snapshot[:target], path)
+      elsif snapshot[:existed]
         FileUtils.mkdir_p(File.dirname(path))
         File.binwrite(path, snapshot[:content])
         File.chmod(snapshot[:mode], path)
-      elsif File.exist?(path)
-        File.delete(path)
+      else
+        delete_preparation_path(path)
       end
+    end
+
+    def delete_preparation_path(path)
+      return unless File.exist?(path) || File.symlink?(path)
+
+      File.delete(path)
     end
 
     def timeout_deadline(timeout)

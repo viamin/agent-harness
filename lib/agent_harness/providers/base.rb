@@ -296,6 +296,10 @@ module AgentHarness
       rescue ArgumentError => e
         raise unless e.message.include?("unknown keyword: :preparation")
 
+        # Preserve compatibility with downstream injected executors that still
+        # implement the pre-bootstrap execute signature. Providers now always
+        # pass the structured preparation contract; unsupported custom
+        # executors are responsible for rejecting or implementing it explicitly.
         @executor.execute(command, timeout: timeout, env: env, stdin_data: stdin_data)
       end
 

@@ -182,6 +182,28 @@ RSpec.describe AgentHarness::CommandExecutor do
         end
       end
 
+      it "restores previously existing symlinks after execution" do
+        Dir.mktmpdir do |dir|
+          target_path = File.join(dir, "managed.json")
+          link_path = File.join(dir, "config.json")
+          File.binwrite(target_path, "{\"managed\":true}")
+          File.symlink(target_path, link_path)
+          preparation = AgentHarness::ExecutionPreparation.new(
+            file_writes: [{path: link_path, content: "{\"runtime\":true}"}]
+          )
+
+          result = executor.execute(
+            ["sh", "-c", "cat \"$1\"", "sh", link_path],
+            preparation: preparation
+          )
+
+          expect(result.stdout).to eq("{\"runtime\":true}")
+          expect(File.symlink?(link_path)).to be true
+          expect(File.readlink(link_path)).to eq(target_path)
+          expect(File.binread(target_path)).to eq("{\"managed\":true}")
+        end
+      end
+
       it "counts preparation time against the timeout budget" do
         Dir.mktmpdir do |dir|
           file_path = File.join(dir, "config.json")
