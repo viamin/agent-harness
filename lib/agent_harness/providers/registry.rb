@@ -161,6 +161,7 @@ module AgentHarness
           fallback_provider_metadata(canonical_name, klass, aliases, refresh: refresh)
         end
 
+        @provider_metadata_catalog_cache = nil if refresh
         @provider_metadata_cache[cache_key] = duplicate_metadata(metadata)
         duplicate_metadata(metadata)
       end
@@ -368,9 +369,16 @@ module AgentHarness
       def register_if_available(name, require_path, class_name, aliases: [])
         require_relative require_path.sub("agent_harness/providers/", "")
         klass = AgentHarness::Providers.const_get(class_name)
-        register(name, klass, aliases: aliases)
+        register(name, klass, aliases: builtin_aliases_for(name, aliases))
       rescue LoadError, NameError => e
         AgentHarness.logger&.debug("[AgentHarness::Registry] Provider #{name} not available: #{e.message}")
+      end
+
+      def builtin_aliases_for(name, aliases)
+        Array(aliases).reject do |alias_name|
+          alias_key = alias_name.to_sym
+          @providers.key?(alias_key) && alias_key != name
+        end
       end
     end
   end

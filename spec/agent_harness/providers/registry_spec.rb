@@ -108,6 +108,15 @@ RSpec.describe AgentHarness::Providers::Registry do
       expect(registry.instance_variable_get(:@providers)[:anthropic]).to eq(mock_provider)
     end
 
+    it "bootstraps builtins after a custom provider claims a future builtin alias" do
+      registry.register(:anthropic, mock_provider)
+
+      expect { registry.all }.not_to raise_error
+      expect(registry.get(:anthropic)).to eq(mock_provider)
+      expect(registry.get(:claude)).to eq(AgentHarness::Providers::Anthropic)
+      expect(registry.registered?(:anthropic)).to be true
+    end
+
     it "rejects aliases that conflict with builtin aliases during external registration" do
       registry.send(:ensure_builtin_providers_registered)
 
@@ -1105,6 +1114,28 @@ RSpec.describe AgentHarness::Providers::Registry do
       registry.provider_metadata_catalog(refresh: true)
 
       expect(metadata_provider.provider_metadata_calls).to eq(2)
+    end
+
+    it "invalidates the cached catalog when a single provider metadata entry is refreshed" do
+      metadata_provider = Class.new do
+        class << self
+          attr_accessor :available_flag
+
+          def provider_name = :metadata_provider
+          def available? = available_flag
+          def binary_name = "metadata"
+        end
+      end
+      metadata_provider.available_flag = true
+
+      registry.register(:metadata_provider, metadata_provider)
+
+      expect(registry.provider_metadata_catalog.dig(:metadata_provider, :runtime, :available)).to be true
+
+      metadata_provider.available_flag = false
+
+      expect(registry.provider_metadata(:metadata_provider, refresh: true).dig(:runtime, :available)).to be false
+      expect(registry.provider_metadata_catalog.dig(:metadata_provider, :runtime, :available)).to be false
     end
   end
 
