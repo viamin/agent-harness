@@ -565,7 +565,7 @@ RSpec.describe AgentHarness::Providers::Adapter do
           provider: :test_adapter,
           canonical_provider: :test_adapter,
           aliases: [:test_alias],
-          display_name: "Test adapter",
+          display_name: "Test Adapter",
           binary_name: "test"
         )
         expect(metadata[:auth]).to include(
@@ -751,7 +751,7 @@ RSpec.describe AgentHarness::Providers::Adapter do
           provider: :required_initializer_adapter,
           canonical_provider: :required_initializer_adapter,
           aliases: [:required_alias],
-          display_name: "Required initializer adapter",
+          display_name: "Required Initializer Adapter",
           binary_name: "required"
         )
         expect(metadata[:auth]).to include(
@@ -787,7 +787,7 @@ RSpec.describe AgentHarness::Providers::Adapter do
         metadata = metadata_compatible_adapter_class.provider_metadata(aliases: [:metadata_alias])
 
         expect(metadata).to include(
-          display_name: "Metadata compatible adapter"
+          display_name: "Metadata Compatible Adapter"
         )
         expect(metadata[:auth]).to include(
           default_mode: :oauth,
@@ -883,7 +883,7 @@ RSpec.describe AgentHarness::Providers::Adapter do
           provider: :raising_metadata_adapter,
           canonical_provider: :raising_metadata_adapter,
           aliases: [:raising_alias],
-          display_name: "Raising metadata adapter",
+          display_name: "Raising Metadata Adapter",
           binary_name: "raising-metadata"
         )
         expect(metadata[:auth]).to include(
@@ -1204,7 +1204,7 @@ RSpec.describe AgentHarness::Providers::Adapter do
           provider: :external_provider_name,
           canonical_provider: :external_provider_name,
           aliases: [:external_alias],
-          display_name: "External provider name"
+          display_name: "External Provider Name"
         )
         expect(metadata[:identity]).to eq(
           bot_usernames: ["external_provider_name", "external_alias"]
@@ -1229,7 +1229,7 @@ RSpec.describe AgentHarness::Providers::Adapter do
           provider: :external_provider_name,
           canonical_provider: :external_provider_name,
           aliases: [:external_alias],
-          display_name: "External provider name"
+          display_name: "External Provider Name"
         )
       end
 

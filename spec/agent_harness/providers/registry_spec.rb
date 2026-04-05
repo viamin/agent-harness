@@ -696,7 +696,7 @@ RSpec.describe AgentHarness::Providers::Registry do
         provider: :external_provider_name,
         canonical_provider: :external_provider_name,
         aliases: [:external_alias],
-        display_name: "External provider name"
+        display_name: "External Provider Name"
       )
       expect(metadata[:identity]).to include(
         bot_usernames: ["external_provider_name", "external_alias"]
@@ -720,7 +720,7 @@ RSpec.describe AgentHarness::Providers::Registry do
         provider: :external_provider_name,
         canonical_provider: :external_provider_name,
         aliases: [:external_alias],
-        display_name: "External provider name"
+        display_name: "External Provider Name"
       )
     end
 
@@ -1056,7 +1056,7 @@ RSpec.describe AgentHarness::Providers::Registry do
               provider: :metadata_provider,
               canonical_provider: :metadata_provider,
               aliases: [],
-              display_name: "Metadata provider",
+              display_name: "Metadata Provider",
               binary_name: "metadata",
               auth: {
                 default_mode: nil,

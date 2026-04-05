@@ -457,7 +457,7 @@ module AgentHarness
             return provider.display_name
           end
 
-          canonical_name.to_s.tr("_", " ").capitalize
+          canonical_name.to_s.split("_").map(&:capitalize).join(" ")
         end
 
         def metadata_default_auth_mode(provider, supported_modes:)
