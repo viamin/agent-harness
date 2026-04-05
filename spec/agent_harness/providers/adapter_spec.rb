@@ -84,6 +84,32 @@ RSpec.describe AgentHarness::Providers::Adapter do
     end
   end
 
+  let(:registry_compatible_adapter_class) do
+    Class.new do
+      include AgentHarness::Providers::Adapter
+
+      class << self
+        def provider_name
+          :registry_compatible_adapter
+        end
+
+        def available?
+          true
+        end
+
+        def binary_name
+          "registry-compatible"
+        end
+      end
+
+      def initialize(config: nil, executor: nil, logger: nil)
+        @config = config
+        @executor = executor
+        @logger = logger
+      end
+    end
+  end
+
   let(:package_only_installing_adapter_class) do
     Class.new do
       include AgentHarness::Providers::Adapter
@@ -251,13 +277,24 @@ RSpec.describe AgentHarness::Providers::Adapter do
           mcp: false
         )
         expect(metadata[:health_check]).to include(
+          supports_registry_checks: false,
+          provider_status: false,
+          configuration_validation: false,
+          lightweight: false
+        )
+        expect(metadata[:identity]).to eq(
+          bot_usernames: ["test_adapter", "test_alias"]
+        )
+      end
+
+      it "reports registry checks for adapters with a compatible initializer contract" do
+        metadata = registry_compatible_adapter_class.provider_metadata
+
+        expect(metadata[:health_check]).to include(
           supports_registry_checks: true,
           provider_status: false,
           configuration_validation: false,
           lightweight: true
-        )
-        expect(metadata[:identity]).to eq(
-          bot_usernames: ["test_adapter", "test_alias"]
         )
       end
 
@@ -291,6 +328,12 @@ RSpec.describe AgentHarness::Providers::Adapter do
         )
         expect(metadata[:identity]).to eq(
           bot_usernames: ["required_initializer_adapter", "required_alias"]
+        )
+        expect(metadata[:health_check]).to include(
+          supports_registry_checks: false,
+          provider_status: false,
+          configuration_validation: false,
+          lightweight: false
         )
       end
     end

@@ -333,6 +333,21 @@ RSpec.describe AgentHarness::Providers::Registry do
       )
     end
 
+    it "returns copied aliases in fallback metadata" do
+      legacy_provider = Class.new do
+        def self.provider_name = :legacy_provider
+        def self.available? = true
+        def self.binary_name = "legacy"
+      end
+
+      registry.register(:legacy_provider, legacy_provider, aliases: [:legacy])
+
+      metadata = registry.provider_metadata(:legacy_provider)
+      metadata[:aliases] << :mutated
+
+      expect(registry.provider_metadata(:legacy_provider)[:aliases]).to eq([:legacy])
+    end
+
     it "returns adapter metadata even when the provider requires constructor arguments" do
       required_initializer_provider = Class.new do
         include AgentHarness::Providers::Adapter
@@ -361,6 +376,12 @@ RSpec.describe AgentHarness::Providers::Registry do
       expect(metadata[:auth]).to include(
         default_mode: :api_key,
         supported_modes: [:api_key]
+      )
+      expect(metadata[:health_check]).to include(
+        supports_registry_checks: false,
+        provider_status: false,
+        configuration_validation: false,
+        lightweight: false
       )
       expect(metadata[:identity]).to eq(
         bot_usernames: ["required_initializer_provider", "required"]

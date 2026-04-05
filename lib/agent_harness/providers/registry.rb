@@ -205,7 +205,7 @@ module AgentHarness
         {
           provider: name,
           canonical_provider: name,
-          aliases: aliases,
+          aliases: aliases.dup,
           display_name: name.to_s.split("_").map(&:capitalize).join(" "),
           binary_name: klass.binary_name,
           auth: {

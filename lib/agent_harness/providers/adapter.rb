@@ -104,6 +104,10 @@ module AgentHarness
           configuration = provider&.configuration_schema || default_configuration_schema
           execution = provider&.execution_semantics || default_execution_semantics
           installation = installation_contract
+          supports_registry_checks = registry_check_initializer_compatible?
+          provider_status_check = supports_registry_checks && overrides_instance_method?(:health_status)
+          configuration_validation = supports_registry_checks && overrides_instance_method?(:validate_config)
+          lightweight_checks = supports_registry_checks && !provider_status_check && !configuration_validation
 
           deep_merge_metadata(
             {
@@ -136,10 +140,10 @@ module AgentHarness
               configuration: configuration,
               capabilities: provider&.capabilities || default_capabilities,
               health_check: {
-                supports_registry_checks: true,
-                provider_status: overrides_instance_method?(:health_status),
-                configuration_validation: overrides_instance_method?(:validate_config),
-                lightweight: !overrides_instance_method?(:health_status) && !overrides_instance_method?(:validate_config)
+                supports_registry_checks: supports_registry_checks,
+                provider_status: provider_status_check,
+                configuration_validation: configuration_validation,
+                lightweight: lightweight_checks
               },
               identity: {
                 bot_usernames: provider_bot_usernames(aliases: normalized_aliases)
@@ -177,6 +181,23 @@ module AgentHarness
           instance_method(:initialize).parameters.none? do |type, _name|
             type == :req || type == :keyreq
           end
+        end
+
+        def registry_check_initializer_compatible?
+          parameters = instance_method(:initialize).parameters
+          return false if parameters.any? { |type, _name| type == :req }
+          return true if parameters.any? { |type, _name| type == :keyrest }
+
+          keyword_names = parameters
+            .filter_map { |type, name| name if type == :key || type == :keyreq }
+
+          supported_keywords = %i[config executor logger]
+          required_keywords = parameters
+            .filter_map { |type, name| name if type == :keyreq }
+
+          return false unless (required_keywords - supported_keywords).empty?
+
+          (supported_keywords - keyword_names).empty?
         end
 
         def overrides_instance_method?(method_name)
