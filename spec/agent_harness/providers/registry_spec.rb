@@ -2,6 +2,21 @@
 
 RSpec.describe AgentHarness::Providers::Registry do
   let(:registry) { described_class.instance }
+  let(:legacy_provider) do
+    Class.new do
+      def self.provider_name
+        :legacy_provider
+      end
+
+      def self.available?
+        true
+      end
+
+      def self.binary_name
+        "legacy"
+      end
+    end
+  end
 
   before do
     registry.reset!
@@ -34,22 +49,6 @@ RSpec.describe AgentHarness::Providers::Registry do
       end
     end
 
-    let(:invalid_provider) do
-      Class.new do
-        def self.provider_name
-          :invalid_provider
-        end
-
-        def self.available?
-          true
-        end
-
-        def self.binary_name
-          "invalid"
-        end
-      end
-    end
-
     it "registers a provider class" do
       registry.register(:test, mock_provider)
       expect(registry.registered?(:test)).to be true
@@ -61,10 +60,10 @@ RSpec.describe AgentHarness::Providers::Registry do
       expect(registry.registered?(:testing)).to be true
     end
 
-    it "rejects non-adapter providers that do not implement install_contract" do
-      expect {
-        registry.register(:invalid, invalid_provider)
-      }.to raise_error(AgentHarness::ConfigurationError, /install_contract/)
+    it "accepts legacy non-adapter providers that implement the original registration contract" do
+      registry.register(:legacy, legacy_provider)
+
+      expect(registry.registered?(:legacy)).to be true
     end
   end
 
@@ -124,21 +123,7 @@ RSpec.describe AgentHarness::Providers::Registry do
     end
 
     it "raises a configuration error when a registered provider lacks install_contract" do
-      provider = Class.new do
-        def self.provider_name
-          :legacy_provider
-        end
-
-        def self.available?
-          true
-        end
-
-        def self.binary_name
-          "legacy"
-        end
-      end
-
-      registry.instance_variable_get(:@providers)[:legacy] = provider
+      registry.register(:legacy, legacy_provider)
 
       expect {
         registry.install_contract(:legacy)

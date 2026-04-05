@@ -141,13 +141,12 @@ module AgentHarness
         has_required_methods = klass.respond_to?(:provider_name) &&
           klass.respond_to?(:available?) &&
           klass.respond_to?(:binary_name)
-        has_install_contract = klass.respond_to?(:install_contract)
 
         return if includes_adapter
-        return if has_required_methods && has_install_contract
+        return if has_required_methods
 
         raise ConfigurationError,
-          "Provider class must include AgentHarness::Providers::Adapter or implement required class methods, including .install_contract"
+          "Provider class must include AgentHarness::Providers::Adapter or implement required class methods"
       end
 
       def ensure_builtin_providers_registered
