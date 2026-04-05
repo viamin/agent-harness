@@ -388,6 +388,91 @@ RSpec.describe AgentHarness::Providers::Registry do
       )
     end
 
+    it "uses registry-compatible construction to expose instance metadata" do
+      registry_compatible_provider = Class.new do
+        include AgentHarness::Providers::Adapter
+
+        class << self
+          def provider_name = :registry_compatible_provider
+          def available? = true
+          def binary_name = "registry-compatible"
+        end
+
+        def initialize(config: nil, executor: nil, logger: nil)
+          @config = config
+          @executor = executor
+          @logger = logger
+        end
+
+        def display_name
+          "Registry compatible provider"
+        end
+
+        def auth_type
+          :oauth
+        end
+
+        def configuration_schema
+          {
+            fields: [{name: :workspace, type: :string}],
+            auth_modes: [:oauth],
+            openai_compatible: false
+          }
+        end
+
+        def execution_semantics
+          {
+            prompt_delivery: :stdin,
+            output_format: :json,
+            sandbox_aware: true,
+            uses_subcommand: true
+          }
+        end
+
+        def capabilities
+          {
+            streaming: true,
+            tool_use: true
+          }
+        end
+      end
+
+      command_executor = instance_double("AgentHarness::CommandExecutor")
+      allow(AgentHarness.configuration).to receive(:command_executor).and_return(command_executor)
+      allow(AgentHarness).to receive(:logger).and_return(instance_double(Logger, debug: nil))
+
+      registry.register(:registry_compatible_provider, registry_compatible_provider, aliases: [:registry_compatible])
+
+      metadata = registry.provider_metadata(:registry_compatible)
+
+      expect(metadata).to include(
+        display_name: "Registry compatible provider"
+      )
+      expect(metadata[:auth]).to include(
+        default_mode: :oauth,
+        supported_modes: [:oauth]
+      )
+      expect(metadata[:runtime]).to include(
+        prompt_delivery: :stdin,
+        output_format: :json,
+        sandbox_aware: true,
+        uses_subcommand: true
+      )
+      expect(metadata[:configuration]).to include(
+        fields: [{name: :workspace, type: :string}],
+        auth_modes: [:oauth],
+        openai_compatible: false
+      )
+      expect(metadata[:capabilities]).to include(
+        streaming: true,
+        tool_use: true
+      )
+      expect(metadata[:health_check]).to include(
+        supports_registry_checks: true,
+        lightweight: true
+      )
+    end
+
     it "raises ConfigurationError for unknown providers" do
       expect {
         registry.provider_metadata(:nonexistent_provider_xyz)

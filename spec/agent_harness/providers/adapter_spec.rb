@@ -107,6 +107,54 @@ RSpec.describe AgentHarness::Providers::Adapter do
         @executor = executor
         @logger = logger
       end
+
+      def display_name
+        "Registry compatible adapter"
+      end
+
+      def auth_type
+        :oauth
+      end
+
+      def configuration_schema
+        {
+          fields: [{name: :workspace, type: :string}],
+          auth_modes: [:oauth],
+          openai_compatible: true
+        }
+      end
+
+      def execution_semantics
+        {
+          prompt_delivery: :stdin,
+          output_format: :json,
+          sandbox_aware: true,
+          uses_subcommand: true
+        }
+      end
+
+      def capabilities
+        {
+          streaming: true,
+          tool_use: true
+        }
+      end
+
+      def supports_mcp?
+        true
+      end
+
+      def supported_mcp_transports
+        [:stdio]
+      end
+
+      def supports_sessions?
+        true
+      end
+
+      def supports_dangerous_mode?
+        true
+      end
     end
   end
 
@@ -288,8 +336,39 @@ RSpec.describe AgentHarness::Providers::Adapter do
       end
 
       it "reports registry checks for adapters with a compatible initializer contract" do
+        command_executor = instance_double("AgentHarness::CommandExecutor")
+        allow(AgentHarness.configuration).to receive(:command_executor).and_return(command_executor)
+        allow(AgentHarness).to receive(:logger).and_return(instance_double(Logger))
+
         metadata = registry_compatible_adapter_class.provider_metadata
 
+        expect(metadata).to include(
+          display_name: "Registry compatible adapter"
+        )
+        expect(metadata[:auth]).to include(
+          default_mode: :oauth,
+          supported_modes: [:oauth],
+          api_family: :openai
+        )
+        expect(metadata[:runtime]).to include(
+          prompt_delivery: :stdin,
+          output_format: :json,
+          sandbox_aware: true,
+          uses_subcommand: true,
+          supports_mcp: true,
+          supports_sessions: true,
+          supports_dangerous_mode: true
+        )
+        expect(metadata[:runtime][:supported_mcp_transports]).to eq([:stdio])
+        expect(metadata[:configuration]).to include(
+          fields: [{name: :workspace, type: :string}],
+          auth_modes: [:oauth],
+          openai_compatible: true
+        )
+        expect(metadata[:capabilities]).to include(
+          streaming: true,
+          tool_use: true
+        )
         expect(metadata[:health_check]).to include(
           supports_registry_checks: true,
           provider_status: false,

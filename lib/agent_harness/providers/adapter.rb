@@ -172,15 +172,19 @@ module AgentHarness
         end
 
         def metadata_provider_instance
-          return nil unless parameterless_initializer?
+          return nil unless registry_check_initializer_compatible?
 
-          new
-        end
-
-        def parameterless_initializer?
-          instance_method(:initialize).parameters.none? do |type, _name|
-            type == :req || type == :keyreq
+          parameters = instance_method(:initialize).parameters
+          accepts = lambda do |name|
+            parameters.any? { |type, param_name| [:key, :keyreq].include?(type) && param_name == name } ||
+              parameters.any? { |type, _| type == :keyrest }
           end
+
+          kwargs = {}
+          kwargs[:config] = nil if accepts.call(:config)
+          kwargs[:executor] = AgentHarness.configuration.command_executor if accepts.call(:executor)
+          kwargs[:logger] = AgentHarness.logger if accepts.call(:logger)
+          new(**kwargs)
         end
 
         def registry_check_initializer_compatible?
