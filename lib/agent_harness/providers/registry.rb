@@ -22,6 +22,8 @@ module AgentHarness
         @aliases = {}
         @provider_aliases = Hash.new { |hash, key| hash[key] = [] }
         @metadata_runtime_available = {}
+        @provider_metadata_cache = {}
+        @provider_metadata_catalog_cache = nil
         @builtin_registered = false
         @builtin_registration_in_progress = false
       end
@@ -51,6 +53,7 @@ module AgentHarness
         @providers[name] = klass
         @provider_aliases[name] = normalized_aliases
         @metadata_runtime_available.delete(name)
+        clear_registry_metadata_cache!
         clear_metadata_caches!(klass)
 
         normalized_aliases.each do |alias_name|
@@ -138,20 +141,28 @@ module AgentHarness
       def provider_metadata(name, refresh: false)
         ensure_builtin_providers_registered
 
-        canonical_name = resolve_alias(name.to_sym)
+        requested_name = name.to_sym
+        canonical_name = resolve_alias(requested_name)
+        cache_key = [requested_name, canonical_name]
+
+        return duplicate_metadata(@provider_metadata_cache[cache_key]) if !refresh && @provider_metadata_cache.key?(cache_key)
+
         klass = @providers[canonical_name] || raise(ConfigurationError, "Unknown provider: #{canonical_name}")
         aliases = @provider_aliases[canonical_name]
 
-        if klass.respond_to?(:provider_metadata)
-          return klass.provider_metadata(
+        metadata = if klass.respond_to?(:provider_metadata)
+          klass.provider_metadata(
             aliases: aliases,
             refresh: refresh,
-            requested_name: name.to_sym,
+            requested_name: requested_name,
             canonical_name: canonical_name
           )
+        else
+          fallback_provider_metadata(canonical_name, klass, aliases, refresh: refresh)
         end
 
-        fallback_provider_metadata(canonical_name, klass, aliases, refresh: refresh)
+        @provider_metadata_cache[cache_key] = duplicate_metadata(metadata)
+        duplicate_metadata(metadata)
       end
 
       # Get consolidated metadata for all registered providers.
@@ -162,25 +173,46 @@ module AgentHarness
       def provider_metadata_catalog(refresh: false)
         ensure_builtin_providers_registered
 
-        @providers.keys.each_with_object({}) do |name, catalog|
-          catalog[name] = provider_metadata(name, refresh: refresh)
+        return duplicate_metadata(@provider_metadata_catalog_cache) if !refresh && @provider_metadata_catalog_cache
+
+        catalog = @providers.keys.each_with_object({}) do |name, result|
+          result[name] = provider_metadata(name, refresh: refresh)
         end
+
+        @provider_metadata_catalog_cache = duplicate_metadata(catalog)
+        duplicate_metadata(catalog)
       end
 
-      # Reset registry (useful for testing)
-      #
-      # @return [void]
       def reset!
         @providers.each_value { |klass| clear_metadata_caches!(klass) }
         @providers.clear
         @aliases.clear
         @provider_aliases.clear
         @metadata_runtime_available.clear
+        clear_registry_metadata_cache!
         @builtin_registered = false
         @builtin_registration_in_progress = false
       end
 
       private
+
+      def clear_registry_metadata_cache!
+        @provider_metadata_cache.clear
+        @provider_metadata_catalog_cache = nil
+      end
+
+      def duplicate_metadata(value)
+        case value
+        when Hash
+          value.each_with_object({}) do |(key, nested_value), copy|
+            copy[key] = duplicate_metadata(nested_value)
+          end
+        when Array
+          value.map { |nested_value| duplicate_metadata(nested_value) }
+        else
+          value
+        end
+      end
 
       def resolve_alias(name)
         @aliases[name] || name

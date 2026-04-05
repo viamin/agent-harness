@@ -183,7 +183,8 @@ module AgentHarness
           auth_check_supported = auth_status_available?(
             provider,
             requested_name: requested_provider_name,
-            canonical_name: canonical_provider_name
+            canonical_name: canonical_provider_name,
+            refresh: refresh
           )
           provider_status_check = supports_registry_checks && overrides_instance_method?(:health_status)
           configuration_validation = supports_registry_checks && overrides_instance_method?(:validate_config)
@@ -353,10 +354,15 @@ module AgentHarness
         #
         # This differs from supports_registry_checks - it specifically indicates whether
         # the auth status check will succeed or return "not implemented"
-        def auth_status_available?(provider_instance = nil, requested_name: provider_name, canonical_name: provider_name)
+        def auth_status_available?(
+          provider_instance = nil,
+          requested_name: provider_name,
+          canonical_name: provider_name,
+          refresh: false
+        )
           @auth_status_available = {} unless instance_variable_defined?(:@auth_status_available)
           cache_key = [requested_name.to_sym, canonical_name.to_sym]
-          return @auth_status_available[cache_key] if @auth_status_available.key?(cache_key)
+          return @auth_status_available[cache_key] if !refresh && @auth_status_available.key?(cache_key)
 
           @auth_status_available[cache_key] = if !registry_check_initializer_compatible?
             false

@@ -1043,6 +1043,46 @@ RSpec.describe AgentHarness::Providers::Adapter do
         expect(auth_status_cached_adapter_class.initialization_count).to eq(1)
       end
 
+      it "refreshes memoized auth status availability when metadata is refreshed" do
+        refreshable_auth_adapter_class = Class.new do
+          include AgentHarness::Providers::Adapter
+
+          class << self
+            def provider_name
+              :claude
+            end
+
+            def available?
+              true
+            end
+
+            def binary_name
+              "refreshable-auth"
+            end
+          end
+
+          def initialize(config: nil, executor: nil, logger: nil)
+            @config = config
+          end
+
+          def auth_type
+            @config.enabled ? :oauth : :api_key
+          end
+        end
+
+        provider_config = AgentHarness::ProviderConfig.new(:claude)
+        AgentHarness.configuration.providers[:claude] = provider_config
+
+        expect(refreshable_auth_adapter_class.provider_metadata[:health_check][:auth_check_supported]).to be true
+
+        provider_config.enabled = false
+
+        expect(refreshable_auth_adapter_class.provider_metadata[:health_check][:auth_check_supported]).to be true
+        expect(refreshable_auth_adapter_class.provider_metadata(refresh: true)[:health_check][:auth_check_supported]).to be false
+      ensure
+        AgentHarness.configuration.providers.delete(:claude)
+      end
+
       it "memoizes negative auth status availability for constructor-incompatible adapters" do
         subset_safe_auth_adapter_class = Class.new do
           include AgentHarness::Providers::Adapter

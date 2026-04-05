@@ -229,8 +229,8 @@ AgentHarness.provider_metadata_catalog
 # => { claude: {...}, cursor: {...}, gemini: {...}, ... }
 ```
 
-CLI availability in metadata is cached so repeated catalog reads stay cheap.
-Pass `refresh: true` to re-run live availability checks when needed:
+Provider metadata is cached so repeated catalog reads stay cheap.
+Pass `refresh: true` to rebuild metadata and re-run live availability checks when needed:
 
 ```ruby
 AgentHarness.provider_metadata(:anthropic, refresh: true)

@@ -1020,6 +1020,92 @@ RSpec.describe AgentHarness::Providers::Registry do
 
       expect(legacy_provider.available_calls).to eq(2)
     end
+
+    it "caches full metadata across catalog reads and returns defensive copies" do
+      metadata_provider = Class.new do
+        class << self
+          attr_accessor :provider_metadata_calls
+
+          def provider_name = :metadata_provider
+          def available? = true
+          def binary_name = "metadata"
+
+          def provider_metadata(**)
+            self.provider_metadata_calls ||= 0
+            self.provider_metadata_calls += 1
+
+            {
+              provider: :metadata_provider,
+              canonical_provider: :metadata_provider,
+              aliases: [],
+              display_name: "Metadata provider",
+              binary_name: "metadata",
+              auth: {
+                default_mode: nil,
+                supported_modes: [],
+                service: nil,
+                api_family: nil
+              },
+              runtime: {
+                interface: :cli,
+                requires_cli: true,
+                available: true,
+                installable: false,
+                installation: nil,
+                prompt_delivery: nil,
+                output_format: nil,
+                sandbox_aware: nil,
+                uses_subcommand: nil,
+                supports_mcp: false,
+                supported_mcp_transports: [],
+                supports_sessions: false,
+                supports_dangerous_mode: false
+              },
+              configuration: {
+                fields: [],
+                auth_modes: [],
+                openai_compatible: false
+              },
+              capabilities: {
+                streaming: false,
+                file_upload: false,
+                vision: false,
+                tool_use: false,
+                json_mode: false,
+                mcp: false,
+                dangerous_mode: false
+              },
+              health_check: {
+                supports_registry_checks: false,
+                auth_check_supported: false,
+                provider_status: false,
+                configuration_validation: false,
+                lightweight: false
+              },
+              identity: {
+                bot_usernames: ["metadata_provider"]
+              }
+            }
+          end
+        end
+      end
+
+      registry.register(:metadata_provider, metadata_provider)
+
+      first_catalog = registry.provider_metadata_catalog
+      first_catalog[:metadata_provider][:identity][:bot_usernames] << "mutated"
+
+      second_catalog = registry.provider_metadata_catalog
+
+      expect(metadata_provider.provider_metadata_calls).to eq(1)
+      expect(second_catalog[:metadata_provider][:identity]).to eq(
+        bot_usernames: ["metadata_provider"]
+      )
+
+      registry.provider_metadata_catalog(refresh: true)
+
+      expect(metadata_provider.provider_metadata_calls).to eq(2)
+    end
   end
 
   describe "#reset!" do
