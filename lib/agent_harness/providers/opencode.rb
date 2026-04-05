@@ -210,9 +210,8 @@ module AgentHarness
         payload.empty? ? nil : payload
       end
 
-      def opencode_config_path(runtime)
-        metadata = runtime.metadata
-        metadata[:config_path] || metadata["config_path"] || "~/.config/opencode/opencode.json"
+      def opencode_config_path(_runtime)
+        "~/.config/opencode/opencode.json"
       end
 
       def serialize_opencode_config(payload)

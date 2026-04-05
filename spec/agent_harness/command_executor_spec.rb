@@ -209,6 +209,56 @@ RSpec.describe AgentHarness::CommandExecutor do
           expect(File.exist?(file_path)).to be false
         end
       end
+
+      it "serializes concurrent preparation for the same path across execution and cleanup" do
+        Dir.mktmpdir do |dir|
+          file_path = File.join(dir, "config.json")
+          File.binwrite(file_path, "old")
+
+          allow(executor).to receive(:execute_without_timeout) do |_cmd_array, env:, stdin_data:|
+            observed = File.binread(file_path)
+            env.fetch("SIGNAL") << observed
+            env["WAIT"]&.pop
+            ["", stdin_data.to_s, instance_double(Process::Status, exitstatus: 0)]
+          end
+
+          signal_a = Queue.new
+          wait_a = Queue.new
+          signal_b = Queue.new
+
+          thread_a = Thread.new do
+            executor.execute(
+              ["true"],
+              env: {"SIGNAL" => signal_a, "WAIT" => wait_a},
+              preparation: AgentHarness::ExecutionPreparation.new(
+                file_writes: [{path: file_path, content: "A"}]
+              )
+            )
+          end
+
+          expect(signal_a.pop).to eq("A")
+
+          thread_b = Thread.new do
+            executor.execute(
+              ["true"],
+              env: {"SIGNAL" => signal_b},
+              preparation: AgentHarness::ExecutionPreparation.new(
+                file_writes: [{path: file_path, content: "B"}]
+              )
+            )
+          end
+
+          sleep 0.05
+          expect(signal_b).to be_empty
+
+          wait_a << :continue
+
+          thread_a.join
+          expect(signal_b.pop).to eq("B")
+          thread_b.join
+          expect(File.binread(file_path)).to eq("old")
+        end
+      end
     end
   end
 

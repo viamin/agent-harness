@@ -19,6 +19,9 @@ module AgentHarness
   # @example With timeout
   #   result = executor.execute("claude --print", timeout: 300)
   class CommandExecutor
+    PREPARATION_LOCK_REGISTRY_MUTEX = Mutex.new
+    PREPARATION_LOCK_REGISTRY = {}
+
     # Result of a command execution
     Result = Struct.new(:stdout, :stderr, :exit_code, :duration, keyword_init: true) do
       def success?
@@ -52,8 +55,10 @@ module AgentHarness
       start_time = current_time
       deadline = timeout_deadline(timeout)
       applied_preparation = []
+      held_preparation_locks = []
 
       log_debug("Executing command", command: cmd_string, timeout: timeout)
+      held_preparation_locks = acquire_preparation_locks(preparation, env: env)
       apply_preparation(
         preparation,
         env: env,
@@ -99,6 +104,7 @@ module AgentHarness
           log_debug("Failed to clean up runtime preparation", error: e.message)
         end
       end
+      release_preparation_locks(held_preparation_locks) unless held_preparation_locks.nil? || held_preparation_locks.empty?
     end
 
     # Check if a binary exists in PATH
@@ -135,6 +141,43 @@ module AgentHarness
     end
 
     private
+
+    def acquire_preparation_locks(preparation, env:)
+      return [] if preparation.nil? || preparation.empty?
+
+      preparation_lock_keys(preparation, env).map do |key|
+        entry = PREPARATION_LOCK_REGISTRY_MUTEX.synchronize do
+          PREPARATION_LOCK_REGISTRY[key] ||= {mutex: Mutex.new, refcount: 0}
+          PREPARATION_LOCK_REGISTRY[key][:refcount] += 1
+          PREPARATION_LOCK_REGISTRY[key]
+        end
+        entry[:mutex].lock
+        {key: key, mutex: entry[:mutex]}
+      end
+    end
+
+    def release_preparation_locks(held_preparation_locks)
+      held_preparation_locks.reverse_each do |lock|
+        lock[:mutex].unlock
+        PREPARATION_LOCK_REGISTRY_MUTEX.synchronize do
+          entry = PREPARATION_LOCK_REGISTRY[lock[:key]]
+          next unless entry
+
+          entry[:refcount] -= 1
+          PREPARATION_LOCK_REGISTRY.delete(lock[:key]) if entry[:refcount].zero?
+        end
+      end
+    end
+
+    def preparation_lock_keys(preparation, env)
+      preparation.file_writes.map do |write|
+        "#{preparation_lock_scope}:#{expand_preparation_path(write.path, env)}"
+      end.uniq.sort
+    end
+
+    def preparation_lock_scope
+      "host"
+    end
 
     def apply_preparation(preparation, env:, timeout:, deadline:, command_name:, applied_preparation:)
       return if preparation.nil? || preparation.empty?

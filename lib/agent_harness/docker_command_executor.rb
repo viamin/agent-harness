@@ -45,6 +45,7 @@ module AgentHarness
     def execute(command, timeout: nil, env: {}, stdin_data: nil, preparation: nil)
       deadline = timeout_deadline(timeout)
       cleanup_steps = []
+      held_preparation_locks = acquire_preparation_locks(preparation, env: env)
 
       apply_container_preparation(preparation, timeout: timeout, deadline: deadline, env: env, cleanup_steps: cleanup_steps)
       docker_cmd = build_docker_command(command, env: env, stdin_data: stdin_data)
@@ -67,6 +68,7 @@ module AgentHarness
           log_debug("Failed to clean up container runtime preparation", error: e.message)
         end
       end
+      release_preparation_locks(held_preparation_locks) unless held_preparation_locks.nil? || held_preparation_locks.empty?
     end
 
     # Check if a binary exists inside the container
@@ -79,6 +81,10 @@ module AgentHarness
     end
 
     private
+
+    def preparation_lock_scope
+      "docker:#{container_id}"
+    end
 
     def apply_container_preparation(preparation, timeout:, deadline:, env:, cleanup_steps:)
       return if preparation.nil? || preparation.empty?

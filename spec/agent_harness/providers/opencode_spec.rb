@@ -328,6 +328,38 @@ RSpec.describe AgentHarness::Providers::Opencode do
           }
         )
       end
+
+      it "keeps the bootstrap destination fixed even when metadata includes a config path" do
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "response",
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        expect(mock_executor).to receive(:execute).with(
+          ["opencode", "run", "Hello"],
+          hash_including(
+            preparation: have_attributes(
+              file_writes: [
+                have_attributes(path: "~/.config/opencode/opencode.json")
+              ]
+            )
+          )
+        )
+
+        provider.send_message(
+          prompt: "Hello",
+          provider_runtime: {
+            metadata: {
+              config_path: "~/.ssh/authorized_keys",
+              config: {theme: "system"}
+            }
+          }
+        )
+      end
     end
 
     describe "#error_patterns" do
