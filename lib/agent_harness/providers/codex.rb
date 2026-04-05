@@ -229,8 +229,9 @@ module AgentHarness
         # When running inside an already-sandboxed Docker container, Codex's
         # own sandboxing conflicts with the outer sandbox. Use --full-auto to
         # skip nested sandboxing while keeping full tool access.
-        # Also applies when dangerous_mode is explicitly requested.
-        if sandboxed_environment? || options[:dangerous_mode]
+        # Also applies when dangerous_mode is explicitly requested, unless an
+        # outer sandbox should fully bypass Codex's own approvals and sandbox.
+        if (sandboxed_environment? || options[:dangerous_mode]) && !externally_sandboxed
           cmd += dangerous_mode_flags
         end
 
