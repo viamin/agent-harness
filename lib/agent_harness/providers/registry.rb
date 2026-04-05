@@ -162,6 +162,7 @@ module AgentHarness
         end
 
         @provider_metadata_catalog_cache = nil if refresh
+        invalidate_provider_metadata_cache!(canonical_name) if refresh
         @provider_metadata_cache[cache_key] = duplicate_metadata(metadata)
         duplicate_metadata(metadata)
       end
@@ -200,6 +201,12 @@ module AgentHarness
       def clear_registry_metadata_cache!
         @provider_metadata_cache.clear
         @provider_metadata_catalog_cache = nil
+      end
+
+      def invalidate_provider_metadata_cache!(canonical_name)
+        @provider_metadata_cache.delete_if do |(_, cached_canonical_name), _|
+          cached_canonical_name == canonical_name
+        end
       end
 
       def duplicate_metadata(value)

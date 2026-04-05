@@ -1154,6 +1154,31 @@ RSpec.describe AgentHarness::Providers::Registry do
       expect(registry.provider_metadata(:metadata_provider, refresh: true).dig(:runtime, :available)).to be false
       expect(registry.provider_metadata_catalog.dig(:metadata_provider, :runtime, :available)).to be false
     end
+
+    it "invalidates sibling cache entries for the same canonical provider on refresh" do
+      metadata_provider = Class.new do
+        class << self
+          attr_accessor :available_flag
+
+          def provider_name = :metadata_provider
+          def available? = available_flag
+          def binary_name = "metadata"
+        end
+      end
+      metadata_provider.available_flag = true
+
+      registry.register(:metadata_provider, metadata_provider, aliases: [:metadata_alias])
+
+      expect(registry.provider_metadata(:metadata_provider).dig(:runtime, :available)).to be true
+      expect(registry.provider_metadata(:metadata_alias).dig(:runtime, :available)).to be true
+      expect(registry.provider_metadata_catalog.dig(:metadata_provider, :runtime, :available)).to be true
+
+      metadata_provider.available_flag = false
+
+      expect(registry.provider_metadata(:metadata_alias, refresh: true).dig(:runtime, :available)).to be false
+      expect(registry.provider_metadata(:metadata_provider).dig(:runtime, :available)).to be false
+      expect(registry.provider_metadata_catalog.dig(:metadata_provider, :runtime, :available)).to be false
+    end
   end
 
   describe "#reset!" do
