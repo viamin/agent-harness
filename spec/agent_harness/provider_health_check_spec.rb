@@ -63,6 +63,17 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
         expect(result[:error_category]).to eq(:installation)
         expect(result[:check]).to eq(:availability)
       end
+
+      it "still runs host preflight when provider_runtime only contains local overrides" do
+        result = described_class.check(:test_provider, provider_runtime: {model: "runtime-only"})
+
+        expect(result[:name]).to eq(:test_provider)
+        expect(result[:status]).to eq("error")
+        expect(result[:message]).to include("test-cli")
+        expect(result[:message]).to include("not found")
+        expect(result[:error_category]).to eq(:installation)
+        expect(result[:check]).to eq(:availability)
+      end
     end
 
     context "when authentication fails" do
@@ -856,6 +867,12 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
       expect(results).to be_an(Array)
     end
 
+    it "rejects a shared provider_runtime override" do
+      expect {
+        described_class.check_all(provider_runtime: {env: {"API_KEY" => "secret"}})
+      }.to raise_error(ArgumentError, "provider_runtime is only supported for single-provider health checks")
+    end
+
     it "skips disabled providers" do
       AgentHarness.configure do |config|
         config.provider(:provider_b) { |p| p.enabled = false }
@@ -1046,6 +1063,12 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
       expect(result[:message]).to eq(
         "Registered, authenticated, and smoke test passed (health/config checks use defaults)"
       )
+    end
+
+    it "rejects provider_runtime on check_providers" do
+      expect {
+        AgentHarness.check_providers(provider_runtime: {env: {"API_KEY" => "secret"}})
+      }.to raise_error(ArgumentError, "provider_runtime is only supported for single-provider health checks")
     end
 
     it "exposes smoke_test_contract on the module" do

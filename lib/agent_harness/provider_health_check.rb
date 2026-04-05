@@ -26,6 +26,8 @@ module AgentHarness
       # @param timeout [Integer] timeout in seconds for each check
       # @return [Array<Hash>] health status for each provider
       def check_all(timeout: configured_timeout, executor: nil, provider_runtime: nil)
+        raise ArgumentError, "provider_runtime is only supported for single-provider health checks" unless provider_runtime.nil?
+
         provider_names = if AgentHarness.configuration.providers.empty?
           Providers::Registry.instance.all
         else
@@ -330,11 +332,8 @@ module AgentHarness
         error.include?("not implemented")
       end
 
-      def host_preflight_allowed?(executor:, provider_runtime:)
-        return false unless executor.nil?
-        return true if provider_runtime.nil?
-
-        ProviderRuntime.wrap(provider_runtime).empty?
+      def host_preflight_allowed?(executor:, provider_runtime: nil)
+        executor.nil?
       end
 
       def normalize_smoke_error_category(category, message)

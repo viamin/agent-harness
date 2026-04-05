@@ -168,12 +168,16 @@ module AgentHarness
     # authentication, provider health status, and config validation checks.
     #
     # @param timeout [Integer] timeout in seconds for each check (defaults to configured value)
+    # @raise [ArgumentError] if provider_runtime is supplied; runtime overrides are
+    #   only supported by `check_provider` to avoid leaking one provider's execution
+    #   context into every other health check
     # @return [Array<Hash>] health status for each provider
     def check_providers(timeout: nil, executor: nil, provider_runtime: nil)
+      raise ArgumentError, "provider_runtime is only supported for single-provider health checks" unless provider_runtime.nil?
+
       options = {}
       options[:timeout] = timeout unless timeout.nil?
       options[:executor] = executor unless executor.nil?
-      options[:provider_runtime] = provider_runtime unless provider_runtime.nil?
       ProviderHealthCheck.check_all(**options)
     end
 
