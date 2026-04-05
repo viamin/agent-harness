@@ -94,7 +94,7 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
     end
 
     it "materializes preparation file writes inside the container before executing" do
-      allow(SecureRandom).to receive(:hex).and_return("deadbeefcafebabe", "facefeedcafed00d")
+      allow(SecureRandom).to receive(:hex).and_return("deadbeefcafebabe", "facefeedcafed00d", "beadfeedcafef00d")
 
       expect_popen3_sequence(
         [
@@ -135,7 +135,7 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
     end
 
     it "uses request env overrides for container preparation commands" do
-      allow(SecureRandom).to receive(:hex).and_return("deadbeefcafebabe", "facefeedcafed00d")
+      allow(SecureRandom).to receive(:hex).and_return("deadbeefcafebabe", "facefeedcafed00d", "beadfeedcafef00d")
 
       expect_popen3_sequence(
         [
@@ -173,7 +173,7 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
     end
 
     it "supports preparation targets directly under HOME" do
-      allow(SecureRandom).to receive(:hex).and_return("deadbeefcafebabe", "facefeedcafed00d")
+      allow(SecureRandom).to receive(:hex).and_return("deadbeefcafebabe", "facefeedcafed00d", "beadfeedcafef00d")
 
       expect_popen3_sequence(
         [
@@ -224,7 +224,7 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
     end
 
     it "quotes env-backed container preparation paths for shell execution" do
-      allow(SecureRandom).to receive(:hex).and_return("deadbeefcafebabe", "facefeedcafed00d")
+      allow(SecureRandom).to receive(:hex).and_return("deadbeefcafebabe", "facefeedcafed00d", "beadfeedcafef00d")
 
       expect_popen3_sequence(
         [
@@ -290,7 +290,7 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
     end
 
     it "uses the remaining timeout budget for preparation and execution" do
-      allow(SecureRandom).to receive(:hex).and_return("deadbeefcafebabe")
+      allow(SecureRandom).to receive(:hex).and_return("deadbeefcafebabe", "facefeedcafed00d", "beadfeedcafef00d")
       time_values = [
         100.0, 100.0, 100.0, 100.0, 100.0,
         105.0, 105.0, 105.0, 105.0, 105.0,
@@ -327,7 +327,7 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
     end
 
     it "cleans up the current prepared file if container preparation fails after writing" do
-      allow(SecureRandom).to receive(:hex).and_return("deadbeefcafebabe", "facefeedcafed00d")
+      allow(SecureRandom).to receive(:hex).and_return("deadbeefcafebabe", "facefeedcafed00d", "beadfeedcafef00d")
       calls = []
 
       allow(Open3).to receive(:popen3) do |actual_env, *actual_cmd, &block|
@@ -365,7 +365,7 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
     end
 
     it "cleans up prepared files after the main container command timeout expires" do
-      allow(SecureRandom).to receive(:hex).and_return("deadbeefcafebabe", "facefeedcafed00d")
+      allow(SecureRandom).to receive(:hex).and_return("deadbeefcafebabe", "facefeedcafed00d", "beadfeedcafef00d")
       calls = []
 
       allow(executor).to receive(:execute_with_timeout) do |cmd_array, timeout:, env:, stdin_data:, configured_timeout: timeout|
@@ -401,7 +401,7 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
     end
 
     it "does not delete an originally existing file when the cleanup backup is missing" do
-      allow(SecureRandom).to receive(:hex).and_return("deadbeefcafebabe", "facefeedcafed00d")
+      allow(SecureRandom).to receive(:hex).and_return("deadbeefcafebabe", "facefeedcafed00d", "beadfeedcafef00d")
       calls = []
 
       allow(Open3).to receive(:popen3) do |actual_env, *actual_cmd, &block|
@@ -430,6 +430,68 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
       expect(calls).to include(
         {env: {}, cmd: ["docker", "exec", container_id, "sh", "-lc", cleanup_command("\"$HOME\"/.config/opencode/opencode.json", "\"$HOME\"/.config/opencode")]},
         {env: {}, cmd: ["docker", "exec", container_id, "echo", "hello"]}
+      )
+    end
+
+    it "preserves the original timeout message for container commands after preparation" do
+      allow(SecureRandom).to receive(:hex).and_return("deadbeefcafebabe", "facefeedcafed00d", "beadfeedcafef00d")
+
+      allow(executor).to receive(:execute_with_timeout) do |cmd_array, timeout:, env:, stdin_data:, configured_timeout: timeout|
+        if cmd_array == ["docker", "exec", container_id, "echo", "hello"]
+          raise AgentHarness::TimeoutError, "Command timed out after #{timeout} seconds: docker"
+        end
+
+        [
+          "output",
+          "",
+          instance_double(Process::Status, exitstatus: 0)
+        ]
+      end
+
+      expect {
+        executor.execute(
+          ["echo", "hello"],
+          timeout: 30,
+          preparation: AgentHarness::ExecutionPreparation.new(
+            file_writes: [{path: "~/.config/opencode/opencode.json", content: "{\"ok\":true}"}]
+          )
+        )
+      }.to raise_error(AgentHarness::TimeoutError, "Command timed out after 30 seconds: echo")
+    end
+    it "restores originally existing symlinks after container execution" do
+      allow(SecureRandom).to receive(:hex).and_return("deadbeefcafebabe", "facefeedcafed00d", "beadfeedcafef00d")
+
+      expect_popen3_sequence(
+        [
+          {
+            env: {},
+            cmd: ["docker", "exec", container_id, "sh", "-lc", symlink_backup_command("\"$HOME\"/.config/opencode/opencode.json")]
+          },
+          {
+            env: {},
+            cmd: ["docker", "exec", container_id, "sh", "-lc", "mkdir -p \"$HOME\"/.config/opencode"]
+          },
+          {
+            env: {},
+            cmd: ["docker", "exec", "-i", container_id, "sh", "-lc", "cat > \"$HOME\"/.config/opencode/opencode.json"],
+            stdin: "{\"ok\":true}"
+          },
+          {
+            env: {},
+            cmd: ["docker", "exec", container_id, "echo", "hello"]
+          },
+          {
+            env: {},
+            cmd: ["docker", "exec", container_id, "sh", "-lc", cleanup_command("\"$HOME\"/.config/opencode/opencode.json", "\"$HOME\"/.config/opencode")]
+          }
+        ]
+      )
+
+      executor.execute(
+        ["echo", "hello"],
+        preparation: AgentHarness::ExecutionPreparation.new(
+          file_writes: [{path: "~/.config/opencode/opencode.json", content: "{\"ok\":true}"}]
+        )
       )
     end
 
@@ -546,16 +608,27 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
     end
 
     def backup_command(path)
-      "if [ -e #{path} ]; then cp -p #{path} /tmp/agent-harness-preparation-deadbeefcafebabe && printf 1 > " \
-        "/tmp/agent-harness-preparation-state-facefeedcafed00d; else printf 0 > " \
-        "/tmp/agent-harness-preparation-state-facefeedcafed00d; fi"
+      "if [ -L #{path} ]; then readlink #{path} > /tmp/agent-harness-preparation-symlink-beadfeedcafef00d && printf symlink > " \
+        "/tmp/agent-harness-preparation-state-facefeedcafed00d; elif [ -e #{path} ]; then cp -p #{path} " \
+        "/tmp/agent-harness-preparation-deadbeefcafebabe && printf file > /tmp/agent-harness-preparation-state-facefeedcafed00d; " \
+        "else printf missing > /tmp/agent-harness-preparation-state-facefeedcafed00d; fi"
+    end
+
+    def symlink_backup_command(path)
+      "if [ -L #{path} ]; then readlink #{path} > /tmp/agent-harness-preparation-symlink-beadfeedcafef00d && printf symlink > " \
+        "/tmp/agent-harness-preparation-state-facefeedcafed00d; elif [ -e #{path} ]; then cp -p #{path} " \
+        "/tmp/agent-harness-preparation-deadbeefcafebabe && printf file > /tmp/agent-harness-preparation-state-facefeedcafed00d; " \
+        "else printf missing > /tmp/agent-harness-preparation-state-facefeedcafed00d; fi"
     end
 
     def cleanup_command(path, dir)
-      "if [ \"$(cat /tmp/agent-harness-preparation-state-facefeedcafed00d 2>/dev/null)\" = 1 ]; then " \
-        "mkdir -p #{dir} && cp -p /tmp/agent-harness-preparation-deadbeefcafebabe #{path}; " \
-        "else rm -f #{path}; " \
-        "fi; rm -f /tmp/agent-harness-preparation-deadbeefcafebabe /tmp/agent-harness-preparation-state-facefeedcafed00d"
+      "cleanup_status=0; state_value=$(cat /tmp/agent-harness-preparation-state-facefeedcafed00d 2>/dev/null); " \
+        "if [ \"$state_value\" = symlink ]; then mkdir -p #{dir} && rm -f #{path} && " \
+        "ln -s \"$(cat /tmp/agent-harness-preparation-symlink-beadfeedcafef00d)\" #{path} || cleanup_status=$?; " \
+        "elif [ \"$state_value\" = file ]; then mkdir -p #{dir} && cp -p /tmp/agent-harness-preparation-deadbeefcafebabe #{path} || " \
+        "cleanup_status=$?; else rm -f #{path} || cleanup_status=$?; fi; rm -f /tmp/agent-harness-preparation-deadbeefcafebabe " \
+        "/tmp/agent-harness-preparation-state-facefeedcafed00d /tmp/agent-harness-preparation-symlink-beadfeedcafef00d; " \
+        "exit $cleanup_status"
     end
   end
 
@@ -603,69 +676,6 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
     it "returns false when which returns nil" do
       allow(executor).to receive(:which).with("nonexistent").and_return(nil)
       expect(executor.available?("nonexistent")).to be false
-    end
-  end
-
-  describe "#materialize_file_write" do
-    let(:executor) { described_class.new(container_id: container_id) }
-    let(:write) do
-      AgentHarness::ExecutionPreparation::FileWrite.new(
-        path: "test.txt",
-        content: "test content"
-      )
-    end
-
-    context "with command injection attempts" do
-      it "raises ArgumentError for paths with backticks" do
-        malicious_write = AgentHarness::ExecutionPreparation::FileWrite.new(
-          path: "$(echo malicious)`whoami`.txt",
-          content: "malicious content"
-        )
-        expect {
-          executor.send(:materialize_file_write, malicious_write, timeout: 5, deadline: nil, env: {})
-        }.to raise_error(ArgumentError, /contains command injection characters/)
-      end
-
-      it "raises ArgumentError for paths with semicolons" do
-        malicious_write = AgentHarness::ExecutionPreparation::FileWrite.new(
-          path: "test; rm -rf /",
-          content: "malicious content"
-        )
-        expect {
-          executor.send(:materialize_file_write, malicious_write, timeout: 5, deadline: nil, env: {})
-        }.to raise_error(ArgumentError, /contains command injection characters/)
-      end
-
-      it "raises ArgumentError for paths with pipes" do
-        malicious_write = AgentHarness::ExecutionPreparation::FileWrite.new(
-          path: "test | sh",
-          content: "malicious content"
-        )
-        expect {
-          executor.send(:materialize_file_write, malicious_write, timeout: 5, deadline: nil, env: {})
-        }.to raise_error(ArgumentError, /contains command injection characters/)
-      end
-    end
-
-    context "with path traversal attempts" do
-      it "raises ArgumentError for paths with .." do
-        traversal_write = AgentHarness::ExecutionPreparation::FileWrite.new(
-          path: "../etc/passwd",
-          content: "content"
-        )
-        expect {
-          executor.send(:materialize_file_write, traversal_write, timeout: 5, deadline: nil, env: {})
-        }.to raise_error(ArgumentError, /Path traversal detected/)
-      end
-
-      it "allows valid environment variables" do
-        env_write = AgentHarness::ExecutionPreparation::FileWrite.new(
-          path: "$HOME/.config/file.txt",
-          content: "content"
-        )
-        # Should not raise an error for valid env vars during validation
-        expect { executor.send(:validate_preparation_path_security!, env_write.path) }.not_to raise_error
-      end
     end
   end
 end

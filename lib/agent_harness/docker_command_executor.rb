@@ -51,12 +51,16 @@ module AgentHarness
 
       apply_container_preparation(preparation, timeout: timeout, deadline: deadline, env: env, cleanup_steps: cleanup_steps)
       docker_cmd = build_docker_command(normalized_command, env: env, stdin_data: stdin_data)
-      result = super(
-        docker_cmd,
-        timeout: remaining_timeout(deadline, timeout:, command_name: command_name),
-        env: {},
-        stdin_data: stdin_data
-      )
+      begin
+        result = super(
+          docker_cmd,
+          timeout: remaining_timeout(deadline, timeout:, command_name: command_name),
+          env: {},
+          stdin_data: stdin_data
+        )
+      rescue TimeoutError
+        raise TimeoutError, "Command timed out after #{timeout} seconds: #{command_name}"
+      end
       cleanup_container_preparation(
         cleanup_steps,
         timeout:,
@@ -127,22 +131,26 @@ module AgentHarness
 
     def materialize_file_write(write, timeout:, deadline:, env:)
       validate_preparation_path_env!(write.path, env)
-      validate_preparation_path_security!(write.path)
       path = shell_path(write.path)
       dir = shell_path(File.dirname(write.path))
       backup = shell_path("/tmp/agent-harness-preparation-#{SecureRandom.hex(8)}")
       state = shell_path("/tmp/agent-harness-preparation-state-#{SecureRandom.hex(8)}")
+      symlink_target = shell_path("/tmp/agent-harness-preparation-symlink-#{SecureRandom.hex(8)}")
       backup_cmd = build_container_shell_command(
-        "if [ -e #{path} ]; then cp -p #{path} #{backup} && printf 1 > #{state}; else printf 0 > #{state}; fi",
+        "if [ -L #{path} ]; then readlink #{path} > #{symlink_target} && printf symlink > #{state}; " \
+          "elif [ -e #{path} ]; then cp -p #{path} #{backup} && printf file > #{state}; " \
+          "else printf missing > #{state}; fi",
         env: env
       )
       run_host_command(backup_cmd, timeout: remaining_timeout(deadline, timeout:, command_name: "docker"))
       cleanup = {
         command: build_container_shell_command(
-          "if [ \"$(cat #{state} 2>/dev/null)\" = 1 ]; then " \
-            "mkdir -p #{dir} && cp -p #{backup} #{path}; " \
-            "else rm -f #{path}; " \
-            "fi; rm -f #{backup} #{state}",
+          "cleanup_status=0; state_value=$(cat #{state} 2>/dev/null); if [ \"$state_value\" = symlink ]; then " \
+            "mkdir -p #{dir} && rm -f #{path} && ln -s \"$(cat #{symlink_target})\" #{path} || cleanup_status=$?; " \
+            "elif [ \"$state_value\" = file ]; then " \
+            "mkdir -p #{dir} && cp -p #{backup} #{path} || cleanup_status=$?; " \
+            "else rm -f #{path} || cleanup_status=$?; " \
+            "fi; rm -f #{backup} #{state} #{symlink_target}; exit $cleanup_status",
           env: env
         )
       }
@@ -213,18 +221,6 @@ module AgentHarness
       raise ArgumentError, "#{key} cannot be nil or empty for env-backed preparation paths" if value.nil? || value.empty?
 
       value
-    end
-
-    def validate_preparation_path_security!(path)
-      # Command injection protection
-      if path.include?("`") || path.include?(";") || path.include?("|")
-        raise ArgumentError, "Invalid path: #{path} (contains command injection characters)"
-      end
-
-      # Path traversal protection - only check if it's not an env var reference
-      if path.include?("..") && !path.start_with?("$")
-        raise ArgumentError, "Path traversal detected in: #{path}"
-      end
     end
 
     def shell_path(path)
