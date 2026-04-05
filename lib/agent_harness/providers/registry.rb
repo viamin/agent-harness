@@ -23,6 +23,7 @@ module AgentHarness
         @provider_aliases = Hash.new { |hash, key| hash[key] = [] }
         @metadata_runtime_available = {}
         @builtin_registered = false
+        @builtin_registration_in_progress = false
       end
 
       # Register a provider class
@@ -32,6 +33,8 @@ module AgentHarness
       # @param aliases [Array<Symbol, String>] alternative names
       # @return [void]
       def register(name, klass, aliases: [])
+        ensure_builtin_providers_registered unless @builtin_registered || @builtin_registration_in_progress
+
         name = name.to_sym
         validate_provider_class!(klass)
         normalized_aliases = aliases
@@ -176,6 +179,7 @@ module AgentHarness
         @provider_aliases.clear
         @metadata_runtime_available.clear
         @builtin_registered = false
+        @builtin_registration_in_progress = false
       end
 
       private
@@ -223,10 +227,15 @@ module AgentHarness
       end
 
       def validate_aliases!(name, aliases)
-        conflicting_provider = aliases.find { |alias_name| alias_name != name && @providers.key?(alias_name) }
-        return unless conflicting_provider
+        conflicting_alias = aliases.find do |alias_name|
+          next false if alias_name == name
 
-        raise ConfigurationError, "Alias #{conflicting_provider.inspect} conflicts with registered provider #{conflicting_provider.inspect}"
+          @providers.key?(alias_name) || (@aliases.key?(alias_name) && @aliases[alias_name] != name)
+        end
+        return unless conflicting_alias
+
+        owner = @providers.key?(conflicting_alias) ? conflicting_alias : @aliases[conflicting_alias]
+        raise ConfigurationError, "Alias #{conflicting_alias.inspect} conflicts with registered provider #{owner.inspect}"
       end
 
       def fallback_provider_metadata(name, klass, aliases, refresh: false)
@@ -299,8 +308,11 @@ module AgentHarness
       def ensure_builtin_providers_registered
         return if @builtin_registered
 
+        @builtin_registration_in_progress = true
         register_builtin_providers
         @builtin_registered = true
+      ensure
+        @builtin_registration_in_progress = false
       end
 
       def register_builtin_providers

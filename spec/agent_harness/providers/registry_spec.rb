@@ -58,7 +58,7 @@ RSpec.describe AgentHarness::Providers::Registry do
       expect(registry.provider_metadata(:test)[:aliases]).to eq([:renamed])
     end
 
-    it "evicts aliases from the previous provider when ownership changes" do
+    it "does not allow alias ownership to move between providers" do
       other_provider = Class.new do
         def self.provider_name = :other_provider
         def self.available? = true
@@ -66,11 +66,10 @@ RSpec.describe AgentHarness::Providers::Registry do
       end
 
       registry.register(:first, mock_provider, aliases: [:shared])
-      registry.register(:second, other_provider, aliases: [:shared])
 
-      expect(registry.get(:shared)).to be(other_provider)
-      expect(registry.provider_metadata(:first)[:aliases]).to eq([])
-      expect(registry.provider_metadata(:second)[:aliases]).to eq([:shared])
+      expect {
+        registry.register(:second, other_provider, aliases: [:shared])
+      }.to raise_error(AgentHarness::ConfigurationError, /Alias :shared conflicts with registered provider :first/)
     end
 
     it "drops an alias claim when that identifier becomes a canonical provider name" do
@@ -100,6 +99,21 @@ RSpec.describe AgentHarness::Providers::Registry do
       expect {
         registry.register(:second, other_provider, aliases: [:first])
       }.to raise_error(AgentHarness::ConfigurationError, /Alias :first conflicts with registered provider :first/)
+    end
+
+    it "bootstraps builtin providers before external registration to avoid deferred conflicts" do
+      registry.register(:anthropic, mock_provider)
+
+      expect(registry.get(:anthropic)).to be(mock_provider)
+      expect { registry.all }.not_to raise_error
+      expect(registry.all).to include(:claude, :anthropic)
+      expect(registry.provider_metadata(:claude)[:aliases]).not_to include(:anthropic)
+    end
+
+    it "rejects aliases that conflict with builtin aliases during external registration" do
+      expect {
+        registry.register(:custom_provider, mock_provider, aliases: [:anthropic])
+      }.to raise_error(AgentHarness::ConfigurationError, /Alias :anthropic conflicts with registered provider :claude/)
     end
 
     it "clears adapter metadata caches when a provider is re-registered" do
