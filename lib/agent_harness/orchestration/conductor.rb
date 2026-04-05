@@ -115,16 +115,16 @@ module AgentHarness
           raise
         rescue RateLimitError => e
           @provider_manager.mark_rate_limited(provider_name, reset_at: e.reset_time)
-          handle_provider_failure(e, provider_name, :switch, executor: executor)
+          provider_name = handle_provider_failure(e, provider_name, :switch, executor: executor)
           retry if should_retry?(retries += 1, max_retries)
           raise
         rescue CircuitOpenError => e
-          handle_provider_failure(e, provider_name, :switch, executor: executor)
+          provider_name = handle_provider_failure(e, provider_name, :switch, executor: executor)
           retry if should_retry?(retries += 1, max_retries)
           raise
         rescue TimeoutError, ProviderError => e
           @provider_manager.record_failure(provider_name)
-          handle_provider_failure(e, provider_name, :retry, executor: executor)
+          provider_name = handle_provider_failure(e, provider_name, :retry, executor: executor)
           retry if should_retry?(retries += 1, max_retries)
           raise
         rescue NoProvidersAvailableError
@@ -135,7 +135,7 @@ module AgentHarness
           @provider_manager.record_failure(provider_name)
 
           # Try switching for unknown errors
-          handle_provider_failure(e, provider_name, :switch, executor: executor)
+          provider_name = handle_provider_failure(e, provider_name, :switch, executor: executor)
           retry if should_retry?(retries += 1, max_retries)
           raise ProviderError.new(e.message, original_error: e)
         end
@@ -165,12 +165,15 @@ module AgentHarness
 
             if new_provider
               @metrics.record_switch(provider_name, new_provider.class.provider_name, error.class.name)
+              return new_provider.class.provider_name
             end
           end
         when :retry
           delay = calculate_retry_delay
           sleep(delay) if delay > 0
         end
+
+        provider_name
       end
 
       def calculate_retry_delay
