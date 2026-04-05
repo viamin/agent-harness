@@ -1,5 +1,8 @@
 # frozen_string_literal: true
 
+require "shellwords"
+require "tmpdir"
+
 RSpec.describe AgentHarness::CommandExecutor do
   subject(:executor) { described_class.new }
 
@@ -45,6 +48,32 @@ RSpec.describe AgentHarness::CommandExecutor do
         }.to raise_error(AgentHarness::TimeoutError)
       end
 
+      it "terminates the entire process group when timing out shell-wrapped commands" do
+        Dir.mktmpdir do |dir|
+          pidfile = File.join(dir, "child.pid")
+
+          expect {
+            executor.execute(
+              ["bash", "-lc", "sleep 5 & echo $! > #{pidfile.shellescape}; wait"],
+              timeout: 0.2
+            )
+          }.to raise_error(AgentHarness::TimeoutError)
+
+          child_pid = Integer(File.read(pidfile).strip)
+
+          expect {
+            Timeout.timeout(2) do
+              loop do
+                process_state = `ps -o stat= -p #{child_pid}`.strip
+                break if process_state.empty? || process_state.start_with?("Z")
+
+                sleep 0.01
+              end
+            end
+          }.not_to raise_error
+        end
+      end
+
       it "raises IdleTimeoutError when command stops producing output" do
         expect {
           executor.execute(
@@ -71,6 +100,21 @@ RSpec.describe AgentHarness::CommandExecutor do
         expect {
           executor.execute(["echo", "quick"], idle_timeout: -1)
         }.to raise_error(ArgumentError, /idle_timeout must be a positive number/)
+      end
+
+      it "applies wall-clock timeouts while stdin is still being uploaded" do
+        started_at = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+
+        expect {
+          executor.execute(
+            ["ruby", "-e", "sleep 5"],
+            timeout: 0.2,
+            stdin_data: "x" * 5_000_000
+          )
+        }.to raise_error(AgentHarness::TimeoutError)
+
+        elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - started_at
+        expect(elapsed).to be < 2
       end
     end
 

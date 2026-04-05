@@ -131,9 +131,8 @@ module AgentHarness
       stdout = +""
       stderr = +""
 
-      Open3.popen3(env, *cmd_array) do |stdin, stdout_io, stderr_io, wait_thr|
-        write_stdin(stdin, stdin_data)
-        unless selectable_streams?(stdout_io, stderr_io)
+      Open3.popen3(env, *cmd_array, pgroup: true) do |stdin, stdout_io, stderr_io, wait_thr|
+        unless selectable_streams?(stdin, stdout_io, stderr_io)
           return execute_buffered(
             stdout_io,
             stderr_io,
@@ -151,12 +150,14 @@ module AgentHarness
         start_time = monotonic_time
         last_activity_at = start_time
         last_heartbeat_at = start_time
+        stdin_buffer = stdin_data.to_s.b
+        stdin_offset = 0
         streams = {
           stdout_io => [stdout, on_stdout_chunk, :on_stdout_chunk],
           stderr_io => [stderr, on_stderr_chunk, :on_stderr_chunk]
         }
 
-        until streams.empty?
+        until streams.empty? && stdin.nil?
           now = monotonic_time
           check_wall_timeout!(timeout, now - start_time, wait_thr, cmd_array)
           check_idle_timeout!(idle_timeout, now - last_activity_at, wait_thr, cmd_array)
@@ -173,7 +174,7 @@ module AgentHarness
 
           ready = IO.select(
             streams.keys,
-            nil,
+            stdin ? [stdin] : nil,
             nil,
             select_timeout(
               timeout,
@@ -188,7 +189,18 @@ module AgentHarness
 
           next unless ready
 
-          ready.first.each do |io|
+          ready[1]&.each do |io|
+            stdin_offset = write_stdin_nonblock(io, stdin_buffer, stdin_offset)
+            next unless stdin_offset >= stdin_buffer.bytesize
+
+            close_stream(io)
+            stdin = nil
+          rescue Errno::EPIPE, IOError
+            close_stream(io)
+            stdin = nil
+          end
+
+          ready[0]&.each do |io|
             chunk = io.read_nonblock(4096, exception: false)
 
             case chunk
@@ -247,9 +259,20 @@ module AgentHarness
       raise TimeoutError, "Command timed out after #{timeout} seconds: #{cmd_array.first}"
     end
 
-    def write_stdin(stdin, stdin_data)
-      stdin.write(stdin_data) if stdin_data
-      stdin.close
+    def write_stdin_nonblock(stdin, stdin_buffer, stdin_offset)
+      return stdin_buffer.bytesize if stdin_offset >= stdin_buffer.bytesize
+
+      chunk = stdin_buffer.byteslice(stdin_offset, 4096)
+      written = stdin.write_nonblock(chunk, exception: false)
+      return stdin_offset if written == :wait_writable
+
+      stdin_offset + written
+    end
+
+    def close_stream(stream)
+      stream.close unless stream.closed?
+    rescue IOError
+      nil
     end
 
     def validate_duration!(value, name:, allow_nil: false)
@@ -313,14 +336,20 @@ module AgentHarness
 
     def terminate_process(wait_thr)
       pid = wait_thr.pid
-      Process.kill("TERM", pid)
+      signal_process("TERM", pid)
       Timeout.timeout(1) { wait_thr.join }
     rescue Errno::ESRCH, Timeout::Error
       begin
-        Process.kill("KILL", pid)
+        signal_process("KILL", pid)
       rescue Errno::ESRCH
         nil
       end
+    end
+
+    def signal_process(signal, pid)
+      Process.kill(signal, -pid)
+    rescue Errno::ESRCH
+      Process.kill(signal, pid)
     end
   end
 end
