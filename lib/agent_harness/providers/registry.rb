@@ -246,7 +246,13 @@ module AgentHarness
           end
           .uniq
           .reject { |alias_name| alias_name == name }
-        installation = klass.respond_to?(:installation_contract) ? klass.installation_contract : nil
+        installation = if klass.respond_to?(:installation_contract)
+          Adapter.normalize_metadata_installation(
+            klass.installation_contract,
+            provider_name: name,
+            binary_name: klass.binary_name
+          )
+        end
 
         {
           provider: name,

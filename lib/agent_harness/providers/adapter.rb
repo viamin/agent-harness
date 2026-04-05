@@ -16,6 +16,58 @@ module AgentHarness
     #     end
     #   end
     module Adapter
+      def self.normalize_metadata_installation(contract, provider_name:, binary_name:)
+        return nil unless contract.is_a?(Hash)
+
+        source = contract[:source]
+        install_command = contract[:install_command]&.dup
+
+        {
+          provider: provider_name.to_sym,
+          source_type: normalize_metadata_source_type(contract[:source_type] || source),
+          package_name: metadata_package_name(contract, source),
+          default_version: contract[:default_version] || contract[:version] || contract[:resolved_version],
+          resolved_version: contract[:resolved_version] || contract[:version] || contract[:default_version],
+          supported_version_requirement: normalize_metadata_version_requirement(
+            contract[:supported_version_requirement] || contract[:version_requirement]
+          ),
+          binary_name: contract[:binary_name] || binary_name,
+          install_command: install_command,
+          install_command_string: contract[:install_command_string] || install_command&.join(" ")
+        }
+      end
+
+      def self.normalize_metadata_source_type(source)
+        return source[:type]&.to_sym if source.is_a?(Hash)
+
+        source&.to_sym
+      end
+
+      def self.metadata_package_name(contract, source)
+        return contract[:package_name] if contract[:package_name]
+        return source[:package] if source.is_a?(Hash)
+
+        package = contract[:package]
+        return package unless package.is_a?(String)
+
+        if package.split("@").first == ""
+          package.split("@", 3).first(2).join("@")
+        else
+          package.split("@", 2).first
+        end
+      end
+
+      def self.normalize_metadata_version_requirement(requirement)
+        case requirement
+        when nil
+          nil
+        when Array
+          requirement.join(", ")
+        else
+          requirement.to_s
+        end
+      end
+
       def self.included(base)
         base.extend(ClassMethods)
       end
@@ -121,7 +173,12 @@ module AgentHarness
             default_execution_semantics,
             provider_metadata_hash(provider, :execution_semantics, default: {})
           )
-          installation = installation_contract
+          installation = Adapter.normalize_metadata_installation(
+            installation_contract,
+            provider_name: canonical_provider_name,
+            binary_name: binary_name
+          )
+          supported_auth_modes = provider ? Array(configuration[:auth_modes]).map(&:to_sym) : []
           supports_registry_checks = !provider.nil? && registry_check_initializer_compatible?
           auth_check_supported = auth_status_available?(
             provider,
@@ -140,8 +197,8 @@ module AgentHarness
               display_name: provider_display_name(provider, canonical_name: canonical_provider_name),
               binary_name: binary_name,
               auth: {
-                default_mode: provider&.auth_type,
-                supported_modes: provider ? Array(configuration[:auth_modes]).map(&:to_sym) : [],
+                default_mode: metadata_default_auth_mode(provider, supported_modes: supported_auth_modes),
+                supported_modes: supported_auth_modes,
                 service: configuration[:openai_compatible] ? :openai : nil,
                 api_family: configuration[:openai_compatible] ? :openai : nil
               },
@@ -392,6 +449,12 @@ module AgentHarness
           return provider.display_name if provider.respond_to?(:display_name)
 
           canonical_name.to_s.tr("_", " ").capitalize
+        end
+
+        def metadata_default_auth_mode(provider, supported_modes:)
+          return supported_modes.first unless supported_modes.empty?
+
+          provider&.auth_type&.to_sym
         end
 
         def default_configuration_schema

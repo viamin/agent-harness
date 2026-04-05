@@ -579,6 +579,7 @@ RSpec.describe AgentHarness::Providers::Adapter do
           requires_cli: true,
           available: true,
           installable: false,
+          installation: nil,
           prompt_delivery: :arg,
           output_format: :text,
           sandbox_aware: false,
@@ -648,6 +649,34 @@ RSpec.describe AgentHarness::Providers::Adapter do
           provider_status: false,
           configuration_validation: false,
           lightweight: true
+        )
+      end
+
+      it "prefers the published auth mode order for default_mode" do
+        command_executor = instance_double("AgentHarness::CommandExecutor", which: nil)
+        allow(AgentHarness.configuration).to receive(:command_executor).and_return(command_executor)
+
+        metadata = AgentHarness::Providers::Gemini.provider_metadata
+
+        expect(metadata[:auth]).to include(
+          default_mode: :api_key,
+          supported_modes: %i[api_key oauth]
+        )
+      end
+
+      it "normalizes installation metadata to a stable contract" do
+        metadata = installing_adapter_class.provider_metadata
+
+        expect(metadata[:runtime][:installation]).to eq(
+          provider: :installing_adapter,
+          source_type: nil,
+          package_name: "@scope/pkg",
+          default_version: nil,
+          resolved_version: nil,
+          supported_version_requirement: nil,
+          binary_name: "installer",
+          install_command: ["npm", "install", "-g", "@scope/pkg@1.0.0"],
+          install_command_string: "npm install -g @scope/pkg@1.0.0"
         )
       end
 

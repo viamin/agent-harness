@@ -356,6 +356,60 @@ RSpec.describe AgentHarness::Providers::Registry do
       )
     end
 
+    it "uses a stable installation metadata shape across builtin providers" do
+      codex_installation = registry.provider_metadata(:codex).dig(:runtime, :installation)
+      gemini_installation = registry.provider_metadata(:gemini).dig(:runtime, :installation)
+      kilocode_installation = registry.provider_metadata(:kilocode).dig(:runtime, :installation)
+
+      [codex_installation, gemini_installation, kilocode_installation].each do |installation|
+        expect(installation).to include(
+          :provider,
+          :source_type,
+          :package_name,
+          :default_version,
+          :resolved_version,
+          :supported_version_requirement,
+          :binary_name,
+          :install_command,
+          :install_command_string
+        )
+      end
+
+      expect(codex_installation).to include(
+        provider: :codex,
+        source_type: :npm,
+        package_name: "@openai/codex",
+        default_version: "0.116.0",
+        resolved_version: "0.116.0",
+        supported_version_requirement: ">= 0.116.0, < 0.117.0",
+        binary_name: "codex",
+        install_command: ["npm", "install", "-g", "--ignore-scripts", "@openai/codex@0.116.0"],
+        install_command_string: "npm install -g --ignore-scripts @openai/codex@0.116.0"
+      )
+      expect(gemini_installation).to include(
+        provider: :gemini,
+        source_type: :npm,
+        package_name: "@google/gemini-cli",
+        default_version: "0.35.3",
+        resolved_version: "0.35.3",
+        supported_version_requirement: "= 0.35.3",
+        binary_name: "gemini",
+        install_command: ["npm", "install", "-g", "--ignore-scripts", "@google/gemini-cli@0.35.3"],
+        install_command_string: "npm install -g --ignore-scripts @google/gemini-cli@0.35.3"
+      )
+      expect(kilocode_installation).to include(
+        provider: :kilocode,
+        source_type: :npm,
+        package_name: "@kilocode/cli",
+        default_version: "7.1.3",
+        resolved_version: "7.1.3",
+        supported_version_requirement: "= 7.1.3",
+        binary_name: "kilo",
+        install_command: ["npm", "install", "-g", "--ignore-scripts", "@kilocode/cli@7.1.3"],
+        install_command_string: "npm install -g --ignore-scripts @kilocode/cli@7.1.3"
+      )
+    end
+
     it "resolves aliases to canonical provider metadata" do
       expect(registry.provider_metadata(:anthropic)).to eq(registry.provider_metadata(:claude))
     end
@@ -386,6 +440,7 @@ RSpec.describe AgentHarness::Providers::Registry do
       expect(metadata[:runtime]).to include(
         available: true,
         installable: false,
+        installation: nil,
         supports_mcp: false,
         supports_sessions: false
       )

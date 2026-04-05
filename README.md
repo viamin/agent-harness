@@ -207,6 +207,7 @@ metadata
 #        interface: :cli,
 #        requires_cli: true,
 #        installable: false,
+#        installation: nil,
 #        supports_mcp: true,
 #        supports_dangerous_mode: true
 #      },
@@ -239,6 +240,9 @@ AgentHarness.provider_metadata_catalog(refresh: true)
 For providers with install contracts, the metadata tracks the CLI version
 supported by the current `agent-harness` release, and the runtime adapter
 tests assert that the expected binary remains aligned with that contract.
+`runtime[:installation]` is normalized to a stable shape with
+`source_type`, `package_name`, version fields, and install commands so
+downstream apps do not need provider-specific branching.
 
 ### Custom Providers
 
