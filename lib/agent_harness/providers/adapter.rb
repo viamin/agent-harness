@@ -113,8 +113,14 @@ module AgentHarness
             requested_name: requested_provider_name,
             canonical_name: canonical_provider_name
           )
-          configuration = deep_merge_metadata(default_configuration_schema, provider&.configuration_schema || {})
-          execution = deep_merge_metadata(default_execution_semantics, provider&.execution_semantics || {})
+          configuration = deep_merge_metadata(
+            default_configuration_schema,
+            provider_metadata_hash(provider, :configuration_schema, default: {})
+          )
+          execution = deep_merge_metadata(
+            default_execution_semantics,
+            provider_metadata_hash(provider, :execution_semantics, default: {})
+          )
           installation = installation_contract
           supports_registry_checks = !provider.nil? && registry_check_initializer_compatible?
           auth_check_supported = auth_status_available?(
@@ -149,13 +155,28 @@ module AgentHarness
                 output_format: execution[:output_format],
                 sandbox_aware: execution[:sandbox_aware],
                 uses_subcommand: execution[:uses_subcommand],
-                supports_mcp: provider&.supports_mcp? || default_supports_mcp,
-                supported_mcp_transports: provider&.supported_mcp_transports || default_supported_mcp_transports,
-                supports_sessions: provider&.supports_sessions? || default_supports_sessions,
-                supports_dangerous_mode: provider&.supports_dangerous_mode? || default_supports_dangerous_mode
+                supports_mcp: provider_metadata_value(provider, :supports_mcp?, default: default_supports_mcp),
+                supported_mcp_transports: provider_metadata_value(
+                  provider,
+                  :supported_mcp_transports,
+                  default: default_supported_mcp_transports
+                ),
+                supports_sessions: provider_metadata_value(
+                  provider,
+                  :supports_sessions?,
+                  default: default_supports_sessions
+                ),
+                supports_dangerous_mode: provider_metadata_value(
+                  provider,
+                  :supports_dangerous_mode?,
+                  default: default_supports_dangerous_mode
+                )
               },
               configuration: configuration,
-              capabilities: deep_merge_metadata(default_capabilities, provider&.capabilities || {}),
+              capabilities: deep_merge_metadata(
+                default_capabilities,
+                provider_metadata_hash(provider, :capabilities, default: {})
+              ),
               health_check: {
                 supports_registry_checks: supports_registry_checks,
                 auth_check_supported: auth_check_supported,
@@ -349,6 +370,22 @@ module AgentHarness
               right
             end
           end
+        end
+
+        def provider_metadata_hash(provider, method_name, default:)
+          value = provider_metadata_value(provider, method_name, default: default)
+          value.is_a?(Hash) ? value : default
+        end
+
+        def provider_metadata_value(provider, method_name, default:)
+          return default unless provider
+
+          provider.public_send(method_name)
+        rescue => e
+          AgentHarness.logger&.debug(
+            "[AgentHarness::Providers::Adapter] Falling back to default #{method_name} metadata for #{provider_name}: #{e.class}"
+          )
+          default
         end
 
         def provider_display_name(provider, canonical_name: provider_name)

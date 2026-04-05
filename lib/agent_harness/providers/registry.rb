@@ -33,8 +33,6 @@ module AgentHarness
       # @param aliases [Array<Symbol, String>] alternative names
       # @return [void]
       def register(name, klass, aliases: [])
-        ensure_builtin_providers_registered unless @builtin_registered || @builtin_registration_in_progress
-
         name = name.to_sym
         validate_provider_class!(klass)
         normalized_aliases = aliases

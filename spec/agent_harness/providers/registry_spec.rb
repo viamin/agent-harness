@@ -100,17 +100,17 @@ RSpec.describe AgentHarness::Providers::Registry do
       }.to raise_error(AgentHarness::ConfigurationError, /Alias :first conflicts with registered provider :first/)
     end
 
-    it "bootstraps builtin providers before external registration to avoid deferred conflicts" do
+    it "does not eagerly bootstrap builtin providers during external registration" do
       expect {
         registry.register(:anthropic, mock_provider)
-      }.to raise_error(AgentHarness::ConfigurationError, /Provider :anthropic conflicts with registered alias for :claude/)
+      }.not_to raise_error
 
-      expect { registry.all }.not_to raise_error
-      expect(registry.all).to include(:claude)
-      expect(registry.provider_metadata(:claude)[:aliases]).to include(:anthropic)
+      expect(registry.instance_variable_get(:@providers)[:anthropic]).to eq(mock_provider)
     end
 
     it "rejects aliases that conflict with builtin aliases during external registration" do
+      registry.send(:ensure_builtin_providers_registered)
+
       expect {
         registry.register(:custom_provider, mock_provider, aliases: [:anthropic])
       }.to raise_error(AgentHarness::ConfigurationError, /Alias :anthropic conflicts with registered provider :claude/)
@@ -798,6 +798,70 @@ RSpec.describe AgentHarness::Providers::Registry do
         json_mode: false,
         mcp: false,
         dangerous_mode: false
+      )
+    end
+
+    it "falls back to default sections when instance metadata hooks raise" do
+      provider_with_raising_hooks = Class.new do
+        include AgentHarness::Providers::Adapter
+
+        class << self
+          def provider_name = :provider_with_raising_hooks
+          def available? = true
+          def binary_name = "raising-hooks"
+        end
+
+        def initialize(config: nil)
+          @config = config
+        end
+
+        def configuration_schema
+          raise "boom"
+        end
+
+        def execution_semantics
+          raise "boom"
+        end
+
+        def capabilities
+          raise "boom"
+        end
+      end
+
+      logger = instance_double("Logger", debug: nil)
+      allow(AgentHarness).to receive(:logger).and_return(logger)
+      registry.register(:provider_with_raising_hooks, provider_with_raising_hooks)
+
+      metadata = registry.provider_metadata(:provider_with_raising_hooks)
+
+      expect(metadata[:configuration]).to eq(
+        fields: [],
+        auth_modes: [:api_key],
+        openai_compatible: false
+      )
+      expect(metadata[:runtime]).to include(
+        prompt_delivery: :arg,
+        output_format: :text,
+        sandbox_aware: false,
+        uses_subcommand: false
+      )
+      expect(metadata[:capabilities]).to eq(
+        streaming: false,
+        file_upload: false,
+        vision: false,
+        tool_use: false,
+        json_mode: false,
+        mcp: false,
+        dangerous_mode: false
+      )
+      expect(logger).to have_received(:debug).with(
+        include("Falling back to default configuration_schema metadata for provider_with_raising_hooks: RuntimeError")
+      )
+      expect(logger).to have_received(:debug).with(
+        include("Falling back to default execution_semantics metadata for provider_with_raising_hooks: RuntimeError")
+      )
+      expect(logger).to have_received(:debug).with(
+        include("Falling back to default capabilities metadata for provider_with_raising_hooks: RuntimeError")
       )
     end
 

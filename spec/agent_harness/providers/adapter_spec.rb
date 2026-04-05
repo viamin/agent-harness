@@ -909,6 +909,77 @@ RSpec.describe AgentHarness::Providers::Adapter do
         )
       end
 
+      it "falls back to default sections when metadata hooks raise after construction" do
+        adapter_with_raising_hooks = Class.new do
+          include AgentHarness::Providers::Adapter
+
+          class << self
+            def provider_name
+              :adapter_with_raising_hooks
+            end
+
+            def available?
+              true
+            end
+
+            def binary_name
+              "raising-hooks"
+            end
+          end
+
+          def initialize(config: nil)
+            @config = config
+          end
+
+          def configuration_schema
+            raise "boom"
+          end
+
+          def execution_semantics
+            raise "boom"
+          end
+
+          def capabilities
+            raise "boom"
+          end
+        end
+
+        logger = instance_double("Logger", debug: nil)
+        allow(AgentHarness).to receive(:logger).and_return(logger)
+
+        metadata = adapter_with_raising_hooks.provider_metadata
+
+        expect(metadata[:configuration]).to eq(
+          fields: [],
+          auth_modes: [:api_key],
+          openai_compatible: false
+        )
+        expect(metadata[:runtime]).to include(
+          prompt_delivery: :arg,
+          output_format: :text,
+          sandbox_aware: false,
+          uses_subcommand: false
+        )
+        expect(metadata[:capabilities]).to eq(
+          streaming: false,
+          file_upload: false,
+          vision: false,
+          tool_use: false,
+          json_mode: false,
+          mcp: false,
+          dangerous_mode: false
+        )
+        expect(logger).to have_received(:debug).with(
+          include("Falling back to default configuration_schema metadata for adapter_with_raising_hooks: RuntimeError")
+        )
+        expect(logger).to have_received(:debug).with(
+          include("Falling back to default execution_semantics metadata for adapter_with_raising_hooks: RuntimeError")
+        )
+        expect(logger).to have_received(:debug).with(
+          include("Falling back to default capabilities metadata for adapter_with_raising_hooks: RuntimeError")
+        )
+      end
+
       it "caches runtime availability until explicitly refreshed" do
         calls = 0
         allow(adapter_class).to receive(:available?) do
