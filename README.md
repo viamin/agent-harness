@@ -126,6 +126,7 @@ contract = AgentHarness.install_contract(:claude)
 puts contract[:install][:command]
 puts contract[:install][:post_install_binary_path]
 puts contract[:supported_versions][:default]
+puts contract[:supported_versions][:requirement]
 
 # List all registered providers
 AgentHarness::Providers::Registry.instance.all
@@ -136,7 +137,7 @@ For Claude, the install contract is the first-class source of truth for:
 
 - the official install recipe the current harness release expects
 - the expected binary name and normalized PATH entry that recipe leaves behind
-- the supported install target metadata, which defaults to the harness-supported `latest` Claude CLI channel
+- the supported Claude CLI version boundary the current harness release validates (`default` plus the compatible version range)
 
 ### Provider Installation Contracts
 

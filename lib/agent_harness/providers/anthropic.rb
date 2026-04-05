@@ -15,6 +15,8 @@ module AgentHarness
     class Anthropic < Base
       # Model name pattern for Anthropic Claude models
       MODEL_PATTERN = /^claude-[\d.-]+-(?:opus|sonnet|haiku)(?:-\d{8})?$/i
+      SUPPORTED_CLI_VERSION = "2.1.92"
+      SUPPORTED_CLI_REQUIREMENT = Gem::Requirement.new(">= #{SUPPORTED_CLI_VERSION}", "< 2.2.0").freeze
 
       class << self
         def provider_name
@@ -27,7 +29,10 @@ module AgentHarness
 
         def install_contract
           installed_binary_path = "/usr/local/bin/claude"
-          local_binary_path = "~/.local/bin/claude"
+          local_binary_path = "$HOME/.local/bin/claude"
+          version_requirement = SUPPORTED_CLI_REQUIREMENT.requirements
+            .map { |op, ver| "#{op} #{ver}" }
+            .join(", ")
 
           {
             provider: provider_name,
@@ -40,14 +45,14 @@ module AgentHarness
             install: {
               strategy: :shell,
               source: "official",
-              command: "tmp_script=$(mktemp) && trap 'rm -f \"$tmp_script\"' EXIT && curl -fsSL https://claude.ai/install.sh -o \"$tmp_script\" && bash \"$tmp_script\" && cp -L \"$HOME/.local/bin/claude\" \"#{installed_binary_path}\" && chmod +x \"#{installed_binary_path}\"",
+              command: "tmp_script=$(mktemp) && trap 'rm -f \"$tmp_script\"' EXIT && curl -fsSL https://claude.ai/install.sh -o \"$tmp_script\" && bash \"$tmp_script\" #{SUPPORTED_CLI_VERSION} && cp -L \"$HOME/.local/bin/claude\" \"#{installed_binary_path}\" && chmod +x \"#{installed_binary_path}\"",
               warning: "Review the downloaded installer before execution and verify any published checksum or signature metadata when available.",
               post_install_binary_path: installed_binary_path
             },
             supported_versions: {
-              default: "latest",
-              requirement: "latest",
-              channel: "latest"
+              default: SUPPORTED_CLI_VERSION,
+              requirement: version_requirement,
+              channel: "stable"
             },
             runtime_contract: {
               available_via: binary_name,
