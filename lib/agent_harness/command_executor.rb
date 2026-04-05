@@ -444,9 +444,11 @@ module AgentHarness
       stdout = ""
       stderr = ""
       status = nil
+      wait_thr = nil
 
       Timeout.timeout(timeout) do
-        Open3.popen3(env, *cmd_array) do |stdin, stdout_io, stderr_io, wait_thr|
+        Open3.popen3(env, *cmd_array) do |stdin, stdout_io, stderr_io, child_wait_thr|
+          wait_thr = child_wait_thr
           if stdin_data
             stdin.write(stdin_data)
           end
@@ -461,7 +463,27 @@ module AgentHarness
 
       [stdout, stderr, status]
     rescue Timeout::Error
+      terminate_timed_out_process(wait_thr)
       raise TimeoutError, "Command timed out after #{configured_timeout} seconds: #{cmd_array.first}"
+    end
+
+    def terminate_timed_out_process(wait_thr)
+      return if wait_thr.nil?
+
+      begin
+        Process.kill("TERM", wait_thr.pid)
+        Timeout.timeout(1) { wait_thr.value }
+      rescue Errno::ESRCH, Timeout::Error
+        begin
+          Process.kill("KILL", wait_thr.pid)
+        rescue Errno::ESRCH
+        end
+
+        begin
+          wait_thr.value
+        rescue
+        end
+      end
     end
 
     def execute_without_timeout(cmd_array, env:, stdin_data:)

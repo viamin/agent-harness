@@ -571,4 +571,40 @@ RSpec.describe AgentHarness::CommandExecutor do
       expect(executor.available?("nonexistent_binary_xyz123")).to be false
     end
   end
+
+  describe "#execute_with_timeout" do
+    let(:stdin) { instance_double(IO, close: nil) }
+    let(:stdout) { instance_double(IO, read: "") }
+    let(:stderr) { instance_double(IO, read: "") }
+    let(:wait_thr) { instance_double(Process::Waiter, pid: 12_345) }
+
+    it "terminates and reaps the child process before raising TimeoutError" do
+      allow(Open3).to receive(:popen3).and_yield(stdin, stdout, stderr, wait_thr)
+      allow(stdout).to receive(:read).and_raise(Timeout::Error)
+      allow(Timeout).to receive(:timeout).and_call_original
+      allow(Timeout).to receive(:timeout).with(1).and_yield
+
+      expect(Process).to receive(:kill).with("TERM", 12_345).ordered
+      expect(wait_thr).to receive(:value).ordered
+
+      expect {
+        executor.send(:execute_with_timeout, ["ruby", "-e", "sleep 10"], timeout: 0.01, env: {}, stdin_data: nil)
+      }.to raise_error(AgentHarness::TimeoutError, /Command timed out after 0\.01 seconds: ruby/)
+    end
+
+    it "falls back to KILL if the process does not exit after TERM" do
+      allow(Open3).to receive(:popen3).and_yield(stdin, stdout, stderr, wait_thr)
+      allow(stdout).to receive(:read).and_raise(Timeout::Error)
+      allow(Timeout).to receive(:timeout).and_call_original
+      allow(Timeout).to receive(:timeout).with(1).and_raise(Timeout::Error)
+
+      expect(Process).to receive(:kill).with("TERM", 12_345).ordered
+      expect(Process).to receive(:kill).with("KILL", 12_345).ordered
+      expect(wait_thr).to receive(:value).ordered.and_raise(Errno::ECHILD)
+
+      expect {
+        executor.send(:execute_with_timeout, ["ruby", "-e", "sleep 10"], timeout: 0.01, env: {}, stdin_data: nil)
+      }.to raise_error(AgentHarness::TimeoutError, /Command timed out after 0\.01 seconds: ruby/)
+    end
+  end
 end
