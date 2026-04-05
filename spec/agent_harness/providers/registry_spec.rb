@@ -187,7 +187,7 @@ RSpec.describe AgentHarness::Providers::Registry do
 
       expect(contracts).to include(:codex, :opencode)
       expect(contracts[:codex][:install_command]).to eq(
-        ["npm", "install", "-g", "--ignore-scripts", "@openai/codex@0.116.0"]
+        ["npm", "install", "-g", "--ignore-scripts", "@openai/codex@0.117.0"]
       )
       expect(contracts[:opencode][:install_command]).to eq(
         ["npm", "install", "-g", "--ignore-scripts", "opencode-ai@1.3.2"]

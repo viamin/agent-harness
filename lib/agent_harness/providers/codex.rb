@@ -8,8 +8,8 @@ module AgentHarness
     #
     # Provides integration with the OpenAI Codex CLI tool.
     class Codex < Base
-      SUPPORTED_CLI_VERSION = "0.116.0"
-      SUPPORTED_CLI_REQUIREMENT = Gem::Requirement.new(">= #{SUPPORTED_CLI_VERSION}", "< 0.117.0").freeze
+      SUPPORTED_CLI_VERSION = "0.117.0"
+      SUPPORTED_CLI_REQUIREMENT = Gem::Requirement.new(">= #{SUPPORTED_CLI_VERSION}", "< 0.118.0").freeze
 
       class << self
         def provider_name
@@ -230,7 +230,7 @@ module AgentHarness
         # own sandboxing conflicts with the outer sandbox. Use --full-auto to
         # skip nested sandboxing while keeping full tool access.
         # Also applies when dangerous_mode is explicitly requested.
-        if !externally_sandboxed && (sandboxed_environment? || options[:dangerous_mode])
+        if sandboxed_environment? || options[:dangerous_mode]
           cmd += dangerous_mode_flags
         end
 
