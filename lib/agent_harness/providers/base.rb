@@ -292,7 +292,11 @@ module AgentHarness
       end
 
       def execute_with_timeout(command, timeout:, env:, preparation:, stdin_data: nil)
-        @executor.execute(command, timeout: timeout, env: env, stdin_data: stdin_data, preparation: preparation)
+        kwargs = {timeout: timeout, env: env}
+        kwargs[:stdin_data] = stdin_data unless stdin_data.nil?
+        kwargs[:preparation] = preparation unless preparation.nil?
+
+        @executor.execute(command, **kwargs)
       rescue ArgumentError => e
         unknown_keyword_message = e.message
         raise unless unknown_keyword_message.start_with?("unknown keyword", "unknown keywords")
