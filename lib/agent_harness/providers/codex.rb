@@ -224,12 +224,13 @@ module AgentHarness
 
       def build_command(prompt, options)
         cmd = [self.class.binary_name, "exec"]
+        externally_sandboxed = externally_sandboxed?(options)
 
         # When running inside an already-sandboxed Docker container, Codex's
         # own sandboxing conflicts with the outer sandbox. Use --full-auto to
         # skip nested sandboxing while keeping full tool access.
         # Also applies when dangerous_mode is explicitly requested.
-        if sandboxed_environment? || options[:dangerous_mode]
+        if !externally_sandboxed && (sandboxed_environment? || options[:dangerous_mode])
           cmd += dangerous_mode_flags
         end
 
@@ -241,7 +242,7 @@ module AgentHarness
           cmd += flags if flags.any?
         end
 
-        if externally_sandboxed?(options)
+        if externally_sandboxed
           cmd += sandbox_bypass_flags
         end
 
