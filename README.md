@@ -502,5 +502,3 @@ bin/console
 ## License
 
 MIT License. See [LICENSE.txt](LICENSE.txt).
-
-<!-- Fixed code block highlighting as per review -->

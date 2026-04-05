@@ -105,6 +105,7 @@ module AgentHarness
           execution = provider&.execution_semantics || default_execution_semantics
           installation = installation_contract
           supports_registry_checks = registry_check_initializer_compatible?
+          auth_check_supported = auth_status_available?
           provider_status_check = supports_registry_checks && overrides_instance_method?(:health_status)
           configuration_validation = supports_registry_checks && overrides_instance_method?(:validate_config)
           lightweight_checks = supports_registry_checks && !provider_status_check && !configuration_validation
@@ -141,6 +142,7 @@ module AgentHarness
               capabilities: provider&.capabilities || default_capabilities,
               health_check: {
                 supports_registry_checks: supports_registry_checks,
+                auth_check_supported: auth_check_supported,
                 provider_status: provider_status_check,
                 configuration_validation: configuration_validation,
                 lightweight: lightweight_checks
@@ -206,6 +208,27 @@ module AgentHarness
           nil
         end
 
+        def safe_metadata_provider_instance
+          return nil unless metadata_initializer_compatible?
+
+          parameters = instance_method(:initialize).parameters
+          accepts = lambda do |name|
+            parameters.any? { |type, param_name| [:key, :keyreq].include?(type) && param_name == name } ||
+              parameters.any? { |type, _| type == :keyrest }
+          end
+
+          kwargs = {}
+          if accepts.call(:config)
+            kwargs[:config] = AgentHarness.configuration.providers[provider_name] || AgentHarness::ProviderConfig.new(provider_name)
+          end
+          kwargs[:executor] = AgentHarness.configuration.command_executor if accepts.call(:executor)
+          kwargs[:logger] = AgentHarness.logger if accepts.call(:logger)
+          new(**kwargs)
+        rescue
+          # Return nil without logging - caller is responsible for handling
+          nil
+        end
+
         def metadata_initializer_compatible?
           keyword_names, required_keywords = initializer_keyword_parameters
           return false if instance_method(:initialize).parameters.any? { |type, _name| type == :req }
@@ -222,6 +245,41 @@ module AgentHarness
           return true if instance_method(:initialize).parameters.any? { |type, _| type == :keyrest }
 
           (supported_initializer_keywords - keyword_names).empty?
+        end
+
+        # Check if this provider has auth_status support available for health checks
+        #
+        # This differs from supports_registry_checks - it specifically indicates whether
+        # the auth status check will succeed or return "not implemented"
+        def auth_status_available?
+          # Try to get a provider instance to check auth capabilities
+          # Use safe instantiation to avoid double logging
+          provider_instance = safe_metadata_provider_instance
+          return false unless provider_instance
+
+          # Check if provider implements auth_status method directly
+          return true if provider_instance.respond_to?(:auth_status)
+
+          # Check if provider has specific auth handling in Authentication module
+          auth_type = provider_instance.auth_type
+          provider_name = provider_instance.name
+
+          case auth_type
+          when :api_key
+            # API key providers generally don't need special auth status implementation
+            # They either have credentials or they don't - treat as supported
+            true
+          when :oauth
+            # OAuth providers need specific auth handling - check if this provider is supported
+            # Currently only Anthropic/Claude have OAuth handling in Authentication module
+            [:anthropic, :claude].include?(provider_name.to_sym)
+          else
+            # Unknown auth type - consider it not implemented
+            false
+          end
+        rescue
+          # If we can't safely check auth implementation, assume it's not supported
+          false
         end
 
         def initializer_keyword_parameters
