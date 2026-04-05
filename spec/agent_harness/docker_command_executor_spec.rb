@@ -117,6 +117,10 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
           },
           {
             env: {},
+            cmd: ["docker", "exec", container_id, "sh", "-lc", remove_symlink_command("#{guarded_home_path}/.config/opencode/opencode.json")]
+          },
+          {
+            env: {},
             cmd: ["docker", "exec", "-i", container_id, "sh", "-lc", "cat > #{guarded_home_path}/.config/opencode/opencode.json"],
             stdin: "{\"ok\":true}"
           },
@@ -158,6 +162,10 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
           },
           {
             env: {},
+            cmd: ["docker", "exec", "--env", "HOME=/tmp/request-home", container_id, "sh", "-lc", remove_symlink_command("#{guarded_home_path}/.config/opencode/opencode.json")]
+          },
+          {
+            env: {},
             cmd: ["docker", "exec", "--env", "HOME=/tmp/request-home", "-i", container_id, "sh", "-lc", "cat > #{guarded_home_path}/.config/opencode/opencode.json"],
             stdin: "{\"ok\":true}"
           },
@@ -193,6 +201,10 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
           {
             env: {},
             cmd: ["docker", "exec", container_id, "sh", "-lc", "mkdir -p #{guarded_home_path}"]
+          },
+          {
+            env: {},
+            cmd: ["docker", "exec", container_id, "sh", "-lc", remove_symlink_command("#{guarded_home_path}/opencode.json")]
           },
           {
             env: {},
@@ -247,6 +259,10 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
           },
           {
             env: {},
+            cmd: ["docker", "exec", container_id, "sh", "-lc", remove_symlink_command("#{guarded_home_path}/.config/opencode/opencode.json")]
+          },
+          {
+            env: {},
             cmd: ["docker", "exec", "-i", container_id, "sh", "-lc", "cat > #{guarded_home_path}/.config/opencode/opencode.json"],
             stdin: "{\"ok\":true}"
           },
@@ -281,6 +297,10 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
           {
             env: {},
             cmd: ["docker", "exec", "--env", "XDG_CONFIG_HOME=/tmp/my config", container_id, "sh", "-lc", "mkdir -p \"${XDG_CONFIG_HOME}\""]
+          },
+          {
+            env: {},
+            cmd: ["docker", "exec", "--env", "XDG_CONFIG_HOME=/tmp/my config", container_id, "sh", "-lc", remove_symlink_command("\"${XDG_CONFIG_HOME}\"/opencode.json")]
           },
           {
             env: {},
@@ -319,6 +339,10 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
           {
             env: {},
             cmd: ["docker", "exec", "--env", "XDG_CONFIG_HOME=/tmp/my config", "--env", "BAR=baz qux", container_id, "sh", "-lc", "mkdir -p \"${XDG_CONFIG_HOME}\""]
+          },
+          {
+            env: {},
+            cmd: ["docker", "exec", "--env", "XDG_CONFIG_HOME=/tmp/my config", "--env", "BAR=baz qux", container_id, "sh", "-lc", remove_symlink_command("\"${XDG_CONFIG_HOME}\"/foo-\"${BAR}\".json")]
           },
           {
             env: {},
@@ -404,7 +428,7 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
         )
       )
 
-      expect(timeouts.length).to eq(5)
+      expect(timeouts.length).to eq(6)
       expect(timeouts).to all(be > 0)
       expect(timeouts).to eq(timeouts.sort.reverse)
       expect(timeouts.last).to be < timeouts.first
@@ -422,6 +446,10 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
           {
             env: {},
             cmd: ["docker", "exec", container_id, "sh", "-lc", "mkdir -p #{guarded_home_path}/.config/opencode"]
+          },
+          {
+            env: {},
+            cmd: ["docker", "exec", container_id, "sh", "-lc", remove_symlink_command("#{guarded_home_path}/.config/opencode/opencode.json")]
           },
           {
             env: {},
@@ -478,6 +506,7 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
         [
           {env: {}, cmd: ["docker", "exec", container_id, "sh", "-lc", backup_command("#{guarded_home_path}/.config/opencode/opencode.json")]},
           {env: {}, cmd: ["docker", "exec", container_id, "sh", "-lc", "mkdir -p #{guarded_home_path}/.config/opencode"]},
+          {env: {}, cmd: ["docker", "exec", container_id, "sh", "-lc", remove_symlink_command("#{guarded_home_path}/.config/opencode/opencode.json")]},
           {env: {}, cmd: ["docker", "exec", "-i", container_id, "sh", "-lc", "cat > #{guarded_home_path}/.config/opencode/opencode.json"]},
           {env: {}, cmd: ["docker", "exec", container_id, "sh", "-lc", "chmod 600 #{guarded_home_path}/.config/opencode/opencode.json"]},
           {env: {}, cmd: ["docker", "exec", container_id, "sh", "-lc", cleanup_command("#{guarded_home_path}/.config/opencode/opencode.json", "#{guarded_home_path}/.config/opencode")]}
@@ -540,6 +569,7 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
         [
           ["docker", "exec", container_id, "sh", "-lc", backup_command("#{guarded_home_path}/.config/opencode/opencode.json")],
           ["docker", "exec", container_id, "sh", "-lc", "mkdir -p #{guarded_home_path}/.config/opencode"],
+          ["docker", "exec", container_id, "sh", "-lc", remove_symlink_command("#{guarded_home_path}/.config/opencode/opencode.json")],
           ["docker", "exec", "-i", container_id, "sh", "-lc", "cat > #{guarded_home_path}/.config/opencode/opencode.json"],
           ["docker", "exec", container_id, "echo", "hello"],
           cleanup_command_cmd
@@ -599,6 +629,10 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
           {
             env: {},
             cmd: ["docker", "exec", container_id, "sh", "-lc", "mkdir -p #{guarded_home_path}/.config/opencode"]
+          },
+          {
+            env: {},
+            cmd: ["docker", "exec", container_id, "sh", "-lc", remove_symlink_command("#{guarded_home_path}/.config/opencode/opencode.json")]
           },
           {
             env: {},
@@ -977,6 +1011,10 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
         "\"missing runtime preparation backup: /tmp/agent-harness-preparation-deadbeefcafebabe/backup\" >&2; cleanup_status=1; fi; " \
         "elif [ \"$state_value\" = missing ]; then rm -f -- #{path} || cleanup_status=$?; else cleanup_status=1; fi; rm -rf /tmp/agent-harness-preparation-deadbeefcafebabe; " \
         "exit $cleanup_status"
+    end
+
+    def remove_symlink_command(path)
+      "state_value=$(cat /tmp/agent-harness-preparation-deadbeefcafebabe/state 2>/dev/null); if [ \"$state_value\" = symlink ]; then rm -f -- #{path}; fi"
     end
 
     def guarded_home_path

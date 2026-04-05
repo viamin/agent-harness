@@ -227,6 +227,12 @@ module AgentHarness
       mkdir_cmd = build_container_shell_command("mkdir -p #{dir}", env: env)
       run_host_command(mkdir_cmd, timeout: remaining_timeout(deadline, timeout:, command_name: "docker"))
 
+      remove_symlink_cmd = build_container_shell_command(
+        "state_value=$(cat #{state} 2>/dev/null); if [ \"$state_value\" = symlink ]; then rm -f -- #{path}; fi",
+        env: env
+      )
+      run_host_command(remove_symlink_cmd, timeout: remaining_timeout(deadline, timeout:, command_name: "docker"))
+
       write_cmd = build_container_shell_command("cat > #{path}", env: env, stdin_data: write.content)
       run_host_command(
         write_cmd,
