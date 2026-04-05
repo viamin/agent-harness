@@ -308,13 +308,19 @@ module AgentHarness
     end
 
     def normalize_container_lock_path(path, env)
+      validate_home_relative_preparation_path!(path, env)
+
       expanded_path = path.gsub(/\$(\w+)|\$\{([^}]+)\}/) do
         key = Regexp.last_match(1) || Regexp.last_match(2)
         resolve_preparation_path_env_var(key, env)
       end
 
-      return "home" if expanded_path == "~"
+      return env.key?("HOME") ? File.expand_path(env.fetch("HOME")) : "home" if expanded_path == "~"
       if expanded_path.start_with?("~/")
+        if env.key?("HOME")
+          return File.expand_path(File.join(env.fetch("HOME"), expanded_path.delete_prefix("~/")))
+        end
+
         normalized = File.expand_path(expanded_path.delete_prefix("~/"), "/").delete_prefix("/")
         return normalized.empty? ? "home" : "home/#{normalized}"
       end

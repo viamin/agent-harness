@@ -794,37 +794,45 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
       end
     end
 
-    it "serializes home-relative preparation for the same container path regardless of explicit HOME override" do
-      original_home = ENV["HOME"]
-      ENV["HOME"] = "/host-home"
-
+    it "does not serialize home-relative preparation across distinct explicit container HOME targets" do
       Dir.mktmpdir do |dir|
-        file_path = File.join(dir, "config.json")
-        File.binwrite(file_path, "old")
+        resolve_file_path = lambda do |env|
+          home = env.fetch("HOME", "/home/default")
+          path = File.join(dir, home.delete_prefix("/"), ".config/opencode/opencode.json")
+          FileUtils.mkdir_p(File.dirname(path))
+          File.binwrite(path, "old") unless File.exist?(path)
+          path
+        end
 
         request_signals = {}
         request_waits = {}
+        request_file_paths = {}
 
         allow(executor).to receive(:build_docker_command) do |command, env:, stdin_data:|
           request_id = env.fetch("REQUEST_ID")
           request_signals[request_id] = env.fetch("SIGNAL")
           request_waits[request_id] = env["WAIT"]
+          request_file_paths[request_id] = resolve_file_path.call(env)
           command + [request_id]
         end
         allow(executor).to receive(:apply_container_preparation) do |preparation, timeout:, deadline:, env:, cleanup_steps:|
           write = preparation.file_writes.fetch(0)
+          file_path = resolve_file_path.call(env)
           snapshot = File.exist?(file_path) ? File.binread(file_path) : nil
-          cleanup_steps << {snapshot: snapshot}
+          cleanup_steps << {path: file_path, snapshot: snapshot}
           File.binwrite(file_path, write.content)
         end
         allow(executor).to receive(:cleanup_container_preparation) do |cleanup_steps, timeout:, deadline:, command_name:|
           cleanup_steps.reverse_each do |cleanup|
-            File.binwrite(file_path, cleanup[:snapshot])
+            next if cleanup[:snapshot].nil?
+
+            File.binwrite(cleanup.fetch(:path), cleanup.fetch(:snapshot))
           end
           cleanup_steps.clear
         end
         allow(executor).to receive(:execute_without_timeout) do |cmd_array, env:, stdin_data:|
           request_id = cmd_array.last
+          file_path = request_file_paths.fetch(request_id)
           observed = File.binread(file_path)
           request_signals.fetch(request_id) << observed
           request_waits[request_id]&.pop
@@ -838,7 +846,7 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
         thread_a = Thread.new do
           executor.execute(
             ["true"],
-            env: {"REQUEST_ID" => "A", "SIGNAL" => signal_a, "WAIT" => wait_a},
+            env: {"REQUEST_ID" => "A", "SIGNAL" => signal_a, "WAIT" => wait_a, "HOME" => "/tmp/request-a"},
             preparation: AgentHarness::ExecutionPreparation.new(
               file_writes: [{path: "~/.config/opencode/opencode.json", content: "A"}]
             )
@@ -850,7 +858,7 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
         thread_b = Thread.new do
           executor.execute(
             ["true"],
-            env: {"REQUEST_ID" => "B", "SIGNAL" => signal_b, "HOME" => "/container-home"},
+            env: {"REQUEST_ID" => "B", "SIGNAL" => signal_b, "HOME" => "/tmp/request-b"},
             preparation: AgentHarness::ExecutionPreparation.new(
               file_writes: [{path: "~/.config/opencode/opencode.json", content: "B"}]
             )
@@ -858,17 +866,15 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
         end
 
         sleep 0.05
-        expect(signal_b).to be_empty
+        expect(signal_b.pop).to eq("B")
 
         wait_a << :continue
 
         thread_a.join
-        expect(signal_b.pop).to eq("B")
         thread_b.join
-        expect(File.binread(file_path)).to eq("old")
+        expect(File.binread(resolve_file_path.call("HOME" => "/tmp/request-a"))).to eq("old")
+        expect(File.binread(resolve_file_path.call("HOME" => "/tmp/request-b"))).to eq("old")
       end
-    ensure
-      ENV["HOME"] = original_home
     end
 
     it "normalizes container lock paths for equivalent dot-segment spellings" do
