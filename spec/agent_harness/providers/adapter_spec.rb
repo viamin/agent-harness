@@ -529,8 +529,8 @@ RSpec.describe AgentHarness::Providers::Adapter do
         expect(metadata[:auth]).to include(
           default_mode: :api_key,
           supported_modes: [:api_key],
-          service: :test_adapter,
-          api_family: :test_adapter
+          service: nil,
+          api_family: nil
         )
         expect(metadata[:runtime]).to include(
           interface: :cli,
@@ -685,8 +685,8 @@ RSpec.describe AgentHarness::Providers::Adapter do
         expect(metadata[:auth]).to include(
           default_mode: :api_key,
           supported_modes: [:api_key],
-          service: :required_initializer_adapter,
-          api_family: :required_initializer_adapter
+          service: nil,
+          api_family: nil
         )
         expect(metadata[:runtime]).to include(
           available: true,
@@ -720,7 +720,8 @@ RSpec.describe AgentHarness::Providers::Adapter do
         expect(metadata[:auth]).to include(
           default_mode: :oauth,
           supported_modes: [:oauth],
-          api_family: :metadata_compatible_adapter
+          service: nil,
+          api_family: nil
         )
         expect(metadata[:configuration]).to include(
           fields: [{name: :workspace, type: :string}],
@@ -826,6 +827,47 @@ RSpec.describe AgentHarness::Providers::Adapter do
         expect(auth_status_cached_adapter_class.send(:auth_status_available?)).to be false
         expect(auth_status_cached_adapter_class.send(:auth_status_available?)).to be false
         expect(auth_status_cached_adapter_class.initialization_count).to eq(1)
+      end
+
+      it "memoizes negative auth status availability for constructor-incompatible adapters" do
+        subset_safe_auth_adapter_class = Class.new do
+          include AgentHarness::Providers::Adapter
+
+          class << self
+            attr_accessor :initialization_count
+
+            def provider_name
+              :subset_safe_auth_adapter
+            end
+
+            def available?
+              true
+            end
+
+            def binary_name
+              "subset-safe-auth"
+            end
+          end
+
+          self.initialization_count = 0
+
+          def initialize(config: nil)
+            self.class.initialization_count += 1
+            @config = config
+          end
+
+          def auth_type
+            :oauth
+          end
+
+          def auth_status
+            {valid: true, expires_at: nil, error: nil}
+          end
+        end
+
+        expect(subset_safe_auth_adapter_class.send(:auth_status_available?)).to be false
+        expect(subset_safe_auth_adapter_class.send(:auth_status_available?)).to be false
+        expect(subset_safe_auth_adapter_class.initialization_count).to eq(0)
       end
 
       it "memoizes auth status availability per requested name" do

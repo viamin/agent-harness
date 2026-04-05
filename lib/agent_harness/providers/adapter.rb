@@ -126,8 +126,8 @@ module AgentHarness
               auth: {
                 default_mode: provider&.auth_type || default_auth_type,
                 supported_modes: Array(configuration[:auth_modes]).map(&:to_sym),
-                service: provider_name,
-                api_family: configuration[:openai_compatible] ? :openai : provider_name
+                service: configuration[:openai_compatible] ? :openai : nil,
+                api_family: configuration[:openai_compatible] ? :openai : nil
               },
               runtime: {
                 interface: :cli,
@@ -263,13 +263,15 @@ module AgentHarness
           cache_key = requested_name.to_sym
           return @auth_status_available[cache_key] if @auth_status_available.key?(cache_key)
 
-          @auth_status_available[cache_key] = begin
-            return false unless registry_check_initializer_compatible?
-
-            provider_instance ||= safe_metadata_provider_instance(requested_name: requested_name)
-            auth_status_supported_by?(provider_instance)
-          rescue
+          @auth_status_available[cache_key] = if !registry_check_initializer_compatible?
             false
+          else
+            begin
+              provider_instance ||= safe_metadata_provider_instance(requested_name: requested_name)
+              auth_status_supported_by?(provider_instance)
+            rescue
+              false
+            end
           end
         end
 
