@@ -331,7 +331,10 @@ module AgentHarness
       end
 
       def host_preflight_allowed?(executor:, provider_runtime:)
-        executor.nil? && provider_runtime.nil?
+        return false unless executor.nil?
+        return true if provider_runtime.nil?
+
+        ProviderRuntime.wrap(provider_runtime).empty?
       end
 
       def normalize_smoke_error_category(category, message)

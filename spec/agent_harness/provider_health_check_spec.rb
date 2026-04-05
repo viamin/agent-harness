@@ -52,6 +52,17 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
         expect(result[:error_category]).to eq(:installation)
         expect(result[:check]).to eq(:availability)
       end
+
+      it "still runs host preflight when provider_runtime is an empty hash" do
+        result = described_class.check(:test_provider, provider_runtime: {})
+
+        expect(result[:name]).to eq(:test_provider)
+        expect(result[:status]).to eq("error")
+        expect(result[:message]).to include("test-cli")
+        expect(result[:message]).to include("not found")
+        expect(result[:error_category]).to eq(:installation)
+        expect(result[:check]).to eq(:availability)
+      end
     end
 
     context "when authentication fails" do
