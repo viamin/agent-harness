@@ -175,9 +175,15 @@ module AgentHarness
     def acquire_preparation_locks(preparation, env:, timeout:, deadline:, command_name:)
       return [] if preparation.nil? || preparation.empty?
 
-      preparation_lock_keys(preparation, env).map do |key|
-        acquire_preparation_lock(key, timeout:, deadline:, command_name:)
+      acquired_locks = []
+
+      preparation_lock_keys(preparation, env).each do |key|
+        acquired_locks << acquire_preparation_lock(key, timeout:, deadline:, command_name:)
       end
+      acquired_locks
+    rescue
+      release_preparation_locks(acquired_locks) unless acquired_locks.empty?
+      raise
     end
 
     def acquire_preparation_lock(key, timeout:, deadline:, command_name:)

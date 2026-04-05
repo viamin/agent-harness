@@ -5,6 +5,18 @@ require "tmpdir"
 RSpec.describe AgentHarness::CommandExecutor do
   subject(:executor) { described_class.new }
 
+  before do
+    AgentHarness::CommandExecutor::PREPARATION_LOCK_REGISTRY_MUTEX.synchronize do
+      AgentHarness::CommandExecutor::PREPARATION_LOCK_REGISTRY.clear
+    end
+  end
+
+  after do
+    AgentHarness::CommandExecutor::PREPARATION_LOCK_REGISTRY_MUTEX.synchronize do
+      AgentHarness::CommandExecutor::PREPARATION_LOCK_REGISTRY.clear
+    end
+  end
+
   describe "#execute" do
     it "executes a simple command" do
       result = executor.execute(["echo", "hello"])
@@ -486,6 +498,48 @@ RSpec.describe AgentHarness::CommandExecutor do
         ensure
           wait << :continue
           thread&.join
+        end
+      end
+
+      it "releases earlier preparation locks when a later acquisition times out" do
+        Dir.mktmpdir do |dir|
+          first_path = File.join(dir, "a.json")
+          second_path = File.join(dir, "b.json")
+          first_key = "host:#{File.expand_path(first_path)}"
+          second_key = "host:#{File.expand_path(second_path)}"
+          blocked_lock = executor.send(
+            :acquire_preparation_lock,
+            second_key,
+            timeout: nil,
+            deadline: nil,
+            command_name: "true"
+          )
+
+          expect {
+            executor.send(
+              :acquire_preparation_locks,
+              AgentHarness::ExecutionPreparation.new(
+                file_writes: [
+                  {path: first_path, content: "A"},
+                  {path: second_path, content: "B"}
+                ]
+              ),
+              env: {},
+              timeout: 0.01,
+              deadline: Process.clock_gettime(Process::CLOCK_MONOTONIC) + 0.01,
+              command_name: "true"
+            )
+          }.to raise_error(AgentHarness::TimeoutError, /Command timed out after 0\.01 seconds: true/)
+
+          AgentHarness::CommandExecutor::PREPARATION_LOCK_REGISTRY_MUTEX.synchronize do
+            expect(AgentHarness::CommandExecutor::PREPARATION_LOCK_REGISTRY).not_to have_key(first_key)
+            expect(AgentHarness::CommandExecutor::PREPARATION_LOCK_REGISTRY.fetch(second_key)).to include(
+              locked: true,
+              refcount: 1
+            )
+          end
+        ensure
+          executor.send(:release_preparation_locks, [blocked_lock]) if blocked_lock
         end
       end
     end
