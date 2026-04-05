@@ -251,7 +251,8 @@ module AgentHarness
         end
 
         smoke_contract = provider_instance.smoke_test_contract
-        unless smoke_contract || provider_overrides_method?(provider_instance, :smoke_test)
+        # Explicitly handle missing smoke-test contract when no custom smoke_test implementation
+        if smoke_contract.nil? && !provider_overrides_method?(provider_instance, :smoke_test)
           message = if host_preflight_allowed && auth_degraded
             "Auth status check not implemented; health and config checks passed (smoke test unavailable)"
           elsif host_preflight_allowed && (provider_overrides_method?(provider_instance, :health_status) ||
