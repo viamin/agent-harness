@@ -102,20 +102,27 @@ RSpec.describe AgentHarness::CommandExecutor do
         end
       end
 
-      it "expands home-relative file paths in the local executor" do
+      it "resolves home-relative file paths against request env overrides" do
         Dir.mktmpdir do |dir|
-          original_home = ENV["HOME"]
-          ENV["HOME"] = dir
-
           preparation = AgentHarness::ExecutionPreparation.new(
             file_writes: [{path: "~/.config/test.json", content: "{\"ok\":true}"}]
           )
 
-          executor.execute(["true"], preparation: preparation)
+          executor.execute(["true"], env: {"HOME" => dir}, preparation: preparation)
 
           expect(File.read(File.join(dir, ".config", "test.json"))).to eq("{\"ok\":true}")
-        ensure
-          ENV["HOME"] = original_home
+        end
+      end
+
+      it "expands env vars in preparation paths against request env overrides" do
+        Dir.mktmpdir do |dir|
+          preparation = AgentHarness::ExecutionPreparation.new(
+            file_writes: [{path: "$XDG_CONFIG_HOME/test.json", content: "{\"ok\":true}"}]
+          )
+
+          executor.execute(["true"], env: {"XDG_CONFIG_HOME" => dir}, preparation: preparation)
+
+          expect(File.read(File.join(dir, "test.json"))).to eq("{\"ok\":true}")
         end
       end
     end

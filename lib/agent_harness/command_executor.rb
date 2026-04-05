@@ -51,7 +51,7 @@ module AgentHarness
       cmd_string = cmd_array.shelljoin
 
       log_debug("Executing command", command: cmd_string, timeout: timeout)
-      apply_preparation(preparation)
+      apply_preparation(preparation, env: env)
 
       start_time = Time.now
 
@@ -106,15 +106,33 @@ module AgentHarness
 
     private
 
-    def apply_preparation(preparation)
+    def apply_preparation(preparation, env:)
       return if preparation.nil? || preparation.empty?
 
       preparation.file_writes.each do |write|
-        resolved_path = File.expand_path(write.path)
+        resolved_path = expand_preparation_path(write.path, env)
         FileUtils.mkdir_p(File.dirname(resolved_path))
         File.binwrite(resolved_path, write.content)
         File.chmod(write.mode, resolved_path) if write.mode
       end
+    end
+
+    def expand_preparation_path(path, env)
+      expanded_path = path.gsub(/\$(\w+)|\$\{([^}]+)\}/) do
+        key = Regexp.last_match(1) || Regexp.last_match(2)
+        env.fetch(key) { ENV[key] }.to_s
+      end
+
+      home = env.key?("HOME") ? env["HOME"] : ENV["HOME"]
+      if expanded_path == "~"
+        return File.expand_path(home || expanded_path)
+      end
+
+      if expanded_path.start_with?("~/")
+        return File.expand_path(File.join(home || Dir.home, expanded_path.delete_prefix("~/")))
+      end
+
+      File.expand_path(expanded_path)
     end
 
     def execute_with_timeout(cmd_array, timeout:, env:, stdin_data:)

@@ -13,6 +13,174 @@ RSpec.describe AgentHarness::Providers::Opencode do
     end
   end
 
+  describe ".installation_contract" do
+    it "exposes OpenCode CLI install metadata" do
+      contract = described_class.installation_contract
+
+      expect(contract).to include(
+        source: :npm,
+        package_name: "opencode-ai",
+        version: "1.3.2",
+        binary_name: "opencode"
+      )
+      expect(contract[:package]).to eq("opencode-ai@1.3.2")
+      expect(contract[:supported_versions]).to eq(["1.3.2"])
+      expect(contract[:version_requirement]).to eq([">= 1.3.2", "< 1.4.0"])
+      expect(contract[:install_command]).to eq(
+        ["npm", "install", "-g", "--ignore-scripts", "opencode-ai@1.3.2"]
+      )
+    end
+
+    it "keeps the runtime binary aligned with the install contract" do
+      contract = described_class.installation_contract
+
+      expect(contract[:binary_name]).to eq(described_class.binary_name)
+    end
+
+    it "supports explicit versions within the advertised requirement" do
+      contract = described_class.installation_contract(version: "1.3.9")
+
+      expect(contract[:version]).to eq("1.3.9")
+      expect(contract[:install_command]).to eq(
+        ["npm", "install", "-g", "--ignore-scripts", "opencode-ai@1.3.9"]
+      )
+    end
+
+    it "reuses the default frozen install contract" do
+      expect(described_class.installation_contract).to equal(described_class.installation_contract)
+    end
+
+    it "reuses the default frozen install contract for explicit default versions" do
+      default_contract = described_class.installation_contract
+
+      expect(described_class.installation_contract(version: "1.3.2")).to equal(default_contract)
+      expect(described_class.installation_contract(version: " 1.3.2 ")).to equal(default_contract)
+    end
+
+    it "normalizes surrounding whitespace in supported explicit versions" do
+      contract = described_class.installation_contract(version: " 1.3.9 ")
+
+      expect(contract[:version]).to eq("1.3.9")
+      expect(contract[:package]).to eq("opencode-ai@1.3.9")
+      expect(contract[:install_command]).to eq(
+        ["npm", "install", "-g", "--ignore-scripts", "opencode-ai@1.3.9"]
+      )
+    end
+
+    it "rejects versions outside the advertised requirement" do
+      expect {
+        described_class.installation_contract(version: "1.4.0")
+      }.to raise_error(ArgumentError, /Unsupported OpenCode CLI version/)
+    end
+
+    it "rejects malformed versions with the provider-specific error" do
+      expect {
+        described_class.installation_contract(version: "not-a-version")
+      }.to raise_error(ArgumentError, /Unsupported OpenCode CLI version "not-a-version"/)
+    end
+
+    it "rejects nil versions with the provider-specific error" do
+      expect {
+        described_class.installation_contract(version: nil)
+      }.to raise_error(ArgumentError, /Unsupported OpenCode CLI version nil/)
+    end
+
+    it "rejects blank versions with the provider-specific error" do
+      expect {
+        described_class.installation_contract(version: "")
+      }.to raise_error(ArgumentError, /Unsupported OpenCode CLI version ""/)
+    end
+
+    it "rejects whitespace-only versions with the provider-specific error" do
+      expect {
+        described_class.installation_contract(version: "   ")
+      }.to raise_error(ArgumentError, /Unsupported OpenCode CLI version "   "/)
+    end
+
+    it "rejects non-string versions with the provider-specific error" do
+      expect {
+        described_class.installation_contract(version: 1.3)
+      }.to raise_error(ArgumentError, /Unsupported OpenCode CLI version 1\.3/)
+    end
+
+    it "deep-freezes nested contract values" do
+      contract = described_class.installation_contract
+
+      expect(contract).to be_frozen
+      expect(contract[:package]).to be_frozen
+      expect(contract[:package_name]).to be_frozen
+      expect(contract[:version]).to be_frozen
+      expect(contract[:binary_name]).to be_frozen
+      expect { contract[:install_command_prefix] << "opencode-ai" }.to raise_error(FrozenError)
+      expect { contract[:install_command] << "opencode-ai" }.to raise_error(FrozenError)
+      expect { contract[:supported_versions] << "1.3.1" }.to raise_error(FrozenError)
+      expect { contract[:version_requirement] << ">= 1.3.1" }.to raise_error(FrozenError)
+    end
+  end
+
+  describe ".install_command" do
+    it "builds the default install command from the contract" do
+      expect(described_class.install_command).to eq(
+        ["npm", "install", "-g", "--ignore-scripts", "opencode-ai@1.3.2"]
+      )
+    end
+
+    it "supports explicit version overrides" do
+      expect(described_class.install_command(version: "1.3.9")).to eq(
+        ["npm", "install", "-g", "--ignore-scripts", "opencode-ai@1.3.9"]
+      )
+    end
+
+    it "reuses the default frozen install command for explicit default versions" do
+      default_install_command = described_class.install_command
+
+      expect(described_class.install_command(version: "1.3.2")).to equal(default_install_command)
+      expect(described_class.install_command(version: " 1.3.2 ")).to equal(default_install_command)
+    end
+
+    it "normalizes surrounding whitespace in explicit version overrides" do
+      expect(described_class.install_command(version: " 1.3.9 ")).to eq(
+        ["npm", "install", "-g", "--ignore-scripts", "opencode-ai@1.3.9"]
+      )
+    end
+
+    it "rejects unsupported version overrides" do
+      expect {
+        described_class.install_command(version: "1.3.1")
+      }.to raise_error(ArgumentError, /Unsupported OpenCode CLI version/)
+    end
+
+    it "rejects malformed version overrides with the provider-specific error" do
+      expect {
+        described_class.install_command(version: "not-a-version")
+      }.to raise_error(ArgumentError, /Unsupported OpenCode CLI version "not-a-version"/)
+    end
+
+    it "rejects nil version overrides with the provider-specific error" do
+      expect {
+        described_class.install_command(version: nil)
+      }.to raise_error(ArgumentError, /Unsupported OpenCode CLI version nil/)
+    end
+
+    it "rejects blank version overrides with the provider-specific error" do
+      expect {
+        described_class.install_command(version: "")
+      }.to raise_error(ArgumentError, /Unsupported OpenCode CLI version ""/)
+    end
+
+    it "rejects whitespace-only version overrides with the provider-specific error" do
+      expect {
+        described_class.install_command(version: "   ")
+      }.to raise_error(ArgumentError, /Unsupported OpenCode CLI version "   "/)
+    end
+
+    it "rejects non-string version overrides with the provider-specific error" do
+      expect {
+        described_class.install_command(version: 1.3)
+      }.to raise_error(ArgumentError, /Unsupported OpenCode CLI version 1\.3/)
+    end
+  end
+
   describe ".firewall_requirements" do
     it "returns required domains" do
       requirements = described_class.firewall_requirements
@@ -88,6 +256,28 @@ RSpec.describe AgentHarness::Providers::Opencode do
 
         expect(mock_executor).to receive(:execute).with(
           ["opencode", "run", "Hello"],
+          anything
+        )
+
+        provider.send_message(prompt: "Hello")
+      end
+
+      it "uses the install contract binary in the runtime command" do
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "response",
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        binary = "opencode-custom"
+        contract = described_class.installation_contract.merge(binary_name: binary).freeze
+        allow(described_class).to receive(:installation_contract).and_return(contract)
+
+        expect(mock_executor).to receive(:execute).with(
+          [binary, "run", "Hello"],
           anything
         )
 

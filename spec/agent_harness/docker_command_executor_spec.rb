@@ -124,6 +124,62 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
       )
     end
 
+    it "uses request env overrides for container preparation commands" do
+      expect_popen3_sequence(
+        [
+          {
+            env: {},
+            cmd: ["docker", "exec", "--env", "HOME=/tmp/request-home", container_id, "sh", "-lc", "mkdir -p \"$HOME\"/.config/opencode"]
+          },
+          {
+            env: {},
+            cmd: ["docker", "exec", "--env", "HOME=/tmp/request-home", "-i", container_id, "sh", "-lc", "cat > \"$HOME\"/.config/opencode/opencode.json"],
+            stdin: "{\"ok\":true}"
+          },
+          {
+            env: {},
+            cmd: ["docker", "exec", "--env", "HOME=/tmp/request-home", container_id, "echo", "hello"]
+          }
+        ]
+      )
+
+      executor.execute(
+        ["echo", "hello"],
+        env: {"HOME" => "/tmp/request-home"},
+        preparation: AgentHarness::ExecutionPreparation.new(
+          file_writes: [{path: "~/.config/opencode/opencode.json", content: "{\"ok\":true}"}]
+        )
+      )
+    end
+
+    it "preserves shell env expansion in container preparation paths" do
+      expect_popen3_sequence(
+        [
+          {
+            env: {},
+            cmd: ["docker", "exec", "--env", "XDG_CONFIG_HOME=/tmp/opencode-config", container_id, "sh", "-lc", "mkdir -p $XDG_CONFIG_HOME"]
+          },
+          {
+            env: {},
+            cmd: ["docker", "exec", "--env", "XDG_CONFIG_HOME=/tmp/opencode-config", "-i", container_id, "sh", "-lc", "cat > $XDG_CONFIG_HOME/opencode.json"],
+            stdin: "{\"ok\":true}"
+          },
+          {
+            env: {},
+            cmd: ["docker", "exec", "--env", "XDG_CONFIG_HOME=/tmp/opencode-config", container_id, "echo", "hello"]
+          }
+        ]
+      )
+
+      executor.execute(
+        ["echo", "hello"],
+        env: {"XDG_CONFIG_HOME" => "/tmp/opencode-config"},
+        preparation: AgentHarness::ExecutionPreparation.new(
+          file_writes: [{path: "$XDG_CONFIG_HOME/opencode.json", content: "{\"ok\":true}"}]
+        )
+      )
+    end
+
     it "passes timeout through to parent" do
       expect(Timeout).to receive(:timeout).with(30).and_call_original
       allow(Open3).to receive(:popen3) do |*_args, &block|
