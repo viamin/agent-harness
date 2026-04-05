@@ -258,6 +258,27 @@ RSpec.describe AgentHarness::CommandExecutor do
         end
       end
 
+      it "counts snapshot time against the timeout budget for existing files" do
+        Dir.mktmpdir do |dir|
+          file_path = File.join(dir, "config.json")
+          File.binwrite(file_path, "existing")
+          preparation = AgentHarness::ExecutionPreparation.new(
+            file_writes: [{path: file_path, content: "{\"ok\":true}"}]
+          )
+
+          allow(FileUtils).to receive(:cp).and_wrap_original do |original, *args|
+            sleep 0.05 if args.first == file_path && args.last == {preserve: true}
+            original.call(*args)
+          end
+
+          expect {
+            executor.execute(["true"], timeout: 0.01, preparation: preparation)
+          }.to raise_error(AgentHarness::TimeoutError)
+
+          expect(File.binread(file_path)).to eq("existing")
+        end
+      end
+
       it "preserves the configured timeout in timeout errors after preparation" do
         Dir.mktmpdir do |dir|
           file_path = File.join(dir, "config.json")
@@ -289,7 +310,7 @@ RSpec.describe AgentHarness::CommandExecutor do
           result = executor.execute(["true"], timeout: 30, preparation: preparation)
 
           expect(result).to be_success
-          expect(timeouts).to eq([25.0, 20.0, 5.0])
+          expect(timeouts).to eq([25.0, 20.0, 5.0, 5.0])
         end
       end
 

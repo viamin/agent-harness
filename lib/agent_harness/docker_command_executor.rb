@@ -114,6 +114,12 @@ module AgentHarness
       "docker:#{container_id}"
     end
 
+    def preparation_lock_keys(preparation, env)
+      preparation.file_writes.map do |write|
+        "#{preparation_lock_scope}:#{normalize_container_lock_path(write.path, env)}"
+      end.uniq.sort
+    end
+
     def apply_container_preparation(preparation, timeout:, deadline:, env:, cleanup_steps:)
       return if preparation.nil? || preparation.empty?
 
@@ -143,6 +149,7 @@ module AgentHarness
 
     def materialize_file_write(write, timeout:, deadline:, env:)
       validate_preparation_path_env!(write.path, env)
+      validate_home_relative_preparation_path!(write.path, env)
       path = shell_path(write.path)
       dir = shell_path(File.dirname(write.path))
       backup = shell_path("/tmp/agent-harness-preparation-#{SecureRandom.hex(8)}")
@@ -235,6 +242,27 @@ module AgentHarness
       raise ArgumentError, "#{key} cannot be nil or empty for env-backed preparation paths" if value.nil? || value.empty?
 
       value
+    end
+
+    def normalize_container_lock_path(path, env)
+      expanded_path = path.gsub(/\$(\w+)|\$\{([^}]+)\}/) do
+        key = Regexp.last_match(1) || Regexp.last_match(2)
+        resolve_preparation_path_env_var(key, env)
+      end
+
+      return "home" if expanded_path == "~"
+      return "home/#{expanded_path.delete_prefix("~/")}" if expanded_path.start_with?("~/")
+      return expanded_path if expanded_path.start_with?("/")
+
+      "relative/#{expanded_path}"
+    end
+
+    def validate_home_relative_preparation_path!(path, env)
+      return unless path == "~" || path.start_with?("~/")
+      return unless env.key?("HOME")
+
+      home = env["HOME"]
+      raise ArgumentError, "HOME cannot be nil or empty for home-relative preparation paths" if home.nil? || home.empty?
     end
 
     def shell_path(path)

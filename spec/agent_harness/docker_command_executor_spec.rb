@@ -699,6 +699,83 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
       end
     end
 
+    it "serializes home-relative preparation for the same container path regardless of explicit HOME override" do
+      original_home = ENV["HOME"]
+      ENV["HOME"] = "/host-home"
+
+      Dir.mktmpdir do |dir|
+        file_path = File.join(dir, "config.json")
+        File.binwrite(file_path, "old")
+
+        request_signals = {}
+        request_waits = {}
+
+        allow(executor).to receive(:build_docker_command) do |command, env:, stdin_data:|
+          request_id = env.fetch("REQUEST_ID")
+          request_signals[request_id] = env.fetch("SIGNAL")
+          request_waits[request_id] = env["WAIT"]
+          command + [request_id]
+        end
+        allow(executor).to receive(:apply_container_preparation) do |preparation, timeout:, deadline:, env:, cleanup_steps:|
+          write = preparation.file_writes.fetch(0)
+          snapshot = File.exist?(file_path) ? File.binread(file_path) : nil
+          cleanup_steps << {snapshot: snapshot}
+          File.binwrite(file_path, write.content)
+        end
+        allow(executor).to receive(:cleanup_container_preparation) do |cleanup_steps, timeout:, deadline:, command_name:|
+          cleanup_steps.reverse_each do |cleanup|
+            File.binwrite(file_path, cleanup[:snapshot])
+          end
+          cleanup_steps.clear
+        end
+        allow(executor).to receive(:execute_without_timeout) do |cmd_array, env:, stdin_data:|
+          request_id = cmd_array.last
+          observed = File.binread(file_path)
+          request_signals.fetch(request_id) << observed
+          request_waits[request_id]&.pop
+          ["", stdin_data.to_s, instance_double(Process::Status, exitstatus: 0)]
+        end
+
+        signal_a = Queue.new
+        wait_a = Queue.new
+        signal_b = Queue.new
+
+        thread_a = Thread.new do
+          executor.execute(
+            ["true"],
+            env: {"REQUEST_ID" => "A", "SIGNAL" => signal_a, "WAIT" => wait_a},
+            preparation: AgentHarness::ExecutionPreparation.new(
+              file_writes: [{path: "~/.config/opencode/opencode.json", content: "A"}]
+            )
+          )
+        end
+
+        expect(signal_a.pop).to eq("A")
+
+        thread_b = Thread.new do
+          executor.execute(
+            ["true"],
+            env: {"REQUEST_ID" => "B", "SIGNAL" => signal_b, "HOME" => "/container-home"},
+            preparation: AgentHarness::ExecutionPreparation.new(
+              file_writes: [{path: "~/.config/opencode/opencode.json", content: "B"}]
+            )
+          )
+        end
+
+        sleep 0.05
+        expect(signal_b).to be_empty
+
+        wait_a << :continue
+
+        thread_a.join
+        expect(signal_b.pop).to eq("B")
+        thread_b.join
+        expect(File.binread(file_path)).to eq("old")
+      end
+    ensure
+      ENV["HOME"] = original_home
+    end
+
     it "counts lock acquisition wait against the timeout budget" do
       signal = Queue.new
       wait = Queue.new

@@ -4,6 +4,7 @@ require "open3"
 require "timeout"
 require "shellwords"
 require "fileutils"
+require "tempfile"
 
 module AgentHarness
   # Executes shell commands with timeout support
@@ -222,7 +223,9 @@ module AgentHarness
 
       preparation.file_writes.each do |write|
         resolved_path = expand_preparation_path(write.path, env)
-        snapshot = snapshot_file_state(resolved_path)
+        snapshot = within_timeout(deadline, timeout:, command_name:) do
+          snapshot_file_state(resolved_path)
+        end
         applied_preparation << {path: resolved_path, snapshot: snapshot}
 
         within_timeout(deadline, timeout:, command_name:) do
@@ -311,17 +314,24 @@ module AgentHarness
           target: File.readlink(path)
         }
       elsif stat.file?
+        backup_file = Tempfile.new("agent-harness-preparation")
+        backup_path = backup_file.path
+        backup_file.close!
+        FileUtils.cp(path, backup_path, preserve: true)
+
         {
           existed: true,
           type: :file,
-          content: File.binread(path),
-          mode: stat.mode & 0o777
+          backup_path: backup_path
         }
       else
         raise ArgumentError, "preparation target must be a regular file or symlink: #{path}"
       end
     rescue Errno::ENOENT
       {existed: false}
+    rescue
+      FileUtils.rm_f(backup_path) if defined?(backup_path) && backup_path
+      raise
     end
 
     def restore_file_state(path, snapshot)
@@ -330,13 +340,17 @@ module AgentHarness
         FileUtils.mkdir_p(File.dirname(path))
         File.symlink(snapshot[:target], path)
       elsif snapshot[:existed]
+        backup_path = snapshot.fetch(:backup_path)
+        raise ArgumentError, "missing runtime preparation backup: #{backup_path}" unless File.exist?(backup_path)
+
         delete_preparation_path(path)
         FileUtils.mkdir_p(File.dirname(path))
-        File.binwrite(path, snapshot[:content])
-        File.chmod(snapshot[:mode], path)
+        FileUtils.cp(backup_path, path, preserve: true)
       else
         delete_preparation_path(path)
       end
+    ensure
+      FileUtils.rm_f(snapshot[:backup_path]) if snapshot[:type] == :file && snapshot[:backup_path]
     end
 
     def delete_preparation_path(path)
