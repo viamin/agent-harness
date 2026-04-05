@@ -8,8 +8,8 @@ module AgentHarness
     #
     # Provides integration with the OpenAI Codex CLI tool.
     class Codex < Base
-      SUPPORTED_CLI_VERSION = "0.117.0"
-      SUPPORTED_CLI_REQUIREMENT = Gem::Requirement.new(">= #{SUPPORTED_CLI_VERSION}", "< 0.118.0").freeze
+      SUPPORTED_CLI_VERSION = "0.116.0"
+      SUPPORTED_CLI_REQUIREMENT = Gem::Requirement.new(">= #{SUPPORTED_CLI_VERSION}", "< 0.117.0").freeze
 
       class << self
         def provider_name
@@ -229,9 +229,10 @@ module AgentHarness
         # When running inside an already-sandboxed Docker container, Codex's
         # own sandboxing conflicts with the outer sandbox. Use --full-auto to
         # skip nested sandboxing while keeping full tool access.
-        # Also applies when dangerous_mode is explicitly requested, unless an
-        # outer sandbox should fully bypass Codex's own approvals and sandbox.
-        if (sandboxed_environment? || options[:dangerous_mode]) && !externally_sandboxed
+        # Also applies when dangerous_mode is explicitly requested. When an
+        # outer sandbox is present, preserve any explicit dangerous_mode intent
+        # and add the CLI's bypass flag alongside it.
+        if sandboxed_environment? || options[:dangerous_mode]
           cmd += dangerous_mode_flags
         end
 
