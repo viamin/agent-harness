@@ -290,7 +290,7 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
       calls = []
 
       allow(executor).to receive(:execute_with_timeout) do |cmd_array, timeout:, env:, stdin_data:|
-        calls << {cmd: cmd_array, timeout:, env:, stdin_data:}
+        calls << {cmd: cmd_array, timeout: timeout, env: env, stdin_data: stdin_data}
 
         if cmd_array == ["docker", "exec", container_id, "echo", "hello"]
           raise AgentHarness::TimeoutError, "Command timed out after #{timeout} seconds: echo"
