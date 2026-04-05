@@ -308,10 +308,15 @@ module AgentHarness
       end
 
       return "home" if expanded_path == "~"
-      return "home/#{expanded_path.delete_prefix("~/")}" if expanded_path.start_with?("~/")
-      return expanded_path if expanded_path.start_with?("/")
+      if expanded_path.start_with?("~/")
+        normalized = File.expand_path(expanded_path.delete_prefix("~/"), "/").delete_prefix("/")
+        return normalized.empty? ? "home" : "home/#{normalized}"
+      end
 
-      "relative/#{expanded_path}"
+      return File.expand_path(expanded_path) if expanded_path.start_with?("/")
+
+      normalized = File.expand_path(expanded_path, "/").delete_prefix("/")
+      normalized.empty? ? "relative" : "relative/#{normalized}"
     end
 
     def validate_home_relative_preparation_path!(path, env)

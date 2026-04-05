@@ -837,6 +837,45 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
       ENV["HOME"] = original_home
     end
 
+    it "normalizes container lock paths for equivalent dot-segment spellings" do
+      signal = Queue.new
+      wait = Queue.new
+
+      allow(executor).to receive(:apply_container_preparation)
+      allow(executor).to receive(:cleanup_container_preparation)
+      allow(executor).to receive(:execute_without_timeout) do |cmd_array, env:, stdin_data:|
+        if cmd_array.last == "hold-a"
+          signal << :entered
+          wait.pop
+        end
+        ["", stdin_data.to_s, instance_double(Process::Status, exitstatus: 0)]
+      end
+
+      thread = Thread.new do
+        executor.execute(
+          ["echo", "hold-a"],
+          preparation: AgentHarness::ExecutionPreparation.new(
+            file_writes: [{path: "~/./tmp/../.config/opencode.json", content: "A"}]
+          )
+        )
+      end
+
+      expect(signal.pop).to eq(:entered)
+
+      expect {
+        executor.execute(
+          ["echo", "hold-b"],
+          timeout: 0.01,
+          preparation: AgentHarness::ExecutionPreparation.new(
+            file_writes: [{path: "~/.config/opencode.json", content: "B"}]
+          )
+        )
+      }.to raise_error(AgentHarness::TimeoutError, /Command timed out after 0\.01 seconds: echo/)
+    ensure
+      wait << :continue
+      thread&.join
+    end
+
     it "counts lock acquisition wait against the timeout budget" do
       signal = Queue.new
       wait = Queue.new
