@@ -542,6 +542,54 @@ RSpec.describe AgentHarness::Providers::Registry do
       )
     end
 
+    it "prefers alias-keyed config when metadata is requested through an alias" do
+      alias_sensitive_provider = Class.new do
+        include AgentHarness::Providers::Adapter
+
+        class << self
+          def provider_name = :alias_sensitive_provider
+          def available? = true
+          def binary_name = "alias-sensitive"
+        end
+
+        def initialize(config: nil)
+          @config = config
+        end
+
+        def configuration_schema
+          {
+            fields: [{name: @config.name, type: :string}],
+            auth_modes: [:api_key],
+            openai_compatible: false
+          }
+        end
+
+        def execution_semantics
+          {
+            prompt_delivery: @config.name,
+            output_format: :text,
+            sandbox_aware: false,
+            uses_subcommand: false
+          }
+        end
+      end
+
+      AgentHarness.configuration.provider(:alias_sensitive_provider) { |config| config.enabled = true }
+      AgentHarness.configuration.provider(:alias_name) { |config| config.enabled = true }
+      registry.register(:alias_sensitive_provider, alias_sensitive_provider, aliases: [:alias_name])
+
+      metadata = registry.provider_metadata(:alias_name)
+
+      expect(metadata[:configuration]).to include(
+        fields: [{name: :alias_name, type: :string}],
+        auth_modes: [:api_key],
+        openai_compatible: false
+      )
+      expect(metadata[:runtime]).to include(
+        prompt_delivery: :alias_name
+      )
+    end
+
     it "exposes instance metadata for providers that only accept a registry keyword subset" do
       metadata_compatible_provider = Class.new do
         include AgentHarness::Providers::Adapter

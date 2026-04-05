@@ -99,15 +99,19 @@ module AgentHarness
         #
         # @param aliases [Array<Symbol, String>] alternate identifiers registered
         #   for this provider
+        # @param requested_name [Symbol, String] provider identifier originally
+        #   requested by the caller; used to prefer alias-keyed config when
+        #   metadata construction is config-sensitive
         # @return [Hash] provider metadata
-        def provider_metadata(aliases: [], refresh: false)
+        def provider_metadata(aliases: [], refresh: false, requested_name: provider_name)
           normalized_aliases = normalize_metadata_aliases(aliases)
-          provider = metadata_provider_instance
+          requested_provider_name = requested_name.to_sym
+          provider = metadata_provider_instance(requested_name: requested_provider_name)
           configuration = provider&.configuration_schema || default_configuration_schema
           execution = provider&.execution_semantics || default_execution_semantics
           installation = installation_contract
           supports_registry_checks = registry_check_initializer_compatible?
-          auth_check_supported = auth_status_available?(provider)
+          auth_check_supported = auth_status_available?(provider, requested_name: requested_provider_name)
           provider_status_check = supports_registry_checks && overrides_instance_method?(:health_status)
           configuration_validation = supports_registry_checks && overrides_instance_method?(:validate_config)
           lightweight_checks = supports_registry_checks && !provider_status_check && !configuration_validation
@@ -187,22 +191,10 @@ module AgentHarness
             .uniq
         end
 
-        def metadata_provider_instance
+        def metadata_provider_instance(requested_name: provider_name)
           return nil unless metadata_initializer_compatible?
 
-          parameters = instance_method(:initialize).parameters
-          accepts = lambda do |name|
-            parameters.any? { |type, param_name| [:key, :keyreq].include?(type) && param_name == name } ||
-              parameters.any? { |type, _| type == :keyrest }
-          end
-
-          kwargs = {}
-          if accepts.call(:config)
-            kwargs[:config] = AgentHarness.configuration.providers[provider_name] || AgentHarness::ProviderConfig.new(provider_name)
-          end
-          kwargs[:executor] = AgentHarness.configuration.command_executor if accepts.call(:executor)
-          kwargs[:logger] = AgentHarness.logger if accepts.call(:logger)
-          new(**kwargs)
+          new(**metadata_provider_kwargs(requested_name: requested_name))
         rescue => e
           AgentHarness.logger&.debug(
             "[AgentHarness::Providers::Adapter] Falling back to default metadata for #{provider_name}: #{e.class}: #{e.message}"
@@ -210,9 +202,16 @@ module AgentHarness
           nil
         end
 
-        def safe_metadata_provider_instance
+        def safe_metadata_provider_instance(requested_name: provider_name)
           return nil unless metadata_initializer_compatible?
 
+          new(**metadata_provider_kwargs(requested_name: requested_name))
+        rescue
+          # Return nil without logging - caller is responsible for handling
+          nil
+        end
+
+        def metadata_provider_kwargs(requested_name: provider_name)
           parameters = instance_method(:initialize).parameters
           accepts = lambda do |name|
             parameters.any? { |type, param_name| [:key, :keyreq].include?(type) && param_name == name } ||
@@ -221,14 +220,20 @@ module AgentHarness
 
           kwargs = {}
           if accepts.call(:config)
-            kwargs[:config] = AgentHarness.configuration.providers[provider_name] || AgentHarness::ProviderConfig.new(provider_name)
+            kwargs[:config] = metadata_provider_config(requested_name)
           end
           kwargs[:executor] = AgentHarness.configuration.command_executor if accepts.call(:executor)
           kwargs[:logger] = AgentHarness.logger if accepts.call(:logger)
-          new(**kwargs)
-        rescue
-          # Return nil without logging - caller is responsible for handling
-          nil
+
+          kwargs
+        end
+
+        def metadata_provider_config(requested_name)
+          requested_provider_name = requested_name.to_sym
+
+          AgentHarness.configuration.providers[requested_provider_name] ||
+            AgentHarness.configuration.providers[provider_name] ||
+            AgentHarness::ProviderConfig.new(requested_provider_name)
         end
 
         def metadata_initializer_compatible?
@@ -253,13 +258,15 @@ module AgentHarness
         #
         # This differs from supports_registry_checks - it specifically indicates whether
         # the auth status check will succeed or return "not implemented"
-        def auth_status_available?(provider_instance = nil)
-          return @auth_status_available if defined?(@auth_status_available)
+        def auth_status_available?(provider_instance = nil, requested_name: provider_name)
+          @auth_status_available = {} unless instance_variable_defined?(:@auth_status_available)
+          cache_key = requested_name.to_sym
+          return @auth_status_available[cache_key] if @auth_status_available.key?(cache_key)
 
-          @auth_status_available = begin
+          @auth_status_available[cache_key] = begin
             return false unless registry_check_initializer_compatible?
 
-            provider_instance ||= safe_metadata_provider_instance
+            provider_instance ||= safe_metadata_provider_instance(requested_name: requested_name)
             auth_status_supported_by?(provider_instance)
           rescue
             false

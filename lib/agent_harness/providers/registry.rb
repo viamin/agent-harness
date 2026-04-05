@@ -142,7 +142,7 @@ module AgentHarness
         aliases = @provider_aliases[canonical_name]
 
         if klass.respond_to?(:provider_metadata)
-          return klass.provider_metadata(aliases: aliases, refresh: refresh)
+          return klass.provider_metadata(aliases: aliases, refresh: refresh, requested_name: name.to_sym)
         end
 
         fallback_provider_metadata(canonical_name, klass, aliases, refresh: refresh)

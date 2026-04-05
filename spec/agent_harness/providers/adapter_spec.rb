@@ -756,6 +756,30 @@ RSpec.describe AgentHarness::Providers::Adapter do
         AgentHarness.configuration.providers.delete(:config_sensitive_adapter)
       end
 
+      it "prefers requested-name config during metadata-safe construction" do
+        requested_provider_config = AgentHarness::ProviderConfig.new(:config_alias)
+        canonical_provider_config = AgentHarness::ProviderConfig.new(:config_sensitive_adapter)
+        AgentHarness.configuration.providers[:config_alias] = requested_provider_config
+        AgentHarness.configuration.providers[:config_sensitive_adapter] = canonical_provider_config
+
+        metadata = config_sensitive_adapter_class.provider_metadata(
+          aliases: [:config_alias],
+          requested_name: :config_alias
+        )
+
+        expect(metadata[:configuration]).to include(
+          fields: [{name: :config_alias, type: :string}],
+          auth_modes: [:api_key],
+          openai_compatible: false
+        )
+        expect(metadata[:runtime]).to include(
+          prompt_delivery: :config_alias
+        )
+      ensure
+        AgentHarness.configuration.providers.delete(:config_alias)
+        AgentHarness.configuration.providers.delete(:config_sensitive_adapter)
+      end
+
       it "falls back to default metadata when safe construction raises" do
         logger = instance_double("Logger", debug: nil)
         allow(AgentHarness).to receive(:logger).and_return(logger)
@@ -802,6 +826,43 @@ RSpec.describe AgentHarness::Providers::Adapter do
         expect(auth_status_cached_adapter_class.send(:auth_status_available?)).to be false
         expect(auth_status_cached_adapter_class.send(:auth_status_available?)).to be false
         expect(auth_status_cached_adapter_class.initialization_count).to eq(1)
+      end
+
+      it "memoizes auth status availability per requested name" do
+        alias_sensitive_auth_adapter_class = Class.new do
+          include AgentHarness::Providers::Adapter
+
+          class << self
+            attr_accessor :initialization_names
+
+            def provider_name
+              :alias_sensitive_auth_adapter
+            end
+
+            def available?
+              true
+            end
+
+            def binary_name
+              "alias-sensitive-auth"
+            end
+          end
+
+          self.initialization_names = []
+
+          def initialize(config: nil, executor: nil, logger: nil)
+            self.class.initialization_names << config.name
+          end
+
+          def auth_status
+            {valid: true, expires_at: nil, error: nil}
+          end
+        end
+
+        expect(alias_sensitive_auth_adapter_class.send(:auth_status_available?, requested_name: :first_alias)).to be true
+        expect(alias_sensitive_auth_adapter_class.send(:auth_status_available?, requested_name: :first_alias)).to be true
+        expect(alias_sensitive_auth_adapter_class.send(:auth_status_available?, requested_name: :second_alias)).to be true
+        expect(alias_sensitive_auth_adapter_class.initialization_names).to eq([:first_alias, :second_alias])
       end
 
       it "normalizes direct alias input into a stable contract" do
