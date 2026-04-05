@@ -94,8 +94,14 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
     end
 
     it "materializes preparation file writes inside the container before executing" do
+      allow(SecureRandom).to receive(:hex).and_return("deadbeefcafebabe")
+
       expect_popen3_sequence(
         [
+          {
+            env: {},
+            cmd: ["docker", "exec", container_id, "sh", "-lc", "[ ! -e \"$HOME\"/.config/opencode/opencode.json ] || cp -p \"$HOME\"/.config/opencode/opencode.json /tmp/agent-harness-preparation-deadbeefcafebabe"]
+          },
           {
             env: {},
             cmd: ["docker", "exec", container_id, "sh", "-lc", "mkdir -p \"$HOME\"/.config/opencode"]
@@ -112,6 +118,10 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
           {
             env: {},
             cmd: ["docker", "exec", container_id, "echo", "hello"]
+          },
+          {
+            env: {},
+            cmd: ["docker", "exec", container_id, "sh", "-lc", "if [ -e /tmp/agent-harness-preparation-deadbeefcafebabe ]; then cp -p /tmp/agent-harness-preparation-deadbeefcafebabe \"$HOME\"/.config/opencode/opencode.json && rm -f /tmp/agent-harness-preparation-deadbeefcafebabe; else rm -f \"$HOME\"/.config/opencode/opencode.json; fi"]
           }
         ]
       )
@@ -125,8 +135,14 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
     end
 
     it "uses request env overrides for container preparation commands" do
+      allow(SecureRandom).to receive(:hex).and_return("deadbeefcafebabe")
+
       expect_popen3_sequence(
         [
+          {
+            env: {},
+            cmd: ["docker", "exec", "--env", "HOME=/tmp/request-home", container_id, "sh", "-lc", "[ ! -e \"$HOME\"/.config/opencode/opencode.json ] || cp -p \"$HOME\"/.config/opencode/opencode.json /tmp/agent-harness-preparation-deadbeefcafebabe"]
+          },
           {
             env: {},
             cmd: ["docker", "exec", "--env", "HOME=/tmp/request-home", container_id, "sh", "-lc", "mkdir -p \"$HOME\"/.config/opencode"]
@@ -139,6 +155,10 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
           {
             env: {},
             cmd: ["docker", "exec", "--env", "HOME=/tmp/request-home", container_id, "echo", "hello"]
+          },
+          {
+            env: {},
+            cmd: ["docker", "exec", "--env", "HOME=/tmp/request-home", container_id, "sh", "-lc", "if [ -e /tmp/agent-harness-preparation-deadbeefcafebabe ]; then cp -p /tmp/agent-harness-preparation-deadbeefcafebabe \"$HOME\"/.config/opencode/opencode.json && rm -f /tmp/agent-harness-preparation-deadbeefcafebabe; else rm -f \"$HOME\"/.config/opencode/opencode.json; fi"]
           }
         ]
       )
@@ -153,8 +173,14 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
     end
 
     it "preserves shell env expansion in container preparation paths" do
+      allow(SecureRandom).to receive(:hex).and_return("deadbeefcafebabe")
+
       expect_popen3_sequence(
         [
+          {
+            env: {},
+            cmd: ["docker", "exec", "--env", "XDG_CONFIG_HOME=/tmp/opencode-config", container_id, "sh", "-lc", "[ ! -e $XDG_CONFIG_HOME/opencode.json ] || cp -p $XDG_CONFIG_HOME/opencode.json /tmp/agent-harness-preparation-deadbeefcafebabe"]
+          },
           {
             env: {},
             cmd: ["docker", "exec", "--env", "XDG_CONFIG_HOME=/tmp/opencode-config", container_id, "sh", "-lc", "mkdir -p $XDG_CONFIG_HOME"]
@@ -167,6 +193,10 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
           {
             env: {},
             cmd: ["docker", "exec", "--env", "XDG_CONFIG_HOME=/tmp/opencode-config", container_id, "echo", "hello"]
+          },
+          {
+            env: {},
+            cmd: ["docker", "exec", "--env", "XDG_CONFIG_HOME=/tmp/opencode-config", container_id, "sh", "-lc", "if [ -e /tmp/agent-harness-preparation-deadbeefcafebabe ]; then cp -p /tmp/agent-harness-preparation-deadbeefcafebabe $XDG_CONFIG_HOME/opencode.json && rm -f /tmp/agent-harness-preparation-deadbeefcafebabe; else rm -f $XDG_CONFIG_HOME/opencode.json; fi"]
           }
         ]
       )
@@ -180,8 +210,21 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
       )
     end
 
-    it "passes timeout through to parent" do
-      expect(Timeout).to receive(:timeout).with(30).and_call_original
+    it "uses the remaining timeout budget for preparation and execution" do
+      allow(SecureRandom).to receive(:hex).and_return("deadbeefcafebabe")
+      time_values = [
+        100.0, 100.0, 100.0, 100.0, 100.0,
+        105.0, 105.0, 105.0, 105.0, 105.0,
+        110.0, 110.0, 110.0, 110.0, 110.0,
+        115.0, 115.0, 115.0, 115.0, 115.0,
+        120.0, 120.0, 120.0, 120.0, 120.0
+      ]
+      allow(Process).to receive(:clock_gettime).with(Process::CLOCK_MONOTONIC).and_return(*time_values)
+      timeouts = []
+      allow(Timeout).to receive(:timeout).and_wrap_original do |original, value, &block|
+        timeouts << value
+        original.call(value, &block)
+      end
       allow(Open3).to receive(:popen3) do |*_args, &block|
         stdin = StringIO.new
         stdout = StringIO.new("output")
@@ -190,7 +233,18 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
         block.call(stdin, stdout, stderr, wait_thr)
       end
 
-      executor.execute(["echo", "test"], timeout: 30)
+      executor.execute(
+        ["echo", "test"],
+        timeout: 30,
+        preparation: AgentHarness::ExecutionPreparation.new(
+          file_writes: [{path: "~/.config/opencode/opencode.json", content: "{\"ok\":true}"}]
+        )
+      )
+
+      expect(timeouts.length).to eq(5)
+      expect(timeouts).to all(be > 0)
+      expect(timeouts).to eq(timeouts.sort.reverse)
+      expect(timeouts.last).to be < timeouts.first
     end
 
     it "handles string commands" do
@@ -238,7 +292,7 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
     subject(:executor) { described_class.new(container_id: container_id) }
 
     it "returns the path when binary is found" do
-      expect(Timeout).to receive(:timeout).with(5).and_call_original
+      expect(Timeout).to receive(:timeout).with(be_within(0.01).of(5)).and_call_original
       allow(Open3).to receive(:popen3) do |actual_env, *actual_cmd, &block|
         expect(actual_env).to eq({})
         expect(actual_cmd).to eq(["docker", "exec", container_id, "which", "ruby"])

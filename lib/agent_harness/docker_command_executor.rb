@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "securerandom"
+
 module AgentHarness
   # Executes commands inside a Docker container
   #
@@ -41,9 +43,30 @@ module AgentHarness
     #   work to materialize inside the container before the main command runs
     # @return [Result] execution result
     def execute(command, timeout: nil, env: {}, stdin_data: nil, preparation: nil)
-      apply_container_preparation(preparation, timeout: timeout, env: env)
+      deadline = timeout_deadline(timeout)
+      cleanup_steps = []
+
+      apply_container_preparation(preparation, timeout: timeout, deadline: deadline, env: env, cleanup_steps: cleanup_steps)
       docker_cmd = build_docker_command(command, env: env, stdin_data: stdin_data)
-      super(docker_cmd, timeout: timeout, env: {}, stdin_data: stdin_data)
+      result = super(
+        docker_cmd,
+        timeout: remaining_timeout(deadline, timeout:, command_name: normalize_command(command).first),
+        env: {},
+        stdin_data: stdin_data
+      )
+      cleanup_container_preparation(cleanup_steps, timeout:, deadline:, command_name: normalize_command(command).first)
+      result
+    ensure
+      pending_exception = $!
+      unless cleanup_steps.nil? || cleanup_steps.empty?
+        begin
+          cleanup_container_preparation(cleanup_steps, timeout:, deadline:, command_name: normalize_command(command).first)
+        rescue => e
+          raise e if pending_exception.nil?
+
+          log_debug("Failed to clean up container runtime preparation", error: e.message)
+        end
+      end
     end
 
     # Check if a binary exists inside the container
@@ -57,27 +80,57 @@ module AgentHarness
 
     private
 
-    def apply_container_preparation(preparation, timeout:, env:)
+    def apply_container_preparation(preparation, timeout:, deadline:, env:, cleanup_steps:)
       return if preparation.nil? || preparation.empty?
 
       preparation.file_writes.each do |write|
-        materialize_file_write(write, timeout: timeout, env: env)
+        cleanup = materialize_file_write(write, timeout:, deadline:, env:)
+        cleanup_steps << cleanup
+      rescue
+        cleanup_container_preparation(cleanup_steps, timeout:, deadline:, command_name: "docker")
+        raise
       end
     end
 
-    def materialize_file_write(write, timeout:, env:)
+    def cleanup_container_preparation(cleanup_steps, timeout:, deadline:, command_name:)
+      cleanup_steps.reverse_each do |cleanup|
+        run_host_command(
+          cleanup[:command],
+          timeout: remaining_timeout(deadline, timeout:, command_name:),
+          stdin_data: nil
+        )
+      end
+      cleanup_steps.clear
+    end
+
+    def materialize_file_write(write, timeout:, deadline:, env:)
       path = shell_path(write.path)
       dir = shell_path(File.dirname(write.path))
+      backup = shell_path("/tmp/agent-harness-preparation-#{SecureRandom.hex(8)}")
+      backup_cmd = build_container_shell_command("[ ! -e #{path} ] || cp -p #{path} #{backup}", env: env)
+      run_host_command(backup_cmd, timeout: remaining_timeout(deadline, timeout:, command_name: "docker"))
+
       mkdir_cmd = build_container_shell_command("mkdir -p #{dir}", env: env)
-      run_host_command(mkdir_cmd, timeout: timeout)
+      run_host_command(mkdir_cmd, timeout: remaining_timeout(deadline, timeout:, command_name: "docker"))
 
       write_cmd = build_container_shell_command("cat > #{path}", env: env, stdin_data: write.content)
-      run_host_command(write_cmd, timeout: timeout, stdin_data: write.content)
+      run_host_command(
+        write_cmd,
+        timeout: remaining_timeout(deadline, timeout:, command_name: "docker"),
+        stdin_data: write.content
+      )
 
-      return unless write.mode
+      if write.mode
+        chmod_cmd = build_container_shell_command("chmod #{write.mode.to_s(8)} #{path}", env: env)
+        run_host_command(chmod_cmd, timeout: remaining_timeout(deadline, timeout:, command_name: "docker"))
+      end
 
-      chmod_cmd = build_container_shell_command("chmod #{write.mode.to_s(8)} #{path}", env: env)
-      run_host_command(chmod_cmd, timeout: timeout)
+      {
+        command: build_container_shell_command(
+          "if [ -e #{backup} ]; then cp -p #{backup} #{path} && rm -f #{backup}; else rm -f #{path}; fi",
+          env: env
+        )
+      }
     end
 
     def run_host_command(command, timeout:, stdin_data: nil)
@@ -109,13 +162,18 @@ module AgentHarness
 
     def shell_path(path)
       return path if path.match?(/\A\$(?:\{[A-Za-z_][A-Za-z0-9_]*\}|[A-Za-z_][A-Za-z0-9_]*)\z/)
-
-      segments = path.split("/")
-      return segments.map { |segment| shell_path_segment(segment) }.join("/") unless path.start_with?("~/")
+      return shell_escaped_path(path) unless path.start_with?("~/")
 
       suffix = path.delete_prefix("~/")
       escaped_suffix = suffix.split("/").map { |segment| shell_path_segment(segment) }.join("/")
       %("$HOME"/#{escaped_suffix})
+    end
+
+    def shell_escaped_path(path)
+      prefix = path.start_with?("/") ? "/" : ""
+      trimmed_path = path.delete_prefix("/")
+      escaped_segments = trimmed_path.split("/").map { |segment| shell_path_segment(segment) }
+      "#{prefix}#{escaped_segments.join("/")}"
     end
 
     def shell_path_segment(segment)

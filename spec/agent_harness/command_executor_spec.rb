@@ -93,12 +93,17 @@ RSpec.describe AgentHarness::CommandExecutor do
           )
 
           result = executor.execute(
-            ["sh", "-c", "cat \"$1\"", "sh", file_path],
+            [
+              "ruby",
+              "-e",
+              "path = ARGV.fetch(0); print File.binread(path); print '|'; print((File.stat(path).mode & 0o777).to_s(8))",
+              file_path
+            ],
             preparation: preparation
           )
 
-          expect(result.stdout).to eq("{\"ok\":true}")
-          expect(File.stat(file_path).mode & 0o777).to eq(0o600)
+          expect(result.stdout).to eq("{\"ok\":true}|600")
+          expect(File.exist?(file_path)).to be false
         end
       end
 
@@ -110,7 +115,7 @@ RSpec.describe AgentHarness::CommandExecutor do
 
           executor.execute(["true"], env: {"HOME" => dir}, preparation: preparation)
 
-          expect(File.read(File.join(dir, ".config", "test.json"))).to eq("{\"ok\":true}")
+          expect(File.exist?(File.join(dir, ".config", "test.json"))).to be false
         end
       end
 
@@ -122,7 +127,46 @@ RSpec.describe AgentHarness::CommandExecutor do
 
           executor.execute(["true"], env: {"XDG_CONFIG_HOME" => dir}, preparation: preparation)
 
-          expect(File.read(File.join(dir, "test.json"))).to eq("{\"ok\":true}")
+          expect(File.exist?(File.join(dir, "test.json"))).to be false
+        end
+      end
+
+      it "restores previously existing files after execution" do
+        Dir.mktmpdir do |dir|
+          file_path = File.join(dir, "config.json")
+          FileUtils.mkdir_p(File.dirname(file_path))
+          File.binwrite(file_path, "{\"before\":true}")
+          File.chmod(0o644, file_path)
+          preparation = AgentHarness::ExecutionPreparation.new(
+            file_writes: [{path: file_path, content: "{\"after\":true}", mode: 0o600}]
+          )
+
+          result = executor.execute(
+            ["sh", "-c", "cat \"$1\"", "sh", file_path],
+            preparation: preparation
+          )
+
+          expect(result.stdout).to eq("{\"after\":true}")
+          expect(File.binread(file_path)).to eq("{\"before\":true}")
+          expect(File.stat(file_path).mode & 0o777).to eq(0o644)
+        end
+      end
+
+      it "counts preparation time against the timeout budget" do
+        Dir.mktmpdir do |dir|
+          file_path = File.join(dir, "config.json")
+          preparation = AgentHarness::ExecutionPreparation.new(
+            file_writes: [{path: file_path, content: "{\"ok\":true}"}]
+          )
+
+          allow(FileUtils).to receive(:mkdir_p).and_wrap_original do |original, *args|
+            sleep 0.05
+            original.call(*args)
+          end
+
+          expect {
+            executor.execute(["true"], timeout: 0.01, preparation: preparation)
+          }.to raise_error(AgentHarness::TimeoutError)
         end
       end
     end
