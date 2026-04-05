@@ -301,6 +301,10 @@ RSpec.describe AgentHarness::CommandExecutor do
           expect {
             executor.execute(["ruby", "-e", "sleep 0.05"], timeout: 0.01, preparation: preparation)
           }.to raise_error(AgentHarness::TimeoutError, /Command timed out after 0\.01 seconds: ruby/)
+
+          Timeout.timeout(1) do
+            sleep 0.01 while File.exist?(file_path)
+          end
         end
       end
 

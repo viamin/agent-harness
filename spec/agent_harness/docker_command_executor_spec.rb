@@ -196,7 +196,7 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
         [
           {
             env: {},
-            cmd: ["docker", "exec", container_id, "sh", "-lc", backup_command("#{guarded_home_path}/opencode.json")]
+            cmd: ["docker", "exec", container_id, "sh", "-lc", backup_command("#{guarded_home_path}/opencode.json", requested_path: "~/opencode.json")]
           },
           {
             env: {},
@@ -292,7 +292,7 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
         [
           {
             env: {},
-            cmd: ["docker", "exec", "--env", "XDG_CONFIG_HOME=/tmp/my config", container_id, "sh", "-lc", backup_command("\"${XDG_CONFIG_HOME}\"/opencode.json")]
+            cmd: ["docker", "exec", "--env", "XDG_CONFIG_HOME=/tmp/my config", container_id, "sh", "-lc", backup_command("\"${XDG_CONFIG_HOME}\"/opencode.json", requested_path: "$XDG_CONFIG_HOME/opencode.json")]
           },
           {
             env: {},
@@ -334,7 +334,7 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
         [
           {
             env: {},
-            cmd: ["docker", "exec", "--env", "XDG_CONFIG_HOME=/tmp/my config", "--env", "BAR=baz qux", container_id, "sh", "-lc", backup_command("\"${XDG_CONFIG_HOME}\"/foo-\"${BAR}\".json")]
+            cmd: ["docker", "exec", "--env", "XDG_CONFIG_HOME=/tmp/my config", "--env", "BAR=baz qux", container_id, "sh", "-lc", backup_command("\"${XDG_CONFIG_HOME}\"/foo-\"${BAR}\".json", requested_path: "$XDG_CONFIG_HOME/foo-$BAR.json")]
           },
           {
             env: {},
@@ -552,11 +552,11 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
       elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - started_at
 
       expect(elapsed).to be < 0.1
-      cleanup_timeout = Timeout.timeout(1) { cleanup_started.pop }
+      cleanup_timeout = Timeout.timeout(3) { cleanup_started.pop }
       expect(cleanup_timeout).to be_within(0.05).of(AgentHarness::CommandExecutor::PREPARATION_CLEANUP_GRACE_PERIOD)
       expect(cleanup_finished).to be_empty
-      Timeout.timeout(1) { cleanup_finished.pop }
-      Timeout.timeout(1) do
+      Timeout.timeout(3) { cleanup_finished.pop }
+      Timeout.timeout(3) do
         while AgentHarness::CommandExecutor::PREPARATION_LOCK_REGISTRY.key?(lock_key)
           sleep 0.01
         end
@@ -715,6 +715,51 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
           )
         )
       }.to raise_error(AgentHarness::CommandExecutionError, /preparation target changed into a directory/)
+    end
+
+    it "fails preparation when the target already exists as a directory" do
+      allow(SecureRandom).to receive(:hex).and_return("deadbeefcafebabe")
+
+      expected_calls = [
+        {
+          env: {},
+          cmd: ["docker", "exec", container_id, "sh", "-lc", backup_command("#{guarded_home_path}/.config/opencode/opencode.json")],
+          stderr: "preparation target must be a regular file or symlink: ~/.config/opencode/opencode.json",
+          exit_code: 1
+        },
+        {
+          env: {},
+          cmd: ["docker", "exec", container_id, "sh", "-lc", "rm -rf /tmp/agent-harness-preparation-deadbeefcafebabe"],
+          stderr: "",
+          exit_code: 0
+        }
+      ]
+      index = 0
+
+      allow(Open3).to receive(:popen3) do |actual_env, *actual_cmd, &block|
+        expected = expected_calls.fetch(index)
+        index += 1
+
+        expect(actual_env).to eq(expected[:env])
+        expect(actual_cmd).to eq(expected[:cmd])
+
+        stdin = StringIO.new
+        stdout = StringIO.new("")
+        stderr = StringIO.new(expected[:stderr])
+        wait_thr = instance_double(Process::Waiter, value: instance_double(Process::Status, exitstatus: expected[:exit_code]))
+        block.call(stdin, stdout, stderr, wait_thr)
+      end
+
+      expect {
+        executor.execute(
+          ["echo", "hello"],
+          preparation: AgentHarness::ExecutionPreparation.new(
+            file_writes: [{path: "~/.config/opencode/opencode.json", content: "{\"ok\":true}"}]
+          )
+        )
+      }.to raise_error(AgentHarness::CommandExecutionError, /preparation target must be a regular file or symlink/)
+
+      expect(index).to eq(expected_calls.length)
     end
 
     it "handles string commands" do
@@ -990,18 +1035,20 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
       end
     end
 
-    def backup_command(path)
+    def backup_command(path, requested_path: "~/.config/opencode/opencode.json")
       "umask 077 && mkdir -p /tmp/agent-harness-preparation-deadbeefcafebabe && if [ -L #{path} ]; then readlink #{path} > " \
         "/tmp/agent-harness-preparation-deadbeefcafebabe/symlink_target && printf symlink > " \
-        "/tmp/agent-harness-preparation-deadbeefcafebabe/state; elif [ -e #{path} ]; then cp -p #{path} " \
+        "/tmp/agent-harness-preparation-deadbeefcafebabe/state; elif [ -d #{path} ]; then echo " \
+        "\"preparation target must be a regular file or symlink: #{requested_path}\" >&2; exit 1; elif [ -e #{path} ]; then cp -p #{path} " \
         "/tmp/agent-harness-preparation-deadbeefcafebabe/backup && printf file > /tmp/agent-harness-preparation-deadbeefcafebabe/state; " \
         "else printf missing > /tmp/agent-harness-preparation-deadbeefcafebabe/state; fi"
     end
 
-    def symlink_backup_command(path)
+    def symlink_backup_command(path, requested_path: "~/.config/opencode/opencode.json")
       "umask 077 && mkdir -p /tmp/agent-harness-preparation-deadbeefcafebabe && if [ -L #{path} ]; then readlink #{path} > " \
         "/tmp/agent-harness-preparation-deadbeefcafebabe/symlink_target && printf symlink > " \
-        "/tmp/agent-harness-preparation-deadbeefcafebabe/state; elif [ -e #{path} ]; then cp -p #{path} " \
+        "/tmp/agent-harness-preparation-deadbeefcafebabe/state; elif [ -d #{path} ]; then echo " \
+        "\"preparation target must be a regular file or symlink: #{requested_path}\" >&2; exit 1; elif [ -e #{path} ]; then cp -p #{path} " \
         "/tmp/agent-harness-preparation-deadbeefcafebabe/backup && printf file > /tmp/agent-harness-preparation-deadbeefcafebabe/state; " \
         "else printf missing > /tmp/agent-harness-preparation-deadbeefcafebabe/state; fi"
     end

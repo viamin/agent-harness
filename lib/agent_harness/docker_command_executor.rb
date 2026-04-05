@@ -203,6 +203,7 @@ module AgentHarness
       cleanup_state_dir_cmd = build_container_shell_command("rm -rf #{state_dir}", env: env)
       backup_cmd = build_container_shell_command(
         "umask 077 && mkdir -p #{state_dir} && if [ -L #{path} ]; then readlink #{path} > #{symlink_target} && printf symlink > #{state}; " \
+          "elif [ -d #{path} ]; then echo \"preparation target must be a regular file or symlink: #{write.path}\" >&2; exit 1; " \
           "elif [ -e #{path} ]; then cp -p #{path} #{backup} && printf file > #{state}; " \
           "else printf missing > #{state}; fi",
         env: env
