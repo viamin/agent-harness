@@ -53,6 +53,7 @@ RSpec.describe AgentHarness::Providers::Aider do
         package: "aider-chat==0.86.5",
         version: "0.86.5"
       )
+      expect(contract[:supported_versions]).to eq(["0.86.5"])
       expect(contract[:install_command]).to eq(
         ["uv", "tool", "install", "--force", "--python", "python3.12", "--with", "pip", "aider-chat==0.86.5"]
       )
@@ -90,7 +91,7 @@ RSpec.describe AgentHarness::Providers::Aider do
     it "rejects unsupported explicit version overrides" do
       expect {
         described_class.install_command(version: "999.0.0")
-      }.to raise_error(ArgumentError, /Unsupported aider CLI version "999.0.0"/)
+      }.to raise_error(ArgumentError, /Unsupported Aider CLI version "999.0.0"/)
     end
   end
 

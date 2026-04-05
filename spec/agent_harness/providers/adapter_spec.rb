@@ -176,6 +176,31 @@ RSpec.describe AgentHarness::Providers::Adapter do
         )
       end
 
+      it "reuses provider-specific versioned contracts when available" do
+        versioned_contract_class = Class.new do
+          include AgentHarness::Providers::Adapter
+
+          class << self
+            def provider_name = :versioned_contract
+            def available? = true
+            def binary_name = "installer"
+
+            def installation_contract(version: "1.0.0")
+              {
+                package_name: "pkg",
+                version: version,
+                install_command_prefix: ["tool", "install", "--exact"],
+                install_command: ["tool", "install", "--exact", "pkg@#{version}"]
+              }
+            end
+          end
+        end
+
+        expect(versioned_contract_class.install_command(version: "1.2.3")).to eq(
+          ["tool", "install", "--exact", "pkg@1.2.3"]
+        )
+      end
+
       it "rejects explicit version overrides outside the advertised support range" do
         guarded_installing_adapter_class = Class.new do
           include AgentHarness::Providers::Adapter

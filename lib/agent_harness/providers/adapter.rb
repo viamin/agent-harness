@@ -87,6 +87,11 @@ module AgentHarness
 
           return contract[:install_command] unless version
 
+          versioned_contract = versioned_installation_contract(version)
+          if versioned_contract && versioned_contract[:version] == version
+            return versioned_contract[:install_command]
+          end
+
           package_name = contract[:package_name]
           unless package_name
             raise ArgumentError, "installation_contract must define :package_name when overriding version"
@@ -106,6 +111,18 @@ module AgentHarness
           package_with_version = format(version_format, package_name: package_name, version: version)
 
           Array(contract[:install_command_prefix]) + [package_with_version]
+        end
+
+        private
+
+        def versioned_installation_contract(version)
+          parameters = method(:installation_contract).parameters
+          accepts_version_keyword = parameters.any? do |type, name|
+            type == :keyrest || ([:key, :keyreq].include?(type) && name == :version)
+          end
+          return unless accepts_version_keyword
+
+          installation_contract(version: version)
         end
       end
 

@@ -47,6 +47,7 @@ RSpec.describe AgentHarness::Providers::Codex do
         package: "@openai/codex@0.116.5",
         version: "0.116.5"
       )
+      expect(contract[:supported_versions]).to eq(["0.116.5"])
       expect(contract[:install_command]).to eq(
         ["npm", "install", "-g", "--ignore-scripts", "@openai/codex@0.116.5"]
       )
@@ -78,7 +79,7 @@ RSpec.describe AgentHarness::Providers::Codex do
     it "rejects unsupported explicit version overrides" do
       expect {
         described_class.install_command(version: "0.115.0")
-      }.to raise_error(ArgumentError, /Unsupported codex CLI version "0.115.0"/)
+      }.to raise_error(ArgumentError, /Unsupported Codex CLI version "0.115.0"/)
     end
   end
 

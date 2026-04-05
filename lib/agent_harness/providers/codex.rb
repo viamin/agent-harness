@@ -63,7 +63,7 @@ module AgentHarness
           default_package = "@openai/codex@#{version}".freeze
           install_command_prefix = ["npm", "install", "-g", "--ignore-scripts"].freeze
           install_command = (install_command_prefix + [default_package]).freeze
-          supported_versions = [SUPPORTED_CLI_VERSION].freeze
+          supported_versions = [version].freeze
           version_requirement = SUPPORTED_CLI_REQUIREMENT.requirements
             .map { |op, ver| "#{op} #{ver}".freeze }
             .freeze

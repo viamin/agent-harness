@@ -76,7 +76,7 @@ module AgentHarness
             "uv", "tool", "install", "--force", "--python", PYTHON_VERSION, "--with", "pip"
           ].freeze
           install_command = (install_command_prefix + [default_package]).freeze
-          supported_versions = [SUPPORTED_CLI_VERSION].freeze
+          supported_versions = [version].freeze
           version_requirement = SUPPORTED_CLI_REQUIREMENT.requirements
             .map { |op, ver| "#{op} #{ver}".freeze }
             .freeze
