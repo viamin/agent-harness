@@ -17,6 +17,23 @@ module AgentHarness
     class Registry
       include Singleton
 
+      BUILTIN_PROVIDER_DEFINITIONS = [
+        {name: :claude, require_path: "agent_harness/providers/anthropic", class_name: :Anthropic, aliases: [:anthropic]},
+        {name: :cursor, require_path: "agent_harness/providers/cursor", class_name: :Cursor, aliases: []},
+        {name: :gemini, require_path: "agent_harness/providers/gemini", class_name: :Gemini, aliases: []},
+        {
+          name: :github_copilot,
+          require_path: "agent_harness/providers/github_copilot",
+          class_name: :GithubCopilot,
+          aliases: [:copilot]
+        },
+        {name: :codex, require_path: "agent_harness/providers/codex", class_name: :Codex, aliases: []},
+        {name: :opencode, require_path: "agent_harness/providers/opencode", class_name: :Opencode, aliases: []},
+        {name: :kilocode, require_path: "agent_harness/providers/kilocode", class_name: :Kilocode, aliases: []},
+        {name: :aider, require_path: "agent_harness/providers/aider", class_name: :Aider, aliases: []},
+        {name: :mistral_vibe, require_path: "agent_harness/providers/mistral_vibe", class_name: :MistralVibe, aliases: []}
+      ].freeze
+
       def initialize
         @providers = {}
         @aliases = {}
@@ -261,6 +278,7 @@ module AgentHarness
 
       def validate_provider_name!(name)
         conflicting_provider = @aliases[name]
+        conflicting_provider ||= builtin_alias_owner(name)
         return unless conflicting_provider && conflicting_provider != name
 
         raise ConfigurationError, "Provider #{name.inspect} conflicts with registered alias for #{conflicting_provider.inspect}"
@@ -270,11 +288,17 @@ module AgentHarness
         conflicting_alias = aliases.find do |alias_name|
           next false if alias_name == name
 
-          @providers.key?(alias_name) || (@aliases.key?(alias_name) && @aliases[alias_name] != name)
+          @providers.key?(alias_name) ||
+            (@aliases.key?(alias_name) && @aliases[alias_name] != name) ||
+            conflicting_builtin_alias?(alias_name, owner_name: name)
         end
         return unless conflicting_alias
 
-        owner = @providers.key?(conflicting_alias) ? conflicting_alias : @aliases[conflicting_alias]
+        owner = if @providers.key?(conflicting_alias)
+          conflicting_alias
+        else
+          @aliases[conflicting_alias] || builtin_alias_owner(conflicting_alias)
+        end
         raise ConfigurationError, "Alias #{conflicting_alias.inspect} conflicts with registered provider #{owner.inspect}"
       end
 
@@ -362,17 +386,14 @@ module AgentHarness
       end
 
       def register_builtin_providers
-        # Only register providers that exist
-        # These will be loaded on demand
-        register_if_available(:claude, "agent_harness/providers/anthropic", :Anthropic, aliases: [:anthropic])
-        register_if_available(:cursor, "agent_harness/providers/cursor", :Cursor)
-        register_if_available(:gemini, "agent_harness/providers/gemini", :Gemini)
-        register_if_available(:github_copilot, "agent_harness/providers/github_copilot", :GithubCopilot, aliases: [:copilot])
-        register_if_available(:codex, "agent_harness/providers/codex", :Codex)
-        register_if_available(:opencode, "agent_harness/providers/opencode", :Opencode)
-        register_if_available(:kilocode, "agent_harness/providers/kilocode", :Kilocode)
-        register_if_available(:aider, "agent_harness/providers/aider", :Aider)
-        register_if_available(:mistral_vibe, "agent_harness/providers/mistral_vibe", :MistralVibe)
+        BUILTIN_PROVIDER_DEFINITIONS.each do |definition|
+          register_if_available(
+            definition[:name],
+            definition[:require_path],
+            definition[:class_name],
+            aliases: definition[:aliases]
+          )
+        end
       end
 
       def register_if_available(name, require_path, class_name, aliases: [])
@@ -390,6 +411,21 @@ module AgentHarness
 
           @providers.key?(alias_key) || @aliases.key?(alias_key)
         end
+      end
+
+      def conflicting_builtin_alias?(alias_name, owner_name:)
+        builtin_owner = builtin_alias_owner(alias_name)
+        builtin_owner && builtin_owner != owner_name
+      end
+
+      def builtin_alias_owner(alias_name)
+        alias_key = alias_name.to_sym
+
+        BUILTIN_PROVIDER_DEFINITIONS.each do |definition|
+          return definition[:name] if definition[:aliases].include?(alias_key)
+        end
+
+        nil
       end
     end
   end

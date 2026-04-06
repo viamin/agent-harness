@@ -102,31 +102,25 @@ RSpec.describe AgentHarness::Providers::Registry do
 
     it "does not eagerly bootstrap builtin providers during external registration" do
       expect {
-        registry.register(:anthropic, mock_provider)
+        registry.register(:custom_provider, mock_provider)
       }.not_to raise_error
 
-      expect(registry.instance_variable_get(:@providers)[:anthropic]).to eq(mock_provider)
+      expect(registry.instance_variable_get(:@providers)[:custom_provider]).to eq(mock_provider)
     end
 
-    it "bootstraps builtins after a custom provider claims a future builtin alias" do
-      registry.register(:anthropic, mock_provider)
-
-      expect { registry.all }.not_to raise_error
-      expect(registry.get(:anthropic)).to eq(mock_provider)
-      expect(registry.get(:claude)).to eq(AgentHarness::Providers::Anthropic)
-      expect(registry.registered?(:anthropic)).to be true
+    it "rejects canonical provider names that conflict with reserved builtin aliases before bootstrap" do
+      expect {
+        registry.register(:anthropic, mock_provider)
+      }.to raise_error(AgentHarness::ConfigurationError, /Provider :anthropic conflicts with registered alias for :claude/)
     end
 
-    it "bootstraps builtins after a custom provider claims a future builtin alias via aliases" do
-      registry.register(:custom_provider, mock_provider, aliases: [:anthropic])
-
-      expect { registry.all }.not_to raise_error
-      expect(registry.get(:anthropic)).to eq(mock_provider)
-      expect(registry.get(:claude)).to eq(AgentHarness::Providers::Anthropic)
-      expect(registry.registered?(:anthropic)).to be true
+    it "rejects aliases that conflict with reserved builtin aliases before bootstrap" do
+      expect {
+        registry.register(:custom_provider, mock_provider, aliases: [:anthropic])
+      }.to raise_error(AgentHarness::ConfigurationError, /Alias :anthropic conflicts with registered provider :claude/)
     end
 
-    it "rejects aliases that conflict with builtin aliases during external registration" do
+    it "still rejects aliases that conflict with builtin aliases after bootstrap" do
       registry.send(:ensure_builtin_providers_registered)
 
       expect {
