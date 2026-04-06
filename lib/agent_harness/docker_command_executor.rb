@@ -193,14 +193,15 @@ module AgentHarness
     end
 
     def cleanup_container_preparation(cleanup_steps, timeout:, deadline:, command_name:)
-      cleanup_steps.reverse_each do |cleanup|
+      until cleanup_steps.empty?
+        cleanup = cleanup_steps.last
         run_host_command(
           cleanup[:command],
           timeout: remaining_timeout(deadline, timeout:, command_name:),
           stdin_data: nil
         )
+        cleanup_steps.pop
       end
-      cleanup_steps.clear
     end
 
     def schedule_container_cleanup_preparation(
@@ -256,10 +257,11 @@ module AgentHarness
       state_dir_path = "/tmp/agent-harness-execution-#{SecureRandom.hex(8)}"
       state_dir = shell_path(state_dir_path)
       pid_file = shell_path(File.join(state_dir_path, "pid"))
+      tracked_script = "printf %s $$ > #{pid_file} && exec #{Shellwords.join(normalize_command(command))}"
       tracked_command = [
         "sh",
         "-lc",
-        "umask 077 && mkdir -p #{state_dir} && printf %s $$ > #{pid_file} && exec #{Shellwords.join(normalize_command(command))}"
+        "umask 077 && mkdir -p #{state_dir} && exec setsid sh -lc #{Shellwords.escape(tracked_script)}"
       ]
 
       {

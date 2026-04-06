@@ -1047,6 +1047,35 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
       thread&.join
     end
 
+    it "drops each successful cleanup step before retrying later failures" do
+      cleanup_steps = [
+        {command: ["cleanup-a"]},
+        {command: ["cleanup-b"]},
+        {command: ["cleanup-c"]}
+      ]
+      executed = []
+
+      allow(executor).to receive(:run_host_command) do |command, timeout:, stdin_data: nil|
+        executed << command
+        raise AgentHarness::CommandExecutionError, "cleanup failed" if command == ["cleanup-b"]
+
+        mock_result
+      end
+
+      expect {
+        executor.send(
+          :cleanup_container_preparation,
+          cleanup_steps,
+          timeout: 30,
+          deadline: Process.clock_gettime(Process::CLOCK_MONOTONIC) + 30,
+          command_name: "echo"
+        )
+      }.to raise_error(AgentHarness::CommandExecutionError, /cleanup failed/)
+
+      expect(executed).to eq([["cleanup-c"], ["cleanup-b"]])
+      expect(cleanup_steps).to eq([{command: ["cleanup-a"]}, {command: ["cleanup-b"]}])
+    end
+
     private
 
     def expect_popen3_with(expected_cmd, env: {})
@@ -1180,14 +1209,15 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
     end
 
     def tracked_execution_command(command)
+      tracked_script = "printf %s $$ > /tmp/agent-harness-execution-facefeedcafed00d/pid && exec #{Shellwords.join(command)}"
       [
         "docker",
         "exec",
         container_id,
         "sh",
         "-lc",
-        "umask 077 && mkdir -p /tmp/agent-harness-execution-facefeedcafed00d && printf %s $$ > " \
-          "/tmp/agent-harness-execution-facefeedcafed00d/pid && exec #{Shellwords.join(command)}"
+        "umask 077 && mkdir -p /tmp/agent-harness-execution-facefeedcafed00d && exec setsid sh -lc " \
+          "#{Shellwords.escape(tracked_script)}"
       ]
     end
 
