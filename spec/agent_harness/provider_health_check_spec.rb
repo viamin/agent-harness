@@ -294,6 +294,54 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
       end
     end
 
+    context "when checking a custom provider registered under a non-canonical provider name" do
+      let(:provider_class) do
+        Class.new do
+          include AgentHarness::Providers::Adapter
+
+          class << self
+            def provider_name = :claude
+            def binary_name = "claude"
+            def available? = true
+          end
+
+          def initialize(config: nil)
+            @config = config
+          end
+
+          def auth_status
+            {valid: @config.nil? || @config.name != :claude, expires_at: nil, error: nil}
+          end
+
+          def health_status
+            {
+              healthy: @config.nil? || @config.name != :claude,
+              message: (@config.nil? || @config.name != :claude) ? "provider ready" : "wrong config"
+            }
+          end
+        end
+      end
+
+      before do
+        registry.register(:custom_health_provider, provider_class)
+        AgentHarness.configuration.providers[:claude] =
+          AgentHarness::ProviderConfig.new(:claude)
+      end
+
+      after do
+        registry.reset!
+        AgentHarness.configuration.providers.delete(:claude)
+      end
+
+      it "uses requested/canonical config only and ignores provider-name config" do
+        result = described_class.check(:custom_health_provider)
+
+        expect(result[:name]).to eq(:custom_health_provider)
+        expect(result[:status]).to eq("ok")
+        expect(result[:message]).to eq("All checks passed")
+      end
+    end
+
     context "when provider overrides health_status" do
       let(:provider_class) do
         Class.new(AgentHarness::Providers::Base) do

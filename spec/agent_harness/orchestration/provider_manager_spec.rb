@@ -182,6 +182,31 @@ RSpec.describe AgentHarness::Orchestration::ProviderManager do
       expect(provider).to be_a(alias_provider)
       expect(provider.config).to be(canonical_config)
     end
+
+    it "does not reuse provider class canonical-name config during provider construction" do
+      provider_class = Class.new do
+        include AgentHarness::Providers::Adapter
+
+        class << self
+          def provider_name = :claude
+          def binary_name = "claude"
+          def available? = true
+        end
+
+        attr_reader :config
+
+        def initialize(config: nil)
+          @config = config
+        end
+      end
+
+      allow_any_instance_of(AgentHarness::Providers::Registry).to receive(:get).and_return(provider_class)
+
+      provider = manager.get_provider(:non_canonical_provider)
+
+      expect(provider).to be_a(provider_class)
+      expect(provider.config).to be_nil
+    end
   end
 
   describe "#record_success" do

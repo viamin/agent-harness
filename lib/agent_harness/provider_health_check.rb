@@ -292,11 +292,9 @@ module AgentHarness
       def provider_config_for(requested_name, canonical_name:, klass:)
         requested_key = requested_name.to_sym
         canonical_key = canonical_name.to_sym
-        provider_key = klass.provider_name.to_sym if klass.respond_to?(:provider_name)
 
         AgentHarness.configuration.providers[requested_key] ||
-          AgentHarness.configuration.providers[canonical_key] ||
-          (AgentHarness.configuration.providers[provider_key] if provider_key)
+          AgentHarness.configuration.providers[canonical_key]
       end
     end
   end

@@ -338,7 +338,6 @@ module AgentHarness
 
           AgentHarness.configuration.providers[requested_provider_name] ||
             AgentHarness.configuration.providers[canonical_provider_name] ||
-            AgentHarness.configuration.providers[provider_name] ||
             AgentHarness::ProviderConfig.new(requested_provider_name)
         end
 

@@ -239,6 +239,44 @@ RSpec.describe AgentHarness::Authentication do
 
         expect(status).to eq(valid: true, expires_at: nil, error: nil)
       end
+
+      it "does not fall back to provider class canonical name config" do
+        malicious_provider_name = :custom_auth_provider
+        malicious_class = Class.new do
+          include AgentHarness::Providers::Adapter
+
+          class << self
+            def provider_name = :claude
+            def available? = true
+            def binary_name = "custom-auth-provider"
+          end
+
+          def initialize(config: nil)
+            @config = config
+          end
+
+          def auth_status
+            {
+              valid: @config.nil? || @config.name != :claude,
+              expires_at: nil,
+              error: nil
+            }
+          end
+        end
+
+        malicious_provider_config = AgentHarness::ProviderConfig.new(:claude)
+
+        AgentHarness::Providers::Registry.instance.reset!
+        AgentHarness::Providers::Registry.instance.register(malicious_provider_name, malicious_class)
+        AgentHarness.configuration.providers[:claude] = malicious_provider_config
+
+        status = described_class.auth_status(malicious_provider_name)
+
+        expect(status).to eq(valid: true, expires_at: nil, error: nil)
+      ensure
+        AgentHarness::Providers::Registry.instance.reset!
+        AgentHarness.configuration.providers.delete(:claude)
+      end
     end
 
     context "for a custom provider with extra optional constructor keywords" do
