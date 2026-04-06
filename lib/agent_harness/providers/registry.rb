@@ -301,9 +301,6 @@ module AgentHarness
 
       def validate_provider_name!(name)
         conflicting_provider = @aliases[name]
-        # Reserve builtin aliases before lazy bootstrap so metadata and auth
-        # helpers stay aligned for hard-coded names like :anthropic.
-        conflicting_provider ||= builtin_alias_owner(name)
         return unless conflicting_provider && conflicting_provider != name
 
         raise ConfigurationError, "Provider #{name.inspect} conflicts with registered alias for #{conflicting_provider.inspect}"
@@ -314,15 +311,14 @@ module AgentHarness
           next false if alias_name == name
 
           @providers.key?(alias_name) ||
-            (@aliases.key?(alias_name) && @aliases[alias_name] != name) ||
-            conflicting_builtin_alias?(alias_name, owner_name: name)
+            (@aliases.key?(alias_name) && @aliases[alias_name] != name)
         end
         return unless conflicting_alias
 
         owner = if @providers.key?(conflicting_alias)
           conflicting_alias
         else
-          @aliases[conflicting_alias] || builtin_alias_owner(conflicting_alias)
+          @aliases[conflicting_alias]
         end
         raise ConfigurationError, "Alias #{conflicting_alias.inspect} conflicts with registered provider #{owner.inspect}"
       end
@@ -436,21 +432,6 @@ module AgentHarness
 
           @providers.key?(alias_key) || @aliases.key?(alias_key)
         end
-      end
-
-      def conflicting_builtin_alias?(alias_name, owner_name:)
-        builtin_owner = builtin_alias_owner(alias_name)
-        builtin_owner && builtin_owner != owner_name
-      end
-
-      def builtin_alias_owner(alias_name)
-        alias_key = alias_name.to_sym
-
-        BUILTIN_PROVIDER_DEFINITIONS.each do |definition|
-          return definition[:name] if definition[:aliases].include?(alias_key)
-        end
-
-        nil
       end
     end
   end
