@@ -197,7 +197,8 @@ module AgentHarness
 
       def create_provider(name)
         klass = @registry.get(name)
-        config = @config.providers[name]
+        canonical_name = @registry.canonical_name(name)
+        config = provider_config_for(name, canonical_name: canonical_name, klass: klass)
         executor = @config.command_executor
         logger = AgentHarness.logger
 
@@ -236,6 +237,16 @@ module AgentHarness
         chain = [provider_name] + @config.fallback_providers
         chain += @config.providers.keys
         chain.uniq
+      end
+
+      def provider_config_for(requested_name, canonical_name:, klass:)
+        requested_key = requested_name.to_sym
+        canonical_key = canonical_name.to_sym
+        provider_key = klass.provider_name.to_sym if klass.respond_to?(:provider_name)
+
+        @config.providers[requested_key] ||
+          @config.providers[canonical_key] ||
+          (@config.providers[provider_key] if provider_key)
       end
     end
   end

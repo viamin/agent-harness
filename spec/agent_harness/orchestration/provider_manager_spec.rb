@@ -145,6 +145,43 @@ RSpec.describe AgentHarness::Orchestration::ProviderManager do
       expect(provider.config.name).to eq(:claude)
       expect(provider.timeout).to eq(30)
     end
+
+    it "falls back to canonical config when building through an alias" do
+      canonical_config = AgentHarness::ProviderConfig.new(:claude)
+      custom_config = AgentHarness::Configuration.new.tap do |c|
+        c.default_provider = :claude_alias
+        c.provider(:claude) do |provider|
+          provider.enabled = true
+        end
+      end
+      custom_config.providers[:claude] = canonical_config
+
+      alias_provider = Class.new do
+        include AgentHarness::Providers::Adapter
+
+        class << self
+          def provider_name = :claude
+          def binary_name = "claude"
+          def available? = true
+        end
+
+        attr_reader :config
+
+        def initialize(config: nil)
+          @config = config
+        end
+      end
+
+      allow_any_instance_of(AgentHarness::Providers::Registry).to receive(:get).and_return(alias_provider)
+      allow_any_instance_of(AgentHarness::Providers::Registry).to receive(:canonical_name)
+        .with(:claude_alias)
+        .and_return(:claude)
+
+      provider = described_class.new(custom_config).get_provider(:claude_alias)
+
+      expect(provider).to be_a(alias_provider)
+      expect(provider.config).to be(canonical_config)
+    end
   end
 
   describe "#record_success" do

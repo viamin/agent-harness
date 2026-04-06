@@ -106,6 +106,15 @@ module AgentHarness
         @providers.key?(name)
       end
 
+      # Resolve a provider lookup key to its canonical registered name.
+      #
+      # @param name [Symbol, String] the provider name or alias
+      # @return [Symbol] canonical provider name
+      def canonical_name(name)
+        ensure_builtin_providers_registered
+        resolve_alias(name.to_sym)
+      end
+
       # List all registered provider names
       #
       # @return [Array<Symbol>] provider names

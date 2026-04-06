@@ -227,6 +227,18 @@ RSpec.describe AgentHarness::Authentication do
 
         expect(status).to eq(valid: true, expires_at: nil, error: nil)
       end
+
+      it "falls back to canonical config when called through an alias" do
+        AgentHarness::Providers::Registry.instance.register(
+          :subset_safe_provider,
+          provider_class,
+          aliases: [:subset_safe_alias]
+        )
+
+        status = described_class.auth_status(:subset_safe_alias)
+
+        expect(status).to eq(valid: true, expires_at: nil, error: nil)
+      end
     end
 
     context "for a custom provider with extra optional constructor keywords" do
