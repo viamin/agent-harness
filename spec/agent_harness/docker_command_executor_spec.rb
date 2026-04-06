@@ -244,7 +244,7 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
       expect(Open3).not_to have_received(:popen3)
     end
 
-    it "guards home-relative preparation paths against missing container HOME" do
+    it "falls back to shell home resolution for implicit container HOME" do
       allow(SecureRandom).to receive(:hex).and_return("deadbeefcafebabe", "facefeedcafed00d")
 
       expect_popen3_sequence(
@@ -1206,7 +1206,7 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
     end
 
     def guarded_home_path
-      "\"${HOME:?HOME cannot be nil or empty for home-relative preparation paths}\""
+      "~"
     end
   end
 

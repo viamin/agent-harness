@@ -475,16 +475,12 @@ module AgentHarness
     end
 
     def shell_path(path)
-      return guarded_home_shell_path if path == "~"
+      return "~" if path == "~"
       return shell_escaped_path(path) unless path.start_with?("~/")
 
       suffix = path.delete_prefix("~/")
       escaped_suffix = suffix.split("/").map { |segment| shell_path_segment(segment) }.join("/")
-      %(#{guarded_home_shell_path}/#{escaped_suffix})
-    end
-
-    def guarded_home_shell_path
-      %("${HOME:?HOME cannot be nil or empty for home-relative preparation paths}")
+      "~/#{escaped_suffix}"
     end
 
     def shell_escaped_path(path)
