@@ -53,7 +53,8 @@ RSpec.describe AgentHarness::Providers::Adapter do
             package: "@scope/pkg@1.0.0",
             package_name: "@scope/pkg",
             install_command_prefix: ["npm", "install", "-g"],
-            install_command: ["npm", "install", "-g", "@scope/pkg@1.0.0"]
+            install_command: ["npm", "install", "-g", "@scope/pkg@1.0.0"],
+            version_requirement: [[">=", Gem::Version.new("1.0.0")], ["<", Gem::Version.new("2.0.0")]]
           }
         end
       end
@@ -747,7 +748,7 @@ RSpec.describe AgentHarness::Providers::Adapter do
           package_name: "@scope/pkg",
           default_version: nil,
           resolved_version: nil,
-          supported_version_requirement: nil,
+          supported_version_requirement: ">= 1.0.0, < 2.0.0",
           binary_name: "installer",
           install_command: ["npm", "install", "-g", "@scope/pkg@1.0.0"],
           install_command_string: "npm install -g @scope/pkg@1.0.0"

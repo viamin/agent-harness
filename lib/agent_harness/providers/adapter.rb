@@ -62,7 +62,11 @@ module AgentHarness
         when nil
           nil
         when Array
-          requirement.join(", ")
+          if requirement.all? { |entry| entry.is_a?(Array) && entry.length == 2 }
+            requirement.map { |operator, version| "#{operator} #{version}" }.join(", ")
+          else
+            requirement.join(", ")
+          end
         else
           requirement.to_s
         end
