@@ -150,19 +150,19 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
         [
           {
             env: {},
-            cmd: ["docker", "exec", "--env", "HOME=/tmp/request-home", container_id, "sh", "-lc", backup_command("#{guarded_home_path}/.config/opencode/opencode.json")]
+            cmd: ["docker", "exec", "--env", "HOME=/tmp/request-home", container_id, "sh", "-lc", backup_command("/tmp/request-home/.config/opencode/opencode.json", requested_path: "/tmp/request-home/.config/opencode/opencode.json", message_path: "~/.config/opencode/opencode.json")]
           },
           {
             env: {},
-            cmd: ["docker", "exec", "--env", "HOME=/tmp/request-home", container_id, "sh", "-lc", "mkdir -p #{guarded_home_path}/.config/opencode"]
+            cmd: ["docker", "exec", "--env", "HOME=/tmp/request-home", container_id, "sh", "-lc", "mkdir -p /tmp/request-home/.config/opencode"]
           },
           {
             env: {},
-            cmd: ["docker", "exec", "--env", "HOME=/tmp/request-home", container_id, "sh", "-lc", remove_symlink_command("#{guarded_home_path}/.config/opencode/opencode.json")]
+            cmd: ["docker", "exec", "--env", "HOME=/tmp/request-home", container_id, "sh", "-lc", remove_symlink_command("/tmp/request-home/.config/opencode/opencode.json")]
           },
           {
             env: {},
-            cmd: ["docker", "exec", "--env", "HOME=/tmp/request-home", "-i", container_id, "sh", "-lc", "cat > #{guarded_home_path}/.config/opencode/opencode.json"],
+            cmd: ["docker", "exec", "--env", "HOME=/tmp/request-home", "-i", container_id, "sh", "-lc", "cat > /tmp/request-home/.config/opencode/opencode.json"],
             stdin: "{\"ok\":true}"
           },
           {
@@ -171,7 +171,7 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
           },
           {
             env: {},
-            cmd: ["docker", "exec", "--env", "HOME=/tmp/request-home", container_id, "sh", "-lc", cleanup_command("#{guarded_home_path}/.config/opencode/opencode.json", "#{guarded_home_path}/.config/opencode")]
+            cmd: ["docker", "exec", "--env", "HOME=/tmp/request-home", container_id, "sh", "-lc", cleanup_command("/tmp/request-home/.config/opencode/opencode.json", "/tmp/request-home/.config/opencode", requested_path: "/tmp/request-home/.config/opencode/opencode.json", message_path: "~/.config/opencode/opencode.json")]
           }
         ]
       )
@@ -179,6 +179,48 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
       executor.execute(
         ["echo", "hello"],
         env: {"HOME" => "/tmp/request-home"},
+        preparation: AgentHarness::ExecutionPreparation.new(
+          file_writes: [{path: "~/.config/opencode/opencode.json", content: "{\"ok\":true}"}]
+        )
+      )
+    end
+
+    it "quotes explicit HOME overrides when rendering home-relative preparation paths" do
+      allow(SecureRandom).to receive(:hex).and_return("deadbeefcafebabe", "facefeedcafed00d")
+
+      expect_popen3_sequence(
+        [
+          {
+            env: {},
+            cmd: ["docker", "exec", "--env", "HOME=/tmp/request home", container_id, "sh", "-lc", backup_command("/tmp/request\\ home/.config/opencode/opencode.json", requested_path: "/tmp/request home/.config/opencode/opencode.json", message_path: "~/.config/opencode/opencode.json")]
+          },
+          {
+            env: {},
+            cmd: ["docker", "exec", "--env", "HOME=/tmp/request home", container_id, "sh", "-lc", "mkdir -p /tmp/request\\ home/.config/opencode"]
+          },
+          {
+            env: {},
+            cmd: ["docker", "exec", "--env", "HOME=/tmp/request home", container_id, "sh", "-lc", remove_symlink_command("/tmp/request\\ home/.config/opencode/opencode.json")]
+          },
+          {
+            env: {},
+            cmd: ["docker", "exec", "--env", "HOME=/tmp/request home", "-i", container_id, "sh", "-lc", "cat > /tmp/request\\ home/.config/opencode/opencode.json"],
+            stdin: "{\"ok\":true}"
+          },
+          {
+            env: {},
+            cmd: ["docker", "exec", "--env", "HOME=/tmp/request home", container_id, "echo", "hello"]
+          },
+          {
+            env: {},
+            cmd: ["docker", "exec", "--env", "HOME=/tmp/request home", container_id, "sh", "-lc", cleanup_command("/tmp/request\\ home/.config/opencode/opencode.json", "/tmp/request\\ home/.config/opencode", requested_path: "/tmp/request home/.config/opencode/opencode.json", message_path: "~/.config/opencode/opencode.json")]
+          }
+        ]
+      )
+
+      executor.execute(
+        ["echo", "hello"],
+        env: {"HOME" => "/tmp/request home"},
         preparation: AgentHarness::ExecutionPreparation.new(
           file_writes: [{path: "~/.config/opencode/opencode.json", content: "{\"ok\":true}"}]
         )
@@ -1196,32 +1238,32 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
       end
     end
 
-    def backup_command(path, requested_path: "~/.config/opencode/opencode.json")
+    def backup_command(path, requested_path: "~/.config/opencode/opencode.json", message_path: requested_path)
       "umask 077 && mkdir -p /tmp/agent-harness-preparation-deadbeefcafebabe && : > /tmp/agent-harness-preparation-deadbeefcafebabe/created_directories && " \
         "#{record_created_directories_command(requested_path)}" \
         "if [ -L #{path} ]; then readlink #{path} > " \
         "/tmp/agent-harness-preparation-deadbeefcafebabe/symlink_target && printf symlink > " \
         "/tmp/agent-harness-preparation-deadbeefcafebabe/state; elif [ -d #{path} ]; then printf '%s\\n' " \
-        "#{Shellwords.escape("preparation target must be a regular file or symlink: #{requested_path}")} >&2; exit 1; elif [ -e #{path} ]; then cp -p #{path} " \
+        "#{Shellwords.escape("preparation target must be a regular file or symlink: #{message_path}")} >&2; exit 1; elif [ -e #{path} ]; then cp -p #{path} " \
         "/tmp/agent-harness-preparation-deadbeefcafebabe/backup && printf file > /tmp/agent-harness-preparation-deadbeefcafebabe/state; " \
         "else printf missing > /tmp/agent-harness-preparation-deadbeefcafebabe/state; fi"
     end
 
-    def symlink_backup_command(path, requested_path: "~/.config/opencode/opencode.json")
+    def symlink_backup_command(path, requested_path: "~/.config/opencode/opencode.json", message_path: requested_path)
       "umask 077 && mkdir -p /tmp/agent-harness-preparation-deadbeefcafebabe && : > /tmp/agent-harness-preparation-deadbeefcafebabe/created_directories && " \
         "#{record_created_directories_command(requested_path)}" \
         "if [ -L #{path} ]; then readlink #{path} > " \
         "/tmp/agent-harness-preparation-deadbeefcafebabe/symlink_target && printf symlink > " \
         "/tmp/agent-harness-preparation-deadbeefcafebabe/state; elif [ -d #{path} ]; then printf '%s\\n' " \
-        "#{Shellwords.escape("preparation target must be a regular file or symlink: #{requested_path}")} >&2; exit 1; elif [ -e #{path} ]; then cp -p #{path} " \
+        "#{Shellwords.escape("preparation target must be a regular file or symlink: #{message_path}")} >&2; exit 1; elif [ -e #{path} ]; then cp -p #{path} " \
         "/tmp/agent-harness-preparation-deadbeefcafebabe/backup && printf file > /tmp/agent-harness-preparation-deadbeefcafebabe/state; " \
         "else printf missing > /tmp/agent-harness-preparation-deadbeefcafebabe/state; fi"
     end
 
-    def cleanup_command(path, dir, requested_path: "~/.config/opencode/opencode.json")
+    def cleanup_command(path, dir, requested_path: "~/.config/opencode/opencode.json", message_path: requested_path)
       "cleanup_status=0; state_value=$(cat /tmp/agent-harness-preparation-deadbeefcafebabe/state 2>/dev/null); " \
         "if [ -d #{path} ] && [ ! -L #{path} ]; then printf '%s\\n' " \
-        "#{Shellwords.escape("preparation target changed into a directory during execution: #{requested_path}")} >&2; cleanup_status=1; " \
+        "#{Shellwords.escape("preparation target changed into a directory during execution: #{message_path}")} >&2; cleanup_status=1; " \
         "elif [ \"$state_value\" = symlink ]; then mkdir -p #{dir} && rm -f -- #{path} && " \
         "ln -s -- \"$(cat /tmp/agent-harness-preparation-deadbeefcafebabe/symlink_target)\" #{path} || cleanup_status=$?; " \
         "elif [ \"$state_value\" = file ]; then if [ -f /tmp/agent-harness-preparation-deadbeefcafebabe/backup ]; then mkdir -p #{dir} && rm -f -- #{path} && " \

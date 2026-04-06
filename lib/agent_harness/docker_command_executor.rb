@@ -299,8 +299,9 @@ module AgentHarness
     def materialize_file_write(write, timeout:, deadline:, env:)
       validate_preparation_path_env!(write.path, env)
       validate_home_relative_preparation_path!(write.path, env)
-      path = shell_path(write.path)
-      dir = shell_path(File.dirname(write.path))
+      resolved_write_path = resolve_container_preparation_path(write.path, env)
+      path = shell_path(resolved_write_path)
+      dir = shell_path(File.dirname(resolved_write_path))
       state_dir_path = "/tmp/agent-harness-preparation-#{SecureRandom.hex(8)}"
       state_dir = shell_path(state_dir_path)
       backup = shell_path(File.join(state_dir_path, "backup"))
@@ -315,7 +316,8 @@ module AgentHarness
       )
       cleanup_state_dir_cmd = build_container_shell_command("rm -rf #{state_dir}", env: env)
       backup_cmd = build_container_shell_command(
-        "umask 077 && mkdir -p #{state_dir} && : > #{created_directories} && #{record_created_directories_script(write.path, created_directories)}" \
+        "umask 077 && mkdir -p #{state_dir} && : > #{created_directories} && " \
+          "#{record_created_directories_script(resolved_write_path, created_directories)}" \
           "if [ -L #{path} ]; then readlink #{path} > #{symlink_target} && printf symlink > #{state}; " \
           "elif [ -d #{path} ]; then printf '%s\\n' #{invalid_target_message} >&2; exit 1; " \
           "elif [ -e #{path} ]; then cp -p #{path} #{backup} && printf file > #{state}; " \
@@ -478,6 +480,16 @@ module AgentHarness
 
       home = env["HOME"]
       raise ArgumentError, "HOME cannot be nil or empty for home-relative preparation paths" if home.nil? || home.empty?
+    end
+
+    def resolve_container_preparation_path(path, env)
+      return path unless path == "~" || path.start_with?("~/")
+      return path unless env.key?("HOME")
+
+      home = env.fetch("HOME")
+      return home if path == "~"
+
+      File.join(home, path.delete_prefix("~/"))
     end
 
     def shell_path(path)
