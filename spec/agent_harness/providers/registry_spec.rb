@@ -1071,6 +1071,18 @@ RSpec.describe AgentHarness::Providers::Registry do
       expect(legacy_provider.available_calls).to eq(2)
     end
 
+    it "clears registry metadata caches once before a full catalog refresh" do
+      registry.provider_metadata_catalog
+
+      allow(registry).to receive(:clear_registry_metadata_cache!).and_call_original
+      allow(registry).to receive(:invalidate_provider_metadata_cache!).and_call_original
+
+      registry.provider_metadata_catalog(refresh: true)
+
+      expect(registry).to have_received(:clear_registry_metadata_cache!).once
+      expect(registry).not_to have_received(:invalidate_provider_metadata_cache!)
+    end
+
     it "caches full metadata across catalog reads and returns defensive copies" do
       metadata_provider = Class.new do
         class << self

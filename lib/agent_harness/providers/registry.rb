@@ -164,24 +164,7 @@ module AgentHarness
 
         return duplicate_metadata(@provider_metadata_cache[cache_key]) if !refresh && @provider_metadata_cache.key?(cache_key)
 
-        klass = @providers[canonical_name] || raise(ConfigurationError, "Unknown provider: #{canonical_name}")
-        aliases = @provider_aliases[canonical_name]
-
-        metadata = if klass.respond_to?(:provider_metadata)
-          klass.provider_metadata(
-            aliases: aliases,
-            refresh: refresh,
-            requested_name: requested_name,
-            canonical_name: canonical_name
-          )
-        else
-          fallback_provider_metadata(canonical_name, klass, aliases, refresh: refresh)
-        end
-
-        @provider_metadata_catalog_cache = nil if refresh
-        invalidate_provider_metadata_cache!(canonical_name) if refresh
-        @provider_metadata_cache[cache_key] = duplicate_metadata(metadata)
-        duplicate_metadata(metadata)
+        refresh_provider_metadata_cache!(requested_name, canonical_name, refresh: refresh)
       end
 
       # Get consolidated metadata for all registered providers.
@@ -194,8 +177,16 @@ module AgentHarness
 
         return duplicate_metadata(@provider_metadata_catalog_cache) if !refresh && @provider_metadata_catalog_cache
 
+        clear_registry_metadata_cache! if refresh
+
         catalog = @providers.keys.each_with_object({}) do |name, result|
-          result[name] = provider_metadata(name, refresh: refresh)
+          result[name] = refresh_provider_metadata_cache!(
+            name,
+            name,
+            refresh: refresh,
+            invalidate_provider_cache: false,
+            invalidate_catalog: false
+          )
         end
 
         @provider_metadata_catalog_cache = duplicate_metadata(catalog)
@@ -259,6 +250,38 @@ module AgentHarness
         clear_class_metadata_cache!(klass, :@auth_status_available)
       end
 
+      def build_provider_metadata(requested_name, canonical_name, refresh:)
+        klass = @providers[canonical_name] || raise(ConfigurationError, "Unknown provider: #{canonical_name}")
+        aliases = @provider_aliases[canonical_name]
+
+        if klass.respond_to?(:provider_metadata)
+          klass.provider_metadata(
+            aliases: aliases,
+            refresh: refresh,
+            requested_name: requested_name,
+            canonical_name: canonical_name
+          )
+        else
+          fallback_provider_metadata(canonical_name, klass, aliases, refresh: refresh)
+        end
+      end
+
+      def refresh_provider_metadata_cache!(
+        requested_name,
+        canonical_name,
+        refresh:,
+        invalidate_provider_cache: refresh,
+        invalidate_catalog: true
+      )
+        cache_key = [requested_name, canonical_name]
+        invalidate_provider_metadata_cache!(canonical_name) if invalidate_provider_cache
+        @provider_metadata_catalog_cache = nil if refresh && invalidate_catalog
+
+        metadata = build_provider_metadata(requested_name, canonical_name, refresh: refresh)
+        @provider_metadata_cache[cache_key] = duplicate_metadata(metadata)
+        duplicate_metadata(metadata)
+      end
+
       def clear_class_metadata_cache!(klass, ivar_name)
         return unless klass.instance_variable_defined?(ivar_name)
 
@@ -278,6 +301,8 @@ module AgentHarness
 
       def validate_provider_name!(name)
         conflicting_provider = @aliases[name]
+        # Reserve builtin aliases before lazy bootstrap so metadata and auth
+        # helpers stay aligned for hard-coded names like :anthropic.
         conflicting_provider ||= builtin_alias_owner(name)
         return unless conflicting_provider && conflicting_provider != name
 
