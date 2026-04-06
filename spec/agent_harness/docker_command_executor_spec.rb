@@ -568,18 +568,25 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
         end
       end
 
-      expect(observed_calls.map { |call| call[:cmd] }.first(7)).to eq(
+      observed_commands = observed_calls.map { |call| call[:cmd] }
+      expect(observed_commands.first(5)).to eq(
         [
           ["docker", "exec", container_id, "sh", "-lc", backup_command("#{guarded_home_path}/.config/opencode/opencode.json")],
           ["docker", "exec", container_id, "sh", "-lc", "mkdir -p #{guarded_home_path}/.config/opencode"],
           ["docker", "exec", container_id, "sh", "-lc", remove_symlink_command("#{guarded_home_path}/.config/opencode/opencode.json")],
           ["docker", "exec", "-i", container_id, "sh", "-lc", "cat > #{guarded_home_path}/.config/opencode/opencode.json"],
-          tracked_execution_command(["echo", "hello"]),
-          terminate_command_cmd,
-          cleanup_command_cmd
+          tracked_execution_command(["echo", "hello"])
         ]
       )
-      expect(observed_calls[5][:timeout]).to be_within(0.05).of(AgentHarness::CommandExecutor::PREPARATION_CLEANUP_GRACE_PERIOD)
+
+      terminate_index = observed_commands.index(terminate_command_cmd)
+      cleanup_index = observed_commands.index(cleanup_command_cmd)
+      expect(terminate_index).not_to be_nil
+      expect(cleanup_index).not_to be_nil
+      expect(terminate_index).to be < cleanup_index
+      expect(observed_calls.fetch(terminate_index)[:timeout]).to be_within(0.05).of(
+        AgentHarness::CommandExecutor::PREPARATION_CLEANUP_GRACE_PERIOD
+      )
     end
 
     it "preserves the original timeout message for container commands after preparation" do
@@ -1082,6 +1089,43 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
 
       expect(executed).to eq([["cleanup-c"], ["cleanup-b"]])
       expect(cleanup_steps).to eq([{command: ["cleanup-a"]}, {command: ["cleanup-b"]}])
+    end
+
+    it "retries execution tracking cleanup in ensure after preparation cleanup drains the steps" do
+      tracking_cleanup_calls = 0
+
+      allow(executor).to receive(:apply_container_preparation) do |preparation, timeout:, deadline:, env:, cleanup_steps:|
+        cleanup_steps << {command: ["cleanup"]}
+      end
+      allow(executor).to receive(:build_container_execution_tracking).and_return(
+        {
+          command: ["tracked"],
+          terminate_command: ["terminate"],
+          cleanup_command: ["finalize"]
+        }
+      )
+      allow(executor).to receive(:execute_with_timeout).and_return(
+        ["output", "", instance_double(Process::Status, exitstatus: 0)]
+      )
+      allow(executor).to receive(:cleanup_container_preparation) do |cleanup_steps, timeout:, deadline:, command_name:|
+        cleanup_steps.clear
+      end
+      allow(executor).to receive(:cleanup_container_execution_tracking) do |execution_tracking, timeout:, deadline:, command_name:|
+        tracking_cleanup_calls += 1
+        raise AgentHarness::CommandExecutionError, "tracking cleanup failed" if tracking_cleanup_calls == 1
+      end
+
+      expect {
+        executor.execute(
+          ["echo", "hello"],
+          timeout: 30,
+          preparation: AgentHarness::ExecutionPreparation.new(
+            file_writes: [{path: "~/.config/opencode/opencode.json", content: "{\"ok\":true}"}]
+          )
+        )
+      }.to raise_error(AgentHarness::CommandExecutionError, /tracking cleanup failed/)
+
+      expect(tracking_cleanup_calls).to eq(2)
     end
 
     private

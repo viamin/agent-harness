@@ -118,7 +118,9 @@ module AgentHarness
       )
     ensure
       pending_exception = $!
-      unless background_cleanup_scheduled || cleanup_steps.nil? || cleanup_steps.empty?
+      cleanup_pending = !cleanup_steps.nil? && !cleanup_steps.empty?
+      tracking_cleanup_pending = !execution_tracking.nil?
+      if !background_cleanup_scheduled && (cleanup_pending || tracking_cleanup_pending)
         begin
           cleanup_container_preparation(
             cleanup_steps,
