@@ -607,6 +607,46 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
       }.to raise_error(AgentHarness::TimeoutError, "Command timed out after 30 seconds: echo")
     end
 
+    it "returns success and schedules async cleanup when container cleanup times out after success" do
+      cleanup_timeouts = Queue.new
+
+      allow(executor).to receive(:apply_container_preparation) do |preparation, timeout:, deadline:, env:, cleanup_steps:|
+        cleanup_steps << {command: ["cleanup"]}
+      end
+      allow(executor).to receive(:build_container_execution_tracking).and_return(
+        {
+          command: ["tracked"],
+          terminate_command: ["terminate"],
+          cleanup_command: ["finalize"]
+        }
+      )
+      allow(executor).to receive(:execute_with_timeout).and_return(
+        ["output", "", instance_double(Process::Status, exitstatus: 0)]
+      )
+      allow(executor).to receive(:run_host_command).and_return(mock_result)
+      allow(executor).to receive(:cleanup_container_preparation) do |steps, timeout:, deadline:, command_name:|
+        if timeout && (timeout - 0.01).abs < Float::EPSILON
+          raise AgentHarness::TimeoutError, "Command timed out after 0.01 seconds: echo"
+        end
+
+        cleanup_timeouts << timeout
+        steps.clear
+      end
+
+      result = executor.execute(
+        ["echo", "hello"],
+        timeout: 0.01,
+        preparation: AgentHarness::ExecutionPreparation.new(
+          file_writes: [{path: "~/.config/opencode/opencode.json", content: "{\"ok\":true}"}]
+        )
+      )
+
+      expect(result).to be_success
+      expect(Timeout.timeout(1) { cleanup_timeouts.pop }).to eq(
+        AgentHarness::CommandExecutor::PREPARATION_CLEANUP_GRACE_PERIOD
+      )
+    end
+
     it "reports end-to-end duration including preparation and cleanup" do
       allow(executor).to receive(:apply_container_preparation) { sleep 0.02 }
       allow(executor).to receive(:cleanup_container_preparation) do |cleanup_steps, timeout:, deadline:, command_name:|

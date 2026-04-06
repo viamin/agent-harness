@@ -92,12 +92,22 @@ module AgentHarness
         execute_without_timeout(cmd_array, env: env, stdin_data: stdin_data)
       end
 
-      cleanup_preparation(
-        applied_preparation,
-        command_name: command_name,
-        timeout: timeout,
-        deadline: cleanup_deadline(deadline, timeout:)
-      )
+      begin
+        cleanup_preparation(
+          applied_preparation,
+          command_name: command_name,
+          timeout: timeout,
+          deadline: cleanup_deadline(deadline, timeout:)
+        )
+      rescue TimeoutError
+        schedule_cleanup_preparation(
+          applied_preparation,
+          held_preparation_locks,
+          command_name: command_name
+        )
+        background_cleanup_scheduled = true
+        held_preparation_locks = []
+      end
       duration = current_time - start_time
 
       Result.new(
@@ -108,7 +118,7 @@ module AgentHarness
       )
     ensure
       pending_exception = $!
-      unless applied_preparation.nil? || applied_preparation.empty?
+      unless background_cleanup_scheduled || applied_preparation.nil? || applied_preparation.empty?
         begin
           cleanup_preparation(
             applied_preparation,

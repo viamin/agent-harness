@@ -85,19 +85,31 @@ module AgentHarness
         held_preparation_locks = []
         raise TimeoutError, "Command timed out after #{timeout} seconds: #{command_name}"
       end
-      cleanup_container_preparation(
-        cleanup_steps,
-        timeout:,
-        deadline: cleanup_deadline(deadline, timeout:),
-        command_name: command_name
-      )
-      cleanup_container_execution_tracking(
-        execution_tracking,
-        timeout:,
-        deadline: cleanup_deadline(deadline, timeout:),
-        command_name: command_name
-      )
-      execution_tracking = nil
+      begin
+        cleanup_container_preparation(
+          cleanup_steps,
+          timeout:,
+          deadline: cleanup_deadline(deadline, timeout:),
+          command_name: command_name
+        )
+        cleanup_container_execution_tracking(
+          execution_tracking,
+          timeout:,
+          deadline: cleanup_deadline(deadline, timeout:),
+          command_name: command_name
+        )
+        execution_tracking = nil
+      rescue TimeoutError
+        schedule_container_cleanup_preparation(
+          cleanup_steps,
+          held_preparation_locks,
+          command_name: command_name,
+          termination_command: execution_tracking && execution_tracking[:terminate_command],
+          finalizer_command: execution_tracking && execution_tracking[:cleanup_command]
+        )
+        background_cleanup_scheduled = true
+        held_preparation_locks = []
+      end
       Result.new(
         stdout: result.stdout,
         stderr: result.stderr,
