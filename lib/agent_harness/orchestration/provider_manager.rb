@@ -198,7 +198,7 @@ module AgentHarness
       def create_provider(name)
         klass = @registry.get(name)
         canonical_name = @registry.canonical_name(name)
-        config = provider_config_for(name, canonical_name: canonical_name, klass: klass)
+        config = provider_config_for(name, canonical_name: canonical_name)
         executor = @config.command_executor
         logger = AgentHarness.logger
 
@@ -239,7 +239,7 @@ module AgentHarness
         chain.uniq
       end
 
-      def provider_config_for(requested_name, canonical_name:, klass:)
+      def provider_config_for(requested_name, canonical_name:)
         requested_key = requested_name.to_sym
         canonical_key = canonical_name.to_sym
 

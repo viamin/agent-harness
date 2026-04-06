@@ -95,7 +95,7 @@ module AgentHarness
       def resolve_provider(provider_name)
         klass = Providers::Registry.instance.get(provider_name)
         canonical_name = Providers::Registry.instance.canonical_name(provider_name)
-        config = provider_config_for(provider_name, canonical_name: canonical_name, klass: klass)
+        config = provider_config_for(provider_name, canonical_name: canonical_name)
         executor = AgentHarness.configuration.command_executor
         logger = AgentHarness.logger
 
@@ -153,7 +153,7 @@ module AgentHarness
         "https://claude.ai/oauth/authorize"
       end
 
-      def provider_config_for(requested_name, canonical_name:, klass:)
+      def provider_config_for(requested_name, canonical_name:)
         requested_key = requested_name.to_sym
         canonical_key = canonical_name.to_sym
 
