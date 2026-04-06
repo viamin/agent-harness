@@ -1268,8 +1268,9 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
         container_id,
         "sh",
         "-lc",
-        "umask 077 && mkdir -p /tmp/agent-harness-execution-facefeedcafed00d && exec setsid sh -lc " \
-          "#{Shellwords.escape(tracked_script)}"
+        "umask 077 && mkdir -p /tmp/agent-harness-execution-facefeedcafed00d && if command -v setsid >/dev/null 2>&1; then " \
+          "exec setsid sh -lc #{Shellwords.escape(tracked_script)}; else exec sh -lc " \
+          "#{Shellwords.escape(tracked_script)}; fi"
       ]
     end
 

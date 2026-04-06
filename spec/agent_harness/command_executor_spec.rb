@@ -391,6 +391,9 @@ RSpec.describe AgentHarness::CommandExecutor do
             file_writes: [{path: file_path, content: "{\"ok\":true}"}]
           )
           cleanup_timeouts = Queue.new
+          success_status = instance_double(Process::Status, exitstatus: 0)
+
+          allow(executor).to receive(:execute_with_timeout).and_return(["", "", success_status])
 
           allow(executor).to receive(:cleanup_preparation).and_wrap_original do |original, applied_preparation, command_name:, timeout: nil, deadline: nil|
             if timeout && (timeout - 0.01).abs < Float::EPSILON

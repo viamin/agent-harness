@@ -263,7 +263,9 @@ module AgentHarness
       tracked_command = [
         "sh",
         "-lc",
-        "umask 077 && mkdir -p #{state_dir} && exec setsid sh -lc #{Shellwords.escape(tracked_script)}"
+        "umask 077 && mkdir -p #{state_dir} && if command -v setsid >/dev/null 2>&1; then " \
+          "exec setsid sh -lc #{Shellwords.escape(tracked_script)}; else exec sh -lc " \
+          "#{Shellwords.escape(tracked_script)}; fi"
       ]
 
       {
