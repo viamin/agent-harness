@@ -1132,6 +1132,93 @@ RSpec.describe AgentHarness::Providers::Adapter do
         )
       end
 
+      it "falls back to the canonical display name when display_name raises" do
+        adapter_with_raising_display_name = Class.new do
+          include AgentHarness::Providers::Adapter
+
+          class << self
+            def provider_name
+              :adapter_with_raising_display_name
+            end
+
+            def available?
+              true
+            end
+
+            def binary_name
+              "raising-display-name"
+            end
+          end
+
+          def initialize(config: nil)
+            @config = config
+          end
+
+          def display_name
+            raise "boom"
+          end
+        end
+
+        logger = instance_double("Logger", debug: nil)
+        allow(AgentHarness).to receive(:logger).and_return(logger)
+
+        metadata = adapter_with_raising_display_name.provider_metadata
+
+        expect(metadata[:display_name]).to eq("Adapter With Raising Display Name")
+        expect(logger).to have_received(:debug).with(
+          include("Falling back to default display_name metadata for adapter_with_raising_display_name: RuntimeError")
+        )
+      end
+
+      it "falls back to supported auth modes when auth_type raises" do
+        adapter_with_raising_auth_type = Class.new do
+          include AgentHarness::Providers::Adapter
+
+          class << self
+            def provider_name
+              :adapter_with_raising_auth_type
+            end
+
+            def available?
+              true
+            end
+
+            def binary_name
+              "raising-auth-type"
+            end
+          end
+
+          def initialize(config: nil)
+            @config = config
+          end
+
+          def configuration_schema
+            {
+              fields: [],
+              auth_modes: %i[api_key oauth],
+              openai_compatible: false
+            }
+          end
+
+          def auth_type
+            raise "boom"
+          end
+        end
+
+        logger = instance_double("Logger", debug: nil)
+        allow(AgentHarness).to receive(:logger).and_return(logger)
+
+        metadata = adapter_with_raising_auth_type.provider_metadata
+
+        expect(metadata[:auth]).to include(
+          default_mode: :api_key,
+          supported_modes: %i[api_key oauth]
+        )
+        expect(logger).to have_received(:debug).with(
+          include("Falling back to default auth_type metadata for adapter_with_raising_auth_type: RuntimeError")
+        )
+      end
+
       it "caches runtime availability until explicitly refreshed" do
         calls = 0
         allow(adapter_class).to receive(:available?) do

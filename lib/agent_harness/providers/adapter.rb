@@ -477,14 +477,18 @@ module AgentHarness
         def provider_display_name(provider, canonical_name: provider_name)
           if provider&.respond_to?(:display_name) &&
               provider.method(:display_name).owner != AgentHarness::Providers::Base
-            return provider.display_name
+            return provider_metadata_value(
+              provider,
+              :display_name,
+              default: canonical_name.to_s.split("_").map(&:capitalize).join(" ")
+            )
           end
 
           canonical_name.to_s.split("_").map(&:capitalize).join(" ")
         end
 
         def metadata_default_auth_mode(provider, supported_modes:)
-          provider_auth_type = provider&.auth_type&.to_sym
+          provider_auth_type = provider_metadata_value(provider, :auth_type, default: nil)&.to_sym
           return provider_auth_type if provider_auth_type && supported_modes.include?(provider_auth_type)
           return supported_modes.first unless supported_modes.empty?
 

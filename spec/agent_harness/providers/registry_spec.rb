@@ -1218,6 +1218,48 @@ RSpec.describe AgentHarness::Providers::Registry do
       expect(registry.provider_metadata(:codex)[:display_name]).to eq(original_display_name)
     end
 
+    it "keeps catalog enumeration stable when display_name or auth_type hooks raise" do
+      unstable_metadata_provider = Class.new do
+        include AgentHarness::Providers::Adapter
+
+        class << self
+          def provider_name = :unstable_metadata_provider
+          def available? = true
+          def binary_name = "unstable-metadata"
+        end
+
+        def initialize(config: nil)
+          @config = config
+        end
+
+        def configuration_schema
+          {
+            fields: [],
+            auth_modes: %i[api_key oauth],
+            openai_compatible: false
+          }
+        end
+
+        def display_name
+          raise "boom"
+        end
+
+        def auth_type
+          raise "boom"
+        end
+      end
+
+      registry.register(:unstable_metadata_provider, unstable_metadata_provider)
+
+      metadata = registry.provider_metadata_catalog.fetch(:unstable_metadata_provider)
+
+      expect(metadata[:display_name]).to eq("Unstable Metadata Provider")
+      expect(metadata[:auth]).to include(
+        default_mode: :api_key,
+        supported_modes: %i[api_key oauth]
+      )
+    end
+
     it "invalidates the cached catalog when a single provider metadata entry is refreshed" do
       metadata_provider = Class.new do
         class << self
