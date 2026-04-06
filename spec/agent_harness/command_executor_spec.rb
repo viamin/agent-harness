@@ -417,6 +417,38 @@ RSpec.describe AgentHarness::CommandExecutor do
         end
       end
 
+      it "retries cleanup after restoring an existing file without requiring the backup again" do
+        Dir.mktmpdir do |dir|
+          file_path = File.join(dir, "config.json")
+          File.binwrite(file_path, "{\"before\":true}")
+          snapshot = executor.send(:snapshot_file_state, file_path)
+          File.binwrite(file_path, "{\"runtime\":true}")
+          applied_preparation = [{
+            path: file_path,
+            snapshot: snapshot,
+            created_directories: []
+          }]
+          cleanup_attempts = 0
+
+          allow(executor).to receive(:cleanup_created_directories).and_wrap_original do |original, directories|
+            cleanup_attempts += 1
+            raise AgentHarness::TimeoutError, "Command timed out after 0.01 seconds: true" if cleanup_attempts == 1
+
+            original.call(directories)
+          end
+
+          expect {
+            executor.send(:cleanup_preparation, applied_preparation, command_name: "true")
+          }.to raise_error(AgentHarness::TimeoutError, /Command timed out after 0\.01 seconds: true/)
+
+          expect(File.binread(file_path)).to eq("{\"before\":true}")
+          expect {
+            executor.send(:cleanup_preparation, applied_preparation, command_name: "true")
+          }.not_to raise_error
+          expect(File.binread(file_path)).to eq("{\"before\":true}")
+        end
+      end
+
       it "fails cleanup without deleting nested contents when the command replaces a prepared file with a directory" do
         Dir.mktmpdir do |dir|
           file_path = File.join(dir, "config.json")

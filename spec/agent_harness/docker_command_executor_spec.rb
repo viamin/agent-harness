@@ -517,8 +517,6 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
     it "cleans up timed out container preparation in the background" do
       allow(SecureRandom).to receive(:hex).and_return("deadbeefcafebabe", "facefeedcafed00d")
       calls = Queue.new
-      cleanup_started = Queue.new
-      cleanup_finished = Queue.new
       cleanup_command_cmd = ["docker", "exec", container_id, "sh", "-lc", cleanup_command("#{guarded_home_path}/.config/opencode/opencode.json", "#{guarded_home_path}/.config/opencode")]
       terminate_command_cmd = ["docker", "exec", container_id, "sh", "-lc", terminate_execution_command]
       execution_cleanup_command_cmd = ["docker", "exec", container_id, "sh", "-lc", "rm -rf /tmp/agent-harness-execution-facefeedcafed00d"]
@@ -535,9 +533,7 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
         end
 
         if cmd_array == cleanup_command_cmd
-          cleanup_started << timeout
           sleep 0.1
-          cleanup_finished << true
         end
 
         ["output", "", instance_double(Process::Status, exitstatus: 0)]
@@ -554,10 +550,6 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
       elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - started_at
 
       expect(elapsed).to be < 0.1
-      cleanup_timeout = Timeout.timeout(3) { cleanup_started.pop }
-      expect(cleanup_timeout).to be_within(0.05).of(AgentHarness::CommandExecutor::PREPARATION_CLEANUP_GRACE_PERIOD)
-      expect(cleanup_finished).to be_empty
-      Timeout.timeout(3) { cleanup_finished.pop }
       Timeout.timeout(3) do
         while AgentHarness::CommandExecutor::PREPARATION_LOCK_REGISTRY.key?(lock_key)
           sleep 0.01
@@ -579,6 +571,7 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
           execution_cleanup_command_cmd
         ]
       )
+      expect(observed_calls[5][:timeout]).to be_within(0.05).of(AgentHarness::CommandExecutor::PREPARATION_CLEANUP_GRACE_PERIOD)
     end
 
     it "preserves the original timeout message for container commands after preparation" do

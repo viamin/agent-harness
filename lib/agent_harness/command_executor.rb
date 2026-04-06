@@ -292,7 +292,10 @@ module AgentHarness
     def cleanup_preparation(applied_preparation, command_name:, timeout: nil, deadline: nil)
       applied_preparation.reverse_each do |entry|
         within_timeout(deadline, timeout:, command_name:) do
-          restore_file_state(entry[:path], entry[:snapshot])
+          unless entry[:restored]
+            restore_file_state(entry[:path], entry[:snapshot])
+            entry[:restored] = true
+          end
           cleanup_created_directories(entry[:created_directories])
         end
       end
