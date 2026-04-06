@@ -431,13 +431,20 @@ module AgentHarness
 
       def register_builtin_providers
         BUILTIN_PROVIDER_DEFINITIONS.each do |definition|
+          definition_name = definition[:name]
+          next if builtin_provider_name_taken?(definition_name)
+
           register_if_available(
-            definition[:name],
+            definition_name,
             definition[:require_path],
             definition[:class_name],
             aliases: definition[:aliases]
           )
         end
+      end
+
+      def builtin_provider_name_taken?(name)
+        @providers.key?(name) || @aliases.key?(name)
       end
 
       def register_if_available(name, require_path, class_name, aliases: [])
