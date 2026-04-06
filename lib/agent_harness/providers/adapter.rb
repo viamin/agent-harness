@@ -343,12 +343,10 @@ module AgentHarness
         end
 
         def metadata_initializer_compatible?
-          keyword_names, required_keywords = initializer_keyword_parameters
+          required_keywords = initializer_required_keywords
           return false if instance_method(:initialize).parameters.any? { |type, _name| type == :req }
-          return false unless (required_keywords - supported_initializer_keywords).empty?
-          return true if instance_method(:initialize).parameters.any? { |type, _| type == :keyrest }
 
-          (keyword_names - supported_initializer_keywords).empty?
+          (required_keywords - supported_initializer_keywords).empty?
         end
 
         # Check if this provider has auth_status support available for health checks
@@ -400,15 +398,10 @@ module AgentHarness
           end
         end
 
-        def initializer_keyword_parameters
+        def initializer_required_keywords
           parameters = instance_method(:initialize).parameters
 
-          keyword_names = parameters
-            .filter_map { |type, name| name if type == :key || type == :keyreq }
-          required_keywords = parameters
-            .filter_map { |type, name| name if type == :keyreq }
-
-          [keyword_names, required_keywords]
+          parameters.filter_map { |type, name| name if type == :keyreq }
         end
 
         def supported_initializer_keywords

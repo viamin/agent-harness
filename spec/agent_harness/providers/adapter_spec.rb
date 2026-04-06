@@ -232,6 +232,43 @@ RSpec.describe AgentHarness::Providers::Adapter do
     end
   end
 
+  let(:optional_keyword_adapter_class) do
+    Class.new do
+      include AgentHarness::Providers::Adapter
+
+      class << self
+        def provider_name
+          :optional_keyword_adapter
+        end
+
+        def available?
+          true
+        end
+
+        def binary_name
+          "optional-keyword"
+        end
+      end
+
+      def initialize(config: nil, timeout: 30)
+        @config = config
+        @timeout = timeout
+      end
+
+      def auth_type
+        :oauth
+      end
+
+      def configuration_schema
+        {
+          fields: [{name: @config.name, type: :string}],
+          auth_modes: [:oauth],
+          openai_compatible: false
+        }
+      end
+    end
+  end
+
   let(:identity_override_adapter_class) do
     Class.new do
       include AgentHarness::Providers::Adapter
@@ -864,6 +901,25 @@ RSpec.describe AgentHarness::Providers::Adapter do
         )
       ensure
         AgentHarness.configuration.providers.delete(:config_sensitive_adapter)
+      end
+
+      it "allows optional unsupported initializer keywords during metadata-safe construction" do
+        provider_config = AgentHarness::ProviderConfig.new(:optional_keyword_adapter)
+        AgentHarness.configuration.providers[:optional_keyword_adapter] = provider_config
+
+        metadata = optional_keyword_adapter_class.provider_metadata
+
+        expect(metadata[:configuration]).to include(
+          fields: [{name: :optional_keyword_adapter, type: :string}],
+          auth_modes: [:oauth],
+          openai_compatible: false
+        )
+        expect(metadata[:health_check]).to include(
+          supports_registry_checks: true,
+          lightweight: true
+        )
+      ensure
+        AgentHarness.configuration.providers.delete(:optional_keyword_adapter)
       end
 
       it "prefers requested-name config during metadata-safe construction" do

@@ -118,6 +118,33 @@ RSpec.describe AgentHarness::Orchestration::ProviderManager do
       expect(provider).to be_a(subset_safe_provider)
       expect(provider.config.name).to eq(:claude)
     end
+
+    it "allows extra optional constructor keywords when building providers" do
+      optional_keyword_provider = Class.new do
+        include AgentHarness::Providers::Adapter
+
+        class << self
+          def provider_name = :claude
+          def binary_name = "claude"
+          def available? = true
+        end
+
+        attr_reader :config, :timeout
+
+        def initialize(config: nil, timeout: 30)
+          @config = config
+          @timeout = timeout
+        end
+      end
+
+      allow_any_instance_of(AgentHarness::Providers::Registry).to receive(:get).and_return(optional_keyword_provider)
+
+      provider = manager.get_provider(:claude)
+
+      expect(provider).to be_a(optional_keyword_provider)
+      expect(provider.config.name).to eq(:claude)
+      expect(provider.timeout).to eq(30)
+    end
   end
 
   describe "#record_success" do

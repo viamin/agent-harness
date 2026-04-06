@@ -229,6 +229,50 @@ RSpec.describe AgentHarness::Authentication do
       end
     end
 
+    context "for a custom provider with extra optional constructor keywords" do
+      let(:provider_class) do
+        Class.new do
+          include AgentHarness::Providers::Adapter
+
+          class << self
+            def provider_name = :optional_keyword_provider
+            def available? = true
+            def binary_name = "optional-keyword"
+          end
+
+          def initialize(config: nil, timeout: 30)
+            @config = config
+            @timeout = timeout
+          end
+
+          def auth_status
+            {
+              valid: @config.name == :optional_keyword_provider && @timeout == 30,
+              expires_at: nil,
+              error: nil
+            }
+          end
+        end
+      end
+
+      before do
+        AgentHarness::Providers::Registry.instance.reset!
+        AgentHarness::Providers::Registry.instance.register(:optional_keyword_provider, provider_class)
+        AgentHarness.configuration.providers[:optional_keyword_provider] =
+          AgentHarness::ProviderConfig.new(:optional_keyword_provider)
+      end
+
+      after do
+        AgentHarness.configuration.providers.delete(:optional_keyword_provider)
+      end
+
+      it "omits unsupported kwargs and still resolves auth status" do
+        status = described_class.auth_status(:optional_keyword_provider)
+
+        expect(status).to eq(valid: true, expires_at: nil, error: nil)
+      end
+    end
+
     context "for Gemini provider" do
       let(:gemini_tmp_dir) { Dir.mktmpdir }
       let(:gemini_credentials_path) { File.join(gemini_tmp_dir, "credentials.json") }

@@ -322,6 +322,52 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
       end
     end
 
+    context "when provider accepts supported keywords plus extra optional keywords" do
+      let(:provider_class) do
+        Class.new do
+          include AgentHarness::Providers::Adapter
+
+          class << self
+            def provider_name = :optional_keyword_provider
+            def binary_name = "optional-keyword-cli"
+            def available? = true
+          end
+
+          def initialize(config: nil, timeout: 30)
+            @config = config
+            @timeout = timeout
+          end
+
+          def health_status
+            {
+              healthy: @config.name == :optional_keyword_provider && @timeout == 30,
+              message: "Endpoint reachable"
+            }
+          end
+        end
+      end
+
+      before do
+        AgentHarness.configuration.providers[:optional_keyword_provider] =
+          AgentHarness::ProviderConfig.new(:optional_keyword_provider)
+        registry.register(:optional_keyword_provider, provider_class)
+        allow(AgentHarness::Authentication).to receive(:auth_status)
+          .with(:optional_keyword_provider)
+          .and_return({valid: true, expires_at: nil, error: nil})
+      end
+
+      after do
+        AgentHarness.configuration.providers.delete(:optional_keyword_provider)
+      end
+
+      it "builds the provider without passing unsupported kwargs" do
+        result = described_class.check(:optional_keyword_provider)
+
+        expect(result[:status]).to eq("ok")
+        expect(result[:message]).to eq("All checks passed")
+      end
+    end
+
     context "when auth status check is not implemented" do
       let(:provider_class) do
         Class.new(AgentHarness::Providers::Base) do
