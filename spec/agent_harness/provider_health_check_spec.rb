@@ -280,6 +280,48 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
       end
     end
 
+    context "when provider only accepts the config constructor keyword subset" do
+      let(:provider_class) do
+        Class.new do
+          include AgentHarness::Providers::Adapter
+
+          class << self
+            def provider_name = :subset_safe_provider
+            def binary_name = "subset-safe-cli"
+            def available? = true
+          end
+
+          def initialize(config: nil)
+            @config = config
+          end
+
+          def health_status
+            {healthy: @config.name == :subset_safe_provider, message: "Endpoint reachable"}
+          end
+        end
+      end
+
+      before do
+        AgentHarness.configuration.providers[:subset_safe_provider] =
+          AgentHarness::ProviderConfig.new(:subset_safe_provider)
+        registry.register(:subset_safe_provider, provider_class)
+        allow(AgentHarness::Authentication).to receive(:auth_status)
+          .with(:subset_safe_provider)
+          .and_return({valid: true, expires_at: nil, error: nil})
+      end
+
+      after do
+        AgentHarness.configuration.providers.delete(:subset_safe_provider)
+      end
+
+      it "builds the provider with the supported keyword subset" do
+        result = described_class.check(:subset_safe_provider)
+
+        expect(result[:status]).to eq("ok")
+        expect(result[:message]).to eq("All checks passed")
+      end
+    end
+
     context "when auth status check is not implemented" do
       let(:provider_class) do
         Class.new(AgentHarness::Providers::Base) do

@@ -198,12 +198,14 @@ module AgentHarness
       def create_provider(name)
         klass = @registry.get(name)
         config = @config.providers[name]
+        executor = @config.command_executor
+        logger = AgentHarness.logger
 
-        klass.new(
-          config: config,
-          executor: @config.command_executor,
-          logger: AgentHarness.logger
-        )
+        if klass.respond_to?(:build_provider_instance, true)
+          klass.send(:build_provider_instance, config: config, executor: executor, logger: logger)
+        else
+          klass.new(config: config, executor: executor, logger: logger)
+        end
       end
 
       def select_fallback(provider_name, reason:)

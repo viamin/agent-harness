@@ -180,7 +180,7 @@ module AgentHarness
             binary_name: binary_name
           )
           supported_auth_modes = Array(configuration[:auth_modes]).map(&:to_sym)
-          supports_registry_checks = !provider.nil? && registry_check_initializer_compatible?
+          supports_registry_checks = !provider.nil?
           auth_check_supported = auth_status_available?(
             provider,
             requested_name: requested_provider_name,
@@ -286,9 +286,11 @@ module AgentHarness
         end
 
         def metadata_provider_instance(requested_name: provider_name, canonical_name: provider_name)
-          return nil unless metadata_initializer_compatible?
-
-          new(**metadata_provider_kwargs(requested_name: requested_name, canonical_name: canonical_name))
+          build_provider_instance(
+            config: metadata_provider_config(requested_name, canonical_name: canonical_name),
+            executor: AgentHarness.configuration.command_executor,
+            logger: AgentHarness.logger
+          )
         rescue => e
           AgentHarness.logger&.debug(
             "[AgentHarness::Providers::Adapter] Falling back to default metadata for #{provider_name}: #{e.class}"
@@ -297,15 +299,25 @@ module AgentHarness
         end
 
         def safe_metadata_provider_instance(requested_name: provider_name, canonical_name: provider_name)
-          return nil unless metadata_initializer_compatible?
-
-          new(**metadata_provider_kwargs(requested_name: requested_name, canonical_name: canonical_name))
+          build_provider_instance(
+            config: metadata_provider_config(requested_name, canonical_name: canonical_name),
+            executor: AgentHarness.configuration.command_executor,
+            logger: AgentHarness.logger
+          )
         rescue
           # Return nil without logging - caller is responsible for handling
           nil
         end
 
-        def metadata_provider_kwargs(requested_name: provider_name, canonical_name: provider_name)
+        def build_provider_instance(config: nil, executor: nil, logger: nil)
+          unless metadata_initializer_compatible?
+            raise ArgumentError, "#{provider_name} does not support safe provider construction"
+          end
+
+          new(**provider_instance_kwargs(config: config, executor: executor, logger: logger))
+        end
+
+        def provider_instance_kwargs(config: nil, executor: nil, logger: nil)
           parameters = instance_method(:initialize).parameters
           accepts = lambda do |name|
             parameters.any? { |type, param_name| [:key, :keyreq].include?(type) && param_name == name } ||
@@ -313,11 +325,9 @@ module AgentHarness
           end
 
           kwargs = {}
-          if accepts.call(:config)
-            kwargs[:config] = metadata_provider_config(requested_name, canonical_name: canonical_name)
-          end
-          kwargs[:executor] = AgentHarness.configuration.command_executor if accepts.call(:executor)
-          kwargs[:logger] = AgentHarness.logger if accepts.call(:logger)
+          kwargs[:config] = config if accepts.call(:config)
+          kwargs[:executor] = executor if accepts.call(:executor)
+          kwargs[:logger] = logger if accepts.call(:logger)
 
           kwargs
         end
@@ -341,15 +351,6 @@ module AgentHarness
           (keyword_names - supported_initializer_keywords).empty?
         end
 
-        def registry_check_initializer_compatible?
-          return false unless metadata_initializer_compatible?
-
-          keyword_names, = initializer_keyword_parameters
-          return true if instance_method(:initialize).parameters.any? { |type, _| type == :keyrest }
-
-          (supported_initializer_keywords - keyword_names).empty?
-        end
-
         # Check if this provider has auth_status support available for health checks
         #
         # This differs from supports_registry_checks - it specifically indicates whether
@@ -364,19 +365,18 @@ module AgentHarness
           cache_key = [requested_name.to_sym, canonical_name.to_sym]
           return @auth_status_available[cache_key] if !refresh && @auth_status_available.key?(cache_key)
 
-          @auth_status_available[cache_key] = if !registry_check_initializer_compatible?
+          @auth_status_available[cache_key] = begin
+            provider_instance ||= safe_metadata_provider_instance(
+              requested_name: requested_name,
+              canonical_name: canonical_name
+            )
+            auth_status_supported_by?(
+              provider_instance,
+              requested_name: requested_name,
+              canonical_name: canonical_name
+            )
+          rescue
             false
-          else
-            begin
-              provider_instance ||= safe_metadata_provider_instance(requested_name: requested_name)
-              auth_status_supported_by?(
-                provider_instance,
-                requested_name: requested_name,
-                canonical_name: canonical_name
-              )
-            rescue
-              false
-            end
           end
         end
 
@@ -388,6 +388,10 @@ module AgentHarness
           when :api_key
             false
           when :oauth
+            provider_class_name = provider_instance.class.provider_name.to_sym if provider_instance.class.respond_to?(:provider_name)
+
+            return false unless provider_class_name == :claude
+
             [requested_name, canonical_name]
               .map(&:to_sym)
               .any? { |name| SUPPORTED_OAUTH_AUTH_STATUS_PROVIDERS.include?(name) }

@@ -93,6 +93,31 @@ RSpec.describe AgentHarness::Orchestration::ProviderManager do
       provider2 = manager.get_provider(:claude)
       expect(provider1).to be(provider2)
     end
+
+    it "builds providers with only the supported constructor keywords" do
+      subset_safe_provider = Class.new do
+        include AgentHarness::Providers::Adapter
+
+        class << self
+          def provider_name = :claude
+          def binary_name = "claude"
+          def available? = true
+        end
+
+        attr_reader :config
+
+        def initialize(config: nil)
+          @config = config
+        end
+      end
+
+      allow_any_instance_of(AgentHarness::Providers::Registry).to receive(:get).and_return(subset_safe_provider)
+
+      provider = manager.get_provider(:claude)
+
+      expect(provider).to be_a(subset_safe_provider)
+      expect(provider.config.name).to eq(:claude)
+    end
   end
 
   describe "#record_success" do

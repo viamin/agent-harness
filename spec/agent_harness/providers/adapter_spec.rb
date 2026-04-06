@@ -634,10 +634,11 @@ RSpec.describe AgentHarness::Providers::Adapter do
           mcp: false
         )
         expect(metadata[:health_check]).to include(
-          supports_registry_checks: false,
+          supports_registry_checks: true,
+          auth_check_supported: false,
           provider_status: false,
           configuration_validation: false,
-          lightweight: false
+          lightweight: true
         )
         expect(metadata[:identity]).to eq(
           bot_usernames: ["test_adapter", "test_alias"]
@@ -740,7 +741,7 @@ RSpec.describe AgentHarness::Providers::Adapter do
         )
       end
 
-      it "does not report auth checks for subset-safe adapters that cannot satisfy the runtime auth constructor" do
+      it "reports auth checks for subset-safe adapters when runtime construction can use the same safe subset" do
         subset_safe_auth_adapter_class = Class.new do
           include AgentHarness::Providers::Adapter
 
@@ -774,8 +775,9 @@ RSpec.describe AgentHarness::Providers::Adapter do
         metadata = subset_safe_auth_adapter_class.provider_metadata
 
         expect(metadata[:health_check]).to include(
-          supports_registry_checks: false,
-          auth_check_supported: false
+          supports_registry_checks: true,
+          auth_check_supported: true,
+          lightweight: true
         )
       end
 
@@ -836,10 +838,10 @@ RSpec.describe AgentHarness::Providers::Adapter do
           openai_compatible: false
         )
         expect(metadata[:health_check]).to include(
-          supports_registry_checks: false,
+          supports_registry_checks: true,
           provider_status: false,
           configuration_validation: false,
-          lightweight: false
+          lightweight: true
         )
         expect(metadata[:identity]).to eq(
           bot_usernames: ["metadata_compatible_adapter", "metadata_alias"]
@@ -1135,7 +1137,7 @@ RSpec.describe AgentHarness::Providers::Adapter do
         AgentHarness.configuration.providers.delete(:claude)
       end
 
-      it "memoizes negative auth status availability for constructor-incompatible adapters" do
+      it "memoizes auth status availability for subset-safe adapters" do
         subset_safe_auth_adapter_class = Class.new do
           include AgentHarness::Providers::Adapter
 
@@ -1171,9 +1173,9 @@ RSpec.describe AgentHarness::Providers::Adapter do
           end
         end
 
-        expect(subset_safe_auth_adapter_class.send(:auth_status_available?)).to be false
-        expect(subset_safe_auth_adapter_class.send(:auth_status_available?)).to be false
-        expect(subset_safe_auth_adapter_class.initialization_count).to eq(0)
+        expect(subset_safe_auth_adapter_class.send(:auth_status_available?)).to be true
+        expect(subset_safe_auth_adapter_class.send(:auth_status_available?)).to be true
+        expect(subset_safe_auth_adapter_class.initialization_count).to eq(1)
       end
 
       it "memoizes auth status availability per requested name" do
@@ -1217,6 +1219,36 @@ RSpec.describe AgentHarness::Providers::Adapter do
         metadata = AgentHarness::Providers::Anthropic.provider_metadata(
           requested_name: :external_provider_name,
           canonical_name: :external_provider_name
+        )
+
+        expect(metadata[:health_check]).to include(
+          supports_registry_checks: true,
+          auth_check_supported: false
+        )
+      end
+
+      it "does not treat custom oauth providers registered under claude names as auth-check capable" do
+        custom_oauth_provider = Class.new do
+          include AgentHarness::Providers::Adapter
+
+          class << self
+            def provider_name = :custom_oauth_provider
+            def available? = true
+            def binary_name = "custom-oauth"
+          end
+
+          def initialize(config: nil)
+            @config = config
+          end
+
+          def auth_type
+            :oauth
+          end
+        end
+
+        metadata = custom_oauth_provider.provider_metadata(
+          requested_name: :anthropic,
+          canonical_name: :anthropic
         )
 
         expect(metadata[:health_check]).to include(

@@ -779,6 +779,35 @@ RSpec.describe AgentHarness::Providers::Registry do
       )
     end
 
+    it "does not report auth checks for custom oauth providers registered as anthropic" do
+      custom_oauth_provider = Class.new do
+        include AgentHarness::Providers::Adapter
+
+        class << self
+          def provider_name = :custom_oauth_provider
+          def available? = true
+          def binary_name = "custom-oauth"
+        end
+
+        def initialize(config: nil)
+          @config = config
+        end
+
+        def auth_type
+          :oauth
+        end
+      end
+
+      registry.register(:anthropic, custom_oauth_provider)
+
+      metadata = registry.provider_metadata(:anthropic)
+
+      expect(metadata[:health_check]).to include(
+        supports_registry_checks: true,
+        auth_check_supported: false
+      )
+    end
+
     it "preserves Anthropic bot identities for custom registrations" do
       registry.register(:external_provider_name, AgentHarness::Providers::Anthropic, aliases: [:external_alias])
 
@@ -873,10 +902,10 @@ RSpec.describe AgentHarness::Providers::Registry do
         openai_compatible: false
       )
       expect(metadata[:health_check]).to include(
-        supports_registry_checks: false,
+        supports_registry_checks: true,
         provider_status: false,
         configuration_validation: false,
-        lightweight: false
+        lightweight: true
       )
     end
 

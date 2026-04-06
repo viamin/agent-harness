@@ -94,15 +94,15 @@ module AgentHarness
 
       def resolve_provider(provider_name)
         klass = Providers::Registry.instance.get(provider_name)
-        # Construct the provider with config/executor/logger to match
-        # ProviderManager#create_provider and support custom providers
-        # that may rely on these initializer arguments.
         config = AgentHarness.configuration.providers[provider_name]
-        klass.new(
-          config: config,
-          executor: AgentHarness.configuration.command_executor,
-          logger: AgentHarness.logger
-        )
+        executor = AgentHarness.configuration.command_executor
+        logger = AgentHarness.logger
+
+        if klass.respond_to?(:build_provider_instance, true)
+          klass.send(:build_provider_instance, config: config, executor: executor, logger: logger)
+        else
+          klass.new(config: config, executor: executor, logger: logger)
+        end
       rescue ConfigurationError
         raise ProviderNotFoundError, "Unknown provider: #{provider_name}"
       end

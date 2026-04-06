@@ -190,6 +190,45 @@ RSpec.describe AgentHarness::Authentication do
       end
     end
 
+    context "for a custom provider that only accepts config keyword construction" do
+      let(:provider_class) do
+        Class.new do
+          include AgentHarness::Providers::Adapter
+
+          class << self
+            def provider_name = :subset_safe_provider
+            def available? = true
+            def binary_name = "subset-safe"
+          end
+
+          def initialize(config: nil)
+            @config = config
+          end
+
+          def auth_status
+            {valid: @config.name == :subset_safe_provider, expires_at: nil, error: nil}
+          end
+        end
+      end
+
+      before do
+        AgentHarness::Providers::Registry.instance.reset!
+        AgentHarness::Providers::Registry.instance.register(:subset_safe_provider, provider_class)
+        AgentHarness.configuration.providers[:subset_safe_provider] =
+          AgentHarness::ProviderConfig.new(:subset_safe_provider)
+      end
+
+      after do
+        AgentHarness.configuration.providers.delete(:subset_safe_provider)
+      end
+
+      it "uses the safe subset constructor for auth resolution" do
+        status = described_class.auth_status(:subset_safe_provider)
+
+        expect(status).to eq(valid: true, expires_at: nil, error: nil)
+      end
+    end
+
     context "for Gemini provider" do
       let(:gemini_tmp_dir) { Dir.mktmpdir }
       let(:gemini_credentials_path) { File.join(gemini_tmp_dir, "credentials.json") }

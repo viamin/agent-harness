@@ -274,11 +274,14 @@ module AgentHarness
 
       def build_provider(provider_name, klass)
         config = AgentHarness.configuration.providers[provider_name]
-        klass.new(
-          config: config,
-          executor: AgentHarness.configuration.command_executor,
-          logger: AgentHarness.logger
-        )
+        executor = AgentHarness.configuration.command_executor
+        logger = AgentHarness.logger
+
+        if klass.respond_to?(:build_provider_instance, true)
+          klass.send(:build_provider_instance, config: config, executor: executor, logger: logger)
+        else
+          klass.new(config: config, executor: executor, logger: logger)
+        end
       end
 
       def monotonic_now
