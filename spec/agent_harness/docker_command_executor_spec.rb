@@ -656,38 +656,29 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
       }.to raise_error(AgentHarness::TimeoutError, "Command timed out after 30 seconds: echo")
     end
 
-    it "tracks timed container execution even without preparation" do
-      allow(SecureRandom).to receive(:hex).and_return("facefeedcafed00d")
-      calls = Queue.new
-      terminate_command_cmd = ["docker", "exec", container_id, "sh", "-lc", terminate_execution_command]
-      cleanup_command_cmd = ["docker", "exec", container_id, "sh", "-lc", "rm -rf /tmp/agent-harness-execution-facefeedcafed00d"]
+    it "does not track timed container execution without preparation" do
+      observed_calls = []
+      expect(executor).not_to receive(:build_container_execution_tracking)
 
       allow(executor).to receive(:execute_with_timeout) do |cmd_array, timeout:, env:, stdin_data:, configured_timeout: timeout|
-        calls << {cmd: cmd_array, timeout: timeout, env: env, stdin_data: stdin_data}
-
-        if cmd_array == tracked_execution_command(["echo", "hello"])
-          raise AgentHarness::TimeoutError, "Command timed out after #{timeout} seconds: echo"
-        end
-
-        ["output", "", instance_double(Process::Status, exitstatus: 0)]
+        observed_calls << {cmd: cmd_array, timeout: timeout, env: env, stdin_data: stdin_data}
+        raise AgentHarness::TimeoutError, "Command timed out after #{configured_timeout} seconds: echo"
       end
 
       expect {
         executor.execute(["echo", "hello"], timeout: 0.001)
       }.to raise_error(AgentHarness::TimeoutError, "Command timed out after 0.001 seconds: echo")
 
-      observed_calls = []
-      Timeout.timeout(3) do
-        until observed_calls.any? { |call| call[:cmd] == cleanup_command_cmd }
-          observed_calls << calls.pop
-        end
-      end
-
-      observed_commands = observed_calls.map { |call| call[:cmd] }
-      expect(observed_commands).to include(tracked_execution_command(["echo", "hello"]))
-      expect(observed_commands).to include(terminate_command_cmd)
-      expect(observed_commands).to include(cleanup_command_cmd)
-      expect(observed_commands.index(terminate_command_cmd)).to be < observed_commands.index(cleanup_command_cmd)
+      expect(observed_calls).to match(
+        [
+          {
+            cmd: ["docker", "exec", container_id, "echo", "hello"],
+            env: {},
+            stdin_data: nil,
+            timeout: be_within(0.001).of(0.001)
+          }
+        ]
+      )
     end
 
     it "returns success and schedules async cleanup when container cleanup times out after success" do
@@ -1365,32 +1356,16 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
     subject(:executor) { described_class.new(container_id: container_id) }
 
     it "returns the path when binary is found" do
-      allow(SecureRandom).to receive(:hex).and_return("facefeedcafed00d")
-      tracked_script = "printf %s $$ > /tmp/agent-harness-execution-facefeedcafed00d/pid && exec which ruby"
       expected_calls = [
         {
           env: {},
-          cmd: [
-            "docker",
-            "exec",
-            container_id,
-            "sh",
-            "-lc",
-            "umask 077 && mkdir -p /tmp/agent-harness-execution-facefeedcafed00d && if command -v setsid >/dev/null 2>&1; then " \
-              "exec setsid sh -lc #{Shellwords.escape(tracked_script)}; else exec sh -lc " \
-              "#{Shellwords.escape(tracked_script)}; fi",
-            {pgroup: true}
-          ],
+          cmd: ["docker", "exec", container_id, "which", "ruby", {pgroup: true}],
           stdout: "/usr/bin/ruby\n"
-        },
-        {
-          env: {},
-          cmd: ["docker", "exec", container_id, "sh", "-lc", "rm -rf /tmp/agent-harness-execution-facefeedcafed00d", {pgroup: true}]
         }
       ]
       call_index = 0
 
-      expect(Timeout).to receive(:timeout).with(be_within(0.01).of(5)).twice.and_call_original
+      expect(Timeout).to receive(:timeout).with(be_within(0.01).of(5)).once.and_call_original
       allow(Open3).to receive(:popen3) do |actual_env, *actual_cmd, &block|
         expected = expected_calls.fetch(call_index)
         call_index += 1
@@ -1411,33 +1386,18 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
     end
 
     it "returns nil when binary is not found" do
-      allow(SecureRandom).to receive(:hex).and_return("facefeedcafed00d")
-      tracked_script = "printf %s $$ > /tmp/agent-harness-execution-facefeedcafed00d/pid && exec which nonexistent"
       expected_calls = [
         {
           env: {},
-          cmd: [
-            "docker",
-            "exec",
-            container_id,
-            "sh",
-            "-lc",
-            "umask 077 && mkdir -p /tmp/agent-harness-execution-facefeedcafed00d && if command -v setsid >/dev/null 2>&1; then " \
-              "exec setsid sh -lc #{Shellwords.escape(tracked_script)}; else exec sh -lc " \
-              "#{Shellwords.escape(tracked_script)}; fi",
-            {pgroup: true}
-          ],
+          cmd: ["docker", "exec", container_id, "which", "nonexistent", {pgroup: true}],
           stdout: "",
           stderr: "which: no nonexistent in PATH",
           exit_code: 1
-        },
-        {
-          env: {},
-          cmd: ["docker", "exec", container_id, "sh", "-lc", "rm -rf /tmp/agent-harness-execution-facefeedcafed00d", {pgroup: true}]
         }
       ]
       call_index = 0
 
+      expect(Timeout).to receive(:timeout).with(be_within(0.01).of(5)).once.and_call_original
       allow(Open3).to receive(:popen3) do |actual_env, *actual_cmd, &block|
         expected = expected_calls.fetch(call_index)
         call_index += 1

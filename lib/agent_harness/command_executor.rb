@@ -447,6 +447,9 @@ module AgentHarness
     def cleanup_deadline(deadline, timeout:)
       return nil if timeout.nil?
 
+      # Keep synchronous cleanup within the caller's original timeout budget.
+      # If cleanup overruns after a successful command or after a timeout/error,
+      # execute schedules bounded background cleanup instead of extending execute.
       deadline
     end
 

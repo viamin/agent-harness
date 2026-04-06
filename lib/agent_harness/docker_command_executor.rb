@@ -59,7 +59,9 @@ module AgentHarness
       background_cleanup_scheduled = false
 
       apply_container_preparation(preparation, timeout: timeout, deadline: deadline, env: env, cleanup_steps: cleanup_steps)
-      execution_tracking = build_container_execution_tracking(normalized_command, env: env) if timeout
+      execution_tracking = if timeout && !preparation.nil? && !preparation.empty?
+        build_container_execution_tracking(normalized_command, env: env)
+      end
       docker_cmd = build_docker_command_for_execution(
         normalized_command,
         env: env,
