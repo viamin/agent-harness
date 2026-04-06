@@ -379,22 +379,21 @@ module AgentHarness
 
         def auth_status_supported_by?(provider_instance, requested_name: provider_name, canonical_name: provider_name)
           return false unless provider_instance
-          if provider_instance.respond_to?(:auth_status)
-            begin
-              provider_instance.auth_status
-              return true
-            rescue NotImplementedError
-              return false
-            rescue
-              return true
-            end
+
+          if provider_instance.respond_to?(:auth_status) &&
+              provider_instance.method(:auth_status).owner != AgentHarness::Providers::Adapter
+            return true
           end
+
+          return false unless provider_instance.respond_to?(:auth_type)
 
           case provider_instance.auth_type
           when :api_key
             false
           when :oauth
-            provider_class_name = provider_instance.class.provider_name.to_sym if provider_instance.class.respond_to?(:provider_name)
+            provider_class_name = if provider_instance.class.respond_to?(:provider_name)
+              provider_instance.class.provider_name.to_sym
+            end
 
             return false unless provider_class_name == :claude
 
