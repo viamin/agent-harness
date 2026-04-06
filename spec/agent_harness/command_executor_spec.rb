@@ -6,15 +6,11 @@ RSpec.describe AgentHarness::CommandExecutor do
   subject(:executor) { described_class.new }
 
   before do
-    AgentHarness::CommandExecutor::PREPARATION_LOCK_REGISTRY_MUTEX.synchronize do
-      AgentHarness::CommandExecutor::PREPARATION_LOCK_REGISTRY.clear
-    end
+    FileUtils.rm_rf(described_class::PREPARATION_LOCK_ROOT)
   end
 
   after do
-    AgentHarness::CommandExecutor::PREPARATION_LOCK_REGISTRY_MUTEX.synchronize do
-      AgentHarness::CommandExecutor::PREPARATION_LOCK_REGISTRY.clear
-    end
+    FileUtils.rm_rf(described_class::PREPARATION_LOCK_ROOT)
   end
 
   describe "#execute" do
@@ -274,9 +270,9 @@ RSpec.describe AgentHarness::CommandExecutor do
             file_writes: [{path: file_path, content: "{\"ok\":true}"}]
           )
 
-          allow(FileUtils).to receive(:mkdir_p).and_wrap_original do |original, *args|
+          allow(FileUtils).to receive(:mkdir_p).and_wrap_original do |original, *args, **kwargs|
             sleep 0.05
-            original.call(*args)
+            original.call(*args, **kwargs)
           end
 
           expect {
@@ -581,6 +577,51 @@ RSpec.describe AgentHarness::CommandExecutor do
         end
       end
 
+      it "serializes preparation locks across Ruby processes" do
+        Dir.mktmpdir do |dir|
+          file_path = File.join(dir, "config.json")
+          preparation = AgentHarness::ExecutionPreparation.new(
+            file_writes: [{path: file_path, content: "A"}]
+          )
+          lock_key = executor.send(:preparation_lock_keys, preparation, {}).fetch(0)
+          held_lock = executor.send(
+            :acquire_preparation_lock,
+            lock_key,
+            timeout: nil,
+            deadline: nil,
+            command_name: "true"
+          )
+          script = <<~RUBY
+            require "agent_harness"
+
+            preparation = AgentHarness::ExecutionPreparation.new(
+              file_writes: [{path: #{file_path.inspect}, content: "B"}]
+            )
+
+            begin
+              AgentHarness::CommandExecutor.new.execute(["true"], timeout: 0.05, preparation: preparation)
+              puts "success"
+            rescue => e
+              puts "\#{e.class}: \#{e.message}"
+            end
+          RUBY
+
+          stdout, stderr, status = Open3.capture3(
+            RbConfig.ruby,
+            "-I",
+            File.expand_path("../../lib", __dir__),
+            "-e",
+            script
+          )
+
+          expect(status.success?).to be true
+          expect(stderr).to eq("")
+          expect(stdout.strip).to eq("AgentHarness::TimeoutError: Command timed out after 0.05 seconds: true")
+        ensure
+          executor.send(:release_preparation_locks, [held_lock]) if held_lock
+        end
+      end
+
       it "releases earlier preparation locks when a later acquisition times out" do
         Dir.mktmpdir do |dir|
           first_path = File.join(dir, "a.json")
@@ -611,13 +652,14 @@ RSpec.describe AgentHarness::CommandExecutor do
             )
           }.to raise_error(AgentHarness::TimeoutError, /Command timed out after 0\.01 seconds: true/)
 
-          AgentHarness::CommandExecutor::PREPARATION_LOCK_REGISTRY_MUTEX.synchronize do
-            expect(AgentHarness::CommandExecutor::PREPARATION_LOCK_REGISTRY).not_to have_key(first_key)
-            expect(AgentHarness::CommandExecutor::PREPARATION_LOCK_REGISTRY.fetch(second_key)).to include(
-              locked: true,
-              refcount: 1
-            )
-          end
+          reacquired_lock = executor.send(
+            :acquire_preparation_lock,
+            first_key,
+            timeout: 0.05,
+            deadline: Process.clock_gettime(Process::CLOCK_MONOTONIC) + 0.05,
+            command_name: "true"
+          )
+          executor.send(:release_preparation_locks, [reacquired_lock])
         ensure
           executor.send(:release_preparation_locks, [blocked_lock]) if blocked_lock
         end

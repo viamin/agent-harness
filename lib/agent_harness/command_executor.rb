@@ -5,6 +5,8 @@ require "timeout"
 require "shellwords"
 require "fileutils"
 require "tempfile"
+require "tmpdir"
+require "digest"
 
 module AgentHarness
   # Executes shell commands with timeout support
@@ -20,10 +22,9 @@ module AgentHarness
   # @example With timeout
   #   result = executor.execute("claude --print", timeout: 300)
   class CommandExecutor
-    PREPARATION_LOCK_REGISTRY_MUTEX = Mutex.new
-    PREPARATION_LOCK_REGISTRY = {}
     PREPARATION_LOCK_POLL_INTERVAL = 0.01
     PREPARATION_CLEANUP_GRACE_PERIOD = 5
+    PREPARATION_LOCK_ROOT = File.join(Dir.tmpdir, "agent-harness-preparation-locks")
 
     # Result of a command execution
     Result = Struct.new(:stdout, :stderr, :exit_code, :duration, keyword_init: true) do
@@ -197,49 +198,33 @@ module AgentHarness
     end
 
     def acquire_preparation_lock(key, timeout:, deadline:, command_name:)
-      PREPARATION_LOCK_REGISTRY_MUTEX.synchronize do
-        entry = PREPARATION_LOCK_REGISTRY[key] ||= {
-          locked: false,
-          refcount: 0,
-          condition: ConditionVariable.new
-        }
-        entry[:refcount] += 1
+      lock_path = preparation_lock_path(key)
+      FileUtils.mkdir_p(File.dirname(lock_path), mode: 0o700)
+      lock_file = File.open(lock_path, File::RDWR | File::CREAT, 0o600)
 
-        begin
-          if timeout.nil?
-            entry[:condition].wait(PREPARATION_LOCK_REGISTRY_MUTEX) while entry[:locked]
-          else
-            while entry[:locked]
-              remaining = remaining_timeout(deadline, timeout:, command_name:)
-              entry[:condition].wait(
-                PREPARATION_LOCK_REGISTRY_MUTEX,
-                [PREPARATION_LOCK_POLL_INTERVAL, remaining].min
-              )
-            end
+      begin
+        if timeout.nil?
+          lock_file.flock(File::LOCK_EX)
+        else
+          until lock_file.flock(File::LOCK_EX | File::LOCK_NB)
+            sleep([PREPARATION_LOCK_POLL_INTERVAL, remaining_timeout(deadline, timeout:, command_name:)].min)
           end
-
-          entry[:locked] = true
-        rescue
-          entry[:refcount] -= 1
-          PREPARATION_LOCK_REGISTRY.delete(key) if entry[:refcount].zero?
-          raise
         end
+      rescue
+        lock_file.close unless lock_file.closed?
+        raise
       end
 
-      {key: key}
+      {key: key, file: lock_file}
     end
 
     def release_preparation_locks(held_preparation_locks)
       held_preparation_locks.reverse_each do |lock|
-        PREPARATION_LOCK_REGISTRY_MUTEX.synchronize do
-          entry = PREPARATION_LOCK_REGISTRY[lock[:key]]
-          next unless entry
+        file = lock[:file]
+        next if file.nil? || file.closed?
 
-          entry[:locked] = false
-          entry[:condition].signal
-          entry[:refcount] -= 1
-          PREPARATION_LOCK_REGISTRY.delete(lock[:key]) if entry[:refcount].zero?
-        end
+        file.flock(File::LOCK_UN)
+        file.close
       end
     end
 
@@ -251,6 +236,10 @@ module AgentHarness
 
     def preparation_lock_scope
       "host"
+    end
+
+    def preparation_lock_path(key)
+      File.join(PREPARATION_LOCK_ROOT, "#{Digest::SHA256.hexdigest(key)}.lock")
     end
 
     def apply_preparation(preparation, env:, timeout:, deadline:, command_name:, applied_preparation:)

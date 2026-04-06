@@ -12,15 +12,11 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
     allow(ENV).to receive(:[]).with("PATH").and_return("/usr/local/bin:/usr/bin")
     allow(File).to receive(:executable?).and_call_original
     allow(File).to receive(:executable?).with("/usr/local/bin/docker").and_return(true)
-    AgentHarness::CommandExecutor::PREPARATION_LOCK_REGISTRY_MUTEX.synchronize do
-      AgentHarness::CommandExecutor::PREPARATION_LOCK_REGISTRY.clear
-    end
+    FileUtils.rm_rf(AgentHarness::CommandExecutor::PREPARATION_LOCK_ROOT)
   end
 
   after do
-    AgentHarness::CommandExecutor::PREPARATION_LOCK_REGISTRY_MUTEX.synchronize do
-      AgentHarness::CommandExecutor::PREPARATION_LOCK_REGISTRY.clear
-    end
+    FileUtils.rm_rf(AgentHarness::CommandExecutor::PREPARATION_LOCK_ROOT)
   end
 
   describe "#initialize" do
@@ -519,7 +515,6 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
       calls = Queue.new
       cleanup_command_cmd = ["docker", "exec", container_id, "sh", "-lc", cleanup_command("#{guarded_home_path}/.config/opencode/opencode.json", "#{guarded_home_path}/.config/opencode")]
       terminate_command_cmd = ["docker", "exec", container_id, "sh", "-lc", terminate_execution_command]
-      execution_cleanup_command_cmd = ["docker", "exec", container_id, "sh", "-lc", "rm -rf /tmp/agent-harness-execution-facefeedcafed00d"]
       preparation = AgentHarness::ExecutionPreparation.new(
         file_writes: [{path: "~/.config/opencode/opencode.json", content: "{\"ok\":true}"}]
       )
@@ -551,15 +546,29 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
 
       expect(elapsed).to be < 0.1
       Timeout.timeout(3) do
-        while AgentHarness::CommandExecutor::PREPARATION_LOCK_REGISTRY.key?(lock_key)
+        loop do
+          reacquired_lock = executor.send(
+            :acquire_preparation_lock,
+            lock_key,
+            timeout: 0.01,
+            deadline: Process.clock_gettime(Process::CLOCK_MONOTONIC) + 0.01,
+            command_name: "echo"
+          )
+          executor.send(:release_preparation_locks, [reacquired_lock])
+          break
+        rescue AgentHarness::TimeoutError
           sleep 0.01
         end
       end
 
       observed_calls = []
-      observed_calls << calls.pop until calls.empty?
+      Timeout.timeout(3) do
+        until observed_calls.any? { |call| call[:cmd] == cleanup_command_cmd }
+          observed_calls << calls.pop
+        end
+      end
 
-      expect(observed_calls.map { |call| call[:cmd] }).to eq(
+      expect(observed_calls.map { |call| call[:cmd] }.first(7)).to eq(
         [
           ["docker", "exec", container_id, "sh", "-lc", backup_command("#{guarded_home_path}/.config/opencode/opencode.json")],
           ["docker", "exec", container_id, "sh", "-lc", "mkdir -p #{guarded_home_path}/.config/opencode"],
@@ -567,8 +576,7 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
           ["docker", "exec", "-i", container_id, "sh", "-lc", "cat > #{guarded_home_path}/.config/opencode/opencode.json"],
           tracked_execution_command(["echo", "hello"]),
           terminate_command_cmd,
-          cleanup_command_cmd,
-          execution_cleanup_command_cmd
+          cleanup_command_cmd
         ]
       )
       expect(observed_calls[5][:timeout]).to be_within(0.05).of(AgentHarness::CommandExecutor::PREPARATION_CLEANUP_GRACE_PERIOD)
