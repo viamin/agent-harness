@@ -85,6 +85,43 @@ RSpec.describe AgentHarness::Providers::Adapter do
     end
   end
 
+  let(:variadic_initializer_adapter_class) do
+    Class.new do
+      include AgentHarness::Providers::Adapter
+
+      class << self
+        def provider_name
+          :variadic_initializer_adapter
+        end
+
+        def available?
+          true
+        end
+
+        def binary_name
+          "variadic-initializer"
+        end
+      end
+
+      def initialize(*args)
+        arg = args.find do |value|
+          value.is_a?(AgentHarness::ProviderConfig) || value.is_a?(Hash)
+        end
+        @config = if arg.is_a?(Hash)
+          arg[:config]
+        else
+          arg
+        end
+      end
+
+      def execution_semantics
+        {
+          prompt_delivery: (@config.respond_to?(:name) ? @config.name : :default_config)
+        }
+      end
+    end
+  end
+
   let(:registry_compatible_adapter_class) do
     Class.new do
       include AgentHarness::Providers::Adapter
@@ -856,6 +893,23 @@ RSpec.describe AgentHarness::Providers::Adapter do
           configuration_validation: false,
           lightweight: false
         )
+      end
+
+      it "falls back to legacy positional construction for variadic initializers" do
+        provider_config = AgentHarness::ProviderConfig.new(:variadic_initializer_adapter)
+        AgentHarness.configuration.providers[:variadic_initializer_adapter] = provider_config
+
+        metadata = variadic_initializer_adapter_class.provider_metadata
+
+        expect(metadata).to include(
+          provider: :variadic_initializer_adapter,
+          canonical_provider: :variadic_initializer_adapter
+        )
+        expect(metadata[:runtime]).to include(
+          prompt_delivery: :variadic_initializer_adapter
+        )
+      ensure
+        AgentHarness.configuration.providers.delete(:variadic_initializer_adapter)
       end
 
       it "instantiates metadata for adapters that accept a registry keyword subset" do

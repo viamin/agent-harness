@@ -314,11 +314,19 @@ module AgentHarness
         end
 
         def build_provider_instance(config: nil, executor: nil, logger: nil)
-          unless metadata_initializer_compatible?
-            raise ArgumentError, "#{provider_name} does not support safe provider construction"
-          end
+          kwargs = provider_instance_kwargs(config: config, executor: executor, logger: logger)
 
-          new(**provider_instance_kwargs(config: config, executor: executor, logger: logger))
+          if metadata_initializer_compatible? && !legacy_positional_initializer?
+            new(**kwargs)
+          else
+            # Preserve backwards compatibility with legacy positional constructors
+            # that accept arguments via a splat (e.g. initialize(*args)).
+            new(config: config, executor: executor, logger: logger)
+          end
+        rescue ArgumentError
+          # Compatibility fallback for adapters that define legacy constructor
+          # shapes not recognized by keyword compatibility probing.
+          new(config: config, executor: executor, logger: logger)
         end
 
         def provider_instance_kwargs(config: nil, executor: nil, logger: nil)
@@ -334,6 +342,12 @@ module AgentHarness
           kwargs[:logger] = logger if accepts.call(:logger)
 
           kwargs
+        end
+
+        def legacy_positional_initializer?
+          instance_method(:initialize).parameters.any? do |type, _|
+            type == :rest
+          end
         end
 
         def metadata_provider_config(requested_name, canonical_name: provider_name)
