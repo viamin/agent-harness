@@ -335,6 +335,7 @@ module AgentHarness
       def validate_aliases!(name, aliases)
         conflicting_alias = aliases.find do |alias_name|
           next false if alias_name == name
+          next true if builtin_provider_name?(alias_name)
 
           @providers.key?(alias_name) ||
             (@aliases.key?(alias_name) && @aliases[alias_name] != name)
@@ -343,10 +344,16 @@ module AgentHarness
 
         owner = if @providers.key?(conflicting_alias)
           conflicting_alias
+        elsif builtin_provider_name?(conflicting_alias)
+          :builtin_provider
         else
           @aliases[conflicting_alias]
         end
         raise ConfigurationError, "Alias #{conflicting_alias.inspect} conflicts with registered provider #{owner.inspect}"
+      end
+
+      def builtin_provider_name?(name)
+        BUILTIN_PROVIDER_DEFINITIONS.any? { |definition| definition[:name] == name }
       end
 
       def fallback_provider_metadata(name, klass, aliases, refresh: false)
@@ -444,7 +451,7 @@ module AgentHarness
       end
 
       def builtin_provider_name_taken?(name)
-        @providers.key?(name) || @aliases.key?(name)
+        @providers.key?(name)
       end
 
       def register_if_available(name, require_path, class_name, aliases: [])

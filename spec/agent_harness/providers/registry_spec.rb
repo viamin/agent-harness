@@ -132,15 +132,16 @@ RSpec.describe AgentHarness::Providers::Registry do
       expect(registry.instance_variable_get(:@aliases)[:anthropic]).to eq(:custom_provider)
     end
 
-    it "skips builtin registration for custom aliases that match builtin canonical provider names" do
+    it "rejects aliases that match builtin canonical provider names" do
       expect {
         registry.register(:custom_provider, mock_provider, aliases: [:claude])
-      }.not_to raise_error
+      }.to raise_error(AgentHarness::ConfigurationError, /Alias :claude conflicts with registered provider :builtin_provider/)
 
-      expect { registry.all }.not_to raise_error
-      expect(registry.get(:claude)).to eq(mock_provider)
-      expect(registry.instance_variable_get(:@providers).key?(:claude)).to eq(false)
-      expect(registry.instance_variable_get(:@aliases).key?(:claude)).to eq(true)
+      expect(registry.get(:claude)).to eq(AgentHarness::Providers::Anthropic)
+      expect(registry.instance_variable_get(:@providers).key?(:custom_provider)).to eq(false)
+      expect(registry.instance_variable_get(:@aliases).key?(:claude)).to eq(false)
+      catalog = registry.provider_metadata_catalog
+      expect(catalog.keys).to include(:claude)
     end
 
     it "still rejects aliases that conflict with builtin aliases after bootstrap" do
