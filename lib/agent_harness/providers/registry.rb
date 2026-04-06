@@ -42,7 +42,6 @@ module AgentHarness
         @provider_metadata_cache = {}
         @provider_metadata_catalog_cache = nil
         @builtin_registered = false
-        @builtin_registration_in_progress = false
       end
 
       # Register a provider class
@@ -213,7 +212,6 @@ module AgentHarness
         @metadata_runtime_available.clear
         clear_registry_metadata_cache!
         @builtin_registered = false
-        @builtin_registration_in_progress = false
       end
 
       private
@@ -427,11 +425,8 @@ module AgentHarness
       def ensure_builtin_providers_registered
         return if @builtin_registered
 
-        @builtin_registration_in_progress = true
         register_builtin_providers
         @builtin_registered = true
-      ensure
-        @builtin_registration_in_progress = false
       end
 
       def register_builtin_providers

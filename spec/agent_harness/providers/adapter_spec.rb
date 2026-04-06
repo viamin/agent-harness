@@ -1441,6 +1441,36 @@ RSpec.describe AgentHarness::Providers::Adapter do
         )
       end
 
+      it "does not ignore Anthropic alias support for auth-check capability" do
+        anthropic_oauth_provider = Class.new do
+          include AgentHarness::Providers::Adapter
+
+          class << self
+            def provider_name = :anthropic
+            def available? = true
+            def binary_name = "anthropic-oauth"
+          end
+
+          def initialize(config: nil)
+            @config = config
+          end
+
+          def auth_type
+            :oauth
+          end
+        end
+
+        metadata = anthropic_oauth_provider.provider_metadata(
+          requested_name: :anthropic,
+          canonical_name: :anthropic
+        )
+
+        expect(metadata[:health_check]).to include(
+          supports_registry_checks: true,
+          auth_check_supported: true
+        )
+      end
+
       it "normalizes direct alias input into a stable contract" do
         metadata = adapter_class.provider_metadata(
           aliases: [:test_alias, " test_alias ", :test_adapter, " ", nil, "second_alias"]

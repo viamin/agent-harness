@@ -395,7 +395,7 @@ module AgentHarness
               provider_instance.class.provider_name.to_sym
             end
 
-            return false unless provider_class_name == :claude
+            return false unless SUPPORTED_OAUTH_AUTH_STATUS_PROVIDERS.include?(provider_class_name)
 
             [requested_name, canonical_name]
               .map(&:to_sym)
