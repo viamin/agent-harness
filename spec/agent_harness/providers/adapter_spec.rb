@@ -1153,6 +1153,42 @@ RSpec.describe AgentHarness::Providers::Adapter do
         expect(auth_status_cached_adapter_class.initialization_count).to eq(1)
       end
 
+      it "does not treat auth_status hooks that raise NotImplementedError as supported" do
+        raising_auth_status_adapter_class = Class.new do
+          include AgentHarness::Providers::Adapter
+
+          class << self
+            def provider_name
+              :raising_auth_status_adapter
+            end
+
+            def available?
+              true
+            end
+
+            def binary_name
+              "raising-auth-status"
+            end
+          end
+
+          def initialize(config: nil)
+            @config = config
+          end
+
+          def auth_type
+            :oauth
+          end
+
+          def auth_status
+            raise NotImplementedError, "auth status not implemented"
+          end
+        end
+
+        expect(raising_auth_status_adapter_class.provider_metadata[:health_check]).to include(
+          auth_check_supported: false
+        )
+      end
+
       it "refreshes memoized auth status availability when metadata is refreshed" do
         refreshable_auth_adapter_class = Class.new do
           include AgentHarness::Providers::Adapter

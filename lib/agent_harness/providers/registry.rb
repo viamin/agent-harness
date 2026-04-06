@@ -177,7 +177,10 @@ module AgentHarness
 
         return duplicate_metadata(@provider_metadata_catalog_cache) if !refresh && @provider_metadata_catalog_cache
 
-        clear_registry_metadata_cache! if refresh
+        if refresh
+          clear_registry_metadata_cache!
+          clear_all_auth_status_metadata_caches!
+        end
 
         catalog = @providers.keys.each_with_object({}) do |name, result|
           result[name] = refresh_provider_metadata_cache!(
@@ -250,6 +253,21 @@ module AgentHarness
         clear_class_metadata_cache!(klass, :@auth_status_available)
       end
 
+      def clear_all_auth_status_metadata_caches!
+        @providers.each_value { |klass| clear_class_auth_status_metadata_cache!(klass) }
+      end
+
+      def clear_class_auth_status_metadata_cache!(klass, canonical_name = nil)
+        return unless klass.instance_variable_defined?(:@auth_status_available)
+
+        return clear_class_metadata_cache!(klass, :@auth_status_available) unless canonical_name
+
+        auth_status_cache = klass.instance_variable_get(:@auth_status_available)
+        auth_status_cache.delete_if do |(_requested_name, cached_canonical_name), _|
+          cached_canonical_name == canonical_name
+        end
+      end
+
       def build_provider_metadata(requested_name, canonical_name, refresh:)
         klass = @providers[canonical_name] || raise(ConfigurationError, "Unknown provider: #{canonical_name}")
         aliases = @provider_aliases[canonical_name]
@@ -275,6 +293,7 @@ module AgentHarness
       )
         cache_key = [requested_name, canonical_name]
         invalidate_provider_metadata_cache!(canonical_name) if invalidate_provider_cache
+        clear_class_auth_status_metadata_cache!(@providers[canonical_name], canonical_name) if refresh
         @provider_metadata_catalog_cache = nil if refresh && invalidate_catalog
 
         metadata = build_provider_metadata(requested_name, canonical_name, refresh: refresh)

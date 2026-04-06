@@ -1264,6 +1264,86 @@ RSpec.describe AgentHarness::Providers::Registry do
       expect(registry.provider_metadata(:metadata_provider).dig(:runtime, :available)).to be false
       expect(registry.provider_metadata_catalog.dig(:metadata_provider, :runtime, :available)).to be false
     end
+
+    it "invalidates sibling auth metadata caches for the same canonical provider on refresh" do
+      metadata_provider = Class.new do
+        include AgentHarness::Providers::Adapter
+
+        class << self
+          def provider_name = :metadata_provider
+          def available? = true
+          def binary_name = "metadata"
+        end
+
+        def initialize(config: nil)
+          @config = config
+        end
+
+        def auth_type
+          :oauth
+        end
+
+        def auth_status
+          return {valid: true, expires_at: nil, error: nil} if @config.enabled
+
+          raise NotImplementedError, "auth status not implemented"
+        end
+      end
+
+      provider_config = AgentHarness::ProviderConfig.new(:metadata_provider)
+      provider_config.enabled = true
+      AgentHarness.configuration.providers[:metadata_provider] = provider_config
+      registry.register(:metadata_provider, metadata_provider, aliases: [:metadata_alias])
+
+      expect(registry.provider_metadata(:metadata_provider).dig(:health_check, :auth_check_supported)).to be true
+
+      provider_config.enabled = false
+
+      expect(registry.provider_metadata(:metadata_alias, refresh: true).dig(:health_check, :auth_check_supported)).to be false
+      expect(registry.provider_metadata(:metadata_provider).dig(:health_check, :auth_check_supported)).to be false
+    ensure
+      AgentHarness.configuration.providers.delete(:metadata_provider)
+    end
+
+    it "clears alias-scoped auth metadata caches during full catalog refresh" do
+      metadata_provider = Class.new do
+        include AgentHarness::Providers::Adapter
+
+        class << self
+          def provider_name = :metadata_provider
+          def available? = true
+          def binary_name = "metadata"
+        end
+
+        def initialize(config: nil)
+          @config = config
+        end
+
+        def auth_type
+          :oauth
+        end
+
+        def auth_status
+          return {valid: true, expires_at: nil, error: nil} if @config.enabled
+
+          raise NotImplementedError, "auth status not implemented"
+        end
+      end
+
+      provider_config = AgentHarness::ProviderConfig.new(:metadata_provider)
+      provider_config.enabled = true
+      AgentHarness.configuration.providers[:metadata_provider] = provider_config
+      registry.register(:metadata_provider, metadata_provider, aliases: [:metadata_alias])
+
+      expect(registry.provider_metadata(:metadata_alias).dig(:health_check, :auth_check_supported)).to be true
+
+      provider_config.enabled = false
+      registry.provider_metadata_catalog(refresh: true)
+
+      expect(registry.provider_metadata(:metadata_alias).dig(:health_check, :auth_check_supported)).to be false
+    ensure
+      AgentHarness.configuration.providers.delete(:metadata_provider)
+    end
   end
 
   describe "#reset!" do

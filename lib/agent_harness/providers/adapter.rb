@@ -380,7 +380,16 @@ module AgentHarness
 
         def auth_status_supported_by?(provider_instance, requested_name: provider_name, canonical_name: provider_name)
           return false unless provider_instance
-          return true if provider_instance.respond_to?(:auth_status)
+          if provider_instance.respond_to?(:auth_status)
+            begin
+              provider_instance.auth_status
+              return true
+            rescue NotImplementedError
+              return false
+            rescue
+              return true
+            end
+          end
 
           case provider_instance.auth_type
           when :api_key
