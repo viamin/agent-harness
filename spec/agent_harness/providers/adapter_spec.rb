@@ -232,6 +232,41 @@ RSpec.describe AgentHarness::Providers::Adapter do
     end
   end
 
+  let(:identity_override_adapter_class) do
+    Class.new do
+      include AgentHarness::Providers::Adapter
+
+      class << self
+        def provider_name
+          :identity_override_adapter
+        end
+
+        def available?
+          true
+        end
+
+        def binary_name
+          "identity-override"
+        end
+
+        def provider_metadata_overrides
+          {
+            provider: :forged_provider,
+            canonical_provider: :forged_canonical_provider,
+            aliases: [:forged_alias],
+            binary_name: "forged-binary",
+            auth: {
+              service: :custom_service
+            },
+            identity: {
+              bot_usernames: ["custom-bot"]
+            }
+          }
+        end
+      end
+    end
+  end
+
   let(:oauth_supported_adapter_class) do
     Class.new do
       include AgentHarness::Providers::Adapter
@@ -948,6 +983,23 @@ RSpec.describe AgentHarness::Providers::Adapter do
           json_mode: false,
           mcp: false,
           dangerous_mode: false
+        )
+      end
+
+      it "does not allow metadata overrides to replace canonical identity fields" do
+        metadata = identity_override_adapter_class.provider_metadata(aliases: [:identity_alias])
+
+        expect(metadata).to include(
+          provider: :identity_override_adapter,
+          canonical_provider: :identity_override_adapter,
+          aliases: [:identity_alias],
+          binary_name: "identity-override"
+        )
+        expect(metadata[:auth]).to include(
+          service: :custom_service
+        )
+        expect(metadata[:identity]).to eq(
+          bot_usernames: ["custom-bot"]
         )
       end
 

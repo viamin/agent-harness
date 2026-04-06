@@ -703,6 +703,44 @@ RSpec.describe AgentHarness::Providers::Registry do
       )
     end
 
+    it "does not allow adapter metadata overrides to forge registry identity fields" do
+      custom_provider = Class.new do
+        include AgentHarness::Providers::Adapter
+
+        class << self
+          def provider_name = :internal_provider_name
+          def available? = true
+          def binary_name = "internal-provider"
+
+          def provider_metadata_overrides
+            {
+              provider: :forged_provider,
+              canonical_provider: :forged_canonical_provider,
+              aliases: [:forged_alias],
+              binary_name: "forged-binary",
+              identity: {
+                bot_usernames: ["custom-bot"]
+              }
+            }
+          end
+        end
+      end
+
+      registry.register(:external_provider_name, custom_provider, aliases: [:external_alias])
+
+      metadata = registry.provider_metadata(:external_alias)
+
+      expect(metadata).to include(
+        provider: :external_provider_name,
+        canonical_provider: :external_provider_name,
+        aliases: [:external_alias],
+        binary_name: "internal-provider"
+      )
+      expect(metadata[:identity]).to eq(
+        bot_usernames: ["custom-bot"]
+      )
+    end
+
     it "uses the registry canonical key for display when a custom provider inherits Base defaults" do
       custom_provider = Class.new(AgentHarness::Providers::Base) do
         class << self

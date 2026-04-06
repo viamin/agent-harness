@@ -75,6 +75,7 @@ module AgentHarness
       # Class methods that all providers must implement
       module ClassMethods
         SUPPORTED_OAUTH_AUTH_STATUS_PROVIDERS = %i[anthropic claude].freeze
+        IMMUTABLE_METADATA_OVERRIDE_KEYS = %i[provider canonical_provider aliases binary_name].freeze
 
         # Human-readable provider name
         #
@@ -190,67 +191,66 @@ module AgentHarness
           configuration_validation = supports_registry_checks && overrides_instance_method?(:validate_config)
           lightweight_checks = supports_registry_checks && !provider_status_check && !configuration_validation
 
-          deep_merge_metadata(
-            {
-              provider: canonical_provider_name,
-              canonical_provider: canonical_provider_name,
-              aliases: normalized_aliases,
-              display_name: provider_display_name(provider, canonical_name: canonical_provider_name),
-              binary_name: binary_name,
-              auth: {
-                default_mode: metadata_default_auth_mode(provider, supported_modes: supported_auth_modes),
-                supported_modes: supported_auth_modes,
-                service: nil,
-                api_family: nil
-              },
-              runtime: {
-                interface: :cli,
-                requires_cli: true,
-                available: metadata_runtime_available(refresh: refresh),
-                installable: !installation.nil?,
-                installation: installation,
-                prompt_delivery: execution[:prompt_delivery],
-                output_format: execution[:output_format],
-                sandbox_aware: execution[:sandbox_aware],
-                uses_subcommand: execution[:uses_subcommand],
-                supports_mcp: provider_metadata_value(provider, :supports_mcp?, default: default_supports_mcp),
-                supported_mcp_transports: provider_metadata_value(
-                  provider,
-                  :supported_mcp_transports,
-                  default: default_supported_mcp_transports
-                ),
-                supports_sessions: provider_metadata_value(
-                  provider,
-                  :supports_sessions?,
-                  default: default_supports_sessions
-                ),
-                supports_dangerous_mode: provider_metadata_value(
-                  provider,
-                  :supports_dangerous_mode?,
-                  default: default_supports_dangerous_mode
-                )
-              },
-              configuration: configuration,
-              capabilities: deep_merge_metadata(
-                default_capabilities,
-                provider_metadata_hash(provider, :capabilities, default: {})
-              ),
-              health_check: {
-                supports_registry_checks: supports_registry_checks,
-                auth_check_supported: auth_check_supported,
-                provider_status: provider_status_check,
-                configuration_validation: configuration_validation,
-                lightweight: lightweight_checks
-              },
-              identity: {
-                bot_usernames: provider_bot_usernames(
-                  canonical_name: canonical_provider_name,
-                  aliases: normalized_aliases
-                )
-              }
+          metadata = {
+            provider: canonical_provider_name,
+            canonical_provider: canonical_provider_name,
+            aliases: normalized_aliases,
+            display_name: provider_display_name(provider, canonical_name: canonical_provider_name),
+            binary_name: binary_name,
+            auth: {
+              default_mode: metadata_default_auth_mode(provider, supported_modes: supported_auth_modes),
+              supported_modes: supported_auth_modes,
+              service: nil,
+              api_family: nil
             },
-            provider_metadata_overrides
-          )
+            runtime: {
+              interface: :cli,
+              requires_cli: true,
+              available: metadata_runtime_available(refresh: refresh),
+              installable: !installation.nil?,
+              installation: installation,
+              prompt_delivery: execution[:prompt_delivery],
+              output_format: execution[:output_format],
+              sandbox_aware: execution[:sandbox_aware],
+              uses_subcommand: execution[:uses_subcommand],
+              supports_mcp: provider_metadata_value(provider, :supports_mcp?, default: default_supports_mcp),
+              supported_mcp_transports: provider_metadata_value(
+                provider,
+                :supported_mcp_transports,
+                default: default_supported_mcp_transports
+              ),
+              supports_sessions: provider_metadata_value(
+                provider,
+                :supports_sessions?,
+                default: default_supports_sessions
+              ),
+              supports_dangerous_mode: provider_metadata_value(
+                provider,
+                :supports_dangerous_mode?,
+                default: default_supports_dangerous_mode
+              )
+            },
+            configuration: configuration,
+            capabilities: deep_merge_metadata(
+              default_capabilities,
+              provider_metadata_hash(provider, :capabilities, default: {})
+            ),
+            health_check: {
+              supports_registry_checks: supports_registry_checks,
+              auth_check_supported: auth_check_supported,
+              provider_status: provider_status_check,
+              configuration_validation: configuration_validation,
+              lightweight: lightweight_checks
+            },
+            identity: {
+              bot_usernames: provider_bot_usernames(
+                canonical_name: canonical_provider_name,
+                aliases: normalized_aliases
+              )
+            }
+          }
+
+          deep_merge_metadata(metadata, sanitized_provider_metadata_overrides)
         end
 
         # Optional provider-specific metadata overrides for provider_metadata.
@@ -433,6 +433,23 @@ module AgentHarness
               right
             end
           end
+        end
+
+        def sanitized_provider_metadata_overrides
+          overrides = provider_metadata_overrides
+          return {} unless overrides.is_a?(Hash)
+
+          overrides.each_with_object({}) do |(key, value), sanitized|
+            next if immutable_metadata_override_key?(key)
+
+            sanitized[key] = value
+          end
+        end
+
+        def immutable_metadata_override_key?(key)
+          IMMUTABLE_METADATA_OVERRIDE_KEYS.include?(key.to_sym)
+        rescue NoMethodError
+          false
         end
 
         def provider_metadata_hash(provider, method_name, default:)
