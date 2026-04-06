@@ -555,7 +555,7 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
       expect {
         executor.execute(
           ["echo", "hello"],
-          timeout: 0.001,
+          timeout: 1,
           preparation: preparation
         )
       }.to raise_error(AgentHarness::TimeoutError)

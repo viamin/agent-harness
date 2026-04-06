@@ -180,7 +180,11 @@ RSpec.describe "ProviderRuntime integration" do
       seen = nil
       legacy_executor = Object.new
       legacy_executor.define_singleton_method(:execute) do |command, timeout:, env:|
-        seen = {command:, timeout:, env:}
+        seen = {
+          command: command,
+          timeout: timeout,
+          env: env
+        }
 
         AgentHarness::CommandExecutor::Result.new(
           stdout: "ok",
@@ -383,7 +387,12 @@ RSpec.describe "ProviderRuntime integration" do
       seen = nil
       legacy_executor = Object.new
       legacy_executor.define_singleton_method(:execute) do |command, timeout:, env:, stdin_data: nil|
-        seen = {command:, timeout:, env:, stdin_data:}
+        seen = {
+          command: command,
+          timeout: timeout,
+          env: env,
+          stdin_data: stdin_data
+        }
 
         AgentHarness::CommandExecutor::Result.new(
           stdout: stdin_data,
