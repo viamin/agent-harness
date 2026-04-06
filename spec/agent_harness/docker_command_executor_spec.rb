@@ -511,19 +511,36 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
     end
 
     it "cleans up timed out container preparation in the background" do
-      allow(SecureRandom).to receive(:hex).and_return("deadbeefcafebabe", "facefeedcafed00d")
-      calls = Queue.new
+      allow(SecureRandom).to receive(:hex).and_return("deadbeefcafebabe")
       cleanup_command_cmd = ["docker", "exec", container_id, "sh", "-lc", cleanup_command("#{guarded_home_path}/.config/opencode/opencode.json", "#{guarded_home_path}/.config/opencode")]
-      terminate_command_cmd = ["docker", "exec", container_id, "sh", "-lc", terminate_execution_command]
+      terminate_command_cmd = ["terminate"]
+      finalize_command_cmd = ["finalize"]
+      scheduled_cleanup = nil
       preparation = AgentHarness::ExecutionPreparation.new(
         file_writes: [{path: "~/.config/opencode/opencode.json", content: "{\"ok\":true}"}]
       )
       lock_key = executor.send(:preparation_lock_keys, preparation, {}).fetch(0)
 
-      allow(executor).to receive(:execute_with_timeout) do |cmd_array, timeout:, env:, stdin_data:, configured_timeout: timeout|
-        calls << {cmd: cmd_array, timeout: timeout, env: env, stdin_data: stdin_data}
+      allow(executor).to receive(:build_container_execution_tracking).and_return(
+        {
+          command: ["tracked"],
+          terminate_command: terminate_command_cmd,
+          cleanup_command: finalize_command_cmd
+        }
+      )
+      allow(executor).to receive(:schedule_container_cleanup_preparation).and_wrap_original do |original, *args, **kwargs|
+        scheduled_cleanup = {
+          args: [
+            args[0].map { |step| {command: step.fetch(:command).dup} },
+            args[1].dup
+          ],
+          kwargs: kwargs.dup
+        }
+        original.call(*args, **kwargs)
+      end
 
-        if cmd_array == tracked_execution_command(["echo", "hello"])
+      allow(executor).to receive(:execute_with_timeout) do |cmd_array, timeout:, env:, stdin_data:, configured_timeout: timeout|
+        if cmd_array == ["docker", "exec", container_id, "tracked"]
           raise AgentHarness::TimeoutError, "Command timed out after #{timeout} seconds: echo"
         end
 
@@ -561,31 +578,13 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
         end
       end
 
-      observed_calls = []
-      Timeout.timeout(3) do
-        until observed_calls.any? { |call| call[:cmd] == cleanup_command_cmd }
-          observed_calls << calls.pop
-        end
-      end
-
-      observed_commands = observed_calls.map { |call| call[:cmd] }
-      expect(observed_commands.first(5)).to eq(
-        [
-          ["docker", "exec", container_id, "sh", "-lc", backup_command("#{guarded_home_path}/.config/opencode/opencode.json")],
-          ["docker", "exec", container_id, "sh", "-lc", "mkdir -p #{guarded_home_path}/.config/opencode"],
-          ["docker", "exec", container_id, "sh", "-lc", remove_symlink_command("#{guarded_home_path}/.config/opencode/opencode.json")],
-          ["docker", "exec", "-i", container_id, "sh", "-lc", "cat > #{guarded_home_path}/.config/opencode/opencode.json"],
-          tracked_execution_command(["echo", "hello"])
-        ]
-      )
-
-      terminate_index = observed_commands.index(terminate_command_cmd)
-      cleanup_index = observed_commands.index(cleanup_command_cmd)
-      expect(terminate_index).not_to be_nil
-      expect(cleanup_index).not_to be_nil
-      expect(terminate_index).to be < cleanup_index
-      expect(observed_calls.fetch(terminate_index)[:timeout]).to be_within(0.05).of(
-        AgentHarness::CommandExecutor::PREPARATION_CLEANUP_GRACE_PERIOD
+      expect(scheduled_cleanup).not_to be_nil
+      expect(scheduled_cleanup.fetch(:args).first.map { |step| step.fetch(:command) }).to eq([cleanup_command_cmd])
+      expect(scheduled_cleanup.fetch(:args).at(1)).not_to be_empty
+      expect(scheduled_cleanup.fetch(:kwargs)).to include(
+        command_name: "echo",
+        termination_command: terminate_command_cmd,
+        finalizer_command: finalize_command_cmd
       )
     end
 
@@ -613,6 +612,40 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
           )
         )
       }.to raise_error(AgentHarness::TimeoutError, "Command timed out after 30 seconds: echo")
+    end
+
+    it "tracks timed container execution even without preparation" do
+      allow(SecureRandom).to receive(:hex).and_return("facefeedcafed00d")
+      calls = Queue.new
+      terminate_command_cmd = ["docker", "exec", container_id, "sh", "-lc", terminate_execution_command]
+      cleanup_command_cmd = ["docker", "exec", container_id, "sh", "-lc", "rm -rf /tmp/agent-harness-execution-facefeedcafed00d"]
+
+      allow(executor).to receive(:execute_with_timeout) do |cmd_array, timeout:, env:, stdin_data:, configured_timeout: timeout|
+        calls << {cmd: cmd_array, timeout: timeout, env: env, stdin_data: stdin_data}
+
+        if cmd_array == tracked_execution_command(["echo", "hello"])
+          raise AgentHarness::TimeoutError, "Command timed out after #{timeout} seconds: echo"
+        end
+
+        ["output", "", instance_double(Process::Status, exitstatus: 0)]
+      end
+
+      expect {
+        executor.execute(["echo", "hello"], timeout: 0.001)
+      }.to raise_error(AgentHarness::TimeoutError, "Command timed out after 0.001 seconds: echo")
+
+      observed_calls = []
+      Timeout.timeout(3) do
+        until observed_calls.any? { |call| call[:cmd] == cleanup_command_cmd }
+          observed_calls << calls.pop
+        end
+      end
+
+      observed_commands = observed_calls.map { |call| call[:cmd] }
+      expect(observed_commands).to include(tracked_execution_command(["echo", "hello"]))
+      expect(observed_commands).to include(terminate_command_cmd)
+      expect(observed_commands).to include(cleanup_command_cmd)
+      expect(observed_commands.index(terminate_command_cmd)).to be < observed_commands.index(cleanup_command_cmd)
     end
 
     it "returns success and schedules async cleanup when container cleanup times out after success" do
@@ -1290,32 +1323,96 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
     subject(:executor) { described_class.new(container_id: container_id) }
 
     it "returns the path when binary is found" do
-      expect(Timeout).to receive(:timeout).with(be_within(0.01).of(5)).and_call_original
+      allow(SecureRandom).to receive(:hex).and_return("facefeedcafed00d")
+      tracked_script = "printf %s $$ > /tmp/agent-harness-execution-facefeedcafed00d/pid && exec which ruby"
+      expected_calls = [
+        {
+          env: {},
+          cmd: [
+            "docker",
+            "exec",
+            container_id,
+            "sh",
+            "-lc",
+            "umask 077 && mkdir -p /tmp/agent-harness-execution-facefeedcafed00d && if command -v setsid >/dev/null 2>&1; then " \
+              "exec setsid sh -lc #{Shellwords.escape(tracked_script)}; else exec sh -lc " \
+              "#{Shellwords.escape(tracked_script)}; fi",
+            {pgroup: true}
+          ],
+          stdout: "/usr/bin/ruby\n"
+        },
+        {
+          env: {},
+          cmd: ["docker", "exec", container_id, "sh", "-lc", "rm -rf /tmp/agent-harness-execution-facefeedcafed00d", {pgroup: true}]
+        }
+      ]
+      call_index = 0
+
+      expect(Timeout).to receive(:timeout).with(be_within(0.01).of(5)).twice.and_call_original
       allow(Open3).to receive(:popen3) do |actual_env, *actual_cmd, &block|
-        expect(actual_env).to eq({})
-        expect(actual_cmd).to eq(["docker", "exec", container_id, "which", "ruby", {pgroup: true}])
+        expected = expected_calls.fetch(call_index)
+        call_index += 1
+        expect(actual_env).to eq(expected.fetch(:env))
+        expect(actual_cmd).to eq(expected.fetch(:cmd))
         stdin = StringIO.new
-        stdout = StringIO.new("/usr/bin/ruby\n")
-        stderr = StringIO.new("")
-        wait_thr = instance_double(Process::Waiter, value: instance_double(Process::Status, exitstatus: 0))
+        stdout = StringIO.new(expected.fetch(:stdout, ""))
+        stderr = StringIO.new(expected.fetch(:stderr, ""))
+        wait_thr = instance_double(
+          Process::Waiter,
+          value: instance_double(Process::Status, exitstatus: expected.fetch(:exit_code, 0))
+        )
         block.call(stdin, stdout, stderr, wait_thr)
       end
 
       expect(executor.which("ruby")).to eq("/usr/bin/ruby")
+      expect(call_index).to eq(expected_calls.length)
     end
 
     it "returns nil when binary is not found" do
+      allow(SecureRandom).to receive(:hex).and_return("facefeedcafed00d")
+      tracked_script = "printf %s $$ > /tmp/agent-harness-execution-facefeedcafed00d/pid && exec which nonexistent"
+      expected_calls = [
+        {
+          env: {},
+          cmd: [
+            "docker",
+            "exec",
+            container_id,
+            "sh",
+            "-lc",
+            "umask 077 && mkdir -p /tmp/agent-harness-execution-facefeedcafed00d && if command -v setsid >/dev/null 2>&1; then " \
+              "exec setsid sh -lc #{Shellwords.escape(tracked_script)}; else exec sh -lc " \
+              "#{Shellwords.escape(tracked_script)}; fi",
+            {pgroup: true}
+          ],
+          stdout: "",
+          stderr: "which: no nonexistent in PATH",
+          exit_code: 1
+        },
+        {
+          env: {},
+          cmd: ["docker", "exec", container_id, "sh", "-lc", "rm -rf /tmp/agent-harness-execution-facefeedcafed00d", {pgroup: true}]
+        }
+      ]
+      call_index = 0
+
       allow(Open3).to receive(:popen3) do |actual_env, *actual_cmd, &block|
-        expect(actual_env).to eq({})
-        expect(actual_cmd).to eq(["docker", "exec", container_id, "which", "nonexistent", {pgroup: true}])
+        expected = expected_calls.fetch(call_index)
+        call_index += 1
+        expect(actual_env).to eq(expected.fetch(:env))
+        expect(actual_cmd).to eq(expected.fetch(:cmd))
         stdin = StringIO.new
-        stdout = StringIO.new("")
-        stderr = StringIO.new("which: no nonexistent in PATH")
-        wait_thr = instance_double(Process::Waiter, value: instance_double(Process::Status, exitstatus: 1))
+        stdout = StringIO.new(expected.fetch(:stdout, ""))
+        stderr = StringIO.new(expected.fetch(:stderr, ""))
+        wait_thr = instance_double(
+          Process::Waiter,
+          value: instance_double(Process::Status, exitstatus: expected.fetch(:exit_code, 0))
+        )
         block.call(stdin, stdout, stderr, wait_thr)
       end
 
       expect(executor.which("nonexistent")).to be_nil
+      expect(call_index).to eq(expected_calls.length)
     end
   end
 
