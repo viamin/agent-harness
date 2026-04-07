@@ -254,6 +254,48 @@ RSpec.describe AgentHarness::Orchestration::Conductor, "#send_message" do
     end
   end
 
+  describe "executor-scoped timeout retries fall back via switch" do
+    let(:executor) { instance_double(AgentHarness::CommandExecutor) }
+
+    let(:fallback_provider) do
+      instance_double(AgentHarness::Providers::Base).tap do |p|
+        allow(p).to receive_message_chain(:class, :provider_name).and_return(:fallback_provider)
+        allow(p).to receive(:send_message).and_return(
+          AgentHarness::Response.new(
+            output: "fallback response",
+            exit_code: 0,
+            duration: 1.0,
+            provider: :fallback_provider
+          )
+        )
+      end
+    end
+
+    before do
+      allow(mock_provider).to receive(:send_message).and_raise(
+        AgentHarness::TimeoutError.new("timed out")
+      )
+      allow(config.orchestration_config).to receive(:auto_switch_on_error).and_return(true)
+    end
+
+    it "switches provider on timeout instead of retrying the same one" do
+      expect(mock_provider_manager).to receive(:select_provider)
+        .with(:test_provider, executor: executor).ordered.and_return(mock_provider)
+      expect(mock_provider_manager).to receive(:switch_provider).with(
+        from: :test_provider,
+        reason: "AgentHarness::TimeoutError",
+        context: {error: "timed out"},
+        executor: executor
+      ).ordered.and_return(fallback_provider)
+      expect(mock_provider_manager).to receive(:select_provider)
+        .with(:fallback_provider, executor: executor).ordered.and_return(fallback_provider)
+
+      response = conductor.send_message("Hello", executor: executor)
+
+      expect(response.output).to eq("fallback response")
+    end
+  end
+
   describe "generic error with switch" do
     before do
       # Use generic error which triggers switch strategy (not caught by specific handlers)

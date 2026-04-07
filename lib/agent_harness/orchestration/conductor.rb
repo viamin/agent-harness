@@ -130,7 +130,13 @@ module AgentHarness
           # Only update shared health state for default-executor traffic;
           # request-scoped executor failures must not poison the global provider.
           @provider_manager.record_failure(provider_name) unless executor
-          provider_name = handle_provider_failure(e, provider_name, :retry, executor: executor)
+          # For executor-scoped requests we skip record_failure (above), so
+          # shared health/circuit state never degrades and select_provider
+          # would keep returning the same failing provider on retry.  Use
+          # :switch instead of :retry so the request can still fall back to a
+          # healthy provider without poisoning global state.
+          strategy = executor ? :switch : :retry
+          provider_name = handle_provider_failure(e, provider_name, strategy, executor: executor)
           retry if should_retry?(retries += 1, max_retries)
           raise
         rescue NoProvidersAvailableError
