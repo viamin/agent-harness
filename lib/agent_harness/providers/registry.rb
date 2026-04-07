@@ -131,6 +131,27 @@ module AgentHarness
         @providers.select { |_, klass| klass.available? }.keys
       end
 
+      # Fetch install contract metadata for a provider.
+      #
+      # @param name [Symbol, String] the provider name
+      # @return [Hash] the provider install contract
+      # @raise [ConfigurationError] if the provider does not expose an
+      #   install contract
+      def install_contract(name)
+        provider_class = get(name)
+
+        unless provider_class.respond_to?(:install_contract)
+          raise ConfigurationError, "Provider #{provider_class} does not implement .install_contract"
+        end
+
+        contract = provider_class.install_contract
+        unless contract
+          raise ConfigurationError, "Provider #{provider_class} does not expose an install contract"
+        end
+
+        contract
+      end
+
       # Fetch installation metadata for a provider.
       #
       # @param name [Symbol, String] the provider name
@@ -349,9 +370,11 @@ module AgentHarness
           klass.respond_to?(:available?) &&
           klass.respond_to?(:binary_name)
 
-        return if includes_adapter || has_required_methods
+        return if includes_adapter
+        return if has_required_methods
 
-        raise ConfigurationError, "Provider class must include AgentHarness::Providers::Adapter or implement required class methods"
+        raise ConfigurationError,
+          "Provider class must include AgentHarness::Providers::Adapter or implement required class methods"
       end
 
       def validate_provider_name!(name)

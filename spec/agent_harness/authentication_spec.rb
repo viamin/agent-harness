@@ -279,6 +279,47 @@ RSpec.describe AgentHarness::Authentication do
       end
     end
 
+    context "for a config-only provider that needs executor at runtime" do
+      let(:config_only_class) do
+        Class.new do
+          include AgentHarness::Providers::Adapter
+
+          class << self
+            def provider_name = :config_only_auth_provider
+            def available? = true
+            def binary_name = "config-only-auth"
+          end
+
+          def initialize(config: nil)
+            @config = config
+          end
+
+          def auth_status
+            # Verify executor is available even though the constructor
+            # only accepts config:
+            {valid: respond_to?(:executor), expires_at: nil, error: nil}
+          end
+        end
+      end
+
+      before do
+        AgentHarness::Providers::Registry.instance.reset!
+        AgentHarness::Providers::Registry.instance.register(:config_only_auth_provider, config_only_class)
+        AgentHarness.configuration.providers[:config_only_auth_provider] =
+          AgentHarness::ProviderConfig.new(:config_only_auth_provider)
+      end
+
+      after do
+        AgentHarness.configuration.providers.delete(:config_only_auth_provider)
+      end
+
+      it "backfills executor on providers that accept only a keyword subset" do
+        status = described_class.auth_status(:config_only_auth_provider)
+
+        expect(status).to eq(valid: true, expires_at: nil, error: nil)
+      end
+    end
+
     context "for a custom provider with extra optional constructor keywords" do
       let(:provider_class) do
         Class.new do

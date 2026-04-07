@@ -122,6 +122,38 @@ RSpec.describe AgentHarness::Providers::Adapter do
     end
   end
 
+  let(:optional_positional_adapter_class) do
+    Class.new do
+      include AgentHarness::Providers::Adapter
+
+      class << self
+        def provider_name
+          :optional_positional_adapter
+        end
+
+        def available?
+          true
+        end
+
+        def binary_name
+          "optional-positional"
+        end
+      end
+
+      attr_reader :config_received
+
+      def initialize(config = nil)
+        @config_received = config
+      end
+
+      def execution_semantics
+        {
+          prompt_delivery: @config_received ? :has_config : :no_config
+        }
+      end
+    end
+  end
+
   let(:registry_compatible_adapter_class) do
     Class.new do
       include AgentHarness::Providers::Adapter
@@ -569,6 +601,74 @@ RSpec.describe AgentHarness::Providers::Adapter do
     end
   end
 
+  let(:metadata_installing_adapter_class) do
+    Class.new do
+      include AgentHarness::Providers::Adapter
+
+      class << self
+        def provider_name
+          :metadata_installing_adapter
+        end
+
+        def available?
+          true
+        end
+
+        def binary_name
+          "metadata-installer"
+        end
+
+        def install_metadata(version: nil)
+          target = version || "latest"
+
+          {
+            source: {
+              type: :shell_script,
+              command: "install metadata-installer #{target}"
+            }
+          }
+        end
+      end
+    end
+  end
+
+  let(:metadata_with_contract_fallback_adapter_class) do
+    Class.new do
+      include AgentHarness::Providers::Adapter
+
+      class << self
+        def provider_name
+          :metadata_with_contract_fallback_adapter
+        end
+
+        def available?
+          true
+        end
+
+        def binary_name
+          "metadata-fallback-installer"
+        end
+
+        def install_metadata(version: nil)
+          {
+            version: {
+              default: version || "latest"
+            }
+          }
+        end
+
+        def installation_contract
+          {
+            package: "@scope/fallback@1.0.0",
+            package_name: "@scope/fallback",
+            install_command_prefix: ["npm", "install", "-g"],
+            install_command: ["npm", "install", "-g", "@scope/fallback@1.0.0"]
+          }
+        end
+      end
+    end
+  end
+
   let(:legacy_install_contract_adapter_class) do
     Class.new do
       include AgentHarness::Providers::Adapter
@@ -641,6 +741,12 @@ RSpec.describe AgentHarness::Providers::Adapter do
     describe ".discover_models" do
       it "returns empty array by default" do
         expect(adapter_class.discover_models).to eq([])
+      end
+    end
+
+    describe ".install_metadata" do
+      it "returns nil by default" do
+        expect(adapter_class.install_metadata).to be_nil
       end
     end
 
@@ -910,6 +1016,22 @@ RSpec.describe AgentHarness::Providers::Adapter do
         )
       ensure
         AgentHarness.configuration.providers.delete(:variadic_initializer_adapter)
+      end
+
+      it "falls back to legacy construction for optional positional initializers" do
+        provider_config = AgentHarness::ProviderConfig.new(:optional_positional_adapter)
+        AgentHarness.configuration.providers[:optional_positional_adapter] = provider_config
+
+        metadata = optional_positional_adapter_class.provider_metadata
+
+        expect(metadata).to include(
+          provider: :optional_positional_adapter,
+          canonical_provider: :optional_positional_adapter
+        )
+        # Verify the provider received config through the legacy path
+        expect(metadata[:health_check][:supports_registry_checks]).to be true
+      ensure
+        AgentHarness.configuration.providers.delete(:optional_positional_adapter)
       end
 
       it "instantiates metadata for adapters that accept a registry keyword subset" do
@@ -1631,6 +1753,28 @@ RSpec.describe AgentHarness::Providers::Adapter do
         expect {
           package_only_installing_adapter_class.install_command(version: "1.2.3")
         }.to raise_error(ArgumentError, /must define :package_name/)
+      end
+
+      it "returns the first-class metadata install command when provided" do
+        expect(metadata_installing_adapter_class.install_command).to eq("install metadata-installer latest")
+      end
+
+      it "passes explicit versions through to first-class metadata contracts" do
+        expect(metadata_installing_adapter_class.install_command(version: "stable")).to eq(
+          "install metadata-installer stable"
+        )
+      end
+
+      it "falls back to installation_contract when metadata does not define source command" do
+        expect(metadata_with_contract_fallback_adapter_class.install_command).to eq(
+          ["npm", "install", "-g", "@scope/fallback@1.0.0"]
+        )
+      end
+
+      it "keeps version overrides working through installation_contract fallback" do
+        expect(metadata_with_contract_fallback_adapter_class.install_command(version: "1.2.3")).to eq(
+          ["npm", "install", "-g", "@scope/fallback@1.2.3"]
+        )
       end
     end
   end

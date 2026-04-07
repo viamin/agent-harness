@@ -99,11 +99,21 @@ module AgentHarness
         executor = AgentHarness.configuration.command_executor
         logger = AgentHarness.logger
 
-        if klass.respond_to?(:build_provider_instance, true)
+        provider = if klass.respond_to?(:build_provider_instance, true)
           klass.send(:build_provider_instance, config: config, executor: executor, logger: logger)
         else
           klass.new(config: config, executor: executor, logger: logger)
         end
+
+        # Ensure the executor is available even when the provider constructor
+        # accepts only a subset of keywords (e.g. config: only).
+        if provider.respond_to?(:executor=) && provider.executor.nil?
+          provider.executor = executor
+        elsif !provider.respond_to?(:executor)
+          provider.define_singleton_method(:executor) { executor }
+        end
+
+        provider
       rescue ConfigurationError
         raise ProviderNotFoundError, "Unknown provider: #{provider_name}"
       end
