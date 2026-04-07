@@ -184,10 +184,10 @@ RSpec.describe AgentHarness::Providers::Codex do
           provider.send_message(prompt: "Hello")
         end
 
-        it "adds external sandbox bypass alongside nested-sandbox avoidance when externally sandboxed" do
+        it "uses only the bypass flag when externally sandboxed, skipping --full-auto" do
           allow(docker_executor).to receive(:is_a?).with(AgentHarness::DockerCommandExecutor).and_return(true)
           expect(docker_executor).to receive(:execute).with(
-            ["codex", "exec", "--full-auto", "--dangerously-bypass-approvals-and-sandbox", "Hello"],
+            ["codex", "exec", "--dangerously-bypass-approvals-and-sandbox", "Hello"],
             anything
           ).and_return(success_result)
 
@@ -295,9 +295,9 @@ RSpec.describe AgentHarness::Providers::Codex do
       end
 
       context "with both dangerous_mode and externally_sandboxed" do
-        it "keeps dangerous mode flags alongside external sandbox bypass" do
+        it "uses only the bypass flag, skipping --full-auto to avoid sandbox mode conflict" do
           expect(mock_executor).to receive(:execute).with(
-            ["codex", "exec", "--full-auto", "--dangerously-bypass-approvals-and-sandbox", "Hello"],
+            ["codex", "exec", "--dangerously-bypass-approvals-and-sandbox", "Hello"],
             anything
           ).and_return(success_result)
 

@@ -226,13 +226,14 @@ module AgentHarness
         cmd = [self.class.binary_name, "exec"]
         externally_sandboxed = externally_sandboxed?(options)
 
-        # When running inside an already-sandboxed Docker container, Codex's
-        # own sandboxing conflicts with the outer sandbox. Use --full-auto to
-        # skip nested sandboxing while keeping full tool access.
-        # Also applies when dangerous_mode is explicitly requested. When an
-        # outer sandbox is present, preserve any explicit dangerous_mode intent
-        # and add the CLI's bypass flag alongside it.
-        if sandboxed_environment? || options[:dangerous_mode]
+        # When externally_sandboxed is set, use --dangerously-bypass-approvals-and-sandbox
+        # instead of --full-auto. In the Codex CLI, full_auto is checked first and
+        # selects workspace-write sandbox mode, which overrides the bypass flag.
+        # Passing both would leave the run in the wrong sandbox mode.
+        #
+        # When NOT externally sandboxed: use --full-auto for Docker containers
+        # (to skip nested sandboxing) or when dangerous_mode is explicitly requested.
+        if !externally_sandboxed && (sandboxed_environment? || options[:dangerous_mode])
           cmd += dangerous_mode_flags
         end
 
