@@ -429,7 +429,10 @@ module AgentHarness
       else
         delete_preparation_path(path)
       end
-    ensure
+
+      # Only remove the backup after restore succeeds. If restore fails (e.g. the
+      # prepared path was replaced by a directory), the backup must survive so
+      # later cleanup retries can still restore the original user file.
       FileUtils.rm_f(snapshot[:backup_path]) if snapshot[:type] == :file && snapshot[:backup_path]
     end
 

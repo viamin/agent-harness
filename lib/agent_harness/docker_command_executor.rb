@@ -345,7 +345,8 @@ module AgentHarness
             "else echo \"missing runtime preparation backup: #{backup}\" >&2; cleanup_status=1; fi; " \
             "elif [ \"$state_value\" = missing ]; then rm -f -- #{path} || cleanup_status=$?; " \
             "else cleanup_status=1; " \
-            "fi; #{cleanup_created_directories_script(created_directories)}rm -rf #{state_dir}; exit $cleanup_status",
+            "fi; #{cleanup_created_directories_script(created_directories)}" \
+            "if [ $cleanup_status -eq 0 ]; then rm -rf #{state_dir}; fi; exit $cleanup_status",
           env: env
         )
       }

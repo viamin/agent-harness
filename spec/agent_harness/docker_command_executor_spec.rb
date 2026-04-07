@@ -1284,8 +1284,8 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
         "\"missing runtime preparation backup: /tmp/agent-harness-preparation-deadbeefcafebabe/backup\" >&2; cleanup_status=1; fi; " \
         "elif [ \"$state_value\" = missing ]; then rm -f -- #{path} || cleanup_status=$?; else cleanup_status=1; fi; " \
         "while IFS= read -r cleanup_dir; do if [ -d \"$cleanup_dir\" ] && [ ! -L \"$cleanup_dir\" ]; then rmdir -- \"$cleanup_dir\" 2>/dev/null || true; fi; " \
-        "done < /tmp/agent-harness-preparation-deadbeefcafebabe/created_directories; rm -rf /tmp/agent-harness-preparation-deadbeefcafebabe; " \
-        "exit $cleanup_status"
+        "done < /tmp/agent-harness-preparation-deadbeefcafebabe/created_directories; " \
+        "if [ $cleanup_status -eq 0 ]; then rm -rf /tmp/agent-harness-preparation-deadbeefcafebabe; fi; exit $cleanup_status"
     end
 
     def record_created_directories_command(requested_path)
