@@ -183,6 +183,18 @@ RSpec.describe AgentHarness::Providers::Base, "#send_message" do
     end
   end
 
+  describe "idle timeout handling" do
+    before do
+      allow(mock_executor).to receive(:execute).and_raise(
+        AgentHarness::IdleTimeoutError.new("Command exceeded idle timeout")
+      )
+    end
+
+    it "preserves IdleTimeoutError" do
+      expect { provider.send_message(prompt: "Hello") }.to raise_error(AgentHarness::IdleTimeoutError)
+    end
+  end
+
   describe "rate limit handling" do
     before do
       allow(mock_executor).to receive(:execute).and_raise(
@@ -246,6 +258,74 @@ RSpec.describe AgentHarness::Providers::Base, "#send_message" do
       )
 
       provider.send_message(prompt: "Hello", timeout: 300)
+    end
+  end
+
+  describe "execution hooks" do
+    it "passes through idle timeout and streaming callbacks" do
+      observer = Object.new
+
+      expect(mock_executor).to receive(:execute).with(
+        anything,
+        hash_including(
+          timeout: 120,
+          idle_timeout: 30,
+          on_stdout_chunk: kind_of(Proc),
+          on_stderr_chunk: kind_of(Proc),
+          on_heartbeat: kind_of(Proc),
+          heartbeat_interval: 5,
+          observer: observer
+        )
+      ).and_return(
+        AgentHarness::CommandExecutor::Result.new(stdout: "ok", stderr: "", exit_code: 0, duration: 1.0)
+      )
+
+      provider.send_message(
+        prompt: "Hello",
+        idle_timeout: 30,
+        on_stdout_chunk: ->(_chunk) {},
+        on_stderr_chunk: ->(_chunk) {},
+        on_heartbeat: ->(**_heartbeat) {},
+        heartbeat_interval: 5,
+        execution_observer: observer
+      )
+    end
+
+    it "preserves an explicit nil heartbeat interval" do
+      expect(mock_executor).to receive(:execute).with(
+        anything,
+        hash_including(
+          timeout: 120,
+          on_heartbeat: kind_of(Proc),
+          heartbeat_interval: nil
+        )
+      ).and_return(
+        AgentHarness::CommandExecutor::Result.new(stdout: "ok", stderr: "", exit_code: 0, duration: 1.0)
+      )
+
+      provider.send_message(
+        prompt: "Hello",
+        on_heartbeat: ->(**_heartbeat) {},
+        heartbeat_interval: nil
+      )
+    end
+
+    it "does not override the executor heartbeat interval unless requested" do
+      expect(mock_executor).to receive(:execute).with(
+        anything,
+        satisfy { |execution_options|
+          execution_options[:timeout] == 120 &&
+            execution_options[:on_heartbeat].is_a?(Proc) &&
+            !execution_options.key?(:heartbeat_interval)
+        }
+      ).and_return(
+        AgentHarness::CommandExecutor::Result.new(stdout: "ok", stderr: "", exit_code: 0, duration: 1.0)
+      )
+
+      provider.send_message(
+        prompt: "Hello",
+        on_heartbeat: ->(**_heartbeat) {}
+      )
     end
   end
 end
