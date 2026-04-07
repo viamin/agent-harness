@@ -348,7 +348,7 @@ RSpec.describe AgentHarness::Providers::Cursor do
         observer = Object.new
 
         expect(mock_executor).to receive(:execute).with(
-          ["cursor-agent", "-p"],
+          [described_class.binary_name, "-p"],
           hash_including(
             stdin_data: "Hello",
             idle_timeout: 30,
@@ -382,7 +382,7 @@ RSpec.describe AgentHarness::Providers::Cursor do
         )
 
         expect(mock_executor).to receive(:execute).with(
-          ["cursor-agent", "-p"],
+          [described_class.binary_name, "-p"],
           hash_including(
             stdin_data: "Hello",
             on_heartbeat: kind_of(Proc),
@@ -408,7 +408,7 @@ RSpec.describe AgentHarness::Providers::Cursor do
         )
 
         expect(mock_executor).to receive(:execute).with(
-          ["cursor-agent", "-p"],
+          [described_class.binary_name, "-p"],
           satisfy { |execution_options|
             execution_options[:stdin_data] == "Hello" &&
               execution_options[:on_heartbeat].is_a?(Proc) &&
