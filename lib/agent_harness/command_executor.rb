@@ -140,7 +140,10 @@ module AgentHarness
         rescue => e
           raise e if pending_exception.nil?
 
-          log_debug("Failed to clean up runtime preparation", error: e.message)
+          # Surface cleanup failures even when unwinding from another exception,
+          # so callers know request-scoped bootstrap state may have leaked.
+          raise pending_exception.class,
+            "#{pending_exception.message} (cleanup also failed: #{e.message})"
         end
       end
       unless background_cleanup_scheduled || held_preparation_locks.nil? || held_preparation_locks.empty?

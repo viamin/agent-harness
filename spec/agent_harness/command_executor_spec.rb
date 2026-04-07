@@ -667,6 +667,25 @@ RSpec.describe AgentHarness::CommandExecutor do
           executor.send(:release_preparation_locks, [blocked_lock]) if blocked_lock
         end
       end
+      it "surfaces cleanup errors during exception unwinding instead of silently suppressing them" do
+        Dir.mktmpdir do |dir|
+          file_path = File.join(dir, "config.json")
+          preparation = AgentHarness::ExecutionPreparation.new(
+            file_writes: [{path: file_path, content: "{\"ok\":true}"}]
+          )
+
+          allow(executor).to receive(:execute_with_timeout).and_raise(
+            AgentHarness::TimeoutError, "Command timed out after 1 seconds: test"
+          )
+          allow(executor).to receive(:restore_file_state).and_raise(
+            Errno::EACCES, "Permission denied"
+          )
+
+          expect {
+            executor.execute(["test"], timeout: 1, preparation: preparation)
+          }.to raise_error(AgentHarness::TimeoutError, /cleanup also failed.*Permission denied/)
+        end
+      end
     end
   end
 

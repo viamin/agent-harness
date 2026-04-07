@@ -151,7 +151,10 @@ module AgentHarness
         rescue => e
           raise e if pending_exception.nil?
 
-          log_debug("Failed to clean up container runtime preparation", error: e.message)
+          # Surface cleanup failures even when unwinding from another exception,
+          # so callers know request-scoped bootstrap state may have leaked.
+          raise pending_exception.class,
+            "#{pending_exception.message} (cleanup also failed: #{e.message})"
         end
       end
       unless background_cleanup_scheduled || held_preparation_locks.nil? || held_preparation_locks.empty?
@@ -184,6 +187,10 @@ module AgentHarness
       return if preparation.nil? || preparation.empty?
 
       preparation.file_writes.each do |write|
+        # materialize_file_write records the cleanup command after backing up
+        # the target, and its own rescue block runs that cleanup if any later
+        # step (mkdir, write, chmod) raises partway through.  Only fully
+        # materialized writes are appended to cleanup_steps here.
         cleanup = materialize_file_write(write, timeout:, deadline:, env:)
         cleanup_steps << cleanup
       rescue => e

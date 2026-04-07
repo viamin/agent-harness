@@ -1194,6 +1194,28 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
       expect(tracking_cleanup_calls).to eq(2)
     end
 
+    it "surfaces cleanup errors during exception unwinding instead of silently suppressing them" do
+      allow(executor).to receive(:apply_container_preparation) do |preparation, timeout:, deadline:, env:, cleanup_steps:|
+        cleanup_steps << {command: ["cleanup"]}
+      end
+      allow(executor).to receive(:execute_with_timeout).and_raise(
+        AgentHarness::CommandExecutionError, "execution failed"
+      )
+      allow(executor).to receive(:cleanup_container_preparation) do |cleanup_steps, timeout:, deadline:, command_name:|
+        raise Errno::EACCES, "Permission denied"
+      end
+
+      expect {
+        executor.execute(
+          ["echo", "hello"],
+          timeout: 30,
+          preparation: AgentHarness::ExecutionPreparation.new(
+            file_writes: [{path: "~/.config/opencode/opencode.json", content: "{\"ok\":true}"}]
+          )
+        )
+      }.to raise_error(AgentHarness::CommandExecutionError, /cleanup also failed.*Permission denied/)
+    end
+
     private
 
     def expect_popen3_with(expected_cmd, env: {})
