@@ -28,8 +28,11 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
   end
 
   describe ".smoke_test_contract" do
-    it "uses the default smoke test contract" do
-      expect(described_class.smoke_test_contract).to eq(AgentHarness::Providers::Base::DEFAULT_SMOKE_TEST_CONTRACT)
+    it "returns a Copilot-specific contract without expected_output" do
+      contract = described_class.smoke_test_contract
+      expect(contract).to eq(AgentHarness::Providers::GithubCopilot::SMOKE_TEST_CONTRACT)
+      expect(contract[:expected_output]).to be_nil
+      expect(contract[:require_output]).to be true
     end
   end
 
