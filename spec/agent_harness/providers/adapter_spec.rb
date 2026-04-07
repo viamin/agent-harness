@@ -1604,6 +1604,12 @@ RSpec.describe AgentHarness::Providers::Adapter do
       end
     end
 
+    describe ".smoke_test_contract" do
+      it "returns nil by default" do
+        expect(adapter_class.smoke_test_contract).to be_nil
+      end
+    end
+
     describe ".install_command" do
       it "returns nil by default" do
         expect(adapter_class.install_command).to be_nil
@@ -1734,6 +1740,97 @@ RSpec.describe AgentHarness::Providers::Adapter do
         status = adapter.health_status
         expect(status[:healthy]).to be true
         expect(status[:message]).to eq("OK")
+      end
+    end
+
+    describe "#smoke_test" do
+      before do
+        allow(adapter).to receive(:smoke_test_contract).and_return(
+          {
+            prompt: "Reply with exactly OK.",
+            timeout: 5,
+            require_output: true,
+            success_message: "Smoke test passed"
+          }
+        )
+      end
+
+      it "uses the smoke-test contract prompt and normalizes success" do
+        expect(adapter).to receive(:send_message).with(
+          prompt: "Reply with exactly OK.",
+          timeout: 5,
+          provider_runtime: nil
+        ).and_return(
+          AgentHarness::Response.new(
+            output: "OK",
+            exit_code: 0,
+            duration: 0.2,
+            provider: :test_adapter
+          )
+        )
+
+        result = adapter.smoke_test
+
+        expect(result).to include(
+          ok: true,
+          status: "ok",
+          message: "Smoke test passed",
+          error_category: nil,
+          output: "OK",
+          exit_code: 0
+        )
+      end
+
+      it "classifies a failed smoke test using provider error patterns" do
+        allow(adapter).to receive(:error_patterns).and_return(
+          rate_limited: [/rate.?limit/i]
+        )
+        allow(adapter).to receive(:send_message).and_return(
+          AgentHarness::Response.new(
+            output: "",
+            exit_code: 1,
+            duration: 0.2,
+            provider: :test_adapter,
+            error: "Rate limit exceeded"
+          )
+        )
+
+        result = adapter.smoke_test
+
+        expect(result[:ok]).to be(false)
+        expect(result[:status]).to eq("error")
+        expect(result[:error_category]).to eq(:rate_limited)
+      end
+
+      it "fails when expected_output does not match" do
+        allow(adapter).to receive(:smoke_test_contract).and_return(
+          {
+            prompt: "Reply with exactly OK.",
+            timeout: 5,
+            require_output: true,
+            expected_output: "OK",
+            success_message: "Smoke test passed"
+          }
+        )
+        allow(adapter).to receive(:send_message).and_return(
+          AgentHarness::Response.new(
+            output: "Banner text",
+            exit_code: 0,
+            duration: 0.2,
+            provider: :test_adapter
+          )
+        )
+
+        result = adapter.smoke_test
+
+        expect(result).to include(
+          ok: false,
+          status: "error",
+          message: "Banner text",
+          error_category: :unknown,
+          output: "Banner text",
+          exit_code: 0
+        )
       end
     end
 

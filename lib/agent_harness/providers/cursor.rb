@@ -92,6 +92,10 @@ module AgentHarness
         def supports_model_family?(family_name)
           family_name.match?(/^(claude|gpt|cursor)-/)
         end
+
+        def smoke_test_contract
+          Base::DEFAULT_SMOKE_TEST_CONTRACT
+        end
       end
 
       def name
@@ -198,7 +202,13 @@ module AgentHarness
         # Execute command with prompt on stdin
         env = build_env(options)
         start_time = Time.now
-        result = @executor.execute(command, timeout: timeout, stdin_data: prompt, env: env)
+        result = execute_with_timeout(
+          command,
+          timeout: timeout,
+          env: env,
+          stdin_data: prompt,
+          **command_execution_options(options)
+        )
         duration = Time.now - start_time
 
         # Parse response
@@ -336,7 +346,13 @@ module AgentHarness
         when :auth_expired
           raise AuthenticationError.new(error.message, provider: self.class.provider_name, original_error: error)
         when :timeout
+          raise error if error.is_a?(TimeoutError)
+
           raise TimeoutError.new(error.message, original_error: error)
+        when :idle_timeout
+          raise error if error.is_a?(IdleTimeoutError)
+
+          raise IdleTimeoutError.new(error.message, original_error: error)
         else
           raise ProviderError.new(error.message, original_error: error)
         end

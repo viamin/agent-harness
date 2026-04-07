@@ -112,6 +112,10 @@ module AgentHarness
         def supports_model_family?(family_name)
           MODEL_PATTERN.match?(family_name) || family_name.start_with?("gemini-")
         end
+
+        def smoke_test_contract
+          Base::DEFAULT_SMOKE_TEST_CONTRACT
+        end
       end
 
       def name

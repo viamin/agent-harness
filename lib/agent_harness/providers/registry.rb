@@ -42,6 +42,7 @@ module AgentHarness
         @provider_metadata_cache = {}
         @provider_metadata_catalog_cache = nil
         @builtin_registered = false
+        @builtin_registration_in_progress = false
       end
 
       # Register a provider class
@@ -158,6 +159,32 @@ module AgentHarness
         end
       end
 
+      # Get smoke-test metadata for a provider.
+      #
+      # @param name [Symbol, String] the provider name
+      # @return [Hash, nil] smoke-test contract
+      # @raise [ConfigurationError] if the provider name is not registered
+      def smoke_test_contract(name)
+        klass = get(name)
+        return nil unless klass.respond_to?(:smoke_test_contract)
+
+        klass.smoke_test_contract
+      end
+
+      # Get smoke-test metadata for all providers that expose it.
+      #
+      # @return [Hash<Symbol, Hash>] smoke-test contracts keyed by provider
+      def smoke_test_contracts
+        ensure_builtin_providers_registered
+
+        @providers.each_with_object({}) do |(name, klass), contracts|
+          next unless klass.respond_to?(:smoke_test_contract)
+
+          contract = klass.smoke_test_contract
+          contracts[name] = contract if contract
+        end
+      end
+
       # Fetch consolidated provider metadata for a provider.
       #
       # @param name [Symbol, String] the provider name or alias
@@ -212,6 +239,7 @@ module AgentHarness
         @metadata_runtime_available.clear
         clear_registry_metadata_cache!
         @builtin_registered = false
+        @builtin_registration_in_progress = false
       end
 
       private
@@ -327,13 +355,20 @@ module AgentHarness
       end
 
       def validate_provider_name!(name)
+        # Reject canonical provider names that match a builtin canonical name
+        # (e.g. :claude, :gemini). Authentication hardcodes routing for names
+        # like :claude/:anthropic to provider-specific OAuth file handling, so
+        # registering a non-builtin provider under those names yields incorrect
+        # auth behavior at runtime.
+        if builtin_provider_name?(name) && !@builtin_registration_in_progress
+          raise ConfigurationError,
+            "Provider name #{name.inspect} is reserved as a builtin canonical provider"
+        end
+
         # Reject canonical provider names that match a reserved builtin alias
-        # (e.g. :anthropic is an alias for :claude). Authentication hardcodes
-        # routing for these names, so allowing a custom provider to claim them
-        # would cause auth_status/auth_url/refresh_auth to hit the wrong
-        # provider implementation.
+        # (e.g. :anthropic is an alias for :claude).
         builtin_alias_owner = reserved_builtin_alias_owner(name)
-        if builtin_alias_owner
+        if builtin_alias_owner && !@builtin_registration_in_progress
           raise ConfigurationError,
             "Provider name #{name.inspect} is reserved as a builtin alias for #{builtin_alias_owner.inspect}"
         end
@@ -467,6 +502,7 @@ module AgentHarness
       end
 
       def register_builtin_providers
+        @builtin_registration_in_progress = true
         BUILTIN_PROVIDER_DEFINITIONS.each do |definition|
           definition_name = definition[:name]
           next if builtin_provider_name_taken?(definition_name)
@@ -478,6 +514,8 @@ module AgentHarness
             aliases: definition[:aliases]
           )
         end
+      ensure
+        @builtin_registration_in_progress = false
       end
 
       def builtin_provider_name_taken?(name)

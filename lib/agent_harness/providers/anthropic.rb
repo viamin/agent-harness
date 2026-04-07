@@ -93,6 +93,10 @@ module AgentHarness
           MODEL_PATTERN.match?(family_name)
         end
 
+        def smoke_test_contract
+          Base::DEFAULT_SMOKE_TEST_CONTRACT
+        end
+
         private
 
         def parse_models_list(output)
