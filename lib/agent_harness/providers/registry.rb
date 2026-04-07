@@ -327,6 +327,17 @@ module AgentHarness
       end
 
       def validate_provider_name!(name)
+        # Reject canonical provider names that match a reserved builtin alias
+        # (e.g. :anthropic is an alias for :claude). Authentication hardcodes
+        # routing for these names, so allowing a custom provider to claim them
+        # would cause auth_status/auth_url/refresh_auth to hit the wrong
+        # provider implementation.
+        builtin_alias_owner = reserved_builtin_alias_owner(name)
+        if builtin_alias_owner
+          raise ConfigurationError,
+            "Provider name #{name.inspect} is reserved as a builtin alias for #{builtin_alias_owner.inspect}"
+        end
+
         conflicting_provider = @aliases[name]
         return unless conflicting_provider && conflicting_provider != name
 
@@ -355,6 +366,13 @@ module AgentHarness
 
       def builtin_provider_name?(name)
         BUILTIN_PROVIDER_DEFINITIONS.any? { |definition| definition[:name] == name }
+      end
+
+      def reserved_builtin_alias_owner(name)
+        definition = BUILTIN_PROVIDER_DEFINITIONS.find do |defn|
+          defn[:aliases].include?(name) && defn[:name] != name
+        end
+        definition&.dig(:name)
       end
 
       def fallback_provider_metadata(name, klass, aliases, refresh: false)

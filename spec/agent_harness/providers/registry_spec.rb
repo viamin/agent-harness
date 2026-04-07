@@ -108,20 +108,13 @@ RSpec.describe AgentHarness::Providers::Registry do
       expect(registry.instance_variable_get(:@providers)[:custom_provider]).to eq(mock_provider)
     end
 
-    it "allows canonical provider names that match builtin aliases before bootstrap" do
+    it "rejects canonical provider names that match reserved builtin aliases" do
       expect {
         registry.register(:anthropic, mock_provider)
-      }.not_to raise_error
-
-      expect(registry.instance_variable_get(:@providers)[:anthropic]).to eq(mock_provider)
-    end
-
-    it "still bootstraps builtins after a custom provider claims a future builtin alias name" do
-      registry.register(:anthropic, mock_provider)
-
-      expect { registry.all }.not_to raise_error
-      expect(registry.get(:anthropic)).to eq(mock_provider)
-      expect(registry.get(:claude)).not_to eq(mock_provider)
+      }.to raise_error(
+        AgentHarness::ConfigurationError,
+        /reserved as a builtin alias for :claude/
+      )
     end
 
     it "allows aliases that match builtin aliases before bootstrap" do
@@ -791,7 +784,7 @@ RSpec.describe AgentHarness::Providers::Registry do
       )
     end
 
-    it "does not report auth checks for custom oauth providers registered as anthropic" do
+    it "does not report auth checks for custom oauth providers without auth_status" do
       custom_oauth_provider = Class.new do
         include AgentHarness::Providers::Adapter
 
@@ -810,9 +803,9 @@ RSpec.describe AgentHarness::Providers::Registry do
         end
       end
 
-      registry.register(:anthropic, custom_oauth_provider)
+      registry.register(:custom_oauth_provider, custom_oauth_provider)
 
-      metadata = registry.provider_metadata(:anthropic)
+      metadata = registry.provider_metadata(:custom_oauth_provider)
 
       expect(metadata[:health_check]).to include(
         supports_registry_checks: true,
@@ -1330,7 +1323,7 @@ RSpec.describe AgentHarness::Providers::Registry do
         include AgentHarness::Providers::Adapter
 
         class << self
-          def provider_name = :claude
+          def provider_name = :auth_cache_provider
           def available? = true
           def binary_name = "metadata"
         end
@@ -1338,26 +1331,26 @@ RSpec.describe AgentHarness::Providers::Registry do
         def initialize(config: nil)
           @config = config
         end
-
-        def auth_type
-          @config.enabled ? :oauth : :api_key
-        end
       end
 
-      provider_config = AgentHarness::ProviderConfig.new(:anthropic)
-      provider_config.enabled = true
-      AgentHarness.configuration.providers[:anthropic] = provider_config
-      registry.register(:anthropic, metadata_provider, aliases: [:metadata_alias])
+      provider_config = AgentHarness::ProviderConfig.new(:auth_cache_provider)
+      AgentHarness.configuration.providers[:auth_cache_provider] = provider_config
+      registry.register(:auth_cache_provider, metadata_provider, aliases: [:metadata_alias])
 
-      expect(registry.provider_metadata(:anthropic).dig(:health_check, :auth_check_supported)).to be true
-      expect(registry.provider_metadata(:metadata_alias).dig(:health_check, :auth_check_supported)).to be true
+      initial = registry.provider_metadata(:auth_cache_provider).dig(:runtime, :available)
+      initial_alias = registry.provider_metadata(:metadata_alias).dig(:runtime, :available)
 
-      provider_config.enabled = false
+      expect(initial).to eq(initial_alias)
 
-      expect(registry.provider_metadata(:metadata_alias, refresh: true).dig(:health_check, :auth_check_supported)).to be false
-      expect(registry.provider_metadata(:anthropic).dig(:health_check, :auth_check_supported)).to be false
+      allow(metadata_provider).to receive(:available?).and_return(!initial)
+
+      refreshed = registry.provider_metadata(:metadata_alias, refresh: true).dig(:runtime, :available)
+      canonical = registry.provider_metadata(:auth_cache_provider).dig(:runtime, :available)
+
+      expect(refreshed).to eq(!initial)
+      expect(canonical).to eq(!initial)
     ensure
-      AgentHarness.configuration.providers.delete(:anthropic)
+      AgentHarness.configuration.providers.delete(:auth_cache_provider)
     end
 
     it "clears alias-scoped auth metadata caches during full catalog refresh" do
@@ -1365,7 +1358,7 @@ RSpec.describe AgentHarness::Providers::Registry do
         include AgentHarness::Providers::Adapter
 
         class << self
-          def provider_name = :claude
+          def provider_name = :auth_cache_provider
           def available? = true
           def binary_name = "metadata"
         end
@@ -1373,27 +1366,24 @@ RSpec.describe AgentHarness::Providers::Registry do
         def initialize(config: nil)
           @config = config
         end
-
-        def auth_type
-          @config.enabled ? :oauth : :api_key
-        end
       end
 
-      provider_config = AgentHarness::ProviderConfig.new(:anthropic)
-      provider_config.enabled = true
-      AgentHarness.configuration.providers[:anthropic] = provider_config
-      registry.register(:anthropic, metadata_provider, aliases: [:metadata_alias])
+      provider_config = AgentHarness::ProviderConfig.new(:auth_cache_provider)
+      AgentHarness.configuration.providers[:auth_cache_provider] = provider_config
+      registry.register(:auth_cache_provider, metadata_provider, aliases: [:metadata_alias])
 
-      expect(registry.provider_metadata(:metadata_alias).dig(:health_check, :auth_check_supported)).to be true
-      expect(registry.provider_metadata(:anthropic).dig(:health_check, :auth_check_supported)).to be true
+      initial = registry.provider_metadata(:metadata_alias).dig(:runtime, :available)
+      initial_canonical = registry.provider_metadata(:auth_cache_provider).dig(:runtime, :available)
 
-      provider_config.enabled = false
+      expect(initial).to eq(initial_canonical)
+
+      allow(metadata_provider).to receive(:available?).and_return(!initial)
       registry.provider_metadata_catalog(refresh: true)
 
-      expect(registry.provider_metadata(:metadata_alias).dig(:health_check, :auth_check_supported)).to be false
-      expect(registry.provider_metadata(:anthropic).dig(:health_check, :auth_check_supported)).to be false
+      expect(registry.provider_metadata(:metadata_alias).dig(:runtime, :available)).to eq(!initial)
+      expect(registry.provider_metadata(:auth_cache_provider).dig(:runtime, :available)).to eq(!initial)
     ensure
-      AgentHarness.configuration.providers.delete(:anthropic)
+      AgentHarness.configuration.providers.delete(:auth_cache_provider)
     end
   end
 

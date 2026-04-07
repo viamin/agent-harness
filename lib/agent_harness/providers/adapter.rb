@@ -323,9 +323,13 @@ module AgentHarness
             # that accept arguments via a splat (e.g. initialize(*args)).
             new(config: config, executor: executor, logger: logger)
           end
-        rescue ArgumentError
-          # Compatibility fallback for adapters that define legacy constructor
-          # shapes not recognized by keyword compatibility probing.
+        rescue ArgumentError => e
+          # Only retry for signature-mismatch errors (wrong number/type of
+          # arguments), not for ArgumentError raised by real validation inside
+          # the initializer, which would duplicate side effects or expensive
+          # setup on the second call.
+          raise unless e.message.match?(/wrong number of arguments|unknown keyword|missing keyword/i)
+
           new(config: config, executor: executor, logger: logger)
         end
 
