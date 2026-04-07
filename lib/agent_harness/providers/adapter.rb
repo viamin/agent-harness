@@ -43,6 +43,17 @@ module AgentHarness
           raise NotImplementedError, "#{self} must implement .binary_name"
         end
 
+        # Installation contract for the provider CLI.
+        #
+        # Downstream applications can use this metadata to install a provider's
+        # supported CLI without hardcoding package names, install flags, or
+        # version pins outside AgentHarness.
+        #
+        # @return [Hash, nil] installation metadata or nil when not provided
+        def install_contract(version: nil)
+          nil
+        end
+
         # Required domains for firewall configuration
         #
         # @return [Hash] with :domains and :ip_ranges arrays
@@ -64,11 +75,16 @@ module AgentHarness
           []
         end
 
-        # Installation contract for the provider CLI.
+        # First-class install metadata for the provider CLI.
         #
         # Downstream applications can use this metadata to build provider
         # images without hardcoding provider-specific install URLs, expected
         # binary paths, or supported install targets.
+        #
+        # This is separate from .installation_contract, which serves
+        # package-driven CLIs. Providers that need richer install metadata
+        # (e.g. shell-script installers, checksums, artifact URLs) should
+        # override this method.
         #
         # @param version [String, Symbol, nil] optional install target/version
         # @return [Hash, nil] provider install metadata, or nil when the
@@ -77,15 +93,18 @@ module AgentHarness
           nil
         end
 
-        # Backward-compatible installation contract for package-driven CLIs.
+        # Installation contract for package-driven provider CLIs.
         #
-        # Providers that expose richer first-class install metadata can skip
-        # overriding this method and use .install_metadata instead.
+        # Downstream apps can use this metadata to provision the provider CLI
+        # without hardcoding package names, versions, or binary expectations
+        # outside agent-harness.
         #
-        # @return [Hash, nil] installation metadata or nil when the provider
-        #   does not expose a package-based install contract
-        def installation_contract
-          install_metadata
+        # @return [Hash, nil] install metadata, or nil when no package-based
+        #   installation contract is defined for the provider
+        def installation_contract(**options)
+          return install_contract unless options.key?(:version)
+
+          install_contract(version: options[:version])
         end
 
         # Shell command for installing the provider CLI.

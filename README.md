@@ -106,9 +106,29 @@ end
 | `:codex` | `codex` | OpenAI Codex CLI |
 | `:aider` | `aider` | Aider coding assistant |
 | `:opencode` | `opencode` | OpenCode CLI |
-| `:kilocode` | `kilocode` | Kilocode CLI |
+| `:kilocode` | `kilo` | Kilocode CLI |
 
-Cursor also exposes a first-class install contract for container/image builds:
+### Provider Install Contracts
+
+Provider classes can expose install metadata for downstream apps that build
+their own agent images.
+
+```ruby
+contract = AgentHarness.provider_install_contract(:gemini)
+
+contract[:package_name]
+# => "@google/gemini-cli"
+
+contract[:default_version]
+# => "0.35.3"
+
+contract[:install_command]
+# => ["npm", "install", "-g", "--ignore-scripts", "@google/gemini-cli@0.35.3"]
+```
+
+Cursor also exposes a first-class install contract for container/image builds.
+The contract publishes checksums for both the installer script and the default
+Linux x64 artifact so consumers can verify downloads independently:
 
 ```ruby
 cursor_install = AgentHarness::Providers::Cursor.install_metadata
@@ -118,15 +138,14 @@ cursor_install
 #      source: {
 #        type: :shell_script,
 #        url: "https://cursor.com/install",
-#        command: "tmp=$(mktemp) && trap 'rm -f \"$tmp\"' EXIT && curl -fsSL https://cursor.com/install -o \"$tmp\" && if command -v sha256sum >/dev/null 2>&1; then echo \"8371988b483abec13c07c10e95cccc839da81ebf9596e430d3c90835a227cbad  $tmp\" | sha256sum -c -; else echo \"8371988b483abec13c07c10e95cccc839da81ebf9596e430d3c90835a227cbad  $tmp\" | shasum -a 256 -c -; fi && bash \"$tmp\"",
 #        resolved_version: "2026.03.30-a5d3e17",
 #        default_artifact_url: "https://downloads.cursor.com/lab/2026.03.30-a5d3e17/linux/x64/agent-cli-package.tar.gz"
 #      },
 #      checksum: {
 #        strategy: :sha256,
 #        targets: {
-#          script: { ... },
-#          artifacts: { "linux/x64" => { ... } }
+#          script: { url: "https://cursor.com/install", value: "8371..." },
+#          artifacts: { "linux/x64" => { url: "https://downloads.cursor.com/...", value: "e0d4..." } }
 #        }
 #      },
 #      binary: {
@@ -161,25 +180,47 @@ AgentHarness::Providers::Registry.instance.all
 
 ### Provider Installation Contracts
 
-`agent-harness` can also expose install metadata for provider CLIs so
-downstream apps do not need to hardcode package names or version pins.
+Downstream apps can ask `agent-harness` for provider-specific CLI install
+metadata instead of hardcoding package names, binary names, or supported
+versions out-of-band.
 
 ```ruby
-codex_install = AgentHarness.installation_contract(:codex)
+contract = AgentHarness.provider_installation_contract(:kilocode, version: "7.1.3")
 
-codex_install
+contract
+# {
+#   source: { type: :npm, package: "@kilocode/cli" },
+#   install_command: ["npm", "install", "-g", "--ignore-scripts", "@kilocode/cli@7.1.3"],
+#   binary_name: "kilo",
+#   default_version: "7.1.3",
+#   supported_version_requirement: "= 7.1.3"
+# }
+```
+
+The Kilocode runtime adapter expects the `kilo` binary and executes prompts via
+`kilo run ...`, so the install contract and runtime behavior stay aligned in
+tests.
+
+Providers that expose installation contracts can also be queried through the
+generic API:
+
+```ruby
+opencode_install = AgentHarness.installation_contract(:opencode)
+
+opencode_install
 # => {
 #      source: :npm,
-#      package_name: "@openai/codex",
-#      version: "0.116.0",
-#      binary_name: "codex",
-#      install_command: ["npm", "install", "-g", "--ignore-scripts", "@openai/codex@0.116.0"]
+#      package_name: "opencode-ai",
+#      version: "1.3.2",
+#      version_requirement: [">= 1.3.2", "< 1.4.0"],
+#      binary_name: "opencode",
+#      install_command: ["npm", "install", "-g", "--ignore-scripts", "opencode-ai@1.3.2"]
 #    }
 ```
 
-For Codex, the install contract tracks the CLI version supported by the
-current `agent-harness` release, and the runtime adapter tests assert that
-the expected binary remains aligned with that contract.
+For providers with install contracts, the metadata tracks the CLI version
+supported by the current `agent-harness` release, and the runtime adapter
+tests assert that the expected binary remains aligned with that contract.
 
 ### Custom Providers
 
@@ -192,6 +233,19 @@ class MyProvider < AgentHarness::Providers::Base
 
     def binary_name
       "my-cli"
+    end
+
+    def install_contract(version: "1.2.3")
+      {
+        provider: provider_name,
+        source_type: :npm,
+        package_name: "@acme/my-cli",
+        supported_version_requirement: Gem::Requirement.new("~> 1.2"),
+        default_version: "1.2.3",
+        resolved_version: version,
+        binary_name: binary_name,
+        install_command: ["npm", "install", "-g", "@acme/my-cli@#{version}"]
+      }
     end
 
     def available?
