@@ -299,9 +299,12 @@ module AgentHarness
           )
         end
 
-        # Let the provider contract's own timeout govern the smoke test
-        # rather than the (typically shorter) health-check timeout.
-        smoke = provider_instance.smoke_test(timeout: nil, provider_runtime: provider_runtime)
+        # When a contract exists, pass nil so the adapter falls through to
+        # contract[:timeout]. When the provider overrides #smoke_test without
+        # publishing a contract, forward the validated health-check timeout so
+        # the override can honour it instead of running without any limit.
+        smoke_timeout = smoke_contract ? nil : timeout
+        smoke = provider_instance.smoke_test(timeout: smoke_timeout, provider_runtime: provider_runtime)
         unless smoke[:ok]
           return build_result(
             name: provider_name,

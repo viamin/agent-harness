@@ -658,10 +658,10 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
         expect(result[:status]).to eq("ok")
         expect(result[:message]).to eq("Smoke test passed using the supplied execution context")
         expect(provider_class.last_executor).to eq(custom_executor)
-        # Health-check timeout is no longer forwarded; smoke_test uses
-        # its own contract timeout (or nil when the provider overrides
-        # smoke_test directly and manages its own timeout).
-        expect(provider_class.last_timeout).to be_nil
+        # When the provider overrides smoke_test without a contract,
+        # the health-check timeout is forwarded so the override can
+        # honour it instead of running without any limit.
+        expect(provider_class.last_timeout).to eq(9)
         expect(provider_class.last_provider_runtime).to eq({model: "runtime-model"})
       end
     end
