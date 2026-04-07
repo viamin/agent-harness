@@ -88,6 +88,23 @@ RSpec.describe AgentHarness::Providers::Anthropic do
       end
     end
 
+    it "warns that channel tokens are not pinned and may fall outside the supported range" do
+      %w[latest stable].each do |channel|
+        contract = described_class.install_contract(version: channel)
+
+        expect(contract.dig(:install, :warning)).to include("Channel '#{channel}' is not pinned")
+        expect(contract.dig(:install, :warning)).to include("outside the supported range")
+        expect(contract.dig(:install, :version_not_pinned)).to be true
+      end
+    end
+
+    it "does not include a channel warning for pinned versions" do
+      contract = described_class.install_contract
+
+      expect(contract.dig(:install, :warning)).not_to include("not pinned")
+      expect(contract.dig(:install, :version_not_pinned)).to be false
+    end
+
     it "rejects versions outside the supported range" do
       expect { described_class.install_contract(version: "9.0.0") }
         .to raise_error(ArgumentError, /outside the supported range/)

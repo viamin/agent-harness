@@ -38,6 +38,14 @@ module AgentHarness
           version_requirement = SUPPORTED_CLI_REQUIREMENT.requirements
             .map { |op, ver| "#{op} #{ver}" }
             .join(", ")
+          channel_token = %w[latest stable].include?(target_version.to_s)
+
+          warning = "Review the downloaded installer before execution and verify any published checksum or signature metadata when available."
+          if channel_token
+            warning += " Channel '#{target_version}' is not pinned; the resolved version may fall " \
+              "outside the supported range (#{version_requirement}). Verify the installed version " \
+              "after installation."
+          end
 
           {
             provider: provider_name,
@@ -50,8 +58,11 @@ module AgentHarness
               strategy: :shell,
               source: "official",
               command: "tmp_script=$(mktemp) && trap 'rm -f \"$tmp_script\"' EXIT && curl -fsSL https://claude.ai/install.sh -o \"$tmp_script\" && bash \"$tmp_script\" #{Shellwords.shellescape(target_version)}",
-              warning: "Review the downloaded installer before execution and verify any published checksum or signature metadata when available.",
-              post_install_binary_path: "$HOME/.local/bin/claude"
+              warning: warning,
+              post_install_binary_path: "$HOME/.local/bin/claude",
+              # When a channel token is used, include the requirement so
+              # consumers can validate the installed version post-install.
+              version_not_pinned: channel_token
             },
             supported_versions: {
               default: SUPPORTED_CLI_VERSION,
