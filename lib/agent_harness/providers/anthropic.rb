@@ -93,6 +93,18 @@ module AgentHarness
           !!executor.which(binary_name)
         end
 
+        def provider_metadata_overrides
+          {
+            auth: {
+              service: :anthropic,
+              api_family: :anthropic
+            },
+            identity: {
+              bot_usernames: %w[claude anthropic]
+            }
+          }
+        end
+
         def firewall_requirements
           {
             domains: [

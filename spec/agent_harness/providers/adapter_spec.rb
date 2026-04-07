@@ -53,9 +53,522 @@ RSpec.describe AgentHarness::Providers::Adapter do
             package: "@scope/pkg@1.0.0",
             package_name: "@scope/pkg",
             install_command_prefix: ["npm", "install", "-g"],
-            install_command: ["npm", "install", "-g", "@scope/pkg@1.0.0"]
+            install_command: ["npm", "install", "-g", "@scope/pkg@1.0.0"],
+            version_requirement: [[">=", Gem::Version.new("1.0.0")], ["<", Gem::Version.new("2.0.0")]]
           }
         end
+      end
+    end
+  end
+
+  let(:required_initializer_adapter_class) do
+    Class.new do
+      include AgentHarness::Providers::Adapter
+
+      class << self
+        def provider_name
+          :required_initializer_adapter
+        end
+
+        def available?
+          true
+        end
+
+        def binary_name
+          "required"
+        end
+      end
+
+      def initialize(required:)
+        @required = required
+      end
+    end
+  end
+
+  let(:variadic_initializer_adapter_class) do
+    Class.new do
+      include AgentHarness::Providers::Adapter
+
+      class << self
+        def provider_name
+          :variadic_initializer_adapter
+        end
+
+        def available?
+          true
+        end
+
+        def binary_name
+          "variadic-initializer"
+        end
+      end
+
+      def initialize(*args)
+        arg = args.find do |value|
+          value.is_a?(AgentHarness::ProviderConfig) || value.is_a?(Hash)
+        end
+        @config = if arg.is_a?(Hash)
+          arg[:config]
+        else
+          arg
+        end
+      end
+
+      def execution_semantics
+        {
+          prompt_delivery: (@config.respond_to?(:name) ? @config.name : :default_config)
+        }
+      end
+    end
+  end
+
+  let(:optional_positional_adapter_class) do
+    Class.new do
+      include AgentHarness::Providers::Adapter
+
+      class << self
+        def provider_name
+          :optional_positional_adapter
+        end
+
+        def available?
+          true
+        end
+
+        def binary_name
+          "optional-positional"
+        end
+      end
+
+      attr_reader :config_received
+
+      def initialize(config = nil)
+        @config_received = config
+      end
+
+      def execution_semantics
+        {
+          prompt_delivery: @config_received ? :has_config : :no_config
+        }
+      end
+    end
+  end
+
+  let(:registry_compatible_adapter_class) do
+    Class.new do
+      include AgentHarness::Providers::Adapter
+
+      class << self
+        def provider_name
+          :registry_compatible_adapter
+        end
+
+        def available?
+          true
+        end
+
+        def binary_name
+          "registry-compatible"
+        end
+      end
+
+      def initialize(config: nil, executor: nil, logger: nil)
+        @config = config
+        @executor = executor
+        @logger = logger
+      end
+
+      def display_name
+        "Registry compatible adapter"
+      end
+
+      def auth_type
+        :oauth
+      end
+
+      def configuration_schema
+        {
+          fields: [{name: :workspace, type: :string}],
+          auth_modes: [:oauth],
+          openai_compatible: true
+        }
+      end
+
+      def execution_semantics
+        {
+          prompt_delivery: :stdin,
+          output_format: :json,
+          sandbox_aware: true,
+          uses_subcommand: true
+        }
+      end
+
+      def capabilities
+        {
+          streaming: true,
+          tool_use: true
+        }
+      end
+
+      def supports_mcp?
+        true
+      end
+
+      def supported_mcp_transports
+        [:stdio]
+      end
+
+      def supports_sessions?
+        true
+      end
+
+      def supports_dangerous_mode?
+        true
+      end
+    end
+  end
+
+  let(:metadata_compatible_adapter_class) do
+    Class.new do
+      include AgentHarness::Providers::Adapter
+
+      class << self
+        def provider_name
+          :metadata_compatible_adapter
+        end
+
+        def available?
+          true
+        end
+
+        def binary_name
+          "metadata-compatible"
+        end
+      end
+
+      def initialize(config: nil)
+        @config = config
+      end
+
+      def auth_type
+        :oauth
+      end
+
+      def configuration_schema
+        {
+          fields: [{name: :workspace, type: :string}],
+          auth_modes: [:oauth],
+          openai_compatible: false
+        }
+      end
+    end
+  end
+
+  let(:config_sensitive_adapter_class) do
+    Class.new do
+      include AgentHarness::Providers::Adapter
+
+      class << self
+        def provider_name
+          :config_sensitive_adapter
+        end
+
+        def available?
+          true
+        end
+
+        def binary_name
+          "config-sensitive"
+        end
+      end
+
+      def initialize(config:)
+        @config = config
+      end
+
+      def configuration_schema
+        {
+          fields: [{name: @config.name, type: :string}],
+          auth_modes: [:api_key],
+          openai_compatible: false
+        }
+      end
+
+      def execution_semantics
+        {
+          prompt_delivery: @config.name
+        }
+      end
+    end
+  end
+
+  let(:optional_keyword_adapter_class) do
+    Class.new do
+      include AgentHarness::Providers::Adapter
+
+      class << self
+        def provider_name
+          :optional_keyword_adapter
+        end
+
+        def available?
+          true
+        end
+
+        def binary_name
+          "optional-keyword"
+        end
+      end
+
+      def initialize(config: nil, timeout: 30)
+        @config = config
+        @timeout = timeout
+      end
+
+      def auth_type
+        :oauth
+      end
+
+      def configuration_schema
+        {
+          fields: [{name: @config.name, type: :string}],
+          auth_modes: [:oauth],
+          openai_compatible: false
+        }
+      end
+    end
+  end
+
+  let(:identity_override_adapter_class) do
+    Class.new do
+      include AgentHarness::Providers::Adapter
+
+      class << self
+        def provider_name
+          :identity_override_adapter
+        end
+
+        def available?
+          true
+        end
+
+        def binary_name
+          "identity-override"
+        end
+
+        def provider_metadata_overrides
+          {
+            provider: :forged_provider,
+            canonical_provider: :forged_canonical_provider,
+            aliases: [:forged_alias],
+            binary_name: "forged-binary",
+            auth: {
+              service: :custom_service
+            },
+            identity: {
+              bot_usernames: ["custom-bot"]
+            }
+          }
+        end
+      end
+    end
+  end
+
+  let(:oauth_supported_adapter_class) do
+    Class.new do
+      include AgentHarness::Providers::Adapter
+
+      class << self
+        def provider_name
+          :oauth_supported_adapter
+        end
+
+        def available?
+          true
+        end
+
+        def binary_name
+          "oauth-supported"
+        end
+      end
+
+      def initialize(config: nil, executor: nil, logger: nil)
+        @config = config
+        @executor = executor
+        @logger = logger
+      end
+
+      def name
+        "claude"
+      end
+
+      def auth_type
+        :oauth
+      end
+    end
+  end
+
+  let(:api_key_adapter_class) do
+    Class.new do
+      include AgentHarness::Providers::Adapter
+
+      class << self
+        def provider_name
+          :api_key_adapter
+        end
+
+        def available?
+          true
+        end
+
+        def binary_name
+          "api-key"
+        end
+      end
+
+      def initialize(config: nil, executor: nil, logger: nil)
+        @config = config
+        @executor = executor
+        @logger = logger
+      end
+
+      def auth_type
+        :api_key
+      end
+    end
+  end
+
+  let(:explicit_auth_status_adapter_class) do
+    Class.new do
+      include AgentHarness::Providers::Adapter
+
+      class << self
+        def provider_name
+          :explicit_auth_status_adapter
+        end
+
+        def available?
+          true
+        end
+
+        def binary_name
+          "explicit-auth-status"
+        end
+      end
+
+      def initialize(config: nil, executor: nil, logger: nil)
+        @config = config
+        @executor = executor
+        @logger = logger
+      end
+
+      def auth_type
+        :oauth
+      end
+
+      def auth_status
+        {authenticated: true}
+      end
+    end
+  end
+
+  let(:auth_status_cached_adapter_class) do
+    Class.new do
+      include AgentHarness::Providers::Adapter
+
+      class << self
+        attr_accessor :initialization_count
+
+        def provider_name
+          :auth_status_cached_adapter
+        end
+
+        def available?
+          true
+        end
+
+        def binary_name
+          "auth-status-cached"
+        end
+      end
+
+      self.initialization_count = 0
+
+      def initialize(config: nil, executor: nil, logger: nil)
+        self.class.initialization_count += 1
+        @config = config
+        @executor = executor
+        @logger = logger
+      end
+
+      def auth_type
+        :api_key
+      end
+    end
+  end
+
+  let(:raising_metadata_adapter_class) do
+    Class.new do
+      include AgentHarness::Providers::Adapter
+
+      class << self
+        def provider_name
+          :raising_metadata_adapter
+        end
+
+        def available?
+          true
+        end
+
+        def binary_name
+          "raising-metadata"
+        end
+      end
+
+      def initialize(config: nil)
+        raise ArgumentError, "invalid config"
+      end
+    end
+  end
+
+  let(:partial_metadata_adapter_class) do
+    Class.new do
+      include AgentHarness::Providers::Adapter
+
+      class << self
+        def provider_name
+          :partial_metadata_adapter
+        end
+
+        def available?
+          true
+        end
+
+        def binary_name
+          "partial-metadata"
+        end
+      end
+
+      def initialize(config: nil)
+        @config = config
+      end
+
+      def configuration_schema
+        {
+          auth_modes: [:oauth]
+        }
+      end
+
+      def execution_semantics
+        {
+          prompt_delivery: :stdin
+        }
+      end
+
+      def capabilities
+        {
+          streaming: true
+        }
       end
     end
   end
@@ -304,6 +817,959 @@ RSpec.describe AgentHarness::Providers::Adapter do
         expect(contract).to include(
           package_name: "@scope/legacy-no-ver",
           install_command: ["npm", "install", "-g", "@scope/legacy-no-ver@1.0.0"]
+        )
+      end
+    end
+
+    describe ".provider_metadata" do
+      it "returns a stable metadata contract" do
+        metadata = adapter_class.provider_metadata(aliases: [:test_alias])
+
+        expect(metadata).to include(
+          provider: :test_adapter,
+          canonical_provider: :test_adapter,
+          aliases: [:test_alias],
+          display_name: "Test Adapter",
+          binary_name: "test"
+        )
+        expect(metadata[:auth]).to include(
+          default_mode: :api_key,
+          supported_modes: [:api_key],
+          service: nil,
+          api_family: nil
+        )
+        expect(metadata[:runtime]).to include(
+          interface: :cli,
+          requires_cli: true,
+          available: true,
+          installable: false,
+          installation: nil,
+          prompt_delivery: :arg,
+          output_format: :text,
+          sandbox_aware: false,
+          uses_subcommand: false,
+          supports_mcp: false,
+          supports_sessions: false,
+          supports_dangerous_mode: false
+        )
+        expect(metadata[:runtime][:supported_mcp_transports]).to eq([])
+        expect(metadata[:configuration]).to include(
+          fields: [],
+          auth_modes: [:api_key],
+          openai_compatible: false
+        )
+        expect(metadata[:capabilities]).to include(
+          streaming: false,
+          mcp: false
+        )
+        expect(metadata[:health_check]).to include(
+          supports_registry_checks: true,
+          auth_check_supported: false,
+          provider_status: false,
+          configuration_validation: false,
+          lightweight: true
+        )
+        expect(metadata[:identity]).to eq(
+          bot_usernames: ["test_adapter", "test_alias"]
+        )
+      end
+
+      it "reports registry checks for adapters with a compatible initializer contract" do
+        command_executor = instance_double("AgentHarness::CommandExecutor")
+        allow(AgentHarness.configuration).to receive(:command_executor).and_return(command_executor)
+        allow(AgentHarness).to receive(:logger).and_return(instance_double("Logger"))
+
+        metadata = registry_compatible_adapter_class.provider_metadata
+
+        expect(metadata).to include(
+          display_name: "Registry compatible adapter"
+        )
+        expect(metadata[:auth]).to include(
+          default_mode: :oauth,
+          supported_modes: [:oauth],
+          service: nil,
+          api_family: nil
+        )
+        expect(metadata[:runtime]).to include(
+          prompt_delivery: :stdin,
+          output_format: :json,
+          sandbox_aware: true,
+          uses_subcommand: true,
+          supports_mcp: true,
+          supports_sessions: true,
+          supports_dangerous_mode: true
+        )
+        expect(metadata[:runtime][:supported_mcp_transports]).to eq([:stdio])
+        expect(metadata[:configuration]).to include(
+          fields: [{name: :workspace, type: :string}],
+          auth_modes: [:oauth],
+          openai_compatible: true
+        )
+        expect(metadata[:capabilities]).to include(
+          streaming: true,
+          tool_use: true
+        )
+        expect(metadata[:health_check]).to include(
+          supports_registry_checks: true,
+          auth_check_supported: false,
+          provider_status: false,
+          configuration_validation: false,
+          lightweight: true
+        )
+      end
+
+      it "prefers provider auth_type for default_mode when it is supported" do
+        command_executor = instance_double("AgentHarness::CommandExecutor", which: nil)
+        allow(AgentHarness.configuration).to receive(:command_executor).and_return(command_executor)
+
+        metadata = AgentHarness::Providers::Gemini.provider_metadata
+
+        expect(metadata[:auth]).to include(
+          default_mode: :oauth,
+          supported_modes: %i[api_key oauth]
+        )
+      end
+
+      it "normalizes installation metadata to a stable contract" do
+        metadata = installing_adapter_class.provider_metadata
+
+        expect(metadata[:runtime][:installation]).to eq(
+          provider: :installing_adapter,
+          source_type: nil,
+          package_name: "@scope/pkg",
+          default_version: nil,
+          resolved_version: nil,
+          supported_version_requirement: ">= 1.0.0, < 2.0.0",
+          binary_name: "installer",
+          install_command: ["npm", "install", "-g", "@scope/pkg@1.0.0"],
+          install_command_string: "npm install -g @scope/pkg@1.0.0"
+        )
+      end
+
+      it "does not report auth checks for api key adapters without auth_status support" do
+        metadata = api_key_adapter_class.provider_metadata
+
+        expect(metadata[:health_check]).to include(
+          auth_check_supported: false
+        )
+      end
+
+      it "reports auth checks for adapters that implement auth_status directly" do
+        metadata = explicit_auth_status_adapter_class.provider_metadata
+
+        expect(metadata[:health_check]).to include(
+          auth_check_supported: true
+        )
+      end
+
+      it "reports auth checks for supported oauth providers" do
+        metadata = oauth_supported_adapter_class.provider_metadata
+
+        expect(metadata[:health_check]).to include(
+          auth_check_supported: false
+        )
+      end
+
+      it "reports auth checks for subset-safe adapters when runtime construction can use the same safe subset" do
+        subset_safe_auth_adapter_class = Class.new do
+          include AgentHarness::Providers::Adapter
+
+          class << self
+            def provider_name
+              :subset_safe_auth_adapter
+            end
+
+            def available?
+              true
+            end
+
+            def binary_name
+              "subset-safe-auth"
+            end
+          end
+
+          def initialize(config: nil)
+            @config = config
+          end
+
+          def auth_type
+            :oauth
+          end
+
+          def auth_status
+            {valid: true, expires_at: nil, error: nil}
+          end
+        end
+
+        metadata = subset_safe_auth_adapter_class.provider_metadata
+
+        expect(metadata[:health_check]).to include(
+          supports_registry_checks: true,
+          auth_check_supported: true,
+          lightweight: true
+        )
+      end
+
+      it "does not require parameterless construction to expose metadata" do
+        metadata = required_initializer_adapter_class.provider_metadata(aliases: [:required_alias])
+
+        expect(metadata).to include(
+          provider: :required_initializer_adapter,
+          canonical_provider: :required_initializer_adapter,
+          aliases: [:required_alias],
+          display_name: "Required Initializer Adapter",
+          binary_name: "required"
+        )
+        expect(metadata[:auth]).to include(
+          default_mode: :api_key,
+          supported_modes: [:api_key],
+          service: nil,
+          api_family: nil
+        )
+        expect(metadata[:runtime]).to include(
+          available: true,
+          installable: false,
+          supports_mcp: false,
+          supports_sessions: false,
+          supports_dangerous_mode: false
+        )
+        expect(metadata[:configuration]).to include(
+          fields: [],
+          auth_modes: [:api_key],
+          openai_compatible: false
+        )
+        expect(metadata[:identity]).to eq(
+          bot_usernames: ["required_initializer_adapter", "required_alias"]
+        )
+        expect(metadata[:health_check]).to include(
+          supports_registry_checks: false,
+          provider_status: false,
+          configuration_validation: false,
+          lightweight: false
+        )
+      end
+
+      it "falls back to legacy positional construction for variadic initializers" do
+        provider_config = AgentHarness::ProviderConfig.new(:variadic_initializer_adapter)
+        AgentHarness.configuration.providers[:variadic_initializer_adapter] = provider_config
+
+        metadata = variadic_initializer_adapter_class.provider_metadata
+
+        expect(metadata).to include(
+          provider: :variadic_initializer_adapter,
+          canonical_provider: :variadic_initializer_adapter
+        )
+        expect(metadata[:runtime]).to include(
+          prompt_delivery: :variadic_initializer_adapter
+        )
+      ensure
+        AgentHarness.configuration.providers.delete(:variadic_initializer_adapter)
+      end
+
+      it "falls back to legacy construction for optional positional initializers" do
+        provider_config = AgentHarness::ProviderConfig.new(:optional_positional_adapter)
+        AgentHarness.configuration.providers[:optional_positional_adapter] = provider_config
+
+        metadata = optional_positional_adapter_class.provider_metadata
+
+        expect(metadata).to include(
+          provider: :optional_positional_adapter,
+          canonical_provider: :optional_positional_adapter
+        )
+        # Verify the provider received config through the legacy path
+        expect(metadata[:health_check][:supports_registry_checks]).to be true
+      ensure
+        AgentHarness.configuration.providers.delete(:optional_positional_adapter)
+      end
+
+      it "instantiates metadata for adapters that accept a registry keyword subset" do
+        metadata = metadata_compatible_adapter_class.provider_metadata(aliases: [:metadata_alias])
+
+        expect(metadata).to include(
+          display_name: "Metadata Compatible Adapter"
+        )
+        expect(metadata[:auth]).to include(
+          default_mode: :oauth,
+          supported_modes: [:oauth],
+          service: nil,
+          api_family: nil
+        )
+        expect(metadata[:configuration]).to include(
+          fields: [{name: :workspace, type: :string}],
+          auth_modes: [:oauth],
+          openai_compatible: false
+        )
+        expect(metadata[:health_check]).to include(
+          supports_registry_checks: true,
+          provider_status: false,
+          configuration_validation: false,
+          lightweight: true
+        )
+        expect(metadata[:identity]).to eq(
+          bot_usernames: ["metadata_compatible_adapter", "metadata_alias"]
+        )
+      end
+
+      it "passes a real provider config into metadata-safe adapter construction" do
+        provider_config = AgentHarness::ProviderConfig.new(:config_sensitive_adapter)
+        AgentHarness.configuration.providers[:config_sensitive_adapter] = provider_config
+
+        metadata = config_sensitive_adapter_class.provider_metadata
+
+        expect(metadata[:configuration]).to include(
+          fields: [{name: :config_sensitive_adapter, type: :string}],
+          auth_modes: [:api_key],
+          openai_compatible: false
+        )
+        expect(metadata[:runtime]).to include(
+          prompt_delivery: :config_sensitive_adapter
+        )
+      ensure
+        AgentHarness.configuration.providers.delete(:config_sensitive_adapter)
+      end
+
+      it "allows optional unsupported initializer keywords during metadata-safe construction" do
+        provider_config = AgentHarness::ProviderConfig.new(:optional_keyword_adapter)
+        AgentHarness.configuration.providers[:optional_keyword_adapter] = provider_config
+
+        metadata = optional_keyword_adapter_class.provider_metadata
+
+        expect(metadata[:configuration]).to include(
+          fields: [{name: :optional_keyword_adapter, type: :string}],
+          auth_modes: [:oauth],
+          openai_compatible: false
+        )
+        expect(metadata[:health_check]).to include(
+          supports_registry_checks: true,
+          lightweight: true
+        )
+      ensure
+        AgentHarness.configuration.providers.delete(:optional_keyword_adapter)
+      end
+
+      it "prefers requested-name config during metadata-safe construction" do
+        requested_provider_config = AgentHarness::ProviderConfig.new(:config_alias)
+        canonical_provider_config = AgentHarness::ProviderConfig.new(:config_sensitive_adapter)
+        AgentHarness.configuration.providers[:config_alias] = requested_provider_config
+        AgentHarness.configuration.providers[:config_sensitive_adapter] = canonical_provider_config
+
+        metadata = config_sensitive_adapter_class.provider_metadata(
+          aliases: [:config_alias],
+          requested_name: :config_alias
+        )
+
+        expect(metadata[:configuration]).to include(
+          fields: [{name: :config_alias, type: :string}],
+          auth_modes: [:api_key],
+          openai_compatible: false
+        )
+        expect(metadata[:runtime]).to include(
+          prompt_delivery: :config_alias
+        )
+      ensure
+        AgentHarness.configuration.providers.delete(:config_alias)
+        AgentHarness.configuration.providers.delete(:config_sensitive_adapter)
+      end
+
+      it "falls back to canonical-name config for custom registrations" do
+        canonical_provider_config = AgentHarness::ProviderConfig.new(:external_provider_name)
+        AgentHarness.configuration.providers[:external_provider_name] = canonical_provider_config
+
+        metadata = config_sensitive_adapter_class.provider_metadata(
+          canonical_name: :external_provider_name
+        )
+
+        expect(metadata[:configuration]).to include(
+          fields: [{name: :external_provider_name, type: :string}],
+          auth_modes: [:api_key],
+          openai_compatible: false
+        )
+        expect(metadata[:runtime]).to include(
+          prompt_delivery: :external_provider_name
+        )
+      ensure
+        AgentHarness.configuration.providers.delete(:external_provider_name)
+      end
+
+      it "falls back to default metadata when safe construction raises" do
+        logger = instance_double("Logger", debug: nil)
+        allow(AgentHarness).to receive(:logger).and_return(logger)
+
+        metadata = raising_metadata_adapter_class.provider_metadata(aliases: [:raising_alias])
+
+        expect(metadata).to include(
+          provider: :raising_metadata_adapter,
+          canonical_provider: :raising_metadata_adapter,
+          aliases: [:raising_alias],
+          display_name: "Raising Metadata Adapter",
+          binary_name: "raising-metadata"
+        )
+        expect(metadata[:auth]).to include(
+          default_mode: :api_key,
+          supported_modes: [:api_key]
+        )
+        expect(metadata[:configuration]).to include(
+          fields: [],
+          auth_modes: [:api_key],
+          openai_compatible: false
+        )
+        expect(logger).to have_received(:debug).with(
+          include("Falling back to default metadata for raising_metadata_adapter: ArgumentError")
+        )
+      end
+
+      it "does not infer auth vendor metadata from openai-compatible configuration" do
+        metadata = registry_compatible_adapter_class.provider_metadata
+
+        expect(metadata[:configuration]).to include(
+          openai_compatible: true
+        )
+        expect(metadata[:auth]).to include(
+          service: nil,
+          api_family: nil
+        )
+      end
+
+      it "does not advertise registry checks when metadata construction fails" do
+        allow(AgentHarness).to receive(:logger).and_return(instance_double("Logger", debug: nil))
+
+        metadata = raising_metadata_adapter_class.provider_metadata
+
+        expect(metadata[:health_check]).to include(
+          supports_registry_checks: false,
+          auth_check_supported: false,
+          provider_status: false,
+          configuration_validation: false,
+          lightweight: false
+        )
+      end
+
+      it "deep-merges partial instance metadata onto default sections" do
+        metadata = partial_metadata_adapter_class.provider_metadata
+
+        expect(metadata[:configuration]).to eq(
+          fields: [],
+          auth_modes: [:oauth],
+          openai_compatible: false
+        )
+        expect(metadata[:runtime]).to include(
+          prompt_delivery: :stdin,
+          output_format: :text,
+          sandbox_aware: false,
+          uses_subcommand: false
+        )
+        expect(metadata[:capabilities]).to eq(
+          streaming: true,
+          file_upload: false,
+          vision: false,
+          tool_use: false,
+          json_mode: false,
+          mcp: false,
+          dangerous_mode: false
+        )
+      end
+
+      it "does not allow metadata overrides to replace canonical identity fields" do
+        metadata = identity_override_adapter_class.provider_metadata(aliases: [:identity_alias])
+
+        expect(metadata).to include(
+          provider: :identity_override_adapter,
+          canonical_provider: :identity_override_adapter,
+          aliases: [:identity_alias],
+          binary_name: "identity-override"
+        )
+        expect(metadata[:auth]).to include(
+          service: :custom_service
+        )
+        expect(metadata[:identity]).to eq(
+          bot_usernames: ["custom-bot"]
+        )
+      end
+
+      it "falls back to default sections when metadata hooks raise after construction" do
+        adapter_with_raising_hooks = Class.new do
+          include AgentHarness::Providers::Adapter
+
+          class << self
+            def provider_name
+              :adapter_with_raising_hooks
+            end
+
+            def available?
+              true
+            end
+
+            def binary_name
+              "raising-hooks"
+            end
+          end
+
+          def initialize(config: nil)
+            @config = config
+          end
+
+          def configuration_schema
+            raise "boom"
+          end
+
+          def execution_semantics
+            raise "boom"
+          end
+
+          def capabilities
+            raise "boom"
+          end
+        end
+
+        logger = instance_double("Logger", debug: nil)
+        allow(AgentHarness).to receive(:logger).and_return(logger)
+
+        metadata = adapter_with_raising_hooks.provider_metadata
+
+        expect(metadata[:configuration]).to eq(
+          fields: [],
+          auth_modes: [:api_key],
+          openai_compatible: false
+        )
+        expect(metadata[:runtime]).to include(
+          prompt_delivery: :arg,
+          output_format: :text,
+          sandbox_aware: false,
+          uses_subcommand: false
+        )
+        expect(metadata[:capabilities]).to eq(
+          streaming: false,
+          file_upload: false,
+          vision: false,
+          tool_use: false,
+          json_mode: false,
+          mcp: false,
+          dangerous_mode: false
+        )
+        expect(logger).to have_received(:debug).with(
+          include("Falling back to default configuration_schema metadata for adapter_with_raising_hooks: RuntimeError")
+        )
+        expect(logger).to have_received(:debug).with(
+          include("Falling back to default execution_semantics metadata for adapter_with_raising_hooks: RuntimeError")
+        )
+        expect(logger).to have_received(:debug).with(
+          include("Falling back to default capabilities metadata for adapter_with_raising_hooks: RuntimeError")
+        )
+      end
+
+      it "falls back to the canonical display name when display_name raises" do
+        adapter_with_raising_display_name = Class.new do
+          include AgentHarness::Providers::Adapter
+
+          class << self
+            def provider_name
+              :adapter_with_raising_display_name
+            end
+
+            def available?
+              true
+            end
+
+            def binary_name
+              "raising-display-name"
+            end
+          end
+
+          def initialize(config: nil)
+            @config = config
+          end
+
+          def display_name
+            raise "boom"
+          end
+        end
+
+        logger = instance_double("Logger", debug: nil)
+        allow(AgentHarness).to receive(:logger).and_return(logger)
+
+        metadata = adapter_with_raising_display_name.provider_metadata
+
+        expect(metadata[:display_name]).to eq("Adapter With Raising Display Name")
+        expect(logger).to have_received(:debug).with(
+          include("Falling back to default display_name metadata for adapter_with_raising_display_name: RuntimeError")
+        )
+      end
+
+      it "falls back to supported auth modes when auth_type raises" do
+        adapter_with_raising_auth_type = Class.new do
+          include AgentHarness::Providers::Adapter
+
+          class << self
+            def provider_name
+              :adapter_with_raising_auth_type
+            end
+
+            def available?
+              true
+            end
+
+            def binary_name
+              "raising-auth-type"
+            end
+          end
+
+          def initialize(config: nil)
+            @config = config
+          end
+
+          def configuration_schema
+            {
+              fields: [],
+              auth_modes: %i[api_key oauth],
+              openai_compatible: false
+            }
+          end
+
+          def auth_type
+            raise "boom"
+          end
+        end
+
+        logger = instance_double("Logger", debug: nil)
+        allow(AgentHarness).to receive(:logger).and_return(logger)
+
+        metadata = adapter_with_raising_auth_type.provider_metadata
+
+        expect(metadata[:auth]).to include(
+          default_mode: :api_key,
+          supported_modes: %i[api_key oauth]
+        )
+        expect(logger).to have_received(:debug).with(
+          include("Falling back to default auth_type metadata for adapter_with_raising_auth_type: RuntimeError")
+        )
+      end
+
+      it "caches runtime availability until explicitly refreshed" do
+        calls = 0
+        allow(adapter_class).to receive(:available?) do
+          calls += 1
+          true
+        end
+
+        expect(adapter_class.provider_metadata[:runtime][:available]).to be true
+        expect(adapter_class.provider_metadata[:runtime][:available]).to be true
+        expect(calls).to eq(1)
+
+        expect(adapter_class.provider_metadata(refresh: true)[:runtime][:available]).to be true
+        expect(calls).to eq(2)
+      end
+
+      it "memoizes auth status availability for repeated checks" do
+        expect(auth_status_cached_adapter_class.send(:auth_status_available?)).to be false
+        expect(auth_status_cached_adapter_class.send(:auth_status_available?)).to be false
+        expect(auth_status_cached_adapter_class.initialization_count).to eq(1)
+      end
+
+      it "does not invoke auth_status when building metadata auth support" do
+        raising_auth_status_adapter_class = Class.new do
+          include AgentHarness::Providers::Adapter
+
+          class << self
+            attr_accessor :auth_status_invocations
+
+            def provider_name
+              :raising_auth_status_adapter
+            end
+
+            def available?
+              true
+            end
+
+            def binary_name
+              "raising-auth-status"
+            end
+          end
+
+          def initialize(config: nil)
+            @config = config
+          end
+
+          def auth_type
+            :oauth
+          end
+
+          def auth_status
+            self.class.auth_status_invocations ||= 0
+            self.class.auth_status_invocations += 1
+            raise NotImplementedError, "auth status not implemented"
+          end
+        end
+
+        expect(raising_auth_status_adapter_class.provider_metadata[:health_check]).to include(
+          auth_check_supported: true
+        )
+        expect(raising_auth_status_adapter_class.auth_status_invocations).to be_nil
+      end
+
+      it "refreshes memoized auth status availability when metadata is refreshed" do
+        refreshable_auth_adapter_class = Class.new do
+          include AgentHarness::Providers::Adapter
+
+          class << self
+            def provider_name
+              :claude
+            end
+
+            def available?
+              true
+            end
+
+            def binary_name
+              "refreshable-auth"
+            end
+          end
+
+          def initialize(config: nil, executor: nil, logger: nil)
+            @config = config
+          end
+
+          def auth_type
+            @config.enabled ? :oauth : :api_key
+          end
+        end
+
+        provider_config = AgentHarness::ProviderConfig.new(:claude)
+        AgentHarness.configuration.providers[:claude] = provider_config
+
+        expect(refreshable_auth_adapter_class.provider_metadata[:health_check][:auth_check_supported]).to be true
+
+        provider_config.enabled = false
+
+        expect(refreshable_auth_adapter_class.provider_metadata[:health_check][:auth_check_supported]).to be true
+        expect(refreshable_auth_adapter_class.provider_metadata(refresh: true)[:health_check][:auth_check_supported]).to be false
+      ensure
+        AgentHarness.configuration.providers.delete(:claude)
+      end
+
+      it "memoizes auth status availability for subset-safe adapters" do
+        subset_safe_auth_adapter_class = Class.new do
+          include AgentHarness::Providers::Adapter
+
+          class << self
+            attr_accessor :initialization_count
+
+            def provider_name
+              :subset_safe_auth_adapter
+            end
+
+            def available?
+              true
+            end
+
+            def binary_name
+              "subset-safe-auth"
+            end
+          end
+
+          self.initialization_count = 0
+
+          def initialize(config: nil)
+            self.class.initialization_count += 1
+            @config = config
+          end
+
+          def auth_type
+            :oauth
+          end
+
+          def auth_status
+            {valid: true, expires_at: nil, error: nil}
+          end
+        end
+
+        expect(subset_safe_auth_adapter_class.send(:auth_status_available?)).to be true
+        expect(subset_safe_auth_adapter_class.send(:auth_status_available?)).to be true
+        expect(subset_safe_auth_adapter_class.initialization_count).to eq(1)
+      end
+
+      it "memoizes auth status availability per requested name" do
+        alias_sensitive_auth_adapter_class = Class.new do
+          include AgentHarness::Providers::Adapter
+
+          class << self
+            attr_accessor :initialization_names
+
+            def provider_name
+              :alias_sensitive_auth_adapter
+            end
+
+            def available?
+              true
+            end
+
+            def binary_name
+              "alias-sensitive-auth"
+            end
+          end
+
+          self.initialization_names = []
+
+          def initialize(config: nil, executor: nil, logger: nil)
+            self.class.initialization_names << config.name
+          end
+
+          def auth_status
+            {valid: true, expires_at: nil, error: nil}
+          end
+        end
+
+        expect(alias_sensitive_auth_adapter_class.send(:auth_status_available?, requested_name: :first_alias)).to be true
+        expect(alias_sensitive_auth_adapter_class.send(:auth_status_available?, requested_name: :first_alias)).to be true
+        expect(alias_sensitive_auth_adapter_class.send(:auth_status_available?, requested_name: :second_alias)).to be true
+        expect(alias_sensitive_auth_adapter_class.initialization_names).to eq([:first_alias, :second_alias])
+      end
+
+      it "does not report oauth auth checks for custom registrations unsupported by Authentication" do
+        metadata = AgentHarness::Providers::Anthropic.provider_metadata(
+          requested_name: :external_provider_name,
+          canonical_name: :external_provider_name
+        )
+
+        expect(metadata[:health_check]).to include(
+          supports_registry_checks: true,
+          auth_check_supported: false
+        )
+      end
+
+      it "does not treat custom oauth providers registered under claude names as auth-check capable" do
+        custom_oauth_provider = Class.new do
+          include AgentHarness::Providers::Adapter
+
+          class << self
+            def provider_name = :custom_oauth_provider
+            def available? = true
+            def binary_name = "custom-oauth"
+          end
+
+          def initialize(config: nil)
+            @config = config
+          end
+
+          def auth_type
+            :oauth
+          end
+        end
+
+        metadata = custom_oauth_provider.provider_metadata(
+          requested_name: :anthropic,
+          canonical_name: :anthropic
+        )
+
+        expect(metadata[:health_check]).to include(
+          supports_registry_checks: true,
+          auth_check_supported: false
+        )
+      end
+
+      it "does not ignore Anthropic alias support for auth-check capability" do
+        anthropic_oauth_provider = Class.new do
+          include AgentHarness::Providers::Adapter
+
+          class << self
+            def provider_name = :anthropic
+            def available? = true
+            def binary_name = "anthropic-oauth"
+          end
+
+          def initialize(config: nil)
+            @config = config
+          end
+
+          def auth_type
+            :oauth
+          end
+        end
+
+        metadata = anthropic_oauth_provider.provider_metadata(
+          requested_name: :anthropic,
+          canonical_name: :anthropic
+        )
+
+        expect(metadata[:health_check]).to include(
+          supports_registry_checks: true,
+          auth_check_supported: true
+        )
+      end
+
+      it "normalizes direct alias input into a stable contract" do
+        metadata = adapter_class.provider_metadata(
+          aliases: [:test_alias, " test_alias ", :test_adapter, " ", nil, "second_alias"]
+        )
+
+        expect(metadata[:aliases]).to eq([:test_alias, :second_alias])
+        expect(metadata[:identity]).to eq(
+          bot_usernames: ["test_adapter", "test_alias", "second_alias"]
+        )
+      end
+
+      it "uses the canonical name for fallback display and alias normalization" do
+        custom_registered_adapter_class = Class.new do
+          include AgentHarness::Providers::Adapter
+
+          class << self
+            def provider_name = :internal_provider_name
+            def available? = true
+            def binary_name = "internal-provider"
+          end
+        end
+
+        metadata = custom_registered_adapter_class.provider_metadata(
+          aliases: [:external_provider_name, :external_alias],
+          canonical_name: :external_provider_name
+        )
+
+        expect(metadata).to include(
+          provider: :external_provider_name,
+          canonical_provider: :external_provider_name,
+          aliases: [:external_alias],
+          display_name: "External Provider Name"
+        )
+        expect(metadata[:identity]).to eq(
+          bot_usernames: ["external_provider_name", "external_alias"]
+        )
+      end
+
+      it "uses the canonical name for display when a custom provider inherits Base defaults" do
+        custom_base_provider_class = Class.new(AgentHarness::Providers::Base) do
+          class << self
+            def provider_name = :internal_provider_name
+            def available? = true
+            def binary_name = "internal-provider"
+          end
+        end
+
+        metadata = custom_base_provider_class.provider_metadata(
+          aliases: [:external_alias],
+          canonical_name: :external_provider_name
+        )
+
+        expect(metadata).to include(
+          provider: :external_provider_name,
+          canonical_provider: :external_provider_name,
+          aliases: [:external_alias],
+          display_name: "External Provider Name"
+        )
+      end
+
+      it "preserves provider-specific bot identities for custom Anthropic registrations" do
+        metadata = AgentHarness::Providers::Anthropic.provider_metadata(
+          aliases: [:external_alias],
+          requested_name: :external_alias,
+          canonical_name: :external_provider_name
+        )
+
+        expect(metadata).to include(
+          provider: :external_provider_name,
+          canonical_provider: :external_provider_name,
+          aliases: [:external_alias]
+        )
+        expect(metadata[:identity]).to eq(
+          bot_usernames: ["claude", "anthropic"]
         )
       end
     end

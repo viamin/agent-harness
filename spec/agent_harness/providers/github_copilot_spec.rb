@@ -27,6 +27,16 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
     end
   end
 
+  describe ".provider_metadata_overrides" do
+    it "exposes the GitHub bot actor identity for downstream metadata consumers" do
+      expect(described_class.provider_metadata_overrides).to include(
+        identity: {
+          bot_usernames: ["github-copilot[bot]"]
+        }
+      )
+    end
+  end
+
   describe ".smoke_test_contract" do
     it "returns a Copilot-specific contract without expected_output" do
       contract = described_class.smoke_test_contract

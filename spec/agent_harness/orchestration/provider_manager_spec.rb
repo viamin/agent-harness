@@ -163,6 +163,120 @@ RSpec.describe AgentHarness::Orchestration::ProviderManager do
       expect(provider1).to be(provider2)
     end
 
+    it "builds providers with only the supported constructor keywords" do
+      subset_safe_provider = Class.new do
+        include AgentHarness::Providers::Adapter
+
+        class << self
+          def provider_name = :claude
+          def binary_name = "claude"
+          def available? = true
+        end
+
+        attr_reader :config
+
+        def initialize(config: nil)
+          @config = config
+        end
+      end
+
+      allow_any_instance_of(AgentHarness::Providers::Registry).to receive(:get).and_return(subset_safe_provider)
+
+      provider = manager.get_provider(:claude)
+
+      expect(provider).to be_a(subset_safe_provider)
+      expect(provider.config.name).to eq(:claude)
+    end
+
+    it "allows extra optional constructor keywords when building providers" do
+      optional_keyword_provider = Class.new do
+        include AgentHarness::Providers::Adapter
+
+        class << self
+          def provider_name = :claude
+          def binary_name = "claude"
+          def available? = true
+        end
+
+        attr_reader :config, :timeout
+
+        def initialize(config: nil, timeout: 30)
+          @config = config
+          @timeout = timeout
+        end
+      end
+
+      allow_any_instance_of(AgentHarness::Providers::Registry).to receive(:get).and_return(optional_keyword_provider)
+
+      provider = manager.get_provider(:claude)
+
+      expect(provider).to be_a(optional_keyword_provider)
+      expect(provider.config.name).to eq(:claude)
+      expect(provider.timeout).to eq(30)
+    end
+
+    it "falls back to canonical config when building through an alias" do
+      canonical_config = AgentHarness::ProviderConfig.new(:claude)
+      custom_config = AgentHarness::Configuration.new.tap do |c|
+        c.default_provider = :claude_alias
+        c.provider(:claude) do |provider|
+          provider.enabled = true
+        end
+      end
+      custom_config.providers[:claude] = canonical_config
+
+      alias_provider = Class.new do
+        include AgentHarness::Providers::Adapter
+
+        class << self
+          def provider_name = :claude
+          def binary_name = "claude"
+          def available? = true
+        end
+
+        attr_reader :config
+
+        def initialize(config: nil)
+          @config = config
+        end
+      end
+
+      allow_any_instance_of(AgentHarness::Providers::Registry).to receive(:get).and_return(alias_provider)
+      allow_any_instance_of(AgentHarness::Providers::Registry).to receive(:canonical_name)
+        .with(:claude_alias)
+        .and_return(:claude)
+
+      provider = described_class.new(custom_config).get_provider(:claude_alias)
+
+      expect(provider).to be_a(alias_provider)
+      expect(provider.config).to be(canonical_config)
+    end
+
+    it "does not reuse provider class canonical-name config during provider construction" do
+      provider_class = Class.new do
+        include AgentHarness::Providers::Adapter
+
+        class << self
+          def provider_name = :claude
+          def binary_name = "claude"
+          def available? = true
+        end
+
+        attr_reader :config
+
+        def initialize(config: nil)
+          @config = config
+        end
+      end
+
+      allow_any_instance_of(AgentHarness::Providers::Registry).to receive(:get).and_return(provider_class)
+
+      provider = manager.get_provider(:non_canonical_provider)
+
+      expect(provider).to be_a(provider_class)
+      expect(provider.config).to be_nil
+    end
+
     it "creates request-scoped providers for executor overrides" do
       executor = instance_double(AgentHarness::CommandExecutor)
 

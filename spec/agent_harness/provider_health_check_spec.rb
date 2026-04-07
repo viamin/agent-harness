@@ -7,7 +7,8 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
     registry.reset!
     allow_any_instance_of(AgentHarness::CommandExecutor).to receive(:which) do |_executor, binary|
       case binary
-      when "test-cli", "provider-a"
+      when "test-cli", "provider-a", "canonical-cli", "claude", "subset-safe-cli",
+           "optional-keyword-cli", "custom-health-cli"
         "/tmp/#{binary}"
       end
     end
@@ -362,6 +363,107 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
       end
     end
 
+    context "when checking a provider through an alias with canonical-only config" do
+      let(:provider_class) do
+        Class.new do
+          include AgentHarness::Providers::Adapter
+
+          class << self
+            def provider_name = :canonical_provider
+            def binary_name = "canonical-cli"
+            def available? = true
+          end
+
+          def initialize(config: nil)
+            @config = config
+          end
+
+          def auth_status
+            {valid: true, expires_at: nil, error: nil}
+          end
+
+          def health_status
+            message = if @config&.name == :canonical_provider
+              "healthy"
+            else
+              "missing canonical config"
+            end
+
+            {
+              healthy: @config&.name == :canonical_provider,
+              message: message
+            }
+          end
+        end
+      end
+
+      before do
+        registry.register(:canonical_provider, provider_class, aliases: [:provider_alias])
+        AgentHarness.configuration.providers[:canonical_provider] =
+          AgentHarness::ProviderConfig.new(:canonical_provider)
+      end
+
+      after do
+        AgentHarness.configuration.providers.delete(:canonical_provider)
+      end
+
+      it "uses the canonical config fallback for runtime provider checks" do
+        result = described_class.check(:provider_alias)
+
+        expect(result[:name]).to eq(:provider_alias)
+        expect(result[:status]).to eq("degraded")
+        expect(result[:message]).to eq("Health and config checks passed (smoke test unavailable)")
+      end
+    end
+
+    context "when checking a custom provider registered under a non-canonical provider name" do
+      let(:provider_class) do
+        Class.new do
+          include AgentHarness::Providers::Adapter
+
+          class << self
+            def provider_name = :claude
+            def binary_name = "claude"
+            def available? = true
+          end
+
+          def initialize(config: nil)
+            @config = config
+          end
+
+          def auth_status
+            {valid: @config.nil? || @config.name != :claude, expires_at: nil, error: nil}
+          end
+
+          def health_status
+            {
+              healthy: @config.nil? || @config.name != :claude,
+              message: (@config.nil? || @config.name != :claude) ? "provider ready" : "wrong config"
+            }
+          end
+        end
+      end
+
+      before do
+        registry.register(:custom_health_provider, provider_class)
+        AgentHarness.configuration.providers[:claude] =
+          AgentHarness::ProviderConfig.new(:claude)
+      end
+
+      after do
+        registry.reset!
+        AgentHarness.configuration.providers.delete(:claude)
+      end
+
+      it "uses requested/canonical config only and ignores provider-name config" do
+        result = described_class.check(:custom_health_provider)
+
+        expect(result[:name]).to eq(:custom_health_provider)
+        expect(result[:status]).to eq("degraded")
+        expect(result[:message]).to eq("Health and config checks passed (smoke test unavailable)")
+      end
+    end
+
     context "when provider overrides health_status" do
       let(:provider_class) do
         Class.new(AgentHarness::Providers::Base) do
@@ -402,6 +504,94 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
         expect(result[:name]).to eq(:test_provider)
         expect(result[:status]).to eq("ok")
         expect(result[:message]).to eq("All checks passed")
+      end
+    end
+
+    context "when provider only accepts the config constructor keyword subset" do
+      let(:provider_class) do
+        Class.new do
+          include AgentHarness::Providers::Adapter
+
+          class << self
+            def provider_name = :subset_safe_provider
+            def binary_name = "subset-safe-cli"
+            def available? = true
+          end
+
+          def initialize(config: nil)
+            @config = config
+          end
+
+          def health_status
+            {healthy: @config.name == :subset_safe_provider, message: "Endpoint reachable"}
+          end
+        end
+      end
+
+      before do
+        AgentHarness.configuration.providers[:subset_safe_provider] =
+          AgentHarness::ProviderConfig.new(:subset_safe_provider)
+        registry.register(:subset_safe_provider, provider_class)
+        allow(AgentHarness::Authentication).to receive(:auth_status)
+          .with(:subset_safe_provider)
+          .and_return({valid: true, expires_at: nil, error: nil})
+      end
+
+      after do
+        AgentHarness.configuration.providers.delete(:subset_safe_provider)
+      end
+
+      it "builds the provider with the supported keyword subset" do
+        result = described_class.check(:subset_safe_provider)
+
+        expect(result[:status]).to eq("degraded")
+        expect(result[:message]).to eq("Health and config checks passed (smoke test unavailable)")
+      end
+    end
+
+    context "when provider accepts supported keywords plus extra optional keywords" do
+      let(:provider_class) do
+        Class.new do
+          include AgentHarness::Providers::Adapter
+
+          class << self
+            def provider_name = :optional_keyword_provider
+            def binary_name = "optional-keyword-cli"
+            def available? = true
+          end
+
+          def initialize(config: nil, timeout: 30)
+            @config = config
+            @timeout = timeout
+          end
+
+          def health_status
+            {
+              healthy: @config.name == :optional_keyword_provider && @timeout == 30,
+              message: "Endpoint reachable"
+            }
+          end
+        end
+      end
+
+      before do
+        AgentHarness.configuration.providers[:optional_keyword_provider] =
+          AgentHarness::ProviderConfig.new(:optional_keyword_provider)
+        registry.register(:optional_keyword_provider, provider_class)
+        allow(AgentHarness::Authentication).to receive(:auth_status)
+          .with(:optional_keyword_provider)
+          .and_return({valid: true, expires_at: nil, error: nil})
+      end
+
+      after do
+        AgentHarness.configuration.providers.delete(:optional_keyword_provider)
+      end
+
+      it "builds the provider without passing unsupported kwargs" do
+        result = described_class.check(:optional_keyword_provider)
+
+        expect(result[:status]).to eq("degraded")
+        expect(result[:message]).to eq("Health and config checks passed (smoke test unavailable)")
       end
     end
 

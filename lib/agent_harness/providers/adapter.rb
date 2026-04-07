@@ -16,12 +16,71 @@ module AgentHarness
     #     end
     #   end
     module Adapter
+      def self.normalize_metadata_installation(contract, provider_name:, binary_name:)
+        return nil unless contract.is_a?(Hash)
+
+        source = contract[:source]
+        install_command = contract[:install_command]&.dup
+
+        {
+          provider: provider_name.to_sym,
+          source_type: normalize_metadata_source_type(contract[:source_type] || source),
+          package_name: metadata_package_name(contract, source),
+          default_version: contract[:default_version] || contract[:version] || contract[:resolved_version],
+          resolved_version: contract[:resolved_version] || contract[:version] || contract[:default_version],
+          supported_version_requirement: normalize_metadata_version_requirement(
+            contract[:supported_version_requirement] || contract[:version_requirement]
+          ),
+          binary_name: contract[:binary_name] || binary_name,
+          install_command: install_command,
+          install_command_string: contract[:install_command_string] || install_command&.join(" ")
+        }
+      end
+
+      def self.normalize_metadata_source_type(source)
+        return source[:type]&.to_sym if source.is_a?(Hash)
+
+        source&.to_sym
+      end
+
+      def self.metadata_package_name(contract, source)
+        return contract[:package_name] if contract[:package_name]
+        return source[:package] if source.is_a?(Hash)
+
+        package = contract[:package]
+        return package unless package.is_a?(String)
+
+        if package.split("@").first == ""
+          package.split("@", 3).first(2).join("@")
+        else
+          package.split("@", 2).first
+        end
+      end
+
+      def self.normalize_metadata_version_requirement(requirement)
+        case requirement
+        when nil
+          nil
+        when Array
+          if requirement.all? { |entry| entry.is_a?(Array) && entry.length == 2 }
+            requirement.map { |operator, version| "#{operator} #{version}" }.join(", ")
+          else
+            requirement.join(", ")
+          end
+        else
+          requirement.to_s
+        end
+      end
+
       def self.included(base)
         base.extend(ClassMethods)
       end
 
       # Class methods that all providers must implement
       module ClassMethods
+        SUPPORTED_OAUTH_AUTH_STATUS_PROVIDERS = %i[anthropic claude].freeze
+        IMMUTABLE_METADATA_OVERRIDE_KEYS = %i[provider canonical_provider aliases binary_name].freeze
+
         # Human-readable provider name
         #
         # @return [Symbol] unique identifier for this provider
@@ -123,6 +182,431 @@ module AgentHarness
           end
         end
 
+        # Stable provider metadata for downstream configuration and policy UIs.
+        #
+        # This contract consolidates provider identifier aliases, auth/runtime
+        # details, installability, and health-check characteristics so apps do
+        # not need to maintain their own partial mirrors of adapter behavior.
+        #
+        # @param aliases [Array<Symbol, String>] alternate identifiers registered
+        #   for this provider
+        # @param requested_name [Symbol, String] provider identifier originally
+        #   requested by the caller; used to prefer alias-keyed config when
+        #   metadata construction is config-sensitive
+        # @param canonical_name [Symbol, String] canonical registry identifier
+        #   for this provider; used for the public stable metadata contract
+        # @return [Hash] provider metadata
+        def provider_metadata(aliases: [], refresh: false, requested_name: provider_name, canonical_name: provider_name)
+          normalized_aliases = normalize_metadata_aliases(aliases, canonical_name: canonical_name)
+          requested_provider_name = requested_name.to_sym
+          canonical_provider_name = canonical_name.to_sym
+          provider = metadata_provider_instance(
+            requested_name: requested_provider_name,
+            canonical_name: canonical_provider_name
+          )
+          configuration = deep_merge_metadata(
+            default_configuration_schema,
+            provider_metadata_hash(provider, :configuration_schema, default: {})
+          )
+          execution = deep_merge_metadata(
+            default_execution_semantics,
+            provider_metadata_hash(provider, :execution_semantics, default: {})
+          )
+          installation = Adapter.normalize_metadata_installation(
+            installation_contract,
+            provider_name: canonical_provider_name,
+            binary_name: binary_name
+          )
+          supported_auth_modes = Array(configuration[:auth_modes]).map(&:to_sym)
+          supports_registry_checks = !provider.nil?
+          auth_check_supported = auth_status_available?(
+            provider,
+            requested_name: requested_provider_name,
+            canonical_name: canonical_provider_name,
+            refresh: refresh
+          )
+          provider_status_check = supports_registry_checks && overrides_instance_method?(:health_status)
+          configuration_validation = supports_registry_checks && overrides_instance_method?(:validate_config)
+          lightweight_checks = supports_registry_checks && !provider_status_check && !configuration_validation
+
+          metadata = {
+            provider: canonical_provider_name,
+            canonical_provider: canonical_provider_name,
+            aliases: normalized_aliases,
+            display_name: provider_display_name(provider, canonical_name: canonical_provider_name),
+            binary_name: binary_name,
+            auth: {
+              default_mode: metadata_default_auth_mode(provider, supported_modes: supported_auth_modes),
+              supported_modes: supported_auth_modes,
+              service: nil,
+              api_family: nil
+            },
+            runtime: {
+              interface: :cli,
+              requires_cli: true,
+              available: metadata_runtime_available(refresh: refresh),
+              installable: !installation.nil?,
+              installation: installation,
+              prompt_delivery: execution[:prompt_delivery],
+              output_format: execution[:output_format],
+              sandbox_aware: execution[:sandbox_aware],
+              uses_subcommand: execution[:uses_subcommand],
+              supports_mcp: provider_metadata_value(provider, :supports_mcp?, default: default_supports_mcp),
+              supported_mcp_transports: provider_metadata_value(
+                provider,
+                :supported_mcp_transports,
+                default: default_supported_mcp_transports
+              ),
+              supports_sessions: provider_metadata_value(
+                provider,
+                :supports_sessions?,
+                default: default_supports_sessions
+              ),
+              supports_dangerous_mode: provider_metadata_value(
+                provider,
+                :supports_dangerous_mode?,
+                default: default_supports_dangerous_mode
+              )
+            },
+            configuration: configuration,
+            capabilities: deep_merge_metadata(
+              default_capabilities,
+              provider_metadata_hash(provider, :capabilities, default: {})
+            ),
+            health_check: {
+              supports_registry_checks: supports_registry_checks,
+              auth_check_supported: auth_check_supported,
+              provider_status: provider_status_check,
+              configuration_validation: configuration_validation,
+              lightweight: lightweight_checks
+            },
+            identity: {
+              bot_usernames: provider_bot_usernames(
+                canonical_name: canonical_provider_name,
+                aliases: normalized_aliases
+              )
+            }
+          }
+
+          deep_merge_metadata(metadata, sanitized_provider_metadata_overrides)
+        end
+
+        # Optional provider-specific metadata overrides for provider_metadata.
+        #
+        # @return [Hash]
+        def provider_metadata_overrides
+          {}
+        end
+
+        private
+
+        def normalize_metadata_aliases(aliases, canonical_name: provider_name)
+          canonical_provider_name = canonical_name.to_sym
+
+          Array(aliases)
+            .filter_map do |alias_name|
+              normalized_alias = alias_name.to_s.strip
+              next if normalized_alias.empty?
+
+              normalized_alias.to_sym
+            end
+            .uniq
+            .reject { |alias_name| alias_name == canonical_provider_name }
+        end
+
+        def provider_bot_usernames(canonical_name: provider_name, aliases: [])
+          [canonical_name, *aliases]
+            .filter_map do |identity|
+              normalized_identity = identity.to_s.strip
+              normalized_identity unless normalized_identity.empty?
+            end
+            .uniq
+        end
+
+        def metadata_provider_instance(requested_name: provider_name, canonical_name: provider_name)
+          build_provider_instance(
+            config: metadata_provider_config(requested_name, canonical_name: canonical_name),
+            executor: AgentHarness.configuration.command_executor,
+            logger: AgentHarness.logger
+          )
+        rescue => e
+          AgentHarness.logger&.debug(
+            "[AgentHarness::Providers::Adapter] Falling back to default metadata for #{provider_name}: #{e.class}"
+          )
+          nil
+        end
+
+        def safe_metadata_provider_instance(requested_name: provider_name, canonical_name: provider_name)
+          build_provider_instance(
+            config: metadata_provider_config(requested_name, canonical_name: canonical_name),
+            executor: AgentHarness.configuration.command_executor,
+            logger: AgentHarness.logger
+          )
+        rescue
+          # Return nil without logging - caller is responsible for handling
+          nil
+        end
+
+        def build_provider_instance(config: nil, executor: nil, logger: nil)
+          kwargs = provider_instance_kwargs(config: config, executor: executor, logger: logger)
+
+          if metadata_initializer_compatible? && !legacy_positional_initializer?
+            new(**kwargs)
+          else
+            # Preserve backwards compatibility with legacy positional constructors
+            # that accept arguments via a splat (e.g. initialize(*args)).
+            new(config: config, executor: executor, logger: logger)
+          end
+        rescue ArgumentError => e
+          # Only retry for signature-mismatch errors (wrong number/type of
+          # arguments), not for ArgumentError raised by real validation inside
+          # the initializer, which would duplicate side effects or expensive
+          # setup on the second call.
+          raise unless e.message.match?(/wrong number of arguments|unknown keyword|missing keyword/i)
+
+          new(config: config, executor: executor, logger: logger)
+        end
+
+        def provider_instance_kwargs(config: nil, executor: nil, logger: nil)
+          parameters = instance_method(:initialize).parameters
+          accepts = lambda do |name|
+            parameters.any? { |type, param_name| [:key, :keyreq].include?(type) && param_name == name } ||
+              parameters.any? { |type, _| type == :keyrest }
+          end
+
+          kwargs = {}
+          kwargs[:config] = config if accepts.call(:config)
+          kwargs[:executor] = executor if accepts.call(:executor)
+          kwargs[:logger] = logger if accepts.call(:logger)
+
+          kwargs
+        end
+
+        def legacy_positional_initializer?
+          instance_method(:initialize).parameters.any? do |type, _|
+            # Splat (*args) or optional positional (e.g. config = nil) params
+            # indicate a legacy constructor that should receive the full
+            # config:/executor:/logger: keyword set directly.
+            type == :rest || type == :opt
+          end
+        end
+
+        def metadata_provider_config(requested_name, canonical_name: provider_name)
+          requested_provider_name = requested_name.to_sym
+          canonical_provider_name = canonical_name.to_sym
+
+          AgentHarness.configuration.providers[requested_provider_name] ||
+            AgentHarness.configuration.providers[canonical_provider_name] ||
+            AgentHarness::ProviderConfig.new(requested_provider_name)
+        end
+
+        def metadata_initializer_compatible?
+          required_keywords = initializer_required_keywords
+          return false if instance_method(:initialize).parameters.any? { |type, _name| type == :req }
+
+          (required_keywords - supported_initializer_keywords).empty?
+        end
+
+        # Check if this provider has auth_status support available for health checks
+        #
+        # This differs from supports_registry_checks - it specifically indicates whether
+        # the auth status check will succeed or return "not implemented"
+        def auth_status_available?(
+          provider_instance = nil,
+          requested_name: provider_name,
+          canonical_name: provider_name,
+          refresh: false
+        )
+          @auth_status_available = {} unless instance_variable_defined?(:@auth_status_available)
+          cache_key = [requested_name.to_sym, canonical_name.to_sym]
+          return @auth_status_available[cache_key] if !refresh && @auth_status_available.key?(cache_key)
+
+          @auth_status_available[cache_key] = begin
+            provider_instance ||= safe_metadata_provider_instance(
+              requested_name: requested_name,
+              canonical_name: canonical_name
+            )
+            auth_status_supported_by?(
+              provider_instance,
+              requested_name: requested_name,
+              canonical_name: canonical_name
+            )
+          rescue
+            false
+          end
+        end
+
+        def auth_status_supported_by?(provider_instance, requested_name: provider_name, canonical_name: provider_name)
+          return false unless provider_instance
+
+          if provider_instance.respond_to?(:auth_status) &&
+              provider_instance.method(:auth_status).owner != AgentHarness::Providers::Adapter
+            return true
+          end
+
+          return false unless provider_instance.respond_to?(:auth_type)
+
+          case provider_instance.auth_type
+          when :api_key
+            false
+          when :oauth
+            provider_class_name = if provider_instance.class.respond_to?(:provider_name)
+              provider_instance.class.provider_name.to_sym
+            end
+
+            return false unless SUPPORTED_OAUTH_AUTH_STATUS_PROVIDERS.include?(provider_class_name)
+
+            [requested_name, canonical_name]
+              .map(&:to_sym)
+              .any? { |name| SUPPORTED_OAUTH_AUTH_STATUS_PROVIDERS.include?(name) }
+          else
+            false
+          end
+        end
+
+        def initializer_required_keywords
+          parameters = instance_method(:initialize).parameters
+
+          parameters.filter_map { |type, name| name if type == :keyreq }
+        end
+
+        def supported_initializer_keywords
+          %i[config executor logger]
+        end
+
+        def metadata_runtime_available(refresh: false)
+          if refresh || !instance_variable_defined?(:@metadata_runtime_available)
+            @metadata_runtime_available = available?
+          end
+
+          @metadata_runtime_available
+        end
+
+        def overrides_instance_method?(method_name)
+          instance_method(method_name).owner != AgentHarness::Providers::Adapter
+        end
+
+        def deep_merge_metadata(base, overrides)
+          return base unless overrides.is_a?(Hash)
+
+          base.merge(overrides) do |_key, left, right|
+            if left.is_a?(Hash) && right.is_a?(Hash)
+              deep_merge_metadata(left, right)
+            else
+              right
+            end
+          end
+        end
+
+        def sanitized_provider_metadata_overrides
+          overrides = provider_metadata_overrides
+          return {} unless overrides.is_a?(Hash)
+
+          overrides.each_with_object({}) do |(key, value), sanitized|
+            next if immutable_metadata_override_key?(key)
+
+            sanitized[key] = value
+          end
+        end
+
+        def immutable_metadata_override_key?(key)
+          IMMUTABLE_METADATA_OVERRIDE_KEYS.include?(key.to_sym)
+        rescue NoMethodError
+          false
+        end
+
+        def provider_metadata_hash(provider, method_name, default:)
+          value = provider_metadata_value(provider, method_name, default: default)
+          value.is_a?(Hash) ? value : default
+        end
+
+        def provider_metadata_value(provider, method_name, default:)
+          return default unless provider
+
+          provider.public_send(method_name)
+        rescue => e
+          AgentHarness.logger&.debug(
+            "[AgentHarness::Providers::Adapter] Falling back to default #{method_name} metadata for #{provider_name}: #{e.class}"
+          )
+          default
+        end
+
+        def provider_display_name(provider, canonical_name: provider_name)
+          if provider&.respond_to?(:display_name) &&
+              provider.method(:display_name).owner != AgentHarness::Providers::Base
+            return provider_metadata_value(
+              provider,
+              :display_name,
+              default: canonical_name.to_s.split("_").map(&:capitalize).join(" ")
+            )
+          end
+
+          canonical_name.to_s.split("_").map(&:capitalize).join(" ")
+        end
+
+        def metadata_default_auth_mode(provider, supported_modes:)
+          provider_auth_type = provider_metadata_value(provider, :auth_type, default: nil)&.to_sym
+          return provider_auth_type if provider_auth_type && supported_modes.include?(provider_auth_type)
+          return supported_modes.first unless supported_modes.empty?
+
+          provider_auth_type
+        end
+
+        def default_configuration_schema
+          {
+            fields: [],
+            auth_modes: [default_auth_type],
+            openai_compatible: false
+          }
+        end
+
+        def default_execution_semantics
+          {
+            prompt_delivery: :arg,
+            output_format: :text,
+            sandbox_aware: false,
+            uses_subcommand: false,
+            non_interactive_flag: nil,
+            legitimate_exit_codes: [0],
+            stderr_is_diagnostic: true,
+            parses_rate_limit_reset: false
+          }
+        end
+
+        def default_auth_type
+          :api_key
+        end
+
+        def default_capabilities
+          {
+            streaming: false,
+            file_upload: false,
+            vision: false,
+            tool_use: false,
+            json_mode: false,
+            mcp: false,
+            dangerous_mode: false
+          }
+        end
+
+        def default_supports_mcp
+          false
+        end
+
+        def default_supported_mcp_transports
+          []
+        end
+
+        def default_supports_sessions
+          false
+        end
+
+        def default_supports_dangerous_mode
+          false
+        end
+
+        public
+
         # Shell command for installing the provider CLI.
         #
         # @param version [String, Symbol, nil] optional install target/version
@@ -150,7 +634,10 @@ module AgentHarness
 
           requirement = contract[:version_requirement]
           if requirement
-            parsed_requirement = Gem::Requirement.new(*Array(requirement))
+            requirement_args = Array(requirement).map do |entry|
+              entry.is_a?(Array) ? "#{entry[0]} #{entry[1]}" : entry
+            end
+            parsed_requirement = Gem::Requirement.new(*requirement_args)
             unless parsed_requirement.satisfied_by?(Gem::Version.new(version))
               raise ArgumentError,
                 "Unsupported #{provider_name} CLI version #{version.inspect}; " \
