@@ -26,6 +26,14 @@ module AgentHarness
     class Base
       include Adapter
 
+      DEFAULT_SMOKE_TEST_CONTRACT = {
+        prompt: "Reply with exactly OK.",
+        expected_output: "OK",
+        timeout: 30,
+        require_output: true,
+        success_message: "Smoke test passed"
+      }.freeze
+
       # Common error patterns shared across providers that use standard
       # HTTP-style error responses. Providers with unique patterns (e.g.
       # Anthropic, GitHub Copilot) override error_patterns entirely.
@@ -56,6 +64,12 @@ module AgentHarness
 
       attr_reader :config, :logger
       attr_accessor :executor
+
+      class << self
+        def smoke_test_contract
+          nil
+        end
+      end
 
       # Initialize the provider
       #

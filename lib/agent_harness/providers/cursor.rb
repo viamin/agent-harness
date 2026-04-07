@@ -83,6 +83,10 @@ module AgentHarness
         def supports_model_family?(family_name)
           family_name.match?(/^(claude|gpt|cursor)-/)
         end
+
+        def smoke_test_contract
+          Base::DEFAULT_SMOKE_TEST_CONTRACT
+        end
       end
 
       def name
