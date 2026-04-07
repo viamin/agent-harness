@@ -240,6 +240,18 @@ RSpec.describe AgentHarness::Orchestration::Conductor, "#send_message" do
 
       expect(conductor.metrics.summary[:total_failures]).to be >= 1
     end
+
+    it "does not record_success on the shared provider manager for executor-scoped requests" do
+      expect(mock_provider_manager).not_to receive(:record_success)
+
+      conductor.send_message("Hello", executor: executor)
+    end
+
+    it "still records success metrics for executor-scoped requests" do
+      conductor.send_message("Hello", executor: executor)
+
+      expect(conductor.metrics.summary[:total_successes]).to be >= 1
+    end
   end
 
   describe "generic error with switch" do

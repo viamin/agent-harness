@@ -99,7 +99,9 @@ module AgentHarness
 
           # Record success
           @metrics.record_success(provider_name, duration)
-          @provider_manager.record_success(provider_name)
+          # Only update shared health state for default-executor traffic;
+          # request-scoped executor successes must not heal the global provider.
+          @provider_manager.record_success(provider_name) unless executor
 
           response
         rescue AuthenticationError => e
