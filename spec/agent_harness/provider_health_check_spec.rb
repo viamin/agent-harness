@@ -624,8 +624,69 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
         expect(result[:status]).to eq("ok")
         expect(result[:message]).to eq("Smoke test passed using the supplied execution context")
         expect(provider_class.last_executor).to eq(custom_executor)
-        expect(provider_class.last_timeout).to eq(9)
+        # Health-check timeout is no longer forwarded; smoke_test uses
+        # its own contract timeout (or nil when the provider overrides
+        # smoke_test directly and manages its own timeout).
+        expect(provider_class.last_timeout).to be_nil
         expect(provider_class.last_provider_runtime).to eq({model: "runtime-model"})
+      end
+    end
+
+    context "when provider contract timeout exceeds health-check timeout" do
+      let(:provider_class) do
+        Class.new(AgentHarness::Providers::Base) do
+          class << self
+            attr_reader :last_timeout
+
+            def provider_name
+              :test_provider
+            end
+
+            def binary_name
+              "test-cli"
+            end
+
+            def available?
+              true
+            end
+
+            def smoke_test_contract
+              {prompt: "Reply with exactly OK.", expected_output: "OK", timeout: 45, require_output: true}
+            end
+          end
+
+          def smoke_test(timeout: nil, provider_runtime: nil)
+            self.class.instance_variable_set(:@last_timeout, timeout)
+            {ok: true, status: "ok", message: "Smoke test passed", error_category: nil}
+          end
+        end
+      end
+
+      before do
+        registry.register(:test_provider, provider_class)
+        allow(AgentHarness::Authentication).to receive(:auth_status)
+          .with(:test_provider)
+          .and_return({valid: true, expires_at: nil, error: nil})
+      end
+
+      it "does not forward the health-check timeout to smoke_test" do
+        described_class.check(:test_provider, timeout: 5)
+
+        # smoke_test receives nil so it can use its own contract timeout (45s)
+        expect(provider_class.last_timeout).to be_nil
+      end
+
+      it "extends the outer timeout to honor the contract timeout" do
+        received_timeout = nil
+        allow(Timeout).to receive(:timeout).and_wrap_original do |original, timeout, &block|
+          received_timeout = timeout
+          original.call(timeout, &block)
+        end
+
+        described_class.check(:test_provider, timeout: 5)
+
+        # Outer timeout should be max(5, 45) = 45
+        expect(received_timeout).to eq(45)
       end
     end
 
@@ -880,9 +941,20 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
 
         expect(result[:status]).to eq("error")
         expect(result[:message]).to include("timed out")
-        expect(result[:message]).to include("2s")
+        # The outer timeout honors the provider contract timeout (30s)
+        # when it exceeds the caller-supplied health-check timeout (2s).
+        expect(result[:message]).to include("30s")
         expect(result[:error_category]).to eq(:timeout)
         expect(result[:check]).to eq(:timeout)
+      end
+
+      it "uses the caller timeout when the provider has no contract" do
+        result = described_class.check(:nonexistent, timeout: 2)
+
+        expect(result[:status]).to eq("error")
+        expect(result[:message]).to include("timed out")
+        expect(result[:message]).to include("2s")
+        expect(result[:error_category]).to eq(:timeout)
       end
     end
 

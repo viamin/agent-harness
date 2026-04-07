@@ -49,7 +49,12 @@ module AgentHarness
         start_time = monotonic_now
         timeout = validate_timeout(timeout)
 
-        Timeout.timeout(timeout) do
+        # Honor the provider smoke-test contract timeout when it exceeds
+        # the health-check timeout, so real CLI round trips are not
+        # falsely reported as timeouts.
+        outer_timeout = effective_check_timeout(name, timeout)
+
+        Timeout.timeout(outer_timeout) do
           perform_check(
             name,
             start_time,
@@ -62,7 +67,7 @@ module AgentHarness
         build_result(
           name: name,
           status: "error",
-          message: "Health check timed out after #{timeout}s",
+          message: "Health check timed out after #{outer_timeout || timeout}s",
           start_time: start_time || monotonic_now,
           error_category: :timeout,
           check: :timeout
@@ -276,7 +281,9 @@ module AgentHarness
           )
         end
 
-        smoke = provider_instance.smoke_test(timeout: timeout, provider_runtime: provider_runtime)
+        # Let the provider contract's own timeout govern the smoke test
+        # rather than the (typically shorter) health-check timeout.
+        smoke = provider_instance.smoke_test(timeout: nil, provider_runtime: provider_runtime)
         unless smoke[:ok]
           return build_result(
             name: provider_name,
@@ -342,6 +349,17 @@ module AgentHarness
           return false if runtime && (!runtime.env.empty? || !runtime.unset_env.empty? || runtime.base_url || runtime.api_provider)
         end
         effective_executor.is_a?(CommandExecutor) && !effective_executor.is_a?(DockerCommandExecutor)
+      end
+
+      def effective_check_timeout(provider_name, base_timeout)
+        registry = Providers::Registry.instance
+        return base_timeout unless registry.registered?(provider_name)
+
+        contract = registry.smoke_test_contract(provider_name)
+        contract_timeout = contract&.dig(:timeout)
+        return base_timeout unless contract_timeout.is_a?(Numeric) && contract_timeout.positive?
+
+        [base_timeout, contract_timeout].max
       end
 
       def normalize_smoke_error_category(category, message)
