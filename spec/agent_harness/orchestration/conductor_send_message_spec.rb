@@ -66,6 +66,15 @@ RSpec.describe AgentHarness::Orchestration::Conductor, "#send_message" do
       conductor.send_message("Hello")
       expect(conductor.metrics.summary[:total_attempts]).to eq(1)
     end
+
+    it "passes executor overrides through provider selection" do
+      executor = instance_double(AgentHarness::CommandExecutor)
+
+      expect(mock_provider_manager).to receive(:select_provider).with(:test_provider, executor: executor)
+        .and_return(mock_provider)
+
+      conductor.send_message("Hello", executor: executor)
+    end
   end
 
   describe "rate limit error" do
@@ -79,6 +88,39 @@ RSpec.describe AgentHarness::Orchestration::Conductor, "#send_message" do
     it "marks provider as rate limited" do
       expect(mock_provider_manager).to receive(:mark_rate_limited).at_least(:once)
       expect { conductor.send_message("Hello") }.to raise_error(AgentHarness::RateLimitError)
+    end
+
+    it "retries with the switched provider for executor-scoped requests" do
+      executor = instance_double(AgentHarness::CommandExecutor)
+      fallback_provider = instance_double(AgentHarness::Providers::Base)
+
+      allow(mock_provider).to receive(:send_message).and_raise(
+        AgentHarness::RateLimitError.new("rate limited", reset_time: Time.now + 3600)
+      )
+      allow(fallback_provider).to receive_message_chain(:class, :provider_name).and_return(:fallback_provider)
+      allow(fallback_provider).to receive(:send_message).and_return(
+        AgentHarness::Response.new(
+          output: "fallback response",
+          exit_code: 0,
+          duration: 1.0,
+          provider: :fallback_provider
+        )
+      )
+
+      expect(mock_provider_manager).to receive(:select_provider).with(:test_provider, executor: executor)
+        .ordered.and_return(mock_provider)
+      expect(mock_provider_manager).to receive(:switch_provider).with(
+        from: :test_provider,
+        reason: "AgentHarness::RateLimitError",
+        context: {error: "rate limited"},
+        executor: executor
+      ).ordered.and_return(fallback_provider)
+      expect(mock_provider_manager).to receive(:select_provider).with(:fallback_provider, executor: executor)
+        .ordered.and_return(fallback_provider)
+
+      response = conductor.send_message("Hello", executor: executor)
+
+      expect(response.output).to eq("fallback response")
     end
   end
 
@@ -164,6 +206,114 @@ RSpec.describe AgentHarness::Orchestration::Conductor, "#send_message" do
     end
   end
 
+  describe "executor-scoped failures do not poison global health" do
+    let(:executor) { instance_double(AgentHarness::CommandExecutor) }
+
+    before do
+      allow(mock_provider_manager).to receive(:select_provider)
+        .with(:test_provider, executor: executor).and_return(mock_provider)
+    end
+
+    it "does not mark_rate_limited on the shared provider manager for rate-limit errors" do
+      allow(mock_provider).to receive(:send_message).and_raise(
+        AgentHarness::RateLimitError.new("rate limited", reset_time: Time.now + 3600)
+      )
+
+      expect(mock_provider_manager).not_to receive(:mark_rate_limited)
+
+      expect { conductor.send_message("Hello", executor: executor) }
+        .to raise_error(AgentHarness::RateLimitError)
+    end
+
+    it "does not record_failure on the shared provider manager for timeout errors" do
+      allow(mock_provider).to receive(:send_message).and_raise(
+        AgentHarness::TimeoutError.new("timed out")
+      )
+
+      expect(mock_provider_manager).not_to receive(:record_failure)
+
+      expect { conductor.send_message("Hello", executor: executor) }
+        .to raise_error(AgentHarness::TimeoutError)
+    end
+
+    it "does not record_failure on the shared provider manager for generic errors" do
+      allow(mock_provider).to receive(:send_message).and_raise(
+        StandardError.new("unexpected error")
+      )
+      allow(config.orchestration_config).to receive(:auto_switch_on_error).and_return(true)
+
+      expect(mock_provider_manager).not_to receive(:record_failure)
+
+      expect { conductor.send_message("Hello", executor: executor) }
+        .to raise_error(AgentHarness::ProviderError)
+    end
+
+    it "still records metrics for executor-scoped failures" do
+      allow(mock_provider).to receive(:send_message).and_raise(
+        AgentHarness::TimeoutError.new("timed out")
+      )
+
+      expect { conductor.send_message("Hello", executor: executor) }
+        .to raise_error(AgentHarness::TimeoutError)
+
+      expect(conductor.metrics.summary[:total_failures]).to be >= 1
+    end
+
+    it "does not record_success on the shared provider manager for executor-scoped requests" do
+      expect(mock_provider_manager).not_to receive(:record_success)
+
+      conductor.send_message("Hello", executor: executor)
+    end
+
+    it "still records success metrics for executor-scoped requests" do
+      conductor.send_message("Hello", executor: executor)
+
+      expect(conductor.metrics.summary[:total_successes]).to be >= 1
+    end
+  end
+
+  describe "executor-scoped timeout retries fall back via switch" do
+    let(:executor) { instance_double(AgentHarness::CommandExecutor) }
+
+    let(:fallback_provider) do
+      instance_double(AgentHarness::Providers::Base).tap do |p|
+        allow(p).to receive_message_chain(:class, :provider_name).and_return(:fallback_provider)
+        allow(p).to receive(:send_message).and_return(
+          AgentHarness::Response.new(
+            output: "fallback response",
+            exit_code: 0,
+            duration: 1.0,
+            provider: :fallback_provider
+          )
+        )
+      end
+    end
+
+    before do
+      allow(mock_provider).to receive(:send_message).and_raise(
+        AgentHarness::TimeoutError.new("timed out")
+      )
+      allow(config.orchestration_config).to receive(:auto_switch_on_error).and_return(true)
+    end
+
+    it "switches provider on timeout instead of retrying the same one" do
+      expect(mock_provider_manager).to receive(:select_provider)
+        .with(:test_provider, executor: executor).ordered.and_return(mock_provider)
+      expect(mock_provider_manager).to receive(:switch_provider).with(
+        from: :test_provider,
+        reason: "AgentHarness::TimeoutError",
+        context: {error: "timed out"},
+        executor: executor
+      ).ordered.and_return(fallback_provider)
+      expect(mock_provider_manager).to receive(:select_provider)
+        .with(:fallback_provider, executor: executor).ordered.and_return(fallback_provider)
+
+      response = conductor.send_message("Hello", executor: executor)
+
+      expect(response.output).to eq("fallback response")
+    end
+  end
+
   describe "generic error with switch" do
     before do
       # Use generic error which triggers switch strategy (not caught by specific handlers)
@@ -195,6 +345,15 @@ RSpec.describe AgentHarness::Orchestration::Conductor, "#send_message" do
     it "bypasses orchestration" do
       response = conductor.execute_direct("Hello", provider: :direct)
       expect(response.output).to eq("direct")
+    end
+
+    it "passes executor overrides to the provider manager" do
+      executor = instance_double(AgentHarness::CommandExecutor)
+
+      expect(mock_provider_manager).to receive(:get_provider).with(:direct, executor: executor)
+        .and_return(direct_provider)
+
+      conductor.execute_direct("Hello", provider: :direct, executor: executor)
     end
   end
 end
