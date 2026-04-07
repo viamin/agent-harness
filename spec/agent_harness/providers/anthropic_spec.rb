@@ -73,6 +73,30 @@ RSpec.describe AgentHarness::Providers::Anthropic do
 
       expect(contract.dig(:install, :command)).to include("bash \"$tmp_script\" 2.1.95")
     end
+
+    it "accepts semver with pre-release suffix" do
+      contract = described_class.install_contract(version: "2.2.0-beta.1")
+
+      expect(contract.dig(:install, :command)).to include("bash \"$tmp_script\" 2.2.0-beta.1")
+    end
+
+    it "accepts channel tokens like 'latest' and 'stable'" do
+      %w[latest stable].each do |channel|
+        contract = described_class.install_contract(version: channel)
+
+        expect(contract.dig(:install, :command)).to include("bash \"$tmp_script\" #{channel}")
+      end
+    end
+
+    it "rejects versions containing shell metacharacters" do
+      expect { described_class.install_contract(version: "2.1.92; rm -rf /") }
+        .to raise_error(ArgumentError, /Invalid version/)
+    end
+
+    it "rejects arbitrary strings that are not semver or channel tokens" do
+      expect { described_class.install_contract(version: "$(whoami)") }
+        .to raise_error(ArgumentError, /Invalid version/)
+    end
   end
 
   describe ".firewall_requirements" do

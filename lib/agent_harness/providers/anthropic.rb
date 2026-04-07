@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "json"
+require "shellwords"
 
 module AgentHarness
   module Providers
@@ -18,6 +19,10 @@ module AgentHarness
       SUPPORTED_CLI_VERSION = "2.1.92"
       SUPPORTED_CLI_REQUIREMENT = Gem::Requirement.new(">= #{SUPPORTED_CLI_VERSION}", "< 2.2.0").freeze
 
+      # Matches semver (e.g. "2.1.92"), optional pre-release (e.g. "2.1.92-beta.1"),
+      # or channel tokens (e.g. "latest", "stable").
+      VALID_VERSION_PATTERN = /\A(?:\d+\.\d+\.\d+(?:-[a-zA-Z0-9.]+)?|latest|stable)\z/
+
       class << self
         def provider_name
           :claude
@@ -29,6 +34,7 @@ module AgentHarness
 
         def install_contract(version: nil)
           target_version = version || SUPPORTED_CLI_VERSION
+          validate_version!(target_version)
           version_requirement = SUPPORTED_CLI_REQUIREMENT.requirements
             .map { |op, ver| "#{op} #{ver}" }
             .join(", ")
@@ -43,7 +49,7 @@ module AgentHarness
             install: {
               strategy: :shell,
               source: "official",
-              command: "tmp_script=$(mktemp) && trap 'rm -f \"$tmp_script\"' EXIT && curl -fsSL https://claude.ai/install.sh -o \"$tmp_script\" && bash \"$tmp_script\" #{target_version}",
+              command: "tmp_script=$(mktemp) && trap 'rm -f \"$tmp_script\"' EXIT && curl -fsSL https://claude.ai/install.sh -o \"$tmp_script\" && bash \"$tmp_script\" #{Shellwords.shellescape(target_version)}",
               warning: "Review the downloaded installer before execution and verify any published checksum or signature metadata when available.",
               post_install_binary_path: "$HOME/.local/bin/claude"
             },
@@ -128,6 +134,13 @@ module AgentHarness
         end
 
         private
+
+        def validate_version!(version)
+          return if VALID_VERSION_PATTERN.match?(version.to_s)
+
+          raise ArgumentError, "Invalid version: #{version.inspect}. " \
+            "Must be a semver string (e.g. '2.1.92'), optional pre-release suffix, or a channel token ('latest', 'stable')."
+        end
 
         def parse_models_list(output)
           return [] if output.nil? || output.empty?
