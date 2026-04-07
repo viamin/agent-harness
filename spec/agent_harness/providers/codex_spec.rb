@@ -239,6 +239,25 @@ RSpec.describe AgentHarness::Providers::Codex do
         end
       end
 
+      context "with default_flags containing --full-auto and externally_sandboxed" do
+        let(:config_with_full_auto) do
+          AgentHarness::ProviderConfig.new(:codex).tap do |c|
+            c.default_flags = ["--full-auto", "--quiet"]
+            c.externally_sandboxed = true
+          end
+        end
+        let(:provider_with_full_auto) { described_class.new(config: config_with_full_auto, executor: mock_executor) }
+
+        it "strips --full-auto from default_flags to avoid sandbox mode conflict" do
+          expect(mock_executor).to receive(:execute).with(
+            ["codex", "exec", "--quiet", "--dangerously-bypass-approvals-and-sandbox", "Hello"],
+            anything
+          ).and_return(success_result)
+
+          provider_with_full_auto.send_message(prompt: "Hello")
+        end
+      end
+
       it "returns a Response object" do
         allow(mock_executor).to receive(:execute).and_return(
           AgentHarness::CommandExecutor::Result.new(

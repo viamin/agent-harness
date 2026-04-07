@@ -242,6 +242,9 @@ module AgentHarness
           unless flags.is_a?(Array)
             raise ArgumentError, "Codex configuration error: default_flags must be an array of strings"
           end
+          # Strip --full-auto from defaults when externally sandboxed to avoid
+          # conflicting with --dangerously-bypass-approvals-and-sandbox.
+          flags -= dangerous_mode_flags if externally_sandboxed
           cmd += flags if flags.any?
         end
 
@@ -256,7 +259,10 @@ module AgentHarness
         runtime = options[:provider_runtime]
         if runtime
           cmd += ["--model", runtime.model] if runtime.model
-          cmd += runtime.flags unless runtime.flags.empty?
+          runtime_flags = runtime.flags
+          # Strip --full-auto from runtime flags when externally sandboxed.
+          runtime_flags -= dangerous_mode_flags if externally_sandboxed
+          cmd += runtime_flags unless runtime_flags.empty?
         end
 
         cmd << prompt
