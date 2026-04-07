@@ -188,6 +188,60 @@ RSpec.describe AgentHarness::Orchestration::Conductor, "#send_message" do
     end
   end
 
+  describe "executor-scoped failures do not poison global health" do
+    let(:executor) { instance_double(AgentHarness::CommandExecutor) }
+
+    before do
+      allow(mock_provider_manager).to receive(:select_provider)
+        .with(:test_provider, executor: executor).and_return(mock_provider)
+    end
+
+    it "does not mark_rate_limited on the shared provider manager for rate-limit errors" do
+      allow(mock_provider).to receive(:send_message).and_raise(
+        AgentHarness::RateLimitError.new("rate limited", reset_time: Time.now + 3600)
+      )
+
+      expect(mock_provider_manager).not_to receive(:mark_rate_limited)
+
+      expect { conductor.send_message("Hello", executor: executor) }
+        .to raise_error(AgentHarness::RateLimitError)
+    end
+
+    it "does not record_failure on the shared provider manager for timeout errors" do
+      allow(mock_provider).to receive(:send_message).and_raise(
+        AgentHarness::TimeoutError.new("timed out")
+      )
+
+      expect(mock_provider_manager).not_to receive(:record_failure)
+
+      expect { conductor.send_message("Hello", executor: executor) }
+        .to raise_error(AgentHarness::TimeoutError)
+    end
+
+    it "does not record_failure on the shared provider manager for generic errors" do
+      allow(mock_provider).to receive(:send_message).and_raise(
+        StandardError.new("unexpected error")
+      )
+      allow(config.orchestration_config).to receive(:auto_switch_on_error).and_return(true)
+
+      expect(mock_provider_manager).not_to receive(:record_failure)
+
+      expect { conductor.send_message("Hello", executor: executor) }
+        .to raise_error(AgentHarness::ProviderError)
+    end
+
+    it "still records metrics for executor-scoped failures" do
+      allow(mock_provider).to receive(:send_message).and_raise(
+        AgentHarness::TimeoutError.new("timed out")
+      )
+
+      expect { conductor.send_message("Hello", executor: executor) }
+        .to raise_error(AgentHarness::TimeoutError)
+
+      expect(conductor.metrics.summary[:total_failures]).to be >= 1
+    end
+  end
+
   describe "generic error with switch" do
     before do
       # Use generic error which triggers switch strategy (not caught by specific handlers)

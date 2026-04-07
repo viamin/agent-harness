@@ -114,7 +114,9 @@ module AgentHarness
           @metrics.record_failure(provider_name, e)
           raise
         rescue RateLimitError => e
-          @provider_manager.mark_rate_limited(provider_name, reset_at: e.reset_time)
+          # Only update shared rate-limit state for default-executor traffic;
+          # request-scoped executor failures must not poison the global provider.
+          @provider_manager.mark_rate_limited(provider_name, reset_at: e.reset_time) unless executor
           provider_name = handle_provider_failure(e, provider_name, :switch, executor: executor)
           retry if should_retry?(retries += 1, max_retries)
           raise
@@ -123,7 +125,9 @@ module AgentHarness
           retry if should_retry?(retries += 1, max_retries)
           raise
         rescue TimeoutError, ProviderError => e
-          @provider_manager.record_failure(provider_name)
+          # Only update shared health state for default-executor traffic;
+          # request-scoped executor failures must not poison the global provider.
+          @provider_manager.record_failure(provider_name) unless executor
           provider_name = handle_provider_failure(e, provider_name, :retry, executor: executor)
           retry if should_retry?(retries += 1, max_retries)
           raise
@@ -132,7 +136,9 @@ module AgentHarness
           raise
         rescue => e
           @metrics.record_failure(provider_name, e)
-          @provider_manager.record_failure(provider_name)
+          # Only update shared health state for default-executor traffic;
+          # request-scoped executor failures must not poison the global provider.
+          @provider_manager.record_failure(provider_name) unless executor
 
           # Try switching for unknown errors
           provider_name = handle_provider_failure(e, provider_name, :switch, executor: executor)
