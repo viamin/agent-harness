@@ -74,6 +74,67 @@ RSpec.describe AgentHarness do
     end
   end
 
+  describe ".provider_install_contract" do
+    let(:provider_without_contract) do
+      Class.new do
+        class << self
+          def provider_name
+            :no_contract
+          end
+
+          def available?
+            true
+          end
+
+          def binary_name
+            "no-contract"
+          end
+        end
+      end
+    end
+
+    after do
+      AgentHarness::Providers::Registry.instance.reset!
+    end
+
+    it "delegates to the provider installation API" do
+      contract = {provider: :gemini}
+
+      expect(AgentHarness).to receive(:provider_installation_contract).with(:gemini).and_return(contract)
+
+      expect(AgentHarness.provider_install_contract(:gemini)).to eq(contract)
+    end
+
+    it "passes through an explicit version override" do
+      contract = {provider: :gemini, resolved_version: "0.35.3"}
+
+      expect(AgentHarness).to receive(:provider_installation_contract).with(:gemini, version: "0.35.3").and_return(contract)
+
+      expect(AgentHarness.provider_install_contract(:gemini, version: "0.35.3")).to eq(contract)
+    end
+
+    it "returns nil when the provider has no install contract and version is supplied" do
+      expect(AgentHarness::Providers::Registry.instance)
+        .to receive(:installation_contract).with(:no_contract, version: "0.35.3").and_return(nil)
+
+      expect(AgentHarness.provider_install_contract(:no_contract, version: "0.35.3")).to be_nil
+    end
+
+    it "returns nil when the provider has no install contract and no version is supplied" do
+      expect(AgentHarness::Providers::Registry.instance)
+        .to receive(:installation_contract).with(:no_contract).and_return(nil)
+
+      expect(AgentHarness.provider_install_contract(:no_contract)).to be_nil
+    end
+
+    it "returns nil for a registry-accepted provider class without adapter install APIs" do
+      AgentHarness::Providers::Registry.instance.register(:no_contract, provider_without_contract)
+
+      expect(AgentHarness.provider_install_contract(:no_contract)).to be_nil
+      expect(AgentHarness.provider_install_contract(:no_contract, version: "0.35.3")).to be_nil
+    end
+  end
+
   describe ".installation_contract" do
     it "returns provider install metadata" do
       contract = AgentHarness.installation_contract(:codex)
@@ -109,14 +170,39 @@ RSpec.describe AgentHarness do
 
       expect(AgentHarness.installation_contract(:kilocode, version: "7.1.3")).to eq(contract)
     end
+
+    it "returns versioned install metadata for providers with generic contracts" do
+      contract = AgentHarness.installation_contract(:opencode, version: "1.3.9")
+
+      expect(contract).to include(
+        package_name: "opencode-ai",
+        version: "1.3.9",
+        binary_name: "opencode"
+      )
+      expect(contract[:install_command]).to eq(
+        ["npm", "install", "-g", "--ignore-scripts", "opencode-ai@1.3.9"]
+      )
+    end
+
+    it "preserves provider normalization for generic-contract version lookups" do
+      contract = AgentHarness.installation_contract(:opencode, version: " 1.3.9 ")
+
+      expect(contract).to include(
+        package_name: "opencode-ai",
+        version: "1.3.9",
+        binary_name: "opencode"
+      )
+      expect(contract[:install_command]).to eq(
+        ["npm", "install", "-g", "--ignore-scripts", "opencode-ai@1.3.9"]
+      )
+    end
   end
 
   describe ".installation_contracts" do
     it "returns all registered provider installation contracts" do
       contracts = AgentHarness.installation_contracts
 
-      expect(contracts).to include(:codex)
-      expect(contracts).to include(:aider)
+      expect(contracts).to include(:codex, :aider, :gemini, :opencode)
     end
   end
 

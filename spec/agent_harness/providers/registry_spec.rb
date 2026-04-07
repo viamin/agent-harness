@@ -90,11 +90,47 @@ RSpec.describe AgentHarness::Providers::Registry do
       expect(contract[:default_version]).to eq("7.1.3")
     end
 
+    it "falls back to the legacy provider install contract API when needed" do
+      contract = registry.installation_contract(:gemini, version: "0.35.3")
+
+      expect(contract).to include(
+        provider: :gemini,
+        package_name: "@google/gemini-cli",
+        resolved_version: "0.35.3"
+      )
+    end
+
     it "forwards target selection options to the provider" do
       contract = registry.installation_contract(:kilocode, version: "7.1.3")
 
       expect(contract[:install_command]).to eq(
         ["npm", "install", "-g", "--ignore-scripts", "@kilocode/cli@7.1.3"]
+      )
+    end
+
+    it "forwards target selection options to providers with generic contracts" do
+      contract = registry.installation_contract(:opencode, version: "1.3.9")
+
+      expect(contract).to include(
+        package_name: "opencode-ai",
+        version: "1.3.9",
+        binary_name: "opencode"
+      )
+      expect(contract[:install_command]).to eq(
+        ["npm", "install", "-g", "--ignore-scripts", "opencode-ai@1.3.9"]
+      )
+    end
+
+    it "preserves provider normalization for generic-contract version lookups" do
+      contract = registry.installation_contract(:opencode, version: " 1.3.9 ")
+
+      expect(contract).to include(
+        package_name: "opencode-ai",
+        version: "1.3.9",
+        binary_name: "opencode"
+      )
+      expect(contract[:install_command]).to eq(
+        ["npm", "install", "-g", "--ignore-scripts", "opencode-ai@1.3.9"]
       )
     end
 
@@ -168,13 +204,15 @@ RSpec.describe AgentHarness::Providers::Registry do
     it "returns providers with installation contracts" do
       contracts = registry.installation_contracts
 
-      expect(contracts).to include(:codex)
-      expect(contracts).to include(:aider)
+      expect(contracts).to include(:codex, :aider, :opencode)
       expect(contracts[:codex][:install_command]).to eq(
         ["npm", "install", "-g", "--ignore-scripts", "@openai/codex@0.116.0"]
       )
       expect(contracts[:aider][:install_command]).to eq(
         ["uv", "tool", "install", "--force", "--python", "python3.12", "--with", "pip", "aider-chat==0.86.2"]
+      )
+      expect(contracts[:opencode][:install_command]).to eq(
+        ["npm", "install", "-g", "--ignore-scripts", "opencode-ai@1.3.2"]
       )
     end
 

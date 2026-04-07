@@ -108,6 +108,24 @@ end
 | `:opencode` | `opencode` | OpenCode CLI |
 | `:kilocode` | `kilo` | Kilocode CLI |
 
+### Provider Install Contracts
+
+Provider classes can expose install metadata for downstream apps that build
+their own agent images.
+
+```ruby
+contract = AgentHarness.provider_install_contract(:gemini)
+
+contract[:package_name]
+# => "@google/gemini-cli"
+
+contract[:default_version]
+# => "0.35.3"
+
+contract[:install_command]
+# => ["npm", "install", "-g", "--ignore-scripts", "@google/gemini-cli@0.35.3"]
+```
+
 ### Direct Provider Access
 
 ```ruby
@@ -148,20 +166,22 @@ The Kilocode runtime adapter expects the `kilo` binary and executes prompts via
 `kilo run ...`, so the install contract and runtime behavior stay aligned in
 tests.
 
-Providers with fixed install metadata can also be queried through the generic
-API:
+Providers that expose installation contracts can also be queried through the
+generic API:
 
 ```ruby
 codex_install = AgentHarness.installation_contract(:codex)
 aider_install = AgentHarness.installation_contract(:aider)
+opencode_install = AgentHarness.installation_contract(:opencode)
 
-codex_install
+opencode_install
 # => {
 #      source: :npm,
-#      package_name: "@openai/codex",
-#      version: "0.116.0",
-#      binary_name: "codex",
-#      install_command: ["npm", "install", "-g", "--ignore-scripts", "@openai/codex@0.116.0"]
+#      package_name: "opencode-ai",
+#      version: "1.3.2",
+#      version_requirement: [">= 1.3.2", "< 1.4.0"],
+#      binary_name: "opencode",
+#      install_command: ["npm", "install", "-g", "--ignore-scripts", "opencode-ai@1.3.2"]
 #    }
 
 aider_install
@@ -201,6 +221,19 @@ class MyProvider < AgentHarness::Providers::Base
 
     def binary_name
       "my-cli"
+    end
+
+    def install_contract(version: "1.2.3")
+      {
+        provider: provider_name,
+        source_type: :npm,
+        package_name: "@acme/my-cli",
+        supported_version_requirement: Gem::Requirement.new("~> 1.2"),
+        default_version: "1.2.3",
+        resolved_version: version,
+        binary_name: binary_name,
+        install_command: ["npm", "install", "-g", "@acme/my-cli@#{version}"]
+      }
     end
 
     def available?

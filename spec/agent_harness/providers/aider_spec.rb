@@ -44,6 +44,12 @@ RSpec.describe AgentHarness::Providers::Aider do
 
       expect(contract[:binary_name]).to eq(described_class.binary_name)
       expect(File.basename(contract[:binary_path])).to eq(described_class.binary_name)
+
+      # Verify the advertised binary_path is inside the directory the install
+      # environment actually targets, so a stray binary earlier on PATH cannot
+      # shadow the one the contract promises to provision.
+      tool_bin_dir = contract[:install_environment]["UV_TOOL_BIN_DIR"]
+      expect(File.dirname(contract[:binary_path])).to eq(tool_bin_dir)
     end
 
     it "supports explicit version selection through the published contract API" do
