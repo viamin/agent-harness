@@ -43,17 +43,15 @@ module AgentHarness
           raise NotImplementedError, "#{self} must implement .binary_name"
         end
 
-        # Provider install contract metadata for downstream consumers.
+        # Installation contract for the provider CLI.
         #
-        # Downstream applications can use this to build images or validate
-        # provider runtime assumptions without hardcoding provider-specific
-        # install commands, binary paths, or version targets.
+        # Downstream applications can use this metadata to install a provider's
+        # supported CLI without hardcoding package names, install flags, or
+        # version pins outside AgentHarness.
         #
-        # @return [Hash] install contract metadata
-        # @raise [NotImplementedError] when the provider has not published a
-        #   maintained install contract
-        def install_contract
-          raise NotImplementedError, "#{self} must implement .install_contract"
+        # @return [Hash, nil] installation metadata or nil when not provided
+        def install_contract(version: nil)
+          nil
         end
 
         # Required domains for firewall configuration
@@ -77,16 +75,18 @@ module AgentHarness
           []
         end
 
-        # Installation contract for the provider CLI.
+        # Installation contract for this provider's CLI.
         #
-        # Downstream apps can use this metadata to build container images
-        # without duplicating package names, binary names, or supported
-        # version pins outside agent-harness.
+        # Downstream apps can use this metadata to provision the provider CLI
+        # without hardcoding package names, versions, or binary expectations
+        # outside agent-harness.
         #
-        # @return [Hash, nil] installation metadata or nil when the provider
-        #   does not expose a first-class install contract
-        def installation_contract
-          nil
+        # @return [Hash, nil] install metadata, or nil when no first-class
+        #   installation contract is defined for the provider
+        def installation_contract(**options)
+          return install_contract unless options.key?(:version)
+
+          install_contract(version: options[:version])
         end
 
         # Build the install command from the provider installation contract.

@@ -16,19 +16,18 @@ RSpec.describe AgentHarness::Providers::Anthropic do
   describe ".install_contract" do
     it "exposes the official install contract" do
       contract = described_class.install_contract
-      installed_binary_path = "/usr/local/bin/claude"
 
       expect(contract[:provider]).to eq(:claude)
       expect(contract[:binary_name]).to eq("claude")
-      expect(contract[:binary_paths]).to eq([installed_binary_path, "claude"])
+      expect(contract[:binary_paths]).to eq(["$HOME/.local/bin/claude", "claude"])
       expect(contract.dig(:install, :strategy)).to eq(:shell)
       expect(contract.dig(:install, :command)).to eq(
-        "tmp_script=$(mktemp) && trap 'rm -f \"$tmp_script\"' EXIT && curl -fsSL https://claude.ai/install.sh -o \"$tmp_script\" && bash \"$tmp_script\" 2.1.92 && cp -L \"$HOME/.local/bin/claude\" \"#{installed_binary_path}\" && chmod +x \"#{installed_binary_path}\""
+        "tmp_script=$(mktemp) && trap 'rm -f \"$tmp_script\"' EXIT && curl -fsSL https://claude.ai/install.sh -o \"$tmp_script\" && bash \"$tmp_script\" 2.1.92"
       )
       expect(contract.dig(:install, :warning)).to eq(
         "Review the downloaded installer before execution and verify any published checksum or signature metadata when available."
       )
-      expect(contract.dig(:install, :post_install_binary_path)).to eq(installed_binary_path)
+      expect(contract.dig(:install, :post_install_binary_path)).to eq("$HOME/.local/bin/claude")
       expect(contract.dig(:supported_versions, :default)).to eq("2.1.92")
       expect(contract.dig(:supported_versions, :requirement)).to eq(">= 2.1.92, < 2.2.0")
       expect(contract.dig(:supported_versions, :channel)).to eq("stable")
@@ -56,17 +55,23 @@ RSpec.describe AgentHarness::Providers::Anthropic do
       expect(command[contract_build_command.length]).to eq("prompt")
     end
 
-    it "keeps shell-specific install paths inside the installer command only" do
+    it "does not include a root-only copy step in the install command" do
       contract = described_class.install_contract
 
-      expect(contract[:binary_paths]).not_to include("$HOME/.local/bin/claude")
-      expect(contract.dig(:install, :command)).to include("$HOME/.local/bin/claude")
+      expect(contract.dig(:install, :command)).not_to include("/usr/local/bin")
+      expect(contract.dig(:install, :command)).not_to include("cp -L")
     end
 
     it "pins the installer target to the documented supported version" do
       contract = described_class.install_contract
 
       expect(contract.dig(:install, :command)).to include("bash \"$tmp_script\" #{contract.dig(:supported_versions, :default)}")
+    end
+
+    it "accepts an optional version override" do
+      contract = described_class.install_contract(version: "2.1.95")
+
+      expect(contract.dig(:install, :command)).to include("bash \"$tmp_script\" 2.1.95")
     end
   end
 

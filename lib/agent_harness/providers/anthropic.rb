@@ -27,8 +27,8 @@ module AgentHarness
           "claude"
         end
 
-        def install_contract
-          installed_binary_path = "/usr/local/bin/claude"
+        def install_contract(version: nil)
+          target_version = version || SUPPORTED_CLI_VERSION
           version_requirement = SUPPORTED_CLI_REQUIREMENT.requirements
             .map { |op, ver| "#{op} #{ver}" }
             .join(", ")
@@ -37,15 +37,15 @@ module AgentHarness
             provider: provider_name,
             binary_name: binary_name,
             binary_paths: [
-              installed_binary_path,
+              "$HOME/.local/bin/claude",
               binary_name
             ],
             install: {
               strategy: :shell,
               source: "official",
-              command: "tmp_script=$(mktemp) && trap 'rm -f \"$tmp_script\"' EXIT && curl -fsSL https://claude.ai/install.sh -o \"$tmp_script\" && bash \"$tmp_script\" #{SUPPORTED_CLI_VERSION} && cp -L \"$HOME/.local/bin/claude\" \"#{installed_binary_path}\" && chmod +x \"#{installed_binary_path}\"",
+              command: "tmp_script=$(mktemp) && trap 'rm -f \"$tmp_script\"' EXIT && curl -fsSL https://claude.ai/install.sh -o \"$tmp_script\" && bash \"$tmp_script\" #{target_version}",
               warning: "Review the downloaded installer before execution and verify any published checksum or signature metadata when available.",
-              post_install_binary_path: installed_binary_path
+              post_install_binary_path: "$HOME/.local/bin/claude"
             },
             supported_versions: {
               default: SUPPORTED_CLI_VERSION,

@@ -86,16 +86,37 @@ module AgentHarness
     # Get install contract metadata for a provider
     # @param name [Symbol, String] the provider name
     # @return [Hash] install contract metadata
+    # @raise [ConfigurationError] if the provider does not expose an install contract
     def install_contract(name)
       Providers::Registry.instance.install_contract(name)
     end
 
+    # Returns install metadata for a provider CLI when the provider exposes it.
+    #
+    # @param provider_name [Symbol, String] the provider name
+    # @param version [String, nil] optional explicit CLI version override
+    # @return [Hash, nil] installation metadata
+    def provider_install_contract(provider_name, version: nil)
+      provider_installation_contract(provider_name, **(version ? {version: version} : {}))
+    end
+
+    # Get the installation contract for a provider CLI.
+    #
+    # @param name [Symbol, String] the provider name
+    # @param options [Hash] optional target selection (for example, `version:`)
+    # @return [Hash, nil] provider installation contract for the requested target
+    # @raise [ConfigurationError] if provider not found
+    def provider_installation_contract(name, **options)
+      Providers::Registry.instance.installation_contract(name, **options)
+    end
+
     # Get installation metadata for a provider CLI.
     # @param provider_name [Symbol, String] the provider name
+    # @param options [Hash] optional target selection (for example, `version:`)
     # @return [Hash, nil] installation contract
     # @raise [ConfigurationError] if the provider name is not registered
-    def installation_contract(provider_name)
-      Providers::Registry.instance.installation_contract(provider_name)
+    def installation_contract(provider_name, **options)
+      Providers::Registry.instance.installation_contract(provider_name, **options)
     end
 
     # Get all provider installation contracts exposed by agent-harness.

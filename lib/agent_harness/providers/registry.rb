@@ -83,8 +83,8 @@ module AgentHarness
       #
       # @param name [Symbol, String] the provider name
       # @return [Hash] the provider install contract
-      # @raise [ConfigurationError] if the provider does not implement
-      #   `.install_contract`
+      # @raise [ConfigurationError] if the provider does not expose an
+      #   install contract
       def install_contract(name)
         provider_class = get(name)
 
@@ -92,21 +92,26 @@ module AgentHarness
           raise ConfigurationError, "Provider #{provider_class} does not implement .install_contract"
         end
 
-        provider_class.install_contract
-      rescue NotImplementedError
-        raise ConfigurationError, "Provider #{provider_class} does not implement .install_contract"
+        contract = provider_class.install_contract
+        unless contract
+          raise ConfigurationError, "Provider #{provider_class} does not expose an install contract"
+        end
+
+        contract
       end
 
-      # Get installation metadata for a provider.
+      # Fetch installation metadata for a provider.
       #
       # @param name [Symbol, String] the provider name
-      # @return [Hash, nil] installation contract
-      # @raise [ConfigurationError] if the provider name is not registered
-      def installation_contract(name)
-        klass = get(name)
-        return nil unless klass.respond_to?(:installation_contract)
+      # @param options [Hash] optional target selection (for example, `version:`)
+      # @return [Hash, nil] provider installation contract, or nil when the
+      #   registered provider class does not define `.installation_contract`
+      # @raise [ConfigurationError] if provider not found
+      def installation_contract(name, **options)
+        provider_class = get(name)
+        return nil unless provider_class.respond_to?(:installation_contract)
 
-        klass.installation_contract
+        provider_class.installation_contract(**options)
       end
 
       # Get installation metadata for all providers that expose it.
