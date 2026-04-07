@@ -47,6 +47,22 @@ RSpec.describe AgentHarness do
     end
   end
 
+  describe ".install_contract" do
+    it "delegates to the provider registry" do
+      contract = {provider: :claude}
+      expect(AgentHarness::Providers::Registry.instance).to receive(:install_contract).with(:claude).and_return(contract)
+
+      expect(AgentHarness.install_contract(:claude)).to eq(contract)
+    end
+
+    it "accepts string provider names" do
+      contract = {provider: :claude}
+      expect(AgentHarness::Providers::Registry.instance).to receive(:install_contract).with("claude").and_return(contract)
+
+      expect(AgentHarness.install_contract("claude")).to eq(contract)
+    end
+  end
+
   describe ".send_message" do
     it "passes executor overrides to the conductor" do
       executor = instance_double(AgentHarness::CommandExecutor)

@@ -5,7 +5,7 @@ A unified Ruby interface for CLI-based AI coding agents like Claude Code, Cursor
 ## Features
 
 - **Unified Interface**: Single API for multiple AI coding agents
-- **8 Built-in Providers**: Claude Code, Cursor, Gemini CLI, GitHub Copilot, Codex, Aider, OpenCode, Kilocode
+- **9 Built-in Providers**: Claude Code, Cursor, Gemini CLI, GitHub Copilot, Codex, Aider, OpenCode, Kilocode, Mistral Vibe
 - **Full Orchestration**: Provider switching, circuit breakers, rate limiting, and health monitoring
 - **Flexible Configuration**: YAML, Ruby DSL, or environment variables
 - **Token Tracking**: Monitor usage across providers for cost and limit management
@@ -107,6 +107,7 @@ end
 | `:aider` | `aider` | Aider coding assistant |
 | `:opencode` | `opencode` | OpenCode CLI |
 | `:kilocode` | `kilo` | Kilocode CLI |
+| `:mistral_vibe` | `mistral-vibe` | Mistral Vibe CLI |
 
 ### Provider Install Contracts
 
@@ -173,10 +174,27 @@ if AgentHarness::Providers::Registry.instance.get(:claude).available?
   puts "Claude CLI is installed"
 end
 
+# Ask the harness which Claude CLI install contract it supports
+contract = AgentHarness.install_contract(:claude)
+puts contract[:install][:command]
+# => "tmp_script=$(mktemp) && ... && bash \"$tmp_script\" 2.1.92"
+puts contract[:install][:post_install_binary_path]
+# => "$HOME/.local/bin/claude"
+puts contract[:supported_versions][:default]
+# => "2.1.92"
+puts contract[:supported_versions][:requirement]
+# => ">= 2.1.92, < 2.2.0"
+
 # List all registered providers
 AgentHarness::Providers::Registry.instance.all
-# => [:claude, :cursor, :gemini, :github_copilot, :codex, :opencode, :kilocode, :aider]
+# => [:claude, :cursor, :gemini, :github_copilot, :codex, :opencode, :kilocode, :aider, :mistral_vibe]
 ```
+
+For Claude, the install contract is the first-class source of truth for:
+
+- the official install recipe the current harness release expects
+- the expected binary name and normalized PATH entry that recipe leaves behind
+- the supported Claude CLI version boundary the current harness release validates (`default` plus the compatible version range)
 
 ### Provider Installation Contracts
 

@@ -84,6 +84,14 @@ module AgentHarness
       conductor.provider_manager.get_provider(name)
     end
 
+    # Get install contract metadata for a provider
+    # @param name [Symbol, String] the provider name
+    # @return [Hash] install contract metadata
+    # @raise [ConfigurationError] if the provider does not expose an install contract
+    def install_contract(name)
+      Providers::Registry.instance.install_contract(name)
+    end
+
     # Returns install metadata for a provider CLI when the provider exposes it.
     #
     # @param provider_name [Symbol, String] the provider name
