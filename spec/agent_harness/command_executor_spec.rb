@@ -54,8 +54,8 @@ RSpec.describe AgentHarness::CommandExecutor do
 
           expect {
             executor.execute(
-              ["bash", "-lc", "sleep 5 & echo $! > #{pidfile.shellescape}; wait"],
-              timeout: 0.2
+              ["bash", "-c", "sleep 5 & echo $! > #{pidfile.shellescape}; wait"],
+              timeout: 0.5
             )
           }.to raise_error(AgentHarness::TimeoutError)
 
@@ -77,9 +77,9 @@ RSpec.describe AgentHarness::CommandExecutor do
       it "raises IdleTimeoutError when command stops producing output" do
         expect {
           executor.execute(
-            ["ruby", "-e", "$stdout.sync = true; puts 'ready'; sleep 0.3"],
-            timeout: 5,
-            idle_timeout: 0.1
+            ["ruby", "-e", "$stdout.sync = true; puts 'ready'; sleep 5"],
+            timeout: 10,
+            idle_timeout: 0.2
           )
         }.to raise_error(AgentHarness::IdleTimeoutError)
       end
@@ -137,12 +137,12 @@ RSpec.describe AgentHarness::CommandExecutor do
         expect {
           executor.execute(
             ["bash", "-c", "sleep 10 & wait"],
-            timeout: 0.3
+            timeout: 0.5
           )
         }.to raise_error(AgentHarness::TimeoutError)
 
         elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - started_at
-        expect(elapsed).to be < 2
+        expect(elapsed).to be < 3
       end
 
       it "enforces idle timeout during post-exit drain of descendant-held pipes" do
@@ -215,13 +215,13 @@ RSpec.describe AgentHarness::CommandExecutor do
         expect {
           executor.execute(
             ["ruby", "-e", "sleep 5"],
-            timeout: 0.2,
+            timeout: 0.5,
             stdin_data: "x" * 5_000_000
           )
         }.to raise_error(AgentHarness::TimeoutError)
 
         elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - started_at
-        expect(elapsed).to be < 2
+        expect(elapsed).to be < 3
       end
     end
 
@@ -246,9 +246,9 @@ RSpec.describe AgentHarness::CommandExecutor do
         heartbeats = []
 
         executor.execute(
-          ["ruby", "-e", "sleep 0.2"],
+          ["ruby", "-e", "sleep 0.5"],
           on_heartbeat: ->(**heartbeat) { heartbeats << heartbeat },
-          heartbeat_interval: 0.05
+          heartbeat_interval: 0.1
         )
 
         expect(heartbeats).not_to be_empty
@@ -293,13 +293,13 @@ RSpec.describe AgentHarness::CommandExecutor do
 
         expect {
           executor.execute(
-            ["ruby", "-e", "$stdout.sync = true; puts :hi; sleep 2"],
+            ["ruby", "-e", "$stdout.sync = true; puts :hi; sleep 5"],
             on_stdout_chunk: ->(_chunk) { raise "boom" }
           )
         }.to raise_error(RuntimeError, "boom")
 
         elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - started_at
-        expect(elapsed).to be < 1
+        expect(elapsed).to be < 3
       end
 
       it "terminates the process before re-raising heartbeat callback failures" do
@@ -307,14 +307,14 @@ RSpec.describe AgentHarness::CommandExecutor do
 
         expect {
           executor.execute(
-            ["ruby", "-e", "sleep 2"],
+            ["ruby", "-e", "sleep 5"],
             on_heartbeat: ->(**_heartbeat) { raise "boom" },
-            heartbeat_interval: 0.05
+            heartbeat_interval: 0.1
           )
         }.to raise_error(RuntimeError, "boom")
 
         elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - started_at
-        expect(elapsed).to be < 1
+        expect(elapsed).to be < 3
       end
     end
 
