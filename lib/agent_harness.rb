@@ -70,10 +70,11 @@ module AgentHarness
     # Send a message using the orchestration layer
     # @param prompt [String] the prompt to send
     # @param provider [Symbol, nil] optional provider override
+    # @param executor [CommandExecutor, nil] per-request executor override
     # @param options [Hash] additional options
     # @return [Response] the response from the provider
-    def send_message(prompt, provider: nil, **options)
-      conductor.send_message(prompt, provider: provider, **options)
+    def send_message(prompt, provider: nil, executor: nil, **options)
+      conductor.send_message(prompt, provider: provider, executor: executor, **options)
     end
 
     # Get a provider instance
@@ -125,6 +126,30 @@ module AgentHarness
       Providers::Registry.instance.installation_contracts
     end
 
+    # Get smoke-test metadata for a provider CLI when the provider exposes it.
+    #
+    # @param provider_name [Symbol, String] the provider name
+    # @return [Hash, nil] smoke-test contract
+    def provider_smoke_test_contract(provider_name)
+      smoke_test_contract(provider_name)
+    end
+
+    # Get smoke-test metadata for a provider CLI.
+    # @param provider_name [Symbol, String] the provider name
+    # @return [Hash, nil] smoke-test contract
+    # @raise [ConfigurationError] if the provider name is not registered
+    def smoke_test_contract(provider_name)
+      # Explicitly raise if provider is not registered to match documentation
+      raise ConfigurationError, "Unknown provider: #{provider_name}" unless Providers::Registry.instance.registered?(provider_name)
+      Providers::Registry.instance.smoke_test_contract(provider_name)
+    end
+
+    # Get all provider smoke-test contracts exposed by agent-harness.
+    # @return [Hash<Symbol, Hash>] smoke-test contracts keyed by provider
+    def smoke_test_contracts
+      Providers::Registry.instance.smoke_test_contracts
+    end
+
     # Check if authentication is valid for a provider
     # @param provider_name [Symbol] the provider name
     # @return [Boolean] true if auth is valid
@@ -162,17 +187,29 @@ module AgentHarness
     # authentication, provider health status, and config validation checks.
     #
     # @param timeout [Integer] timeout in seconds for each check (defaults to configured value)
+    # @raise [ArgumentError] if provider_runtime is supplied; runtime overrides are
+    #   only supported by `check_provider` to avoid leaking one provider's execution
+    #   context into every other health check
     # @return [Array<Hash>] health status for each provider
-    def check_providers(timeout: nil)
-      timeout ? ProviderHealthCheck.check_all(timeout: timeout) : ProviderHealthCheck.check_all
+    def check_providers(timeout: nil, executor: nil, provider_runtime: nil)
+      raise ArgumentError, "provider_runtime is only supported for single-provider health checks" unless provider_runtime.nil?
+
+      options = {}
+      options[:timeout] = timeout unless timeout.nil?
+      options[:executor] = executor unless executor.nil?
+      ProviderHealthCheck.check_all(**options)
     end
 
     # Check health of a single provider
     # @param provider_name [Symbol] the provider name
     # @param timeout [Integer, nil] timeout in seconds (nil lets ProviderHealthCheck apply its validated default)
     # @return [Hash] health status with :name, :status, :message, :latency_ms
-    def check_provider(provider_name, timeout: nil)
-      timeout ? ProviderHealthCheck.check(provider_name, timeout: timeout) : ProviderHealthCheck.check(provider_name)
+    def check_provider(provider_name, timeout: nil, executor: nil, provider_runtime: nil)
+      options = {}
+      options[:timeout] = timeout unless timeout.nil?
+      options[:executor] = executor unless executor.nil?
+      options[:provider_runtime] = provider_runtime unless provider_runtime.nil?
+      ProviderHealthCheck.check(provider_name, **options)
     end
   end
 end

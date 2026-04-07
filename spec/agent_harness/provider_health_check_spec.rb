@@ -5,6 +5,12 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
 
   before do
     registry.reset!
+    allow_any_instance_of(AgentHarness::CommandExecutor).to receive(:which) do |_executor, binary|
+      case binary
+      when "test-cli", "provider-a"
+        "/tmp/#{binary}"
+      end
+    end
   end
 
   describe ".check" do
@@ -40,19 +46,42 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
 
       before do
         registry.register(:test_provider, provider_class)
+        allow_any_instance_of(AgentHarness::CommandExecutor).to receive(:which).with("test-cli").and_return(nil)
       end
 
-      it "returns error status with CLI info" do
+      it "returns error status when .available? returns false" do
         result = described_class.check(:test_provider)
 
         expect(result[:name]).to eq(:test_provider)
         expect(result[:status]).to eq("error")
-        expect(result[:message]).to include("test-cli")
-        expect(result[:message]).to include("not found")
+        expect(result[:message]).to include("not available")
+        expect(result[:message]).to include("available? returned false")
+        expect(result[:error_category]).to eq(:installation)
+        expect(result[:check]).to eq(:availability)
+      end
+
+      it "still runs host preflight when provider_runtime is an empty hash" do
+        result = described_class.check(:test_provider, provider_runtime: {})
+
+        expect(result[:name]).to eq(:test_provider)
+        expect(result[:status]).to eq("error")
+        expect(result[:message]).to include("not available")
+        expect(result[:error_category]).to eq(:installation)
+        expect(result[:check]).to eq(:availability)
+      end
+
+      it "still runs host preflight when provider_runtime only contains local overrides" do
+        result = described_class.check(:test_provider, provider_runtime: {model: "runtime-only"})
+
+        expect(result[:name]).to eq(:test_provider)
+        expect(result[:status]).to eq("error")
+        expect(result[:message]).to include("not available")
+        expect(result[:error_category]).to eq(:installation)
+        expect(result[:check]).to eq(:availability)
       end
     end
 
-    context "when authentication fails" do
+    context "when .available? returns true but executor cannot find binary" do
       let(:provider_class) do
         Class.new(AgentHarness::Providers::Base) do
           class << self
@@ -73,6 +102,46 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
 
       before do
         registry.register(:test_provider, provider_class)
+        allow_any_instance_of(AgentHarness::CommandExecutor).to receive(:which).with("test-cli").and_return(nil)
+      end
+
+      it "returns error status with CLI not found message" do
+        result = described_class.check(:test_provider)
+
+        expect(result[:name]).to eq(:test_provider)
+        expect(result[:status]).to eq("error")
+        expect(result[:message]).to include("test-cli")
+        expect(result[:message]).to include("not found in PATH")
+        expect(result[:error_category]).to eq(:installation)
+        expect(result[:check]).to eq(:availability)
+      end
+    end
+
+    context "when authentication fails" do
+      let(:provider_class) do
+        Class.new(AgentHarness::Providers::Base) do
+          class << self
+            def provider_name
+              :test_provider
+            end
+
+            def binary_name
+              "test-cli"
+            end
+
+            def available?
+              true
+            end
+          end
+
+          def smoke_test(timeout: nil, provider_runtime: nil)
+            {ok: true, status: "ok", message: "Smoke test passed", error_category: nil}
+          end
+        end
+      end
+
+      before do
+        registry.register(:test_provider, provider_class)
         allow(AgentHarness::Authentication).to receive(:auth_status)
           .with(:test_provider)
           .and_return({valid: false, expires_at: nil, error: "Invalid API key"})
@@ -84,6 +153,8 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
         expect(result[:name]).to eq(:test_provider)
         expect(result[:status]).to eq("error")
         expect(result[:message]).to eq("Invalid API key")
+        expect(result[:error_category]).to eq(:authentication)
+        expect(result[:check]).to eq(:authentication)
       end
     end
 
@@ -123,6 +194,8 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
         expect(result[:name]).to eq(:test_provider)
         expect(result[:status]).to eq("degraded")
         expect(result[:message]).to eq("Endpoint unreachable")
+        expect(result[:error_category]).to eq(:transient)
+        expect(result[:check]).to eq(:provider_health)
       end
     end
 
@@ -162,6 +235,8 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
         expect(result[:name]).to eq(:test_provider)
         expect(result[:status]).to eq("degraded")
         expect(result[:message]).to include("Missing model name")
+        expect(result[:error_category]).to eq(:configuration)
+        expect(result[:check]).to eq(:configuration)
       end
     end
 
@@ -201,10 +276,55 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
         expect(result[:name]).to eq(:test_provider)
         expect(result[:status]).to eq("degraded")
         expect(result[:message]).to eq("Configuration issues: check provider configuration")
+        expect(result[:error_category]).to eq(:configuration)
       end
     end
 
     context "when all checks pass" do
+      let(:provider_class) do
+        Class.new(AgentHarness::Providers::Base) do
+          class << self
+            def provider_name
+              :test_provider
+            end
+
+            def binary_name
+              "test-cli"
+            end
+
+            def available?
+              true
+            end
+          end
+
+          def smoke_test(timeout: nil, provider_runtime: nil)
+            {ok: true, status: "ok", message: "Smoke test passed", error_category: nil}
+          end
+        end
+      end
+
+      before do
+        registry.register(:test_provider, provider_class)
+        allow(AgentHarness::Authentication).to receive(:auth_status)
+          .with(:test_provider)
+          .and_return({valid: true, expires_at: nil, error: nil})
+      end
+
+      it "returns ok status" do
+        result = described_class.check(:test_provider)
+
+        expect(result[:name]).to eq(:test_provider)
+        expect(result[:status]).to eq("ok")
+        expect(result[:message]).to eq(
+          "Registered, authenticated, and smoke test passed (health/config checks use defaults)"
+        )
+        expect(result[:check]).to eq(:smoke_test)
+        expect(result[:latency_ms]).to be_a(Integer)
+        expect(result[:latency_ms]).to be >= 0
+      end
+    end
+
+    context "when the provider does not publish a smoke-test contract" do
       let(:provider_class) do
         Class.new(AgentHarness::Providers::Base) do
           class << self
@@ -230,14 +350,15 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
           .and_return({valid: true, expires_at: nil, error: nil})
       end
 
-      it "returns ok status" do
+      it "returns degraded without attempting a smoke test" do
         result = described_class.check(:test_provider)
 
-        expect(result[:name]).to eq(:test_provider)
-        expect(result[:status]).to eq("ok")
-        expect(result[:message]).to include("Registered and authenticated")
-        expect(result[:latency_ms]).to be_a(Integer)
-        expect(result[:latency_ms]).to be >= 0
+        expect(result[:status]).to eq("degraded")
+        expect(result[:message]).to eq(
+          "Registered and authenticated; health/config checks use defaults and smoke test is unavailable"
+        )
+        expect(result[:error_category]).to eq(:configuration)
+        expect(result[:check]).to eq(:smoke_test)
       end
     end
 
@@ -260,6 +381,10 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
 
           def health_status
             {healthy: true, message: "Endpoint reachable"}
+          end
+
+          def smoke_test(timeout: nil, provider_runtime: nil)
+            {ok: true, status: "ok", message: "Smoke test passed", error_category: nil}
           end
         end
       end
@@ -296,6 +421,10 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
               true
             end
           end
+
+          def smoke_test(timeout: nil, provider_runtime: nil)
+            {ok: true, status: "ok", message: "Smoke test passed", error_category: nil}
+          end
         end
       end
 
@@ -311,8 +440,7 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
 
         expect(result[:name]).to eq(:test_provider)
         expect(result[:status]).to eq("degraded")
-        expect(result[:message]).to include("not implemented")
-        expect(result[:message]).to include("health and config checks passed")
+        expect(result[:message]).to eq("Auth status check not implemented; health, config, and smoke tests passed")
       end
     end
 
@@ -332,6 +460,10 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
               true
             end
           end
+
+          def smoke_test(timeout: nil, provider_runtime: nil)
+            {ok: true, status: "ok", message: "Smoke test passed", error_category: nil}
+          end
         end
       end
 
@@ -347,7 +479,7 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
 
         expect(result[:name]).to eq(:test_provider)
         expect(result[:status]).to eq("degraded")
-        expect(result[:message]).to include("not implemented")
+        expect(result[:message]).to eq("Auth status check not implemented; health, config, and smoke tests passed")
       end
     end
 
@@ -367,6 +499,10 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
               true
             end
           end
+
+          def smoke_test(timeout: nil, provider_runtime: nil)
+            {ok: true, status: "ok", message: "Smoke test passed", error_category: nil}
+          end
         end
       end
 
@@ -382,7 +518,7 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
 
         expect(result[:name]).to eq(:test_provider)
         expect(result[:status]).to eq("degraded")
-        expect(result[:message]).to include("not implemented")
+        expect(result[:message]).to eq("Auth status check not implemented; health, config, and smoke tests passed")
       end
     end
 
@@ -425,6 +561,354 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
       end
     end
 
+    context "when the provider smoke test fails with a normalized category" do
+      let(:provider_class) do
+        Class.new(AgentHarness::Providers::Base) do
+          class << self
+            def provider_name
+              :test_provider
+            end
+
+            def binary_name
+              "test-cli"
+            end
+
+            def available?
+              true
+            end
+          end
+
+          def smoke_test(timeout: nil, provider_runtime: nil)
+            @seen_timeout = timeout
+            @seen_provider_runtime = provider_runtime
+            {
+              ok: false,
+              status: "error",
+              message: "Rate limit exceeded",
+              error_category: :rate_limited
+            }
+          end
+        end
+      end
+
+      before do
+        registry.register(:test_provider, provider_class)
+        allow(AgentHarness::Authentication).to receive(:auth_status)
+          .with(:test_provider)
+          .and_return({valid: true, expires_at: nil, error: nil})
+      end
+
+      it "maps adapter taxonomy categories onto the public health-check vocabulary" do
+        result = described_class.check(:test_provider, timeout: 7, provider_runtime: {model: "test-model"})
+
+        expect(result[:status]).to eq("error")
+        expect(result[:message]).to eq("Rate limit exceeded")
+        expect(result[:error_category]).to eq(:rate_limit)
+        expect(result[:check]).to eq(:smoke_test)
+      end
+    end
+
+    context "when a custom executor is provided" do
+      let(:custom_executor) { instance_double(AgentHarness::CommandExecutor) }
+      let(:provider_class) do
+        Class.new(AgentHarness::Providers::Base) do
+          class << self
+            attr_reader :last_executor, :last_provider_runtime, :last_timeout
+
+            def provider_name
+              :test_provider
+            end
+
+            def binary_name
+              "test-cli"
+            end
+
+            def available?
+              false
+            end
+          end
+
+          def health_status
+            {healthy: false, message: "Host auth check should not run here"}
+          end
+
+          def smoke_test(timeout: nil, provider_runtime: nil)
+            self.class.instance_variable_set(:@last_executor, executor)
+            self.class.instance_variable_set(:@last_provider_runtime, provider_runtime)
+            self.class.instance_variable_set(:@last_timeout, timeout)
+            {ok: true, status: "ok", message: "Smoke test passed", error_category: nil}
+          end
+        end
+      end
+
+      before do
+        registry.register(:test_provider, provider_class)
+      end
+
+      it "skips host-only preflight checks and runs the smoke test through the supplied executor" do
+        expect(AgentHarness::Authentication).not_to receive(:auth_status)
+
+        result = described_class.check(
+          :test_provider,
+          timeout: 9,
+          executor: custom_executor,
+          provider_runtime: {model: "runtime-model"}
+        )
+
+        expect(result[:status]).to eq("ok")
+        expect(result[:message]).to eq("Smoke test passed using the supplied execution context")
+        expect(provider_class.last_executor).to eq(custom_executor)
+        # When the provider overrides smoke_test without a contract,
+        # the health-check timeout is forwarded so the override can
+        # honour it instead of running without any limit.
+        expect(provider_class.last_timeout).to eq(9)
+        expect(provider_class.last_provider_runtime).to eq({model: "runtime-model"})
+      end
+    end
+
+    context "when provider contract timeout exceeds health-check timeout" do
+      let(:provider_class) do
+        Class.new(AgentHarness::Providers::Base) do
+          class << self
+            attr_reader :last_timeout
+
+            def provider_name
+              :test_provider
+            end
+
+            def binary_name
+              "test-cli"
+            end
+
+            def available?
+              true
+            end
+
+            def smoke_test_contract
+              {prompt: "Reply with exactly OK.", expected_output: "OK", timeout: 45, require_output: true}
+            end
+          end
+
+          def smoke_test(timeout: nil, provider_runtime: nil)
+            self.class.instance_variable_set(:@last_timeout, timeout)
+            {ok: true, status: "ok", message: "Smoke test passed", error_category: nil}
+          end
+        end
+      end
+
+      before do
+        registry.register(:test_provider, provider_class)
+        allow(AgentHarness::Authentication).to receive(:auth_status)
+          .with(:test_provider)
+          .and_return({valid: true, expires_at: nil, error: nil})
+      end
+
+      it "does not forward the health-check timeout to smoke_test" do
+        described_class.check(:test_provider, timeout: 5)
+
+        # smoke_test receives nil so it can use its own contract timeout (45s)
+        expect(provider_class.last_timeout).to be_nil
+      end
+
+      it "extends the outer timeout to honor the contract timeout" do
+        received_timeout = nil
+        allow(Timeout).to receive(:timeout).and_wrap_original do |original, timeout, &block|
+          received_timeout = timeout
+          original.call(timeout, &block)
+        end
+
+        described_class.check(:test_provider, timeout: 5)
+
+        # Outer timeout should be max(5, 45) = 45
+        expect(received_timeout).to eq(45)
+      end
+    end
+
+    context "when a local CommandExecutor subclass is provided explicitly" do
+      let(:logging_executor_class) do
+        Class.new(AgentHarness::CommandExecutor) do
+          def which(binary)
+            return "/tmp/#{binary}" if binary == "test-cli"
+
+            super
+          end
+        end
+      end
+      let(:logging_executor) { logging_executor_class.new }
+      let(:provider_class) do
+        Class.new(AgentHarness::Providers::Base) do
+          class << self
+            attr_reader :last_executor
+
+            def provider_name
+              :test_provider
+            end
+
+            def binary_name
+              "test-cli"
+            end
+
+            def available?
+              false
+            end
+          end
+
+          def smoke_test(timeout: nil, provider_runtime: nil)
+            self.class.instance_variable_set(:@last_executor, executor)
+            {ok: true, status: "ok", message: "Smoke test passed", error_category: nil}
+          end
+        end
+      end
+
+      before do
+        registry.register(:test_provider, provider_class)
+        allow(AgentHarness::Authentication).to receive(:auth_status)
+          .with(:test_provider)
+          .and_return({valid: true, expires_at: nil, error: nil})
+      end
+
+      it "runs host preflight against the supplied executor" do
+        result = described_class.check(:test_provider, executor: logging_executor)
+
+        expect(result[:status]).to eq("ok")
+        expect(result[:message]).to eq(
+          "Registered, authenticated, and smoke test passed (health/config checks use defaults)"
+        )
+        expect(provider_class.last_executor).to eq(logging_executor)
+      end
+    end
+
+    context "when a non-host executor is configured globally" do
+      let(:container_executor) { AgentHarness::DockerCommandExecutor.allocate }
+      let(:provider_class) do
+        Class.new(AgentHarness::Providers::Base) do
+          class << self
+            attr_reader :last_executor
+
+            def provider_name
+              :test_provider
+            end
+
+            def binary_name
+              "test-cli"
+            end
+
+            def available?
+              false
+            end
+          end
+
+          def smoke_test(timeout: nil, provider_runtime: nil)
+            self.class.instance_variable_set(:@last_executor, executor)
+            {ok: true, status: "ok", message: "Smoke test passed", error_category: nil}
+          end
+        end
+      end
+
+      before do
+        registry.register(:test_provider, provider_class)
+        allow(AgentHarness.configuration).to receive(:command_executor).and_return(container_executor)
+      end
+
+      it "skips host-only preflight checks and uses the configured executor for the smoke test" do
+        expect(AgentHarness::Authentication).not_to receive(:auth_status)
+
+        result = described_class.check(:test_provider)
+
+        expect(result[:status]).to eq("ok")
+        expect(result[:message]).to eq("Smoke test passed using the supplied execution context")
+        expect(provider_class.last_executor).to eq(container_executor)
+      end
+    end
+
+    context "when a local CommandExecutor subclass is configured globally" do
+      let(:logging_executor_class) { Class.new(AgentHarness::CommandExecutor) }
+      let(:logging_executor) { logging_executor_class.new }
+      let(:provider_class) do
+        Class.new(AgentHarness::Providers::Base) do
+          class << self
+            def provider_name
+              :test_provider
+            end
+
+            def binary_name
+              "test-cli"
+            end
+
+            def available?
+              false
+            end
+          end
+
+          def smoke_test(timeout: nil, provider_runtime: nil)
+            {ok: true, status: "ok", message: "Smoke test passed", error_category: nil}
+          end
+        end
+      end
+
+      before do
+        registry.register(:test_provider, provider_class)
+        allow(AgentHarness.configuration).to receive(:command_executor).and_return(logging_executor)
+        allow(logging_executor).to receive(:which).with("test-cli").and_return(nil)
+      end
+
+      it "still runs host preflight checks" do
+        expect(AgentHarness::Authentication).not_to receive(:auth_status)
+
+        result = described_class.check(:test_provider)
+
+        expect(result[:status]).to eq("error")
+        expect(result[:message]).to include("not available")
+        expect(result[:message]).to include("available? returned false")
+        expect(result[:error_category]).to eq(:installation)
+        expect(result[:check]).to eq(:availability)
+      end
+    end
+
+    context "when the smoke test reports an authentication-specific adapter category" do
+      let(:provider_class) do
+        Class.new(AgentHarness::Providers::Base) do
+          class << self
+            def provider_name
+              :test_provider
+            end
+
+            def binary_name
+              "test-cli"
+            end
+
+            def available?
+              true
+            end
+          end
+
+          def smoke_test(timeout: nil, provider_runtime: nil)
+            {
+              ok: false,
+              status: "error",
+              message: "Session expired",
+              error_category: :auth_expired
+            }
+          end
+        end
+      end
+
+      before do
+        registry.register(:test_provider, provider_class)
+        allow(AgentHarness::Authentication).to receive(:auth_status)
+          .with(:test_provider)
+          .and_return({valid: true, expires_at: nil, error: nil})
+      end
+
+      it "normalizes the failure to :authentication" do
+        result = described_class.check(:test_provider)
+
+        expect(result[:status]).to eq("error")
+        expect(result[:error_category]).to eq(:authentication)
+        expect(result[:check]).to eq(:smoke_test)
+      end
+    end
+
     context "when an unexpected error occurs" do
       before do
         allow(AgentHarness::Providers::Registry).to receive(:instance).and_raise(RuntimeError, "Unexpected failure")
@@ -463,6 +947,24 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
       end
     end
 
+    context "when a ConfigurationError occurs" do
+      before do
+        allow(AgentHarness::Providers::Registry).to receive(:instance)
+          .and_raise(AgentHarness::ConfigurationError, "smoke_test_contract must define a non-empty :prompt")
+      end
+
+      it "includes the configuration failure details for easier diagnosis" do
+        result = described_class.check(:claude)
+
+        expect(result[:status]).to eq("error")
+        expect(result[:message]).to eq(
+          "Health check failed: AgentHarness::ConfigurationError: smoke_test_contract must define a non-empty :prompt"
+        )
+        expect(result[:error_category]).to eq(:configuration)
+        expect(result[:check]).to eq(:provider_health)
+      end
+    end
+
     context "when the check exceeds the timeout" do
       before do
         allow(Timeout).to receive(:timeout).and_raise(Timeout::Error)
@@ -473,7 +975,20 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
 
         expect(result[:status]).to eq("error")
         expect(result[:message]).to include("timed out")
+        # The outer timeout honors the provider contract timeout (30s)
+        # when it exceeds the caller-supplied health-check timeout (2s).
+        expect(result[:message]).to include("30s")
+        expect(result[:error_category]).to eq(:timeout)
+        expect(result[:check]).to eq(:timeout)
+      end
+
+      it "uses the caller timeout when the provider has no contract" do
+        result = described_class.check(:nonexistent, timeout: 2)
+
+        expect(result[:status]).to eq("error")
+        expect(result[:message]).to include("timed out")
         expect(result[:message]).to include("2s")
+        expect(result[:error_category]).to eq(:timeout)
       end
     end
 
@@ -486,6 +1001,7 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
             def available? = false
           end
         end)
+        allow_any_instance_of(AgentHarness::CommandExecutor).to receive(:which).with("test-cli").and_return(nil)
       end
 
       it "falls back to configured timeout when nil is passed" do
@@ -557,6 +1073,10 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
             true
           end
         end
+
+        def smoke_test(timeout: nil, provider_runtime: nil)
+          {ok: true, status: "ok", message: "Smoke test passed", error_category: nil}
+        end
       end
     end
 
@@ -618,6 +1138,12 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
     it "accepts a timeout parameter" do
       results = described_class.check_all(timeout: 10)
       expect(results).to be_an(Array)
+    end
+
+    it "rejects a shared provider_runtime override" do
+      expect {
+        described_class.check_all(provider_runtime: {env: {"API_KEY" => "secret"}})
+      }.to raise_error(ArgumentError, "provider_runtime is only supported for single-provider health checks")
     end
 
     it "skips disabled providers" do
@@ -763,6 +1289,14 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
           def available?
             true
           end
+
+          def smoke_test_contract
+            AgentHarness::Providers::Base::DEFAULT_SMOKE_TEST_CONTRACT
+          end
+        end
+
+        def smoke_test(timeout: nil, provider_runtime: nil)
+          {ok: true, status: "ok", message: "Smoke test passed", error_category: nil}
         end
       end
     end
@@ -790,14 +1324,36 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
       expect(results).to be_an(Array)
       test_result = results.find { |r| r[:name] == :test_provider }
       expect(test_result[:status]).to eq("ok")
-      expect(test_result[:message]).to include("Registered and authenticated")
+      expect(test_result[:message]).to eq(
+        "Registered, authenticated, and smoke test passed (health/config checks use defaults)"
+      )
     end
 
     it "exposes check_provider on the module" do
       result = AgentHarness.check_provider(:test_provider)
       expect(result[:name]).to eq(:test_provider)
       expect(result[:status]).to eq("ok")
-      expect(result[:message]).to include("Registered and authenticated")
+      expect(result[:message]).to eq(
+        "Registered, authenticated, and smoke test passed (health/config checks use defaults)"
+      )
+    end
+
+    it "rejects provider_runtime on check_providers" do
+      expect {
+        AgentHarness.check_providers(provider_runtime: {env: {"API_KEY" => "secret"}})
+      }.to raise_error(ArgumentError, "provider_runtime is only supported for single-provider health checks")
+    end
+
+    it "exposes smoke_test_contract on the module" do
+      contract = AgentHarness.smoke_test_contract(:test_provider)
+
+      expect(contract).to include(prompt: "Reply with exactly OK.")
+    end
+
+    it "exposes provider_smoke_test_contract wrapper on the module" do
+      contract = AgentHarness.provider_smoke_test_contract(:test_provider)
+
+      expect(contract).to include(prompt: "Reply with exactly OK.")
     end
   end
 end

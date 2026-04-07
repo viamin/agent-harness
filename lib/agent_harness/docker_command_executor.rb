@@ -35,12 +35,20 @@ module AgentHarness
     #
     # @param command [Array<String>, String] command to execute
     # @param timeout [Integer, nil] timeout in seconds
+    # @param idle_timeout [Integer, Float, nil] idle timeout in seconds based on output activity
     # @param env [Hash] environment variables to set in the container
     # @param stdin_data [String, nil] data to send to stdin
     # @return [Result] execution result
-    def execute(command, timeout: nil, env: {}, stdin_data: nil)
+    def execute(command, timeout: nil, idle_timeout: nil, env: {}, stdin_data: nil, **execution_options)
       docker_cmd = build_docker_command(command, env: env, stdin_data: stdin_data)
-      super(docker_cmd, timeout: timeout, env: {}, stdin_data: stdin_data)
+      super(
+        docker_cmd,
+        timeout: timeout,
+        idle_timeout: idle_timeout,
+        env: {},
+        stdin_data: stdin_data,
+        **execution_options
+      )
     end
 
     # Check if a binary exists inside the container

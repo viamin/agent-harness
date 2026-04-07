@@ -88,6 +88,14 @@ RSpec.describe AgentHarness::Providers::Anthropic do
       end
     end
 
+    it "rejects versions outside the supported range" do
+      expect { described_class.install_contract(version: "9.0.0") }
+        .to raise_error(ArgumentError, /outside the supported range/)
+
+      expect { described_class.install_contract(version: "1.0.0") }
+        .to raise_error(ArgumentError, /outside the supported range/)
+    end
+
     it "rejects versions containing shell metacharacters" do
       expect { described_class.install_contract(version: "2.1.92; rm -rf /") }
         .to raise_error(ArgumentError, /Invalid version/)

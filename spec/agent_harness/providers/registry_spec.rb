@@ -285,6 +285,58 @@ RSpec.describe AgentHarness::Providers::Registry do
     end
   end
 
+  describe "#smoke_test_contract" do
+    it "returns a provider smoke-test contract" do
+      contract = registry.smoke_test_contract(:codex)
+
+      expect(contract).to include(
+        prompt: "Reply with exactly OK.",
+        timeout: 30,
+        require_output: true
+      )
+    end
+
+    it "returns smoke test contract for github_copilot" do
+      expect(registry.smoke_test_contract(:github_copilot)).to eq(AgentHarness::Providers::GithubCopilot::SMOKE_TEST_CONTRACT)
+    end
+
+    it "raises ConfigurationError for an unknown provider" do
+      expect {
+        registry.smoke_test_contract(:nonexistent_provider_xyz)
+      }.to raise_error(AgentHarness::ConfigurationError, /Unknown provider/)
+    end
+
+    it "returns nil for a registered provider without smoke-test metadata" do
+      registry.register(:test, Class.new do
+        def self.provider_name = :test
+        def self.available? = true
+        def self.binary_name = "test"
+      end)
+
+      expect(registry.smoke_test_contract(:test)).to be_nil
+    end
+  end
+
+  describe "#smoke_test_contracts" do
+    it "returns providers with smoke-test contracts" do
+      contracts = registry.smoke_test_contracts
+
+      expect(contracts).to include(:codex)
+      expect(contracts).to include(:github_copilot)
+      expect(contracts[:codex][:prompt]).to eq("Reply with exactly OK.")
+    end
+
+    it "skips registered providers without smoke-test metadata" do
+      registry.register(:test, Class.new do
+        def self.provider_name = :test
+        def self.available? = true
+        def self.binary_name = "test"
+      end)
+
+      expect(registry.smoke_test_contracts).not_to include(:test)
+    end
+  end
+
   describe "#reset!" do
     it "clears all registrations" do
       registry.send(:ensure_builtin_providers_registered)

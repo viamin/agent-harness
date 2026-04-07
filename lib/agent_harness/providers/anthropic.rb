@@ -133,13 +133,29 @@ module AgentHarness
           MODEL_PATTERN.match?(family_name)
         end
 
+        def smoke_test_contract
+          Base::DEFAULT_SMOKE_TEST_CONTRACT
+        end
+
         private
 
         def validate_version!(version)
-          return if VALID_VERSION_PATTERN.match?(version.to_s)
+          version_str = version.to_s
 
-          raise ArgumentError, "Invalid version: #{version.inspect}. " \
-            "Must be a semver string (e.g. '2.1.92'), optional pre-release suffix, or a channel token ('latest', 'stable')."
+          unless VALID_VERSION_PATTERN.match?(version_str)
+            raise ArgumentError, "Invalid version: #{version.inspect}. " \
+              "Must be a semver string (e.g. '2.1.92'), optional pre-release suffix, or a channel token ('latest', 'stable')."
+          end
+
+          # Channel tokens are not concrete versions; skip requirement check.
+          return if %w[latest stable].include?(version_str)
+
+          # Validate concrete versions against the supported range.
+          gem_version = Gem::Version.new(version_str)
+          return if SUPPORTED_CLI_REQUIREMENT.satisfied_by?(gem_version)
+
+          raise ArgumentError, "Version #{version.inspect} is outside the supported range " \
+            "(#{SUPPORTED_CLI_REQUIREMENT}). Update SUPPORTED_CLI_REQUIREMENT before targeting this version."
         end
 
         def parse_models_list(output)

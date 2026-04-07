@@ -128,6 +128,32 @@ module AgentHarness
         end
       end
 
+      # Get smoke-test metadata for a provider.
+      #
+      # @param name [Symbol, String] the provider name
+      # @return [Hash, nil] smoke-test contract
+      # @raise [ConfigurationError] if the provider name is not registered
+      def smoke_test_contract(name)
+        klass = get(name)
+        return nil unless klass.respond_to?(:smoke_test_contract)
+
+        klass.smoke_test_contract
+      end
+
+      # Get smoke-test metadata for all providers that expose it.
+      #
+      # @return [Hash<Symbol, Hash>] smoke-test contracts keyed by provider
+      def smoke_test_contracts
+        ensure_builtin_providers_registered
+
+        @providers.each_with_object({}) do |(name, klass), contracts|
+          next unless klass.respond_to?(:smoke_test_contract)
+
+          contract = klass.smoke_test_contract
+          contracts[name] = contract if contract
+        end
+      end
+
       # Reset registry (useful for testing)
       #
       # @return [void]
