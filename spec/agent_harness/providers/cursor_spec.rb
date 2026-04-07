@@ -276,7 +276,7 @@ RSpec.describe AgentHarness::Providers::Cursor do
         )
 
         expect(mock_executor).to receive(:execute).with(
-          [described_class.install_metadata.dig(:binary, :name), "-p"],
+          [described_class.binary_name, "-p"],
           hash_including(stdin_data: "Hello")
         )
 
@@ -388,7 +388,7 @@ RSpec.describe AgentHarness::Providers::Cursor do
           )
 
           expect(mock_executor).to receive(:execute).with(
-            [described_class.install_metadata.dig(:binary, :name), "mcp", "list"],
+            [described_class.binary_name, "mcp", "list"],
             timeout: 5
           ).and_return(cli_result)
 

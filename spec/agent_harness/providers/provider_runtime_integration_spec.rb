@@ -232,7 +232,7 @@ RSpec.describe "ProviderRuntime integration" do
 
   describe AgentHarness::Providers::Cursor do
     let(:provider) { described_class.new(executor: mock_executor) }
-    let(:cursor_binary) { described_class.install_metadata.dig(:binary, :name) }
+    let(:cursor_binary) { described_class.binary_name }
 
     it "passes runtime env vars to the executor" do
       runtime = AgentHarness::ProviderRuntime.new(
