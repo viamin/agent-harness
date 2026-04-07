@@ -104,6 +104,10 @@ module AgentHarness
           end
           contract.freeze
         end
+
+        def smoke_test_contract
+          Base::DEFAULT_SMOKE_TEST_CONTRACT
+        end
       end
 
       def name

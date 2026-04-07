@@ -47,6 +47,21 @@ RSpec.describe AgentHarness do
     end
   end
 
+  describe ".send_message" do
+    it "passes executor overrides to the conductor" do
+      executor = instance_double(AgentHarness::CommandExecutor)
+      response = instance_double(AgentHarness::Response)
+
+      expect(AgentHarness.conductor).to receive(:send_message)
+        .with("Hello", provider: :codex, executor: executor, temperature: 0.1)
+        .and_return(response)
+
+      expect(
+        AgentHarness.send_message("Hello", provider: :codex, executor: executor, temperature: 0.1)
+      ).to be(response)
+    end
+  end
+
   describe ".provider_installation_contract" do
     it "delegates to the provider registry" do
       contract = {binary_name: "kilo"}

@@ -72,6 +72,12 @@ RSpec.describe AgentHarness do
       end
     end
 
+    describe AgentHarness::IdleTimeoutError do
+      it "inherits from TimeoutError" do
+        expect(described_class.new).to be_a(AgentHarness::TimeoutError)
+      end
+    end
+
     describe AgentHarness::AuthenticationError do
       it "inherits from Error" do
         expect(described_class.new).to be_a(AgentHarness::Error)

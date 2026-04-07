@@ -138,6 +138,16 @@ module AgentHarness
           Array(contract[:install_command_prefix]) + [package_with_version]
         end
 
+        # Canonical smoke-test contract for this provider.
+        #
+        # CLI-backed providers should expose a minimal real-execution prompt so
+        # downstream apps can reuse a stable provider-owned health check.
+        #
+        # @return [Hash, nil] smoke-test metadata or nil when not provided
+        def smoke_test_contract
+          nil
+        end
+
         private
 
         def versioned_installation_contract(version)
@@ -156,9 +166,14 @@ module AgentHarness
             type == :keyrest || ([:key, :keyreq].include?(type) && name == :version)
           end
 
-          # Default implementation uses **options (keyrest) and delegates to
-          # install_contract.  In that case, check install_contract instead.
-          if ic_accepts_version && ic_params.any? { |type, _| type == :keyrest }
+          # The default implementation in Adapter::ClassMethods uses **options
+          # and delegates to install_contract, so version support depends on
+          # install_contract's signature.  Only fall through when the default is
+          # actually in use — a provider that overrides installation_contract
+          # with its own version: keyword (even combined with **options) should
+          # be trusted directly.
+          default_owner = Adapter::ClassMethods
+          if method(:installation_contract).owner == default_owner
             ic_params = method(:install_contract).parameters
             ic_accepts_version = ic_params.any? do |type, name|
               type == :keyrest || ([:key, :keyreq].include?(type) && name == :version)
@@ -346,6 +361,71 @@ module AgentHarness
         {healthy: true, message: "OK"}
       end
 
+      # Canonical smoke-test contract for this provider instance.
+      #
+      # @return [Hash, nil] smoke-test metadata
+      def smoke_test_contract
+        self.class.smoke_test_contract if self.class.respond_to?(:smoke_test_contract)
+      end
+
+      # Execute a minimal provider-owned smoke test via the configured executor.
+      #
+      # @param timeout [Integer, nil] timeout override in seconds
+      # @param provider_runtime [ProviderRuntime, Hash, nil] runtime overrides
+      # @return [Hash] normalized smoke-test result
+      def smoke_test(timeout: nil, provider_runtime: nil)
+        contract = smoke_test_contract
+        raise NotImplementedError, "#{self.class} does not implement #smoke_test_contract" unless contract
+
+        prompt = contract[:prompt]
+        if !prompt.is_a?(String) || prompt.strip.empty?
+          raise ConfigurationError, "#{self.class}.smoke_test_contract must define a non-empty :prompt"
+        end
+
+        response = send_message(
+          prompt: prompt,
+          timeout: timeout || contract[:timeout],
+          provider_runtime: provider_runtime
+        )
+
+        output = response.output.to_s.strip
+        expected_output = contract[:expected_output]&.strip
+        success = response.success? && (!contract.fetch(:require_output, true) || !output.empty?)
+        success &&= expected_output.nil? || output == expected_output
+
+        if success
+          return {
+            ok: true,
+            status: "ok",
+            message: contract[:success_message] || "Smoke test passed",
+            error_category: nil,
+            output: output,
+            exit_code: response.exit_code
+          }
+        end
+
+        message = response.error.to_s.strip
+        message = output if message.empty?
+        message = "Smoke test failed with exit code #{response.exit_code}" if message.empty?
+
+        {
+          ok: false,
+          status: "error",
+          message: message,
+          error_category: classify_smoke_test_message(message),
+          output: output,
+          exit_code: response.exit_code
+        }
+      rescue TimeoutError => e
+        failure_smoke_test_result(e.message, :timeout)
+      rescue AuthenticationError => e
+        failure_smoke_test_result(e.message, :auth_expired)
+      rescue RateLimitError => e
+        failure_smoke_test_result(e.message, :rate_limited)
+      rescue ProviderError => e
+        failure_smoke_test_result(e.message, classify_smoke_test_message(e.message))
+      end
+
       # Execution semantics for this provider
       #
       # Returns a hash describing provider-specific execution behavior so
@@ -376,6 +456,23 @@ module AgentHarness
       # @return [Time, nil] when the rate limit resets, or nil if unknown
       def parse_rate_limit_reset(output)
         nil
+      end
+
+      private
+
+      def classify_smoke_test_message(message)
+        ErrorTaxonomy.classify(StandardError.new(message.to_s), error_patterns)
+      end
+
+      def failure_smoke_test_result(message, error_category)
+        {
+          ok: false,
+          status: "error",
+          message: message,
+          error_category: error_category,
+          output: nil,
+          exit_code: nil
+        }
       end
     end
   end

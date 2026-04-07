@@ -278,6 +278,103 @@ RSpec.describe AgentHarness::Providers::Cursor do
         provider.send_message(prompt: "Hello", timeout: 60)
       end
 
+      it "passes through execution hooks" do
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "ok",
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        observer = Object.new
+
+        expect(mock_executor).to receive(:execute).with(
+          ["cursor-agent", "-p"],
+          hash_including(
+            stdin_data: "Hello",
+            idle_timeout: 30,
+            on_stdout_chunk: kind_of(Proc),
+            on_stderr_chunk: kind_of(Proc),
+            on_heartbeat: kind_of(Proc),
+            heartbeat_interval: 2,
+            observer: observer
+          )
+        )
+
+        provider.send_message(
+          prompt: "Hello",
+          idle_timeout: 30,
+          on_stdout_chunk: ->(_chunk) {},
+          on_stderr_chunk: ->(_chunk) {},
+          on_heartbeat: ->(**_heartbeat) {},
+          heartbeat_interval: 2,
+          execution_observer: observer
+        )
+      end
+
+      it "preserves an explicit nil heartbeat interval" do
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "ok",
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        expect(mock_executor).to receive(:execute).with(
+          ["cursor-agent", "-p"],
+          hash_including(
+            stdin_data: "Hello",
+            on_heartbeat: kind_of(Proc),
+            heartbeat_interval: nil
+          )
+        )
+
+        provider.send_message(
+          prompt: "Hello",
+          on_heartbeat: ->(**_heartbeat) {},
+          heartbeat_interval: nil
+        )
+      end
+
+      it "uses the executor default heartbeat interval when none is provided" do
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "ok",
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        expect(mock_executor).to receive(:execute).with(
+          ["cursor-agent", "-p"],
+          satisfy { |execution_options|
+            execution_options[:stdin_data] == "Hello" &&
+              execution_options[:on_heartbeat].is_a?(Proc) &&
+              !execution_options.key?(:heartbeat_interval)
+          }
+        )
+
+        provider.send_message(
+          prompt: "Hello",
+          on_heartbeat: ->(**_heartbeat) {}
+        )
+      end
+
+      it "preserves idle timeout errors" do
+        allow(mock_executor).to receive(:execute).and_raise(
+          AgentHarness::IdleTimeoutError.new("Command exceeded idle timeout")
+        )
+
+        expect {
+          provider.send_message(prompt: "Hello")
+        }.to raise_error(AgentHarness::IdleTimeoutError)
+      end
+
       context "error handling" do
         it "raises RateLimitError for rate limit errors" do
           allow(mock_executor).to receive(:execute).and_raise(StandardError.new("rate limit exceeded"))
