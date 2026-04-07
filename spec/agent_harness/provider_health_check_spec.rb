@@ -49,13 +49,13 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
         allow_any_instance_of(AgentHarness::CommandExecutor).to receive(:which).with("test-cli").and_return(nil)
       end
 
-      it "returns error status with CLI info" do
+      it "returns error status when .available? returns false" do
         result = described_class.check(:test_provider)
 
         expect(result[:name]).to eq(:test_provider)
         expect(result[:status]).to eq("error")
-        expect(result[:message]).to include("test-cli")
-        expect(result[:message]).to include("not found")
+        expect(result[:message]).to include("not available")
+        expect(result[:message]).to include("available? returned false")
         expect(result[:error_category]).to eq(:installation)
         expect(result[:check]).to eq(:availability)
       end
@@ -65,8 +65,7 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
 
         expect(result[:name]).to eq(:test_provider)
         expect(result[:status]).to eq("error")
-        expect(result[:message]).to include("test-cli")
-        expect(result[:message]).to include("not found")
+        expect(result[:message]).to include("not available")
         expect(result[:error_category]).to eq(:installation)
         expect(result[:check]).to eq(:availability)
       end
@@ -76,8 +75,43 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
 
         expect(result[:name]).to eq(:test_provider)
         expect(result[:status]).to eq("error")
+        expect(result[:message]).to include("not available")
+        expect(result[:error_category]).to eq(:installation)
+        expect(result[:check]).to eq(:availability)
+      end
+    end
+
+    context "when .available? returns true but executor cannot find binary" do
+      let(:provider_class) do
+        Class.new(AgentHarness::Providers::Base) do
+          class << self
+            def provider_name
+              :test_provider
+            end
+
+            def binary_name
+              "test-cli"
+            end
+
+            def available?
+              true
+            end
+          end
+        end
+      end
+
+      before do
+        registry.register(:test_provider, provider_class)
+        allow_any_instance_of(AgentHarness::CommandExecutor).to receive(:which).with("test-cli").and_return(nil)
+      end
+
+      it "returns error status with CLI not found message" do
+        result = described_class.check(:test_provider)
+
+        expect(result[:name]).to eq(:test_provider)
+        expect(result[:status]).to eq("error")
         expect(result[:message]).to include("test-cli")
-        expect(result[:message]).to include("not found")
+        expect(result[:message]).to include("not found in PATH")
         expect(result[:error_category]).to eq(:installation)
         expect(result[:check]).to eq(:availability)
       end
@@ -824,8 +858,8 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
         result = described_class.check(:test_provider)
 
         expect(result[:status]).to eq("error")
-        expect(result[:message]).to include("test-cli")
-        expect(result[:message]).to include("not found")
+        expect(result[:message]).to include("not available")
+        expect(result[:message]).to include("available? returned false")
         expect(result[:error_category]).to eq(:installation)
         expect(result[:check]).to eq(:availability)
       end

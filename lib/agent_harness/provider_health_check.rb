@@ -189,7 +189,25 @@ module AgentHarness
 
         auth_degraded = false
         if host_preflight_allowed
-          # Step 2: Check CLI availability
+          # Step 2a: Honor the provider's `.available?` contract when running
+          # against the default host executor. Custom providers may enforce
+          # version or feature checks beyond simple PATH presence, so this
+          # catches cases where the binary exists but the provider considers
+          # itself unavailable. We skip this when a custom executor is
+          # supplied because `.available?` always queries the global
+          # executor, which may not reflect the caller's execution context.
+          if executor.nil? && !klass.available?
+            return build_result(
+              name: provider_name,
+              status: "error",
+              message: "Provider '#{klass.binary_name}' is not available (#{klass}.available? returned false)",
+              start_time: start_time,
+              error_category: :installation,
+              check: :availability
+            )
+          end
+
+          # Step 2b: Verify the binary is findable by the effective executor.
           unless provider_instance.executor.which(klass.binary_name)
             return build_result(
               name: provider_name,
