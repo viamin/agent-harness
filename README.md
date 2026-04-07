@@ -126,6 +126,41 @@ contract[:install_command]
 # => ["npm", "install", "-g", "--ignore-scripts", "@google/gemini-cli@0.35.3"]
 ```
 
+Cursor also exposes a first-class install contract for container/image builds.
+The contract publishes checksums for both the installer script and the default
+Linux x64 artifact so consumers can verify downloads independently:
+
+```ruby
+cursor_install = AgentHarness::Providers::Cursor.install_metadata
+
+cursor_install
+# => {
+#      source: {
+#        type: :shell_script,
+#        url: "https://cursor.com/install",
+#        resolved_version: "2026.03.30-a5d3e17",
+#        default_artifact_url: "https://downloads.cursor.com/lab/2026.03.30-a5d3e17/linux/x64/agent-cli-package.tar.gz"
+#      },
+#      checksum: {
+#        strategy: :sha256,
+#        targets: {
+#          script: { url: "https://cursor.com/install", value: "8371..." },
+#          artifacts: { "linux/x64" => { url: "https://downloads.cursor.com/...", value: "e0d4..." } }
+#        }
+#      },
+#      binary: {
+#        name: "cursor-agent",
+#        path: "$HOME/.local/bin/cursor-agent",
+#        suggested_global_path: "/usr/local/bin/cursor-agent"
+#      },
+#      version: {
+#        default: "latest",
+#        supported: "latest",
+#        command: ["cursor-agent", "--version"]
+#      }
+#    }
+```
+
 ### Direct Provider Access
 
 ```ruby
