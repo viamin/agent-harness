@@ -269,6 +269,23 @@ module AgentHarness
           end
         end
 
+        # Supervise the wait for process exit so a child that closed its
+        # stdio but keeps running cannot hang past the configured timeouts.
+        unless process_exited?(wait_thr)
+          supervise_process_exit(
+            wait_thr,
+            timeout: timeout,
+            idle_timeout: idle_timeout,
+            start_time: start_time,
+            last_output_at: last_output_at,
+            cmd_array: cmd_array,
+            on_heartbeat: on_heartbeat,
+            observer: observer,
+            heartbeat_interval: heartbeat_interval,
+            last_heartbeat_at: last_heartbeat_at
+          )
+        end
+
         [stdout, stderr, wait_thr.value]
       end
     end
@@ -421,6 +438,41 @@ module AgentHarness
       end
 
       [nil, last_output_at]
+    end
+
+    # Poll for process exit with timeout and heartbeat supervision.
+    # Called after all streams are closed when the child is still running.
+    def supervise_process_exit(wait_thr, timeout:, idle_timeout:, start_time:,
+      last_output_at:, cmd_array:, on_heartbeat:, observer:,
+      heartbeat_interval:, last_heartbeat_at:)
+      loop do
+        break if process_exited?(wait_thr)
+
+        now = monotonic_time
+        check_wall_timeout!(timeout, now - start_time, wait_thr, cmd_array)
+        check_idle_timeout!(idle_timeout, now - last_output_at, wait_thr, cmd_array)
+
+        if should_emit_heartbeat?(on_heartbeat, observer, heartbeat_interval, now - last_heartbeat_at)
+          emit_heartbeat(
+            on_heartbeat,
+            observer,
+            elapsed: now - start_time,
+            idle_for: now - last_output_at,
+            wait_thr: wait_thr
+          )
+          last_heartbeat_at = now
+        end
+
+        wait_timeout = select_timeout(
+          timeout, idle_timeout, heartbeat_interval,
+          elapsed: now - start_time,
+          idle_for: now - last_output_at,
+          heartbeat_age: now - last_heartbeat_at,
+          heartbeat_requested: on_heartbeat || observer_responds_to?(observer, :on_heartbeat)
+        )
+        # Sleep briefly before re-checking, bounded by the next deadline
+        sleep([wait_timeout || 0.1, 0.1].min)
+      end
     end
 
     def validate_duration!(value, name:, allow_nil: false)

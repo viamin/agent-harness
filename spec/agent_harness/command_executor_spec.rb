@@ -97,7 +97,9 @@ RSpec.describe AgentHarness::CommandExecutor do
           [[stdout_io, stderr_io], [stdin], nil],
           [[stdout_io], nil, nil]
         )
-        allow(wait_thr).to receive(:join).with(0).and_return(nil)
+        # Return nil (not exited) during the main loop, then wait_thr (exited)
+        # once streams are drained so supervise_process_exit is skipped
+        allow(wait_thr).to receive(:join).with(0).and_return(nil, nil, wait_thr)
         allow(stdout_io).to receive(:read_nonblock).and_return("tick\n", nil)
         allow(stderr_io).to receive(:read_nonblock).and_return(nil)
         allow(executor).to receive(:monotonic_time).and_return(0.0, 0.05, 0.051, 0.06)
@@ -189,6 +191,34 @@ RSpec.describe AgentHarness::CommandExecutor do
         expect {
           executor.execute(["ruby", "-e", "loop { puts 'tick' }"], timeout: 0.05)
         }.to raise_error(AgentHarness::TimeoutError)
+      end
+
+      it "enforces wall-clock timeout when child closes stdio but keeps running" do
+        started_at = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+
+        expect {
+          executor.execute(
+            ["ruby", "-e", "$stdout.close; $stderr.close; sleep 10"],
+            timeout: 0.5
+          )
+        }.to raise_error(AgentHarness::TimeoutError)
+
+        elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - started_at
+        expect(elapsed).to be < 3
+      end
+
+      it "enforces idle timeout when child closes stdio but keeps running" do
+        started_at = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+
+        expect {
+          executor.execute(
+            ["ruby", "-e", "$stdout.sync = true; puts 'ready'; $stdout.close; $stderr.close; sleep 10"],
+            idle_timeout: 0.3
+          )
+        }.to raise_error(AgentHarness::IdleTimeoutError)
+
+        elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - started_at
+        expect(elapsed).to be < 3
       end
 
       it "completes before timeout" do
@@ -339,7 +369,8 @@ RSpec.describe AgentHarness::CommandExecutor do
           [[], [stdin], nil],
           [[stdout, stderr], nil, nil]
         )
-        allow(wait_thr).to receive(:join).with(0).and_return(nil)
+        # Return nil during the main loop, then wait_thr (exited) once streams are drained
+        allow(wait_thr).to receive(:join).with(0).and_return(nil, nil, wait_thr)
         allow(stdin).to receive(:write_nonblock).and_return(input.bytesize)
         allow(stdout).to receive(:read_nonblock).and_return(nil)
         allow(stderr).to receive(:read_nonblock).and_return(nil)
