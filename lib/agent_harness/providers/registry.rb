@@ -349,12 +349,23 @@ module AgentHarness
           next false if alias_name == name
           next true if builtin_provider_name?(alias_name)
 
+          # Reject aliases that match a reserved builtin alias (e.g. :anthropic
+          # for :claude) unless the registering provider is the owning builtin.
+          # Authentication hardcodes routing for these names, so allowing a
+          # custom provider to claim them would cause auth_status/auth_url to
+          # hit the wrong provider.
+          alias_owner = reserved_builtin_alias_owner(alias_name)
+          next true if alias_owner && alias_owner != name
+
           @providers.key?(alias_name) ||
             (@aliases.key?(alias_name) && @aliases[alias_name] != name)
         end
         return unless conflicting_alias
 
-        owner = if @providers.key?(conflicting_alias)
+        builtin_alias_owner = reserved_builtin_alias_owner(conflicting_alias)
+        owner = if builtin_alias_owner
+          builtin_alias_owner
+        elsif @providers.key?(conflicting_alias)
           conflicting_alias
         elsif builtin_provider_name?(conflicting_alias)
           :builtin_provider

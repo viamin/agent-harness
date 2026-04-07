@@ -117,12 +117,13 @@ RSpec.describe AgentHarness::Providers::Registry do
       )
     end
 
-    it "allows aliases that match builtin aliases before bootstrap" do
+    it "rejects aliases that match reserved builtin aliases before bootstrap" do
       expect {
         registry.register(:custom_provider, mock_provider, aliases: [:anthropic])
-      }.not_to raise_error
-
-      expect(registry.instance_variable_get(:@aliases)[:anthropic]).to eq(:custom_provider)
+      }.to raise_error(
+        AgentHarness::ConfigurationError,
+        /Alias :anthropic conflicts with registered provider :claude/
+      )
     end
 
     it "rejects aliases that match builtin canonical provider names" do
