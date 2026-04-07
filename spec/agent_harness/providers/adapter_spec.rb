@@ -116,6 +116,37 @@ RSpec.describe AgentHarness::Providers::Adapter do
     end
   end
 
+  # Simulates a custom provider that overrides install_contract without
+  # accepting the version: keyword — the legacy API that predates versioned
+  # contracts. installation_contract must not blow up for these providers.
+  let(:legacy_no_version_adapter_class) do
+    Class.new do
+      include AgentHarness::Providers::Adapter
+
+      class << self
+        def provider_name
+          :legacy_no_version
+        end
+
+        def available?
+          true
+        end
+
+        def binary_name
+          "legacy-no-ver"
+        end
+
+        def install_contract
+          {
+            package_name: "@scope/legacy-no-ver",
+            install_command_prefix: ["npm", "install", "-g"],
+            install_command: ["npm", "install", "-g", "@scope/legacy-no-ver@1.0.0"]
+          }
+        end
+      end
+    end
+  end
+
   describe "ClassMethods" do
     describe ".provider_name" do
       it "returns the provider name" do
@@ -182,6 +213,23 @@ RSpec.describe AgentHarness::Providers::Adapter do
       it "forwards the version option to the legacy install_contract API" do
         expect(legacy_install_contract_adapter_class.installation_contract(version: "2.3.4")).to include(
           resolved_version: "2.3.4"
+        )
+      end
+
+      it "does not forward version: to a legacy install_contract that does not accept it" do
+        expect {
+          legacy_no_version_adapter_class.installation_contract(version: "2.0.0")
+        }.not_to raise_error
+
+        contract = legacy_no_version_adapter_class.installation_contract(version: "2.0.0")
+        expect(contract).to include(package_name: "@scope/legacy-no-ver")
+      end
+
+      it "returns the legacy contract unchanged when version: is not supported" do
+        contract = legacy_no_version_adapter_class.installation_contract
+        expect(contract).to include(
+          package_name: "@scope/legacy-no-ver",
+          install_command: ["npm", "install", "-g", "@scope/legacy-no-ver@1.0.0"]
         )
       end
     end

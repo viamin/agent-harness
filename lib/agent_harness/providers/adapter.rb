@@ -86,7 +86,19 @@ module AgentHarness
         def installation_contract(**options)
           return install_contract unless options.key?(:version)
 
-          install_contract(version: options[:version])
+          # Check if install_contract accepts the version: keyword before
+          # forwarding it; legacy providers may override install_contract
+          # without that parameter, which would raise ArgumentError.
+          params = method(:install_contract).parameters
+          accepts_version = params.any? do |type, name|
+            type == :keyrest || ([:key, :keyreq].include?(type) && name == :version)
+          end
+
+          if accepts_version
+            install_contract(version: options[:version])
+          else
+            install_contract
+          end
         end
 
         # Build the install command from the provider installation contract.
@@ -129,11 +141,31 @@ module AgentHarness
         private
 
         def versioned_installation_contract(version)
-          parameters = method(:installation_contract).parameters
-          accepts_version_keyword = parameters.any? do |type, name|
+          # Only reuse the provider's own contract when the provider actually
+          # implements version-aware logic.  We check whether the method
+          # accepting the call can handle a version: keyword — either via an
+          # explicit `version:` param or a `**options` catch-all.
+          #
+          # For providers that override installation_contract directly we
+          # inspect that method.  When the default (keyrest) implementation is
+          # in use, the version support depends on install_contract, so we
+          # inspect that instead.
+
+          ic_params = method(:installation_contract).parameters
+          ic_accepts_version = ic_params.any? do |type, name|
             type == :keyrest || ([:key, :keyreq].include?(type) && name == :version)
           end
-          return unless accepts_version_keyword
+
+          # Default implementation uses **options (keyrest) and delegates to
+          # install_contract.  In that case, check install_contract instead.
+          if ic_accepts_version && ic_params.any? { |type, _| type == :keyrest }
+            ic_params = method(:install_contract).parameters
+            ic_accepts_version = ic_params.any? do |type, name|
+              type == :keyrest || ([:key, :keyreq].include?(type) && name == :version)
+            end
+          end
+
+          return unless ic_accepts_version
 
           installation_contract(version: version)
         end
