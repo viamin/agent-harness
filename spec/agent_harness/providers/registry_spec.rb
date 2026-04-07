@@ -1050,6 +1050,12 @@ RSpec.describe AgentHarness::Providers::Registry do
       }.to raise_error(AgentHarness::ConfigurationError, /Unknown provider/)
     end
 
+    it "raises ConfigurationError for unknown providers with refresh: true" do
+      expect {
+        registry.provider_metadata(:nonexistent_provider_xyz, refresh: true)
+      }.to raise_error(AgentHarness::ConfigurationError, /Unknown provider/)
+    end
+
     it "caches fallback availability until explicitly refreshed" do
       legacy_provider = Class.new do
         class << self

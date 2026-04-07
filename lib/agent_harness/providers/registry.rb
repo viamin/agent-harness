@@ -300,7 +300,8 @@ module AgentHarness
       )
         cache_key = [requested_name, canonical_name]
         invalidate_provider_metadata_cache!(canonical_name) if invalidate_provider_cache
-        clear_class_auth_status_metadata_cache!(@providers[canonical_name], canonical_name) if refresh
+        klass = @providers[canonical_name]
+        clear_class_auth_status_metadata_cache!(klass, canonical_name) if refresh && klass
         @provider_metadata_catalog_cache = nil if refresh && invalidate_catalog
 
         metadata = build_provider_metadata(requested_name, canonical_name, refresh: refresh)
