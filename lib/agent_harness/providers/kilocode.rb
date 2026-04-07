@@ -60,6 +60,10 @@ module AgentHarness
           installation_contract(version: version)[:install_command]
         end
 
+        def smoke_test_contract
+          Base::DEFAULT_SMOKE_TEST_CONTRACT
+        end
+
         private
 
         def validate_install_version!(version)

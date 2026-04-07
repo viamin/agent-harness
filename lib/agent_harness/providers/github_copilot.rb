@@ -9,6 +9,20 @@ module AgentHarness
       # Model name pattern for GitHub Copilot (uses OpenAI models)
       MODEL_PATTERN = /^gpt-[\d.o-]+(?:-turbo)?(?:-mini)?$/i
 
+      # Copilot-specific smoke test contract.  The `what-the-shell` subcommand
+      # translates natural language into shell commands, so the generic
+      # "Reply with exactly OK." prompt would produce something like
+      # `echo "OK"` rather than the literal text "OK".  We use a prompt that
+      # is meaningful for the shell-translation path and only require
+      # non-empty output (no exact match).
+      SMOKE_TEST_CONTRACT = {
+        prompt: "list files in the current directory",
+        expected_output: nil,
+        timeout: 30,
+        require_output: true,
+        success_message: "Smoke test passed"
+      }.freeze
+
       class << self
         def provider_name
           :github_copilot
@@ -54,6 +68,10 @@ module AgentHarness
             {name: "gpt-4o-mini", family: "gpt-4o-mini", tier: "mini", provider: "github_copilot"},
             {name: "gpt-4-turbo", family: "gpt-4-turbo", tier: "advanced", provider: "github_copilot"}
           ]
+        end
+
+        def smoke_test_contract
+          SMOKE_TEST_CONTRACT
         end
 
         def model_family(provider_model_name)

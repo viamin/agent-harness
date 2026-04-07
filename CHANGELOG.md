@@ -1,5 +1,21 @@
 ## [Unreleased]
 
+## [0.5.7](https://github.com/viamin/agent-harness/compare/agent-harness/v0.5.6...agent-harness/v0.5.7) (2026-04-07)
+
+
+### Bug Fixes
+
+* 59: fix(codex): replace invalid '--sandbox none' for externally sandboxed runs ([#89](https://github.com/viamin/agent-harness/issues/89)) ([6b0fac5](https://github.com/viamin/agent-harness/commit/6b0fac5e9b83c70c3a55004d9c5ad354a6d3dced))
+* 60: feat: support per-request executor overrides for orchestrated send_message ([#87](https://github.com/viamin/agent-harness/issues/87)) ([7711770](https://github.com/viamin/agent-harness/commit/7711770ab3c9a6659171df1033038acf08b8d5a9))
+* 61: feat: support idle-timeout and streaming execution hooks for long-running provider runs ([#90](https://github.com/viamin/agent-harness/issues/90)) ([adf7558](https://github.com/viamin/agent-harness/commit/adf75583994f78af9d6f5b44eba729b616b46f02))
+* 62: feat: support per-request environment unsets for provider execution ([#76](https://github.com/viamin/agent-harness/issues/76)) ([2dfdb8e](https://github.com/viamin/agent-harness/commit/2dfdb8e6138f21ca0dd1a9e0b2d7cc17d1776612))
+* 63: fix(copilot): align GithubCopilot provider with a real installable CLI contract ([#75](https://github.com/viamin/agent-harness/issues/75)) ([9e585e7](https://github.com/viamin/agent-harness/commit/9e585e79252ac8431fb99bc16bc9ebbecb83439e))
+* 65: feat(installers): make Codex CLI installation/version support a first-class provider contract ([#79](https://github.com/viamin/agent-harness/issues/79)) ([a3f5849](https://github.com/viamin/agent-harness/commit/a3f5849db1bcfa162af98fa5339cf8b8f5314920))
+* 66: feat(installers): make Gemini CLI installation/version support a first-class provider contract ([#80](https://github.com/viamin/agent-harness/issues/80)) ([e349ab6](https://github.com/viamin/agent-harness/commit/e349ab64601cb2fe9bafb488e6b4f96fbcbf012b))
+* 67: feat(installers): make Kilocode CLI installation/version support a first-class provider contract ([#81](https://github.com/viamin/agent-harness/issues/81)) ([547baf5](https://github.com/viamin/agent-harness/commit/547baf5be93939a00cdac1e3d17824eb6dbfb324))
+* 68: feat(installers): make OpenCode CLI installation/version support a first-class provider contract ([#83](https://github.com/viamin/agent-harness/issues/83)) ([21caaf4](https://github.com/viamin/agent-harness/commit/21caaf4e003c41a7fa127e7244c4a61abad7f1cb))
+* 72: feat(providers): add first-class smoke-test/health-check execution contracts for CLI providers ([#85](https://github.com/viamin/agent-harness/issues/85)) ([7c0db3a](https://github.com/viamin/agent-harness/commit/7c0db3a5aa93e62e38240821dfb00b489ad3793b))
+
 ## [0.5.6](https://github.com/viamin/agent-harness/compare/agent-harness/v0.5.5...agent-harness/v0.5.6) (2026-03-30)
 
 

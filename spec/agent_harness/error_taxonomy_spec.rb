@@ -18,6 +18,20 @@ RSpec.describe AgentHarness::ErrorTaxonomy do
       error = StandardError.new("rate limit exceeded")
       expect(described_class.classify(error)).to eq(:rate_limited)
     end
+
+    it "classifies idle timeout exception types before provider-specific patterns" do
+      patterns = {transient: [/timeout/i]}
+      error = AgentHarness::IdleTimeoutError.new("command exceeded idle timeout")
+
+      expect(described_class.classify(error, patterns)).to eq(:idle_timeout)
+    end
+
+    it "classifies timeout exception types before provider-specific patterns" do
+      patterns = {transient: [/timeout/i]}
+      error = AgentHarness::TimeoutError.new("command timed out")
+
+      expect(described_class.classify(error, patterns)).to eq(:timeout)
+    end
   end
 
   describe ".classify_message" do
@@ -38,6 +52,10 @@ RSpec.describe AgentHarness::ErrorTaxonomy do
       expect(described_class.classify_message("invalid api key")).to eq(:auth_expired)
       expect(described_class.classify_message("HTTP 401")).to eq(:auth_expired)
       expect(described_class.classify_message("HTTP 403")).to eq(:auth_expired)
+    end
+
+    it "classifies idle timeout errors" do
+      expect(described_class.classify_message("command exceeded idle timeout")).to eq(:idle_timeout)
     end
 
     it "classifies timeout errors" do
@@ -67,6 +85,7 @@ RSpec.describe AgentHarness::ErrorTaxonomy do
       expect(described_class.action_for(:auth_expired)).to eq(:reauthenticate)
       expect(described_class.action_for(:transient)).to eq(:retry_with_backoff)
       expect(described_class.action_for(:permanent)).to eq(:escalate)
+      expect(described_class.action_for(:idle_timeout)).to eq(:escalate)
       expect(described_class.action_for(:sandbox_failure)).to eq(:escalate)
     end
 
@@ -85,6 +104,7 @@ RSpec.describe AgentHarness::ErrorTaxonomy do
     it "returns false for non-retryable categories" do
       expect(described_class.retryable?(:rate_limited)).to be false
       expect(described_class.retryable?(:auth_expired)).to be false
+      expect(described_class.retryable?(:idle_timeout)).to be false
       expect(described_class.retryable?(:permanent)).to be false
       expect(described_class.retryable?(:sandbox_failure)).to be false
     end
@@ -94,6 +114,7 @@ RSpec.describe AgentHarness::ErrorTaxonomy do
     it "returns description for known categories" do
       expect(described_class.description_for(:rate_limited)).to eq("Rate limit exceeded")
       expect(described_class.description_for(:auth_expired)).to eq("Authentication failed or expired")
+      expect(described_class.description_for(:idle_timeout)).to eq("Operation exceeded idle timeout")
     end
 
     it "returns default for unknown categories" do
@@ -104,7 +125,7 @@ RSpec.describe AgentHarness::ErrorTaxonomy do
   describe ".categories" do
     it "returns all category names" do
       categories = described_class.categories
-      expect(categories).to include(:rate_limited, :auth_expired, :transient, :permanent, :sandbox_failure)
+      expect(categories).to include(:rate_limited, :auth_expired, :transient, :idle_timeout, :permanent, :sandbox_failure)
     end
   end
 end

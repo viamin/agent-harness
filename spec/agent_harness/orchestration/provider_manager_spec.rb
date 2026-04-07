@@ -62,11 +62,9 @@ RSpec.describe AgentHarness::Orchestration::ProviderManager do
         expect { manager.select_provider(:claude) }.to raise_error(AgentHarness::NoProvidersAvailableError)
       end
     end
-  end
 
-  describe "#get_provider" do
-    before do
-      allow_any_instance_of(AgentHarness::Providers::Registry).to receive(:get).and_return(
+    context "when the preferred provider uses an executor override" do
+      let(:claude_class) do
         Class.new(AgentHarness::Providers::Base) do
           def self.provider_name
             :claude
@@ -80,7 +78,78 @@ RSpec.describe AgentHarness::Orchestration::ProviderManager do
             true
           end
         end
-      )
+      end
+
+      let(:cursor_class) do
+        Class.new(AgentHarness::Providers::Base) do
+          def self.provider_name
+            :cursor
+          end
+
+          def self.binary_name
+            "cursor"
+          end
+
+          def self.available?
+            true
+          end
+        end
+      end
+
+      before do
+        allow_any_instance_of(AgentHarness::Providers::Registry).to receive(:get).with(:claude).and_return(claude_class)
+        allow_any_instance_of(AgentHarness::Providers::Registry).to receive(:get).with(:cursor).and_return(cursor_class)
+      end
+
+      it "uses the executor override for a healthy requested provider" do
+        executor = instance_double(AgentHarness::CommandExecutor)
+
+        provider = manager.select_provider(:claude, executor: executor)
+
+        expect(provider.class.provider_name).to eq(:claude)
+        expect(provider.executor).to be(executor)
+      end
+
+      it "falls back when the requested provider is unhealthy" do
+        executor = instance_double(AgentHarness::CommandExecutor)
+        5.times { manager.record_failure(:claude) }
+
+        provider = manager.select_provider(:claude, executor: executor)
+
+        expect(provider.class.provider_name).to eq(:cursor)
+        expect(provider.executor).to be(executor)
+      end
+
+      it "raises when every eligible fallback is unavailable" do
+        executor = instance_double(AgentHarness::CommandExecutor)
+        5.times { manager.record_failure(:claude) }
+        5.times { manager.record_failure(:cursor) }
+
+        expect { manager.select_provider(:claude, executor: executor) }
+          .to raise_error(AgentHarness::NoProvidersAvailableError)
+      end
+    end
+  end
+
+  describe "#get_provider" do
+    let(:provider_class) do
+      Class.new(AgentHarness::Providers::Base) do
+        def self.provider_name
+          :claude
+        end
+
+        def self.binary_name
+          "claude"
+        end
+
+        def self.available?
+          true
+        end
+      end
+    end
+
+    before do
+      allow_any_instance_of(AgentHarness::Providers::Registry).to receive(:get).and_return(provider_class)
     end
 
     it "returns provider instance" do
@@ -92,6 +161,18 @@ RSpec.describe AgentHarness::Orchestration::ProviderManager do
       provider1 = manager.get_provider(:claude)
       provider2 = manager.get_provider(:claude)
       expect(provider1).to be(provider2)
+    end
+
+    it "creates request-scoped providers for executor overrides" do
+      executor = instance_double(AgentHarness::CommandExecutor)
+
+      provider1 = manager.get_provider(:claude, executor: executor)
+      provider2 = manager.get_provider(:claude, executor: executor)
+
+      expect(provider1).not_to be(provider2)
+      expect(provider1.executor).to be(executor)
+      expect(provider2.executor).to be(executor)
+      expect(manager.provider_instances).to be_empty
     end
   end
 
@@ -215,6 +296,60 @@ RSpec.describe AgentHarness::Orchestration::ProviderManager do
 
       expect { manager.switch_provider(reason: :all_failed, context: {}) }
         .to raise_error(AgentHarness::NoProvidersAvailableError)
+    end
+
+    it "preserves executor overrides on the fallback instance" do
+      executor = instance_double(AgentHarness::CommandExecutor)
+      5.times { manager.record_failure(:claude) }
+
+      result = manager.switch_provider(reason: :circuit_open, executor: executor)
+
+      expect(result.executor).to be(executor)
+    end
+
+    it "does not update the global current provider for request-scoped fallbacks" do
+      executor = instance_double(AgentHarness::CommandExecutor)
+      5.times { manager.record_failure(:claude) }
+
+      manager.switch_provider(reason: :circuit_open, executor: executor)
+
+      expect(manager.current_provider).to eq(:claude)
+    end
+
+    it "does not emit a provider switch callback for request-scoped fallbacks" do
+      executor = instance_double(AgentHarness::CommandExecutor)
+      5.times { manager.record_failure(:claude) }
+      allow(config.callbacks).to receive(:emit)
+
+      manager.switch_provider(reason: :circuit_open, executor: executor)
+
+      expect(config.callbacks).not_to have_received(:emit).with(
+        :provider_switch,
+        anything
+      )
+    end
+
+    it "derives request-scoped fallback chains from the failing provider" do
+      executor = instance_double(AgentHarness::CommandExecutor)
+
+      manager.switch_provider(reason: :manual_failover)
+      5.times { manager.record_failure(:claude) }
+
+      result = manager.switch_provider(from: :claude, reason: :circuit_open, executor: executor)
+
+      expect(result.class.provider_name).to eq(:cursor)
+      expect(result.executor).to be(executor)
+      expect(manager.current_provider).to eq(:cursor)
+    end
+
+    it "raises when request-scoped failover has no healthy fallback" do
+      executor = instance_double(AgentHarness::CommandExecutor)
+
+      5.times { manager.record_failure(:cursor) }
+
+      expect {
+        manager.switch_provider(from: :claude, reason: :circuit_open, executor: executor)
+      }.to raise_error(AgentHarness::NoProvidersAvailableError)
     end
   end
 

@@ -49,6 +49,10 @@ module AgentHarness
             {name: "claude-3-5-sonnet", family: "claude-3-5-sonnet", tier: "standard", provider: "aider"}
           ]
         end
+
+        def smoke_test_contract
+          Base::DEFAULT_SMOKE_TEST_CONTRACT
+        end
       end
 
       def name
