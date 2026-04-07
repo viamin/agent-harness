@@ -163,7 +163,23 @@ module AgentHarness
         def installation_contract(**options)
           return install_contract unless options.key?(:version)
 
-          install_contract(version: options[:version])
+          # Check if install_contract accepts the version: keyword before
+          # forwarding it; legacy providers may override install_contract
+          # without that parameter, which would raise ArgumentError.
+          params = method(:install_contract).parameters
+          accepts_version = params.any? do |type, name|
+            # Only treat an explicit `version:` keyword as proof the method
+            # handles version selection.  A bare `**options` keyrest does not
+            # count — providers may add it for forward-compatibility without
+            # actually acting on the version value.
+            [:key, :keyreq].include?(type) && name == :version
+          end
+
+          if accepts_version
+            install_contract(version: options[:version])
+          else
+            install_contract
+          end
         end
 
         # Stable provider metadata for downstream configuration and policy UIs.
@@ -606,12 +622,33 @@ module AgentHarness
 
           return contract[:install_command] unless version
 
+          versioned_contract = versioned_installation_contract(version)
+          if versioned_contract&.key?(:install_command)
+            return versioned_contract[:install_command]
+          end
+
           package_name = contract[:package_name]
           unless package_name
             raise ArgumentError, "installation_contract must define :package_name when overriding version"
           end
 
-          Array(contract[:install_command_prefix]) + ["#{package_name}@#{version}"]
+          requirement = contract[:version_requirement]
+          if requirement
+            requirement_args = Array(requirement).map do |entry|
+              entry.is_a?(Array) ? "#{entry[0]} #{entry[1]}" : entry
+            end
+            parsed_requirement = Gem::Requirement.new(*requirement_args)
+            unless parsed_requirement.satisfied_by?(Gem::Version.new(version))
+              raise ArgumentError,
+                "Unsupported #{provider_name} CLI version #{version.inspect}; " \
+                "supported versions must satisfy #{parsed_requirement}"
+            end
+          end
+
+          version_format = contract.fetch(:version_format, "%{package_name}@%{version}")
+          package_with_version = format(version_format, package_name: package_name, version: version)
+
+          Array(contract[:install_command_prefix]) + [package_with_version]
         end
 
         # Canonical smoke-test contract for this provider.
@@ -622,6 +659,44 @@ module AgentHarness
         # @return [Hash, nil] smoke-test metadata or nil when not provided
         def smoke_test_contract
           nil
+        end
+
+        private
+
+        def versioned_installation_contract(version)
+          # Only reuse the provider's own contract when the provider actually
+          # implements version-aware logic.  We require an explicit `version:`
+          # keyword parameter — a bare `**options` keyrest is NOT sufficient
+          # because providers may add it for forward-compatibility without
+          # actually acting on the version value.
+          #
+          # For providers that override installation_contract directly we
+          # inspect that method.  When the default (keyrest) implementation is
+          # in use, the version support depends on install_contract, so we
+          # inspect that instead.
+
+          ic_params = method(:installation_contract).parameters
+          ic_accepts_version = ic_params.any? do |type, name|
+            [:key, :keyreq].include?(type) && name == :version
+          end
+
+          # The default implementation in Adapter::ClassMethods uses **options
+          # and delegates to install_contract, so version support depends on
+          # install_contract's signature.  Only fall through when the default is
+          # actually in use — a provider that overrides installation_contract
+          # with its own version: keyword (even combined with **options) should
+          # be trusted directly.
+          default_owner = Adapter::ClassMethods
+          if method(:installation_contract).owner == default_owner
+            ic_params = method(:install_contract).parameters
+            ic_accepts_version = ic_params.any? do |type, name|
+              [:key, :keyreq].include?(type) && name == :version
+            end
+          end
+
+          return unless ic_accepts_version
+
+          installation_contract(version: version)
         end
       end
 

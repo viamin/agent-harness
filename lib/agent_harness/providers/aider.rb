@@ -6,6 +6,17 @@ module AgentHarness
     #
     # Provides integration with the Aider CLI tool.
     class Aider < Base
+      UV_VERSION = "0.8.17"
+      SUPPORTED_CLI_VERSION = "0.86.2"
+      SUPPORTED_CLI_REQUIREMENT = Gem::Requirement.new(">= #{SUPPORTED_CLI_VERSION}", "< 0.87.0").freeze
+      PYTHON_VERSION = "python3.12"
+      BINARY_PATH = "/usr/local/bin/aider"
+      UV_TOOL_ENV = {
+        "UV_TOOL_BIN_DIR" => "/usr/local/bin",
+        "UV_TOOL_DIR" => "/opt/uv/tools",
+        "UV_PYTHON_INSTALL_DIR" => "/opt/uv/python"
+      }.freeze
+
       class << self
         def provider_name
           :aider
@@ -48,6 +59,50 @@ module AgentHarness
             {name: "gpt-4o", family: "gpt-4o", tier: "standard", provider: "aider"},
             {name: "claude-3-5-sonnet", family: "claude-3-5-sonnet", tier: "standard", provider: "aider"}
           ]
+        end
+
+        def installation_contract(version: SUPPORTED_CLI_VERSION)
+          unless SUPPORTED_CLI_REQUIREMENT.satisfied_by?(Gem::Version.new(version))
+            raise ArgumentError,
+              "Unsupported Aider CLI version #{version.inspect}; " \
+              "supported versions must satisfy #{SUPPORTED_CLI_REQUIREMENT}"
+          end
+
+          default_package = "aider-chat==#{version}".freeze
+          bootstrap_command = [
+            "python3", "-m", "pip", "install", "--no-cache-dir", "--break-system-packages", "uv==#{UV_VERSION}"
+          ].freeze
+          install_command_prefix = [
+            "uv", "tool", "install", "--force", "--python", PYTHON_VERSION, "--with", "pip"
+          ].freeze
+          install_command = (install_command_prefix + [default_package]).freeze
+          supported_versions = [version].freeze
+          version_requirement = SUPPORTED_CLI_REQUIREMENT.requirements
+            .map { |op, ver| "#{op} #{ver}".freeze }
+            .freeze
+
+          contract = {
+            source: :uv_tool,
+            bootstrap_source: :pip,
+            bootstrap_package: "uv==#{UV_VERSION}",
+            bootstrap_commands: [bootstrap_command].freeze,
+            install_environment: UV_TOOL_ENV,
+            package: default_package,
+            package_name: "aider-chat",
+            version: version,
+            version_format: "%{package_name}==%{version}",
+            version_requirement: version_requirement,
+            binary_name: binary_name,
+            binary_path: BINARY_PATH,
+            install_command_prefix: install_command_prefix,
+            install_command: install_command,
+            supported_versions: supported_versions
+          }
+
+          contract.each_value do |value|
+            value.freeze if value.is_a?(String)
+          end
+          contract.freeze
         end
 
         def smoke_test_contract

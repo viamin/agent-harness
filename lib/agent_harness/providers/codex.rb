@@ -62,11 +62,17 @@ module AgentHarness
           ]
         end
 
-        def installation_contract
-          default_package = "@openai/codex@#{SUPPORTED_CLI_VERSION}".freeze
+        def installation_contract(version: SUPPORTED_CLI_VERSION)
+          unless SUPPORTED_CLI_REQUIREMENT.satisfied_by?(Gem::Version.new(version))
+            raise ArgumentError,
+              "Unsupported Codex CLI version #{version.inspect}; " \
+              "supported versions must satisfy #{SUPPORTED_CLI_REQUIREMENT}"
+          end
+
+          default_package = "@openai/codex@#{version}".freeze
           install_command_prefix = ["npm", "install", "-g", "--ignore-scripts"].freeze
           install_command = (install_command_prefix + [default_package]).freeze
-          supported_versions = [SUPPORTED_CLI_VERSION].freeze
+          supported_versions = [version].freeze
           version_requirement = SUPPORTED_CLI_REQUIREMENT.requirements
             .map { |op, ver| "#{op} #{ver}".freeze }
             .freeze
@@ -75,7 +81,7 @@ module AgentHarness
             source: :npm,
             package: default_package,
             package_name: "@openai/codex",
-            version: SUPPORTED_CLI_VERSION,
+            version: version,
             version_requirement: version_requirement,
             binary_name: binary_name,
             install_command_prefix: install_command_prefix,

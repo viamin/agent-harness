@@ -398,6 +398,25 @@ RSpec.describe AgentHarness::Providers::Registry do
       )
     end
 
+    it "returns the Aider installation contract" do
+      contract = registry.installation_contract(:aider)
+
+      expect(contract).to include(
+        source: :uv_tool,
+        package_name: "aider-chat",
+        binary_name: "aider"
+      )
+    end
+
+    it "forwards version selection options to generic install contracts" do
+      contract = registry.installation_contract(:aider, version: "0.86.5")
+
+      expect(contract).to include(
+        package: "aider-chat==0.86.5",
+        version: "0.86.5"
+      )
+    end
+
     it "raises ConfigurationError for unknown providers" do
       expect {
         registry.installation_contract(:nonexistent_provider_xyz)
@@ -420,9 +439,12 @@ RSpec.describe AgentHarness::Providers::Registry do
     it "returns providers with installation contracts" do
       contracts = registry.installation_contracts
 
-      expect(contracts).to include(:codex, :opencode)
+      expect(contracts).to include(:codex, :aider, :opencode)
       expect(contracts[:codex][:install_command]).to eq(
         ["npm", "install", "-g", "--ignore-scripts", "@openai/codex@0.116.0"]
+      )
+      expect(contracts[:aider][:install_command]).to eq(
+        ["uv", "tool", "install", "--force", "--python", "python3.12", "--with", "pip", "aider-chat==0.86.2"]
       )
       expect(contracts[:opencode][:install_command]).to eq(
         ["npm", "install", "-g", "--ignore-scripts", "opencode-ai@1.3.2"]

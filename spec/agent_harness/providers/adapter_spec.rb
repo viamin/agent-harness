@@ -697,6 +697,37 @@ RSpec.describe AgentHarness::Providers::Adapter do
     end
   end
 
+  # Simulates a custom provider that overrides install_contract without
+  # accepting the version: keyword — the legacy API that predates versioned
+  # contracts. installation_contract must not blow up for these providers.
+  let(:legacy_no_version_adapter_class) do
+    Class.new do
+      include AgentHarness::Providers::Adapter
+
+      class << self
+        def provider_name
+          :legacy_no_version
+        end
+
+        def available?
+          true
+        end
+
+        def binary_name
+          "legacy-no-ver"
+        end
+
+        def install_contract
+          {
+            package_name: "@scope/legacy-no-ver",
+            install_command_prefix: ["npm", "install", "-g"],
+            install_command: ["npm", "install", "-g", "@scope/legacy-no-ver@1.0.0"]
+          }
+        end
+      end
+    end
+  end
+
   describe "ClassMethods" do
     describe ".provider_name" do
       it "returns the provider name" do
@@ -769,6 +800,23 @@ RSpec.describe AgentHarness::Providers::Adapter do
       it "forwards the version option to the legacy install_contract API" do
         expect(legacy_install_contract_adapter_class.installation_contract(version: "2.3.4")).to include(
           resolved_version: "2.3.4"
+        )
+      end
+
+      it "does not forward version: to a legacy install_contract that does not accept it" do
+        expect {
+          legacy_no_version_adapter_class.installation_contract(version: "2.0.0")
+        }.not_to raise_error
+
+        contract = legacy_no_version_adapter_class.installation_contract(version: "2.0.0")
+        expect(contract).to include(package_name: "@scope/legacy-no-ver")
+      end
+
+      it "returns the legacy contract unchanged when version: is not supported" do
+        contract = legacy_no_version_adapter_class.installation_contract
+        expect(contract).to include(
+          package_name: "@scope/legacy-no-ver",
+          install_command: ["npm", "install", "-g", "@scope/legacy-no-ver@1.0.0"]
         )
       end
     end
@@ -1749,10 +1797,110 @@ RSpec.describe AgentHarness::Providers::Adapter do
         )
       end
 
+      it "supports custom version formatting in the installation contract" do
+        custom_format_class = Class.new do
+          include AgentHarness::Providers::Adapter
+
+          class << self
+            def provider_name = :custom_format
+            def available? = true
+            def binary_name = "installer"
+
+            def installation_contract
+              {
+                package_name: "pkg",
+                version_format: "%{package_name}==%{version}",
+                install_command_prefix: ["tool", "install"]
+              }
+            end
+          end
+        end
+
+        expect(custom_format_class.install_command(version: "1.2.3")).to eq(
+          ["tool", "install", "pkg==1.2.3"]
+        )
+      end
+
+      it "reuses provider-specific versioned contracts when available" do
+        versioned_contract_class = Class.new do
+          include AgentHarness::Providers::Adapter
+
+          class << self
+            def provider_name = :versioned_contract
+            def available? = true
+            def binary_name = "installer"
+
+            def installation_contract(version: "1.0.0")
+              {
+                package_name: "pkg",
+                version: version,
+                install_command_prefix: ["tool", "install", "--exact"],
+                install_command: ["tool", "install", "--exact", "pkg@#{version}"]
+              }
+            end
+          end
+        end
+
+        expect(versioned_contract_class.install_command(version: "1.2.3")).to eq(
+          ["tool", "install", "--exact", "pkg@1.2.3"]
+        )
+      end
+
+      it "rejects explicit version overrides outside the advertised support range" do
+        guarded_installing_adapter_class = Class.new do
+          include AgentHarness::Providers::Adapter
+
+          class << self
+            def provider_name = :guarded_installer
+            def available? = true
+            def binary_name = "installer"
+
+            def installation_contract
+              {
+                package_name: "pkg",
+                version_requirement: [">= 1.2.0", "< 1.3.0"],
+                install_command_prefix: ["tool", "install"]
+              }
+            end
+          end
+        end
+
+        expect {
+          guarded_installing_adapter_class.install_command(version: "1.3.0")
+        }.to raise_error(ArgumentError, /Unsupported guarded_installer CLI version "1.3.0"/)
+      end
+
       it "raises when version override is requested without package_name" do
         expect {
           package_only_installing_adapter_class.install_command(version: "1.2.3")
         }.to raise_error(ArgumentError, /must define :package_name/)
+      end
+
+      it "does not treat a bare **options keyrest as version support" do
+        keyrest_only_class = Class.new do
+          include AgentHarness::Providers::Adapter
+
+          class << self
+            def provider_name = :keyrest_only
+            def available? = true
+            def binary_name = "installer"
+
+            # Uses **options for forward-compatibility but does NOT act on version
+            def installation_contract(**_options)
+              {
+                package_name: "pkg",
+                install_command_prefix: ["tool", "install"],
+                install_command: ["tool", "install", "pkg@1.0.0"]
+              }
+            end
+          end
+        end
+
+        # Should fall through to the generic version formatter instead of
+        # reusing the provider's default contract (which ignores the version)
+        expect(keyrest_only_class.install_command(version: "2.0.0")).to eq(
+          ["tool", "install", "pkg@2.0.0"]
+        )
       end
 
       it "returns the first-class metadata install command when provided" do

@@ -177,6 +177,16 @@ RSpec.describe AgentHarness do
       )
     end
 
+    it "returns Aider provider install metadata" do
+      contract = AgentHarness.installation_contract(:aider)
+
+      expect(contract).to include(
+        source: :uv_tool,
+        package_name: "aider-chat",
+        binary_name: "aider"
+      )
+    end
+
     it "raises ConfigurationError for an unknown provider" do
       expect {
         AgentHarness.installation_contract(:nonexistent_provider_xyz)
@@ -223,7 +233,7 @@ RSpec.describe AgentHarness do
     it "returns all registered provider installation contracts" do
       contracts = AgentHarness.installation_contracts
 
-      expect(contracts).to include(:codex, :gemini, :opencode)
+      expect(contracts).to include(:codex, :aider, :gemini, :opencode)
     end
   end
 
