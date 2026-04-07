@@ -109,19 +109,63 @@ RSpec.describe AgentHarness::CommandExecutor do
 
       it "does not raise a timeout after the process has already exited" do
         stdin = instance_double(IO, close: nil, closed?: false)
-        stdout_io = instance_double(IO, read: "", close: nil)
-        stderr_io = instance_double(IO, read: "", close: nil)
+        stdout_io = instance_double(IO, close: nil)
+        stderr_io = instance_double(IO, close: nil)
         status = instance_double(Process::Status, exitstatus: 0, success?: true)
         wait_thr = instance_double(Thread, value: status)
 
         allow(Open3).to receive(:popen3).and_yield(stdin, stdout_io, stderr_io, wait_thr)
         allow(executor).to receive(:selectable_streams?).and_return(true)
-        allow(IO).to receive(:select).and_return(nil)
+        # First select returns nil (no ready streams), triggering the exit check
+        allow(IO).to receive(:select).with(anything, anything, anything, anything).and_return(nil)
+        # Drain select during finalize returns EOF immediately
+        allow(IO).to receive(:select).with([stdout_io, stderr_io], nil, nil, 0.1).and_return(
+          [[stdout_io, stderr_io], nil, nil]
+        )
+        allow(stdout_io).to receive(:read_nonblock).and_return(nil)
+        allow(stderr_io).to receive(:read_nonblock).and_return(nil)
         allow(wait_thr).to receive(:join).with(0).and_return(wait_thr)
 
         result = executor.execute(["ruby", "-e", "sleep 0.03"], timeout: 0.05, idle_timeout: 0.05)
 
         expect(result.exit_code).to eq(0)
+      end
+
+      it "enforces wall-clock timeout when draining an exited process with open descendants" do
+        started_at = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+
+        expect {
+          executor.execute(
+            ["bash", "-c", "sleep 10 & wait"],
+            timeout: 0.3
+          )
+        }.to raise_error(AgentHarness::TimeoutError)
+
+        elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - started_at
+        expect(elapsed).to be < 2
+      end
+
+      it "enforces idle timeout during post-exit drain of descendant-held pipes" do
+        stdin = instance_double(IO, close: nil, closed?: false)
+        stdout_io = instance_double(IO, close: nil)
+        stderr_io = instance_double(IO, close: nil)
+        wait_thr = double("wait thread", pid: 12_345)
+
+        allow(Open3).to receive(:popen3).and_yield(stdin, stdout_io, stderr_io, wait_thr)
+        allow(executor).to receive(:selectable_streams?).and_return(true)
+        # First select returns nil so the loop checks for process exit
+        allow(IO).to receive(:select).with(anything, anything, anything, anything).and_return(nil)
+        # Process has exited, triggering finalize_exited_process
+        allow(wait_thr).to receive(:join).with(0).and_return(wait_thr)
+        # During drain, select keeps returning nil (descendants hold pipes but produce no data)
+        allow(IO).to receive(:select).with([stdout_io, stderr_io], nil, nil, 0.1).and_return(nil)
+        # Monotonic time advances past idle timeout
+        allow(executor).to receive(:monotonic_time).and_return(0.0, 0.0, 0.06, 0.12)
+        allow(executor).to receive(:terminate_process)
+
+        expect {
+          executor.execute(["cmd"], idle_timeout: 0.05)
+        }.to raise_error(AgentHarness::IdleTimeoutError)
       end
 
       it "enforces wall-clock timeouts even while output stays readable" do
@@ -213,15 +257,20 @@ RSpec.describe AgentHarness::CommandExecutor do
 
       it "does not emit heartbeats after the process has exited" do
         stdin = instance_double(IO, close: nil, closed?: false)
-        stdout_io = instance_double(IO, read: "", close: nil)
-        stderr_io = instance_double(IO, read: "", close: nil)
+        stdout_io = instance_double(IO, close: nil)
+        stderr_io = instance_double(IO, close: nil)
         status = instance_double(Process::Status, exitstatus: 0, success?: true)
         wait_thr = instance_double(Thread, value: status)
         heartbeats = []
 
         allow(Open3).to receive(:popen3).and_yield(stdin, stdout_io, stderr_io, wait_thr)
         allow(executor).to receive(:selectable_streams?).and_return(true)
-        allow(IO).to receive(:select).and_return(nil)
+        allow(IO).to receive(:select).with(anything, anything, anything, anything).and_return(nil)
+        allow(IO).to receive(:select).with([stdout_io, stderr_io], nil, nil, 0.1).and_return(
+          [[stdout_io, stderr_io], nil, nil]
+        )
+        allow(stdout_io).to receive(:read_nonblock).and_return(nil)
+        allow(stderr_io).to receive(:read_nonblock).and_return(nil)
         allow(wait_thr).to receive(:join).with(0).and_return(wait_thr)
 
         executor.execute(

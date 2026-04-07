@@ -178,7 +178,10 @@ module AgentHarness
             )
 
             if process_exited?(wait_thr)
-              stdin, last_output_at = finalize_exited_process(stdin, streams, observer, last_output_at, wait_thr)
+              stdin, last_output_at = finalize_exited_process(
+                stdin, streams, observer, last_output_at, wait_thr,
+                timeout: timeout, idle_timeout: idle_timeout, start_time: start_time, cmd_array: cmd_array
+              )
               next
             end
 
@@ -200,7 +203,10 @@ module AgentHarness
           end
 
           if process_exited?(wait_thr)
-            stdin, last_output_at = finalize_exited_process(stdin, streams, observer, last_output_at, wait_thr)
+            stdin, last_output_at = finalize_exited_process(
+              stdin, streams, observer, last_output_at, wait_thr,
+              timeout: timeout, idle_timeout: idle_timeout, start_time: start_time, cmd_array: cmd_array
+            )
             next
           end
 
@@ -236,7 +242,10 @@ module AgentHarness
 
           unless ready
             if process_exited?(wait_thr)
-              stdin, last_output_at = finalize_exited_process(stdin, streams, observer, last_output_at, wait_thr)
+              stdin, last_output_at = finalize_exited_process(
+                stdin, streams, observer, last_output_at, wait_thr,
+                timeout: timeout, idle_timeout: idle_timeout, start_time: start_time, cmd_array: cmd_array
+              )
             end
             next
           end
@@ -253,7 +262,10 @@ module AgentHarness
           )
 
           if process_exited?(wait_thr)
-            stdin, last_output_at = finalize_exited_process(stdin, streams, observer, last_output_at, wait_thr)
+            stdin, last_output_at = finalize_exited_process(
+              stdin, streams, observer, last_output_at, wait_thr,
+              timeout: timeout, idle_timeout: idle_timeout, start_time: start_time, cmd_array: cmd_array
+            )
           end
         end
 
@@ -372,21 +384,42 @@ module AgentHarness
       !wait_thr.join(0).nil?
     end
 
-    def finalize_exited_process(stdin, streams, observer, last_output_at, wait_thr)
+    # Drain remaining output from an exited process's streams.
+    #
+    # Uses nonblocking reads with timeout supervision so that descendant
+    # processes holding stdout/stderr open cannot hang past the configured
+    # wall-clock or idle timeout.
+    def finalize_exited_process(stdin, streams, observer, last_output_at, wait_thr,
+      timeout: nil, idle_timeout: nil, start_time: nil, cmd_array: nil)
       close_stream(stdin) if stdin
 
-      streams.each do |io, (buffer, callback, observer_method)|
-        chunk = io.read.to_s
-        next if chunk.empty?
+      until streams.empty?
+        ready = IO.select(streams.keys, nil, nil, 0.1)
 
-        buffer << chunk
-        last_output_at = monotonic_time
-        emit_chunk(callback, observer, observer_method, chunk, wait_thr: wait_thr)
-      ensure
-        close_stream(io)
+        if ready
+          ready[0].each do |io|
+            chunk = io.read_nonblock(4096, exception: false)
+
+            case chunk
+            when :wait_readable
+              next
+            when nil
+              streams.delete(io)
+              close_stream(io)
+            else
+              buffer, callback, observer_method = streams.fetch(io)
+              buffer << chunk
+              last_output_at = monotonic_time
+              emit_chunk(callback, observer, observer_method, chunk, wait_thr: wait_thr)
+            end
+          end
+        end
+
+        now = monotonic_time
+        check_wall_timeout!(timeout, now - start_time, wait_thr, cmd_array) if start_time
+        check_idle_timeout!(idle_timeout, now - last_output_at, wait_thr, cmd_array)
       end
 
-      streams.clear
       [nil, last_output_at]
     end
 
