@@ -91,7 +91,11 @@ module AgentHarness
           # without that parameter, which would raise ArgumentError.
           params = method(:install_contract).parameters
           accepts_version = params.any? do |type, name|
-            type == :keyrest || ([:key, :keyreq].include?(type) && name == :version)
+            # Only treat an explicit `version:` keyword as proof the method
+            # handles version selection.  A bare `**options` keyrest does not
+            # count — providers may add it for forward-compatibility without
+            # actually acting on the version value.
+            [:key, :keyreq].include?(type) && name == :version
           end
 
           if accepts_version
@@ -152,9 +156,10 @@ module AgentHarness
 
         def versioned_installation_contract(version)
           # Only reuse the provider's own contract when the provider actually
-          # implements version-aware logic.  We check whether the method
-          # accepting the call can handle a version: keyword — either via an
-          # explicit `version:` param or a `**options` catch-all.
+          # implements version-aware logic.  We require an explicit `version:`
+          # keyword parameter — a bare `**options` keyrest is NOT sufficient
+          # because providers may add it for forward-compatibility without
+          # actually acting on the version value.
           #
           # For providers that override installation_contract directly we
           # inspect that method.  When the default (keyrest) implementation is
@@ -163,7 +168,7 @@ module AgentHarness
 
           ic_params = method(:installation_contract).parameters
           ic_accepts_version = ic_params.any? do |type, name|
-            type == :keyrest || ([:key, :keyreq].include?(type) && name == :version)
+            [:key, :keyreq].include?(type) && name == :version
           end
 
           # The default implementation in Adapter::ClassMethods uses **options
@@ -176,7 +181,7 @@ module AgentHarness
           if method(:installation_contract).owner == default_owner
             ic_params = method(:install_contract).parameters
             ic_accepts_version = ic_params.any? do |type, name|
-              type == :keyrest || ([:key, :keyreq].include?(type) && name == :version)
+              [:key, :keyreq].include?(type) && name == :version
             end
           end
 

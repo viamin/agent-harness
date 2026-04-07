@@ -335,6 +335,33 @@ RSpec.describe AgentHarness::Providers::Adapter do
           package_only_installing_adapter_class.install_command(version: "1.2.3")
         }.to raise_error(ArgumentError, /must define :package_name/)
       end
+
+      it "does not treat a bare **options keyrest as version support" do
+        keyrest_only_class = Class.new do
+          include AgentHarness::Providers::Adapter
+
+          class << self
+            def provider_name = :keyrest_only
+            def available? = true
+            def binary_name = "installer"
+
+            # Uses **options for forward-compatibility but does NOT act on version
+            def installation_contract(**_options)
+              {
+                package_name: "pkg",
+                install_command_prefix: ["tool", "install"],
+                install_command: ["tool", "install", "pkg@1.0.0"]
+              }
+            end
+          end
+        end
+
+        # Should fall through to the generic version formatter instead of
+        # reusing the provider's default contract (which ignores the version)
+        expect(keyrest_only_class.install_command(version: "2.0.0")).to eq(
+          ["tool", "install", "pkg@2.0.0"]
+        )
+      end
     end
   end
 
