@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "json"
+require "shellwords"
 
 module AgentHarness
   module Providers
@@ -15,6 +16,12 @@ module AgentHarness
     class Anthropic < Base
       # Model name pattern for Anthropic Claude models
       MODEL_PATTERN = /^claude-[\d.-]+-(?:opus|sonnet|haiku)(?:-\d{8})?$/i
+      SUPPORTED_CLI_VERSION = "2.1.92"
+      SUPPORTED_CLI_REQUIREMENT = Gem::Requirement.new(">= #{SUPPORTED_CLI_VERSION}", "< 2.2.0").freeze
+
+      # Matches semver (e.g. "2.1.92"), optional pre-release (e.g. "2.1.92-beta.1"),
+      # or channel tokens (e.g. "latest", "stable").
+      VALID_VERSION_PATTERN = /\A(?:\d+\.\d+\.\d+(?:-[a-zA-Z0-9.]+)?|latest|stable)\z/
 
       class << self
         def provider_name
@@ -23,6 +30,62 @@ module AgentHarness
 
         def binary_name
           "claude"
+        end
+
+        def install_contract(version: nil)
+          target_version = version || SUPPORTED_CLI_VERSION
+          validate_version!(target_version)
+          version_requirement = SUPPORTED_CLI_REQUIREMENT.requirements
+            .map { |op, ver| "#{op} #{ver}" }
+            .join(", ")
+          channel_token = %w[latest stable].include?(target_version.to_s)
+
+          warning = "Review the downloaded installer before execution and verify any published checksum or signature metadata when available."
+          if channel_token
+            warning += " Channel '#{target_version}' is not pinned; the resolved version may fall " \
+              "outside the supported range (#{version_requirement}). Verify the installed version " \
+              "after installation."
+          end
+
+          {
+            provider: provider_name,
+            binary_name: binary_name,
+            binary_paths: [
+              "$HOME/.local/bin/claude",
+              binary_name
+            ],
+            install: {
+              strategy: :shell,
+              source: "official",
+              command: "tmp_script=$(mktemp) && trap 'rm -f \"$tmp_script\"' EXIT && curl -fsSL https://claude.ai/install.sh -o \"$tmp_script\" && bash \"$tmp_script\" #{Shellwords.shellescape(target_version)}",
+              warning: warning,
+              post_install_binary_path: "$HOME/.local/bin/claude",
+              # When a channel token is used, include the requirement so
+              # consumers can validate the installed version post-install.
+              version_not_pinned: channel_token
+            },
+            supported_versions: {
+              default: SUPPORTED_CLI_VERSION,
+              requirement: version_requirement,
+              channel: "stable"
+            },
+            runtime_contract: {
+              available_via: binary_name,
+              build_command: [
+                binary_name,
+                "--print",
+                "--output-format=json"
+              ],
+              required_features: [
+                "print_mode",
+                "json_output",
+                "mcp_config",
+                "mcp_list",
+                "dangerously_skip_permissions",
+                "models_list"
+              ]
+            }
+          }
         end
 
         def available?
@@ -86,6 +149,25 @@ module AgentHarness
         end
 
         private
+
+        def validate_version!(version)
+          version_str = version.to_s
+
+          unless VALID_VERSION_PATTERN.match?(version_str)
+            raise ArgumentError, "Invalid version: #{version.inspect}. " \
+              "Must be a semver string (e.g. '2.1.92'), optional pre-release suffix, or a channel token ('latest', 'stable')."
+          end
+
+          # Channel tokens are not concrete versions; skip requirement check.
+          return if %w[latest stable].include?(version_str)
+
+          # Validate concrete versions against the supported range.
+          gem_version = Gem::Version.new(version_str)
+          return if SUPPORTED_CLI_REQUIREMENT.satisfied_by?(gem_version)
+
+          raise ArgumentError, "Version #{version.inspect} is outside the supported range " \
+            "(#{SUPPORTED_CLI_REQUIREMENT}). Update SUPPORTED_CLI_REQUIREMENT before targeting this version."
+        end
 
         def parse_models_list(output)
           return [] if output.nil? || output.empty?

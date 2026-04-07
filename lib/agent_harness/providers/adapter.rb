@@ -75,13 +75,31 @@ module AgentHarness
           []
         end
 
-        # Installation contract for this provider's CLI.
+        # First-class install metadata for the provider CLI.
+        #
+        # Downstream applications can use this metadata to build provider
+        # images without hardcoding provider-specific install URLs, expected
+        # binary paths, or supported install targets.
+        #
+        # This is separate from .installation_contract, which serves
+        # package-driven CLIs. Providers that need richer install metadata
+        # (e.g. shell-script installers, checksums, artifact URLs) should
+        # override this method.
+        #
+        # @param version [String, Symbol, nil] optional install target/version
+        # @return [Hash, nil] provider install metadata, or nil when the
+        #   provider does not expose a first-class install contract
+        def install_metadata(version: nil)
+          nil
+        end
+
+        # Installation contract for package-driven provider CLIs.
         #
         # Downstream apps can use this metadata to provision the provider CLI
         # without hardcoding package names, versions, or binary expectations
         # outside agent-harness.
         #
-        # @return [Hash, nil] install metadata, or nil when no first-class
+        # @return [Hash, nil] install metadata, or nil when no package-based
         #   installation contract is defined for the provider
         def installation_contract(**options)
           return install_contract unless options.key?(:version)
@@ -105,12 +123,16 @@ module AgentHarness
           end
         end
 
-        # Build the install command from the provider installation contract.
+        # Shell command for installing the provider CLI.
         #
-        # @param version [String, nil] optional explicit version override
-        # @return [Array<String>, nil] install command argv or nil when the
-        #   provider has no install contract
+        # @param version [String, Symbol, nil] optional install target/version
+        # @return [String, Array<String>, nil] shell command or argv, or nil
+        #   when the provider does not expose an install contract
         def install_command(version: nil)
+          metadata = install_metadata(version: version)
+          command = metadata&.dig(:source, :command)
+          return command if command
+
           contract = installation_contract
           return nil unless contract
 
