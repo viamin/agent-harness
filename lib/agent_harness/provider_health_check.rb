@@ -431,16 +431,38 @@ module AgentHarness
       end
 
       def build_provider(provider_name, klass, executor:)
-        config = AgentHarness.configuration.providers[provider_name]
-        klass.new(
-          config: config,
-          executor: executor || AgentHarness.configuration.command_executor,
-          logger: AgentHarness.logger
-        )
+        canonical_name = Providers::Registry.instance.canonical_name(provider_name)
+        config = provider_config_for(provider_name, canonical_name: canonical_name)
+        executor ||= AgentHarness.configuration.command_executor
+        logger = AgentHarness.logger
+
+        provider = if klass.respond_to?(:build_provider_instance, true)
+          klass.send(:build_provider_instance, config: config, executor: executor, logger: logger)
+        else
+          klass.new(config: config, executor: executor, logger: logger)
+        end
+
+        # Ensure the executor is available even when the provider constructor
+        # accepts only a subset of keywords (e.g. config: only).
+        if provider.respond_to?(:executor=) && provider.executor.nil?
+          provider.executor = executor
+        elsif !provider.respond_to?(:executor)
+          provider.define_singleton_method(:executor) { executor }
+        end
+
+        provider
       end
 
       def monotonic_now
         Process.clock_gettime(Process::CLOCK_MONOTONIC)
+      end
+
+      def provider_config_for(requested_name, canonical_name:)
+        requested_key = requested_name.to_sym
+        canonical_key = canonical_name.to_sym
+
+        AgentHarness.configuration.providers[requested_key] ||
+          AgentHarness.configuration.providers[canonical_key]
       end
     end
   end

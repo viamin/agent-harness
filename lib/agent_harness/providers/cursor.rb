@@ -32,6 +32,15 @@ module AgentHarness
           !!executor.which(binary_name)
         end
 
+        def provider_metadata_overrides
+          {
+            auth: {
+              service: :cursor,
+              api_family: :cursor
+            }
+          }
+        end
+
         def firewall_requirements
           {
             domains: [

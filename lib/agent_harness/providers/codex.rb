@@ -25,6 +25,15 @@ module AgentHarness
           !!executor.which(binary_name)
         end
 
+        def provider_metadata_overrides
+          {
+            auth: {
+              service: :openai,
+              api_family: :openai
+            }
+          }
+        end
+
         def firewall_requirements
           {
             domains: [

@@ -236,9 +236,67 @@ opencode_install
 #    }
 ```
 
+### Provider Metadata
+
+Downstream apps can also query a consolidated provider metadata contract for
+configuration UIs and policy decisions.
+
+The following example shows how to retrieve metadata for the Anthropic provider:
+
+```ruby
+metadata = AgentHarness.provider_metadata(:anthropic)
+
+metadata
+# => {
+#      provider: :claude,
+#      canonical_provider: :claude,
+#      aliases: [:anthropic],
+#      auth: {
+#        default_mode: :oauth,
+#        supported_modes: [:oauth],
+#        service: :anthropic,
+#        api_family: :anthropic
+#      },
+#      runtime: {
+#        interface: :cli,
+#        requires_cli: true,
+#        installable: false,
+#        installation: nil,
+#        supports_mcp: true,
+#        supports_dangerous_mode: true
+#      },
+#      health_check: {
+#        supports_registry_checks: true,
+#        auth_check_supported: true,
+#        lightweight: true
+#      },
+#      identity: {
+#        bot_usernames: ["claude", "anthropic"]
+#      }
+#    }
+```
+
+To enumerate the full catalog:
+
+```ruby
+AgentHarness.provider_metadata_catalog
+# => { claude: {...}, cursor: {...}, gemini: {...}, ... }
+```
+
+Provider metadata is cached so repeated catalog reads stay cheap.
+Pass `refresh: true` to rebuild metadata and re-run live availability checks when needed:
+
+```ruby
+AgentHarness.provider_metadata(:anthropic, refresh: true)
+AgentHarness.provider_metadata_catalog(refresh: true)
+```
+
 For providers with install contracts, the metadata tracks the CLI version
 supported by the current `agent-harness` release, and the runtime adapter
 tests assert that the expected binary remains aligned with that contract.
+`runtime[:installation]` is normalized to a stable shape with
+`source_type`, `package_name`, version fields, and install commands so
+downstream apps do not need provider-specific branching.
 
 ### Custom Providers
 

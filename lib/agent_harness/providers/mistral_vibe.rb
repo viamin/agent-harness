@@ -20,6 +20,15 @@ module AgentHarness
           !!executor.which(binary_name)
         end
 
+        def provider_metadata_overrides
+          {
+            auth: {
+              service: :mistral,
+              api_family: :mistral
+            }
+          }
+        end
+
         def firewall_requirements
           {
             domains: [

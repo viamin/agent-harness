@@ -190,6 +190,180 @@ RSpec.describe AgentHarness::Authentication do
       end
     end
 
+    context "for a custom provider that only accepts config keyword construction" do
+      let(:provider_class) do
+        Class.new do
+          include AgentHarness::Providers::Adapter
+
+          class << self
+            def provider_name = :subset_safe_provider
+            def available? = true
+            def binary_name = "subset-safe"
+          end
+
+          def initialize(config: nil)
+            @config = config
+          end
+
+          def auth_status
+            {valid: @config.name == :subset_safe_provider, expires_at: nil, error: nil}
+          end
+        end
+      end
+
+      before do
+        AgentHarness::Providers::Registry.instance.reset!
+        AgentHarness::Providers::Registry.instance.register(:subset_safe_provider, provider_class)
+        AgentHarness.configuration.providers[:subset_safe_provider] =
+          AgentHarness::ProviderConfig.new(:subset_safe_provider)
+      end
+
+      after do
+        AgentHarness.configuration.providers.delete(:subset_safe_provider)
+      end
+
+      it "uses the safe subset constructor for auth resolution" do
+        status = described_class.auth_status(:subset_safe_provider)
+
+        expect(status).to eq(valid: true, expires_at: nil, error: nil)
+      end
+
+      it "falls back to canonical config when called through an alias" do
+        AgentHarness::Providers::Registry.instance.register(
+          :subset_safe_provider,
+          provider_class,
+          aliases: [:subset_safe_alias]
+        )
+
+        status = described_class.auth_status(:subset_safe_alias)
+
+        expect(status).to eq(valid: true, expires_at: nil, error: nil)
+      end
+
+      it "does not fall back to provider class canonical name config" do
+        malicious_provider_name = :custom_auth_provider
+        malicious_class = Class.new do
+          include AgentHarness::Providers::Adapter
+
+          class << self
+            def provider_name = :claude
+            def available? = true
+            def binary_name = "custom-auth-provider"
+          end
+
+          def initialize(config: nil)
+            @config = config
+          end
+
+          def auth_status
+            {
+              valid: @config.nil? || @config.name != :claude,
+              expires_at: nil,
+              error: nil
+            }
+          end
+        end
+
+        malicious_provider_config = AgentHarness::ProviderConfig.new(:claude)
+
+        AgentHarness::Providers::Registry.instance.reset!
+        AgentHarness::Providers::Registry.instance.register(malicious_provider_name, malicious_class)
+        AgentHarness.configuration.providers[:claude] = malicious_provider_config
+
+        status = described_class.auth_status(malicious_provider_name)
+
+        expect(status).to eq(valid: true, expires_at: nil, error: nil)
+      ensure
+        AgentHarness::Providers::Registry.instance.reset!
+        AgentHarness.configuration.providers.delete(:claude)
+      end
+    end
+
+    context "for a config-only provider that needs executor at runtime" do
+      let(:config_only_class) do
+        Class.new do
+          include AgentHarness::Providers::Adapter
+
+          class << self
+            def provider_name = :config_only_auth_provider
+            def available? = true
+            def binary_name = "config-only-auth"
+          end
+
+          def initialize(config: nil)
+            @config = config
+          end
+
+          def auth_status
+            # Verify executor is available even though the constructor
+            # only accepts config:
+            {valid: respond_to?(:executor), expires_at: nil, error: nil}
+          end
+        end
+      end
+
+      before do
+        AgentHarness::Providers::Registry.instance.reset!
+        AgentHarness::Providers::Registry.instance.register(:config_only_auth_provider, config_only_class)
+        AgentHarness.configuration.providers[:config_only_auth_provider] =
+          AgentHarness::ProviderConfig.new(:config_only_auth_provider)
+      end
+
+      after do
+        AgentHarness.configuration.providers.delete(:config_only_auth_provider)
+      end
+
+      it "backfills executor on providers that accept only a keyword subset" do
+        status = described_class.auth_status(:config_only_auth_provider)
+
+        expect(status).to eq(valid: true, expires_at: nil, error: nil)
+      end
+    end
+
+    context "for a custom provider with extra optional constructor keywords" do
+      let(:provider_class) do
+        Class.new do
+          include AgentHarness::Providers::Adapter
+
+          class << self
+            def provider_name = :optional_keyword_provider
+            def available? = true
+            def binary_name = "optional-keyword"
+          end
+
+          def initialize(config: nil, timeout: 30)
+            @config = config
+            @timeout = timeout
+          end
+
+          def auth_status
+            {
+              valid: @config.name == :optional_keyword_provider && @timeout == 30,
+              expires_at: nil,
+              error: nil
+            }
+          end
+        end
+      end
+
+      before do
+        AgentHarness::Providers::Registry.instance.reset!
+        AgentHarness::Providers::Registry.instance.register(:optional_keyword_provider, provider_class)
+        AgentHarness.configuration.providers[:optional_keyword_provider] =
+          AgentHarness::ProviderConfig.new(:optional_keyword_provider)
+      end
+
+      after do
+        AgentHarness.configuration.providers.delete(:optional_keyword_provider)
+      end
+
+      it "omits unsupported kwargs and still resolves auth status" do
+        status = described_class.auth_status(:optional_keyword_provider)
+
+        expect(status).to eq(valid: true, expires_at: nil, error: nil)
+      end
+    end
+
     context "for Gemini provider" do
       let(:gemini_tmp_dir) { Dir.mktmpdir }
       let(:gemini_credentials_path) { File.join(gemini_tmp_dir, "credentials.json") }
