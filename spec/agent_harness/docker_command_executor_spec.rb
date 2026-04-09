@@ -33,13 +33,19 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
     it "raises ArgumentError when container_id is nil" do
       expect {
         described_class.new(container_id: nil)
-      }.to raise_error(ArgumentError, /container_id cannot be nil or empty/)
+      }.to raise_error(ArgumentError, /container_id cannot be nil or blank/)
     end
 
     it "raises ArgumentError when container_id is empty" do
       expect {
         described_class.new(container_id: "")
-      }.to raise_error(ArgumentError, /container_id cannot be nil or empty/)
+      }.to raise_error(ArgumentError, /container_id cannot be nil or blank/)
+    end
+
+    it "raises ArgumentError when container_id is whitespace-only" do
+      expect {
+        described_class.new(container_id: "   ")
+      }.to raise_error(ArgumentError, /container_id cannot be nil or blank/)
     end
 
     it "raises CommandExecutionError when docker CLI is not found" do

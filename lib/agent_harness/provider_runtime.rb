@@ -35,6 +35,10 @@ module AgentHarness
     # @param unset_env [Array<String>] environment variable names to remove from inherited env
     # @param metadata [Hash] arbitrary provider-specific data
     def initialize(model: nil, base_url: nil, api_provider: nil, env: {}, flags: [], unset_env: [], metadata: {})
+      validate_optional_string!(:model, model)
+      validate_optional_string!(:base_url, base_url)
+      validate_optional_string!(:api_provider, api_provider)
+
       @model = model
       @base_url = base_url
       @api_provider = api_provider
@@ -97,13 +101,13 @@ module AgentHarness
       raise ArgumentError, "expected a Hash, got #{hash.class}" unless hash.is_a?(Hash)
 
       new(
-        model: hash[:model] || hash["model"],
-        base_url: hash[:base_url] || hash["base_url"],
-        api_provider: hash[:api_provider] || hash["api_provider"],
-        env: hash[:env] || hash["env"] || {},
-        flags: hash[:flags] || hash["flags"] || [],
-        unset_env: hash[:unset_env] || hash["unset_env"] || [],
-        metadata: hash[:metadata] || hash["metadata"] || {}
+        model: hash_value(hash, :model),
+        base_url: hash_value(hash, :base_url),
+        api_provider: hash_value(hash, :api_provider),
+        env: hash_value(hash, :env) || {},
+        flags: hash_value(hash, :flags) || [],
+        unset_env: hash_value(hash, :unset_env) || [],
+        metadata: hash_value(hash, :metadata) || {}
       )
     end
 
@@ -127,6 +131,24 @@ module AgentHarness
     def empty?
       model.nil? && base_url.nil? && api_provider.nil? &&
         env.empty? && flags.empty? && metadata.empty? && unset_env.empty?
+    end
+
+    private_class_method def self.hash_value(hash, key)
+      sym_value = hash[key]
+      str_value = hash[key.to_s]
+      # Prefer the symbol key; fall back to the string key only when the
+      # symbol key is nil (not just falsy) so that an explicit `false` is
+      # not silently discarded.
+      sym_value.nil? ? str_value : sym_value
+    end
+
+    private
+
+    def validate_optional_string!(name, value)
+      return if value.nil?
+      return if value.is_a?(String)
+
+      raise ArgumentError, "#{name} must be a String or nil (got #{value.class})"
     end
   end
 end

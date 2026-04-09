@@ -179,7 +179,7 @@ module AgentHarness
           rate_limited: [
             /rate.?limit/i,
             /quota.?exceeded/i,
-            /429/
+            /\b429\b/
           ],
           auth_expired: [
             /authentication/i,
@@ -193,7 +193,7 @@ module AgentHarness
           transient: [
             /timeout/i,
             /temporary/i,
-            /503/
+            /\b503\b/
           ]
         }
       end
@@ -205,21 +205,21 @@ module AgentHarness
         end
 
         credentials = read_gemini_credentials
-        return {valid: false, expires_at: nil, error: "No Gemini credentials found. Run 'gemini auth login' or set GEMINI_API_KEY or GOOGLE_API_KEY"} unless credentials
+        return {valid: false, expires_at: nil, error: "No Gemini credentials found. Run 'gemini auth login' or set GEMINI_API_KEY or GOOGLE_API_KEY", auth_method: nil} unless credentials
 
         token = credentials["access_token"] || credentials["oauth_token"]
         unless token.is_a?(String) && !token.strip.empty?
-          return {valid: false, expires_at: nil, error: "No authentication token in Gemini credentials"}
+          return {valid: false, expires_at: nil, error: "No authentication token in Gemini credentials", auth_method: nil}
         end
 
         expires_at = parse_gemini_expiry(credentials)
         if expires_at && expires_at < Time.now
-          {valid: false, expires_at: expires_at, error: "Gemini session expired. Run 'gemini auth login' to re-authenticate"}
+          {valid: false, expires_at: expires_at, error: "Gemini session expired. Run 'gemini auth login' to re-authenticate", auth_method: :oauth}
         else
           {valid: true, expires_at: expires_at, error: nil, auth_method: :oauth}
         end
       rescue IOError, JSON::ParserError => e
-        {valid: false, expires_at: nil, error: e.message}
+        {valid: false, expires_at: nil, error: e.message, auth_method: nil}
       end
 
       def health_status

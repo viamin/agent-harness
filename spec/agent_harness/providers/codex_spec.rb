@@ -452,6 +452,11 @@ RSpec.describe AgentHarness::Providers::Codex do
           expect(status[:valid]).to be false
           expect(status[:error]).to include("does not appear to be a valid")
         end
+
+        it "includes auth_method key" do
+          status = provider.auth_status
+          expect(status).to have_key(:auth_method)
+        end
       end
 
       context "with blank OPENAI_API_KEY" do
@@ -505,6 +510,11 @@ RSpec.describe AgentHarness::Providers::Codex do
           expect(status[:valid]).to be false
           expect(status[:error]).to include("No OpenAI API key")
           expect(status[:error]).to include("OPENAI_API_KEY")
+        end
+
+        it "includes auth_method key" do
+          status = provider.auth_status
+          expect(status).to have_key(:auth_method)
         end
       end
 

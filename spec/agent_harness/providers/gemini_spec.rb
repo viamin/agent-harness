@@ -411,6 +411,11 @@ RSpec.describe AgentHarness::Providers::Gemini do
           expect(status[:error]).to include("GEMINI_API_KEY")
           expect(status[:error]).to include("GOOGLE_API_KEY")
         end
+
+        it "includes auth_method key" do
+          status = provider.auth_status
+          expect(status).to have_key(:auth_method)
+        end
       end
 
       context "with empty token in credentials file" do
@@ -453,6 +458,11 @@ RSpec.describe AgentHarness::Providers::Gemini do
           status = provider.auth_status
           expect(status[:valid]).to be false
           expect(status[:error]).to include("Permission denied")
+        end
+
+        it "includes auth_method key" do
+          status = provider.auth_status
+          expect(status).to have_key(:auth_method)
         end
       end
 
