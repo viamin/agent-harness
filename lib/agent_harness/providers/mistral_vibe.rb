@@ -20,6 +20,15 @@ module AgentHarness
           !!executor.which(binary_name)
         end
 
+        def provider_metadata_overrides
+          {
+            auth: {
+              service: :mistral,
+              api_family: :mistral
+            }
+          }
+        end
+
         def firewall_requirements
           {
             domains: [
@@ -36,6 +45,10 @@ module AgentHarness
         def discover_models
           return [] unless available?
           []
+        end
+
+        def smoke_test_contract
+          Base::DEFAULT_SMOKE_TEST_CONTRACT
         end
       end
 

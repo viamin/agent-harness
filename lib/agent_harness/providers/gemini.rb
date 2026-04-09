@@ -30,6 +30,15 @@ module AgentHarness
           !!executor.which(binary_name)
         end
 
+        def provider_metadata_overrides
+          {
+            auth: {
+              service: :google,
+              api_family: :gemini
+            }
+          }
+        end
+
         def install_contract(version: SUPPORTED_CLI_VERSION)
           parsed_version = begin
             Gem::Version.new(version)
@@ -102,6 +111,10 @@ module AgentHarness
 
         def supports_model_family?(family_name)
           MODEL_PATTERN.match?(family_name) || family_name.start_with?("gemini-")
+        end
+
+        def smoke_test_contract
+          Base::DEFAULT_SMOKE_TEST_CONTRACT
         end
       end
 

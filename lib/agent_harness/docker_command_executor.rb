@@ -37,12 +37,13 @@ module AgentHarness
     #
     # @param command [Array<String>, String] command to execute
     # @param timeout [Integer, nil] timeout in seconds
+    # @param idle_timeout [Integer, Float, nil] idle timeout in seconds based on output activity
     # @param env [Hash] environment variables to set in the container
     # @param stdin_data [String, nil] data to send to stdin
     # @param preparation [ExecutionPreparation, nil] request-scoped bootstrap
     #   work to materialize inside the container before the main command runs
     # @return [Result] execution result
-    def execute(command, timeout: nil, env: {}, stdin_data: nil, preparation: nil)
+    def execute(command, timeout: nil, idle_timeout: nil, env: {}, stdin_data: nil, preparation: nil, **execution_options)
       start_time = current_time
       normalized_command = normalize_command(command)
       command_name = normalized_command.first
@@ -72,8 +73,10 @@ module AgentHarness
         result = super(
           docker_cmd,
           timeout: remaining_timeout(deadline, timeout:, command_name: command_name),
+          idle_timeout: idle_timeout,
           env: {},
-          stdin_data: stdin_data
+          stdin_data: stdin_data,
+          **execution_options
         )
       rescue TimeoutError
         schedule_container_cleanup_preparation(
@@ -102,11 +105,14 @@ module AgentHarness
         )
         execution_tracking = nil
       rescue TimeoutError
+        # The main command already finished; omit termination_command so
+        # background cleanup does not TERM/KILL based on a stale PID file
+        # that may have been reused by an unrelated process.
         schedule_container_cleanup_preparation(
           cleanup_steps,
           held_preparation_locks,
           command_name: command_name,
-          termination_command: execution_tracking && execution_tracking[:terminate_command],
+          termination_command: nil,
           finalizer_command: execution_tracking && execution_tracking[:cleanup_command]
         )
         background_cleanup_scheduled = true
@@ -137,17 +143,25 @@ module AgentHarness
             command_name: command_name
           )
         rescue TimeoutError => e
-          raise e if pending_exception.nil? || !pending_exception.is_a?(TimeoutError)
+          raise e if pending_exception.nil?
 
-          schedule_container_cleanup_preparation(
-            cleanup_steps,
-            held_preparation_locks,
-            command_name: command_name,
-            termination_command: execution_tracking && execution_tracking[:terminate_command],
-            finalizer_command: execution_tracking && execution_tracking[:cleanup_command]
-          )
-          background_cleanup_scheduled = true
-          held_preparation_locks = []
+          if pending_exception.is_a?(TimeoutError)
+            schedule_container_cleanup_preparation(
+              cleanup_steps,
+              held_preparation_locks,
+              command_name: command_name,
+              termination_command: execution_tracking && execution_tracking[:terminate_command],
+              finalizer_command: execution_tracking && execution_tracking[:cleanup_command]
+            )
+            background_cleanup_scheduled = true
+            held_preparation_locks = []
+          else
+            # Preserve the original non-timeout exception; surface that
+            # cleanup also timed out so callers know bootstrap state may
+            # have leaked.
+            raise pending_exception.class,
+              "#{pending_exception.message} (cleanup also failed: #{e.message})"
+          end
         rescue => e
           raise e if pending_exception.nil?
 

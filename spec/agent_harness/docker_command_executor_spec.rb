@@ -518,6 +518,7 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
       calls = []
 
       allow(Open3).to receive(:popen3) do |actual_env, *actual_cmd, &block|
+        actual_cmd = actual_cmd.reject { |a| a.is_a?(Hash) }
         calls << {env: actual_env, cmd: actual_cmd}
         stderr = if actual_cmd == ["docker", "exec", container_id, "sh", "-lc", "chmod 600 #{guarded_home_path}/.config/opencode/opencode.json"]
           StringIO.new("chmod failed")
@@ -581,7 +582,7 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
         original.call(*args, **kwargs)
       end
 
-      allow(executor).to receive(:execute_with_timeout) do |cmd_array, timeout:, env:, stdin_data:, configured_timeout: timeout|
+      allow(executor).to receive(:execute_streaming) do |cmd_array, timeout:, env:, stdin_data:, **|
         if cmd_array == ["docker", "exec", container_id, "tracked"]
           raise AgentHarness::TimeoutError, "Command timed out after #{timeout} seconds: echo"
         end
@@ -633,7 +634,7 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
     it "preserves the original timeout message for container commands after preparation" do
       allow(SecureRandom).to receive(:hex).and_return("deadbeefcafebabe", "facefeedcafed00d")
 
-      allow(executor).to receive(:execute_with_timeout) do |cmd_array, timeout:, env:, stdin_data:, configured_timeout: timeout|
+      allow(executor).to receive(:execute_streaming) do |cmd_array, timeout:, env:, stdin_data:, **|
         if cmd_array == tracked_execution_command(["echo", "hello"])
           raise AgentHarness::TimeoutError, "Command timed out after #{timeout} seconds: docker"
         end
@@ -660,9 +661,9 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
       observed_calls = []
       expect(executor).not_to receive(:build_container_execution_tracking)
 
-      allow(executor).to receive(:execute_with_timeout) do |cmd_array, timeout:, env:, stdin_data:, configured_timeout: timeout|
+      allow(executor).to receive(:execute_streaming) do |cmd_array, timeout:, env:, stdin_data:, **|
         observed_calls << {cmd: cmd_array, timeout: timeout, env: env, stdin_data: stdin_data}
-        raise AgentHarness::TimeoutError, "Command timed out after #{configured_timeout} seconds: echo"
+        raise AgentHarness::TimeoutError, "Command timed out after #{timeout} seconds: echo"
       end
 
       expect {
@@ -694,7 +695,7 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
           cleanup_command: ["finalize"]
         }
       )
-      allow(executor).to receive(:execute_with_timeout).and_return(
+      allow(executor).to receive(:execute_streaming).and_return(
         ["output", "", instance_double(Process::Status, exitstatus: 0)]
       )
       allow(executor).to receive(:run_host_command).and_return(mock_result)
@@ -732,7 +733,7 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
       end
 
       allow(SecureRandom).to receive(:hex).and_return("facefeedcafed00d")
-      expect_popen3_with(tracked_execution_command(["echo", "hello"]) + [{pgroup: true}])
+      expect_popen3_with(tracked_execution_command(["echo", "hello"]))
 
       result = executor.execute(
         ["echo", "hello"],
@@ -791,6 +792,7 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
       calls = []
 
       allow(Open3).to receive(:popen3) do |actual_env, *actual_cmd, &block|
+        actual_cmd = actual_cmd.reject { |a| a.is_a?(Hash) }
         calls << {env: actual_env, cmd: actual_cmd}
         stderr = if actual_cmd == ["docker", "exec", container_id, "sh", "-lc", cleanup_command("#{guarded_home_path}/.config/opencode/opencode.json", "#{guarded_home_path}/.config/opencode")]
           StringIO.new("missing runtime preparation backup: /tmp/agent-harness-preparation-deadbeefcafebabe/backup")
@@ -823,6 +825,7 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
       allow(SecureRandom).to receive(:hex).and_return("deadbeefcafebabe", "facefeedcafed00d", "beadfeedcafef00d")
 
       allow(Open3).to receive(:popen3) do |actual_env, *actual_cmd, &block|
+        actual_cmd = actual_cmd.reject { |a| a.is_a?(Hash) }
         stderr = if actual_cmd == ["docker", "exec", container_id, "sh", "-lc", cleanup_command("#{guarded_home_path}/.config/opencode/opencode.json", "#{guarded_home_path}/.config/opencode")]
           StringIO.new("preparation target changed into a directory during execution: ~/.config/opencode/opencode.json")
         else
@@ -865,6 +868,7 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
       index = 0
 
       allow(Open3).to receive(:popen3) do |actual_env, *actual_cmd, &block|
+        actual_cmd = actual_cmd.reject { |a| a.is_a?(Hash) }
         expected = expected_calls.fetch(index)
         index += 1
 
@@ -921,7 +925,7 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
           end
           cleanup_steps.clear
         end
-        allow(executor).to receive(:execute_without_timeout) do |cmd_array, env:, stdin_data:|
+        allow(executor).to receive(:execute_streaming) do |cmd_array, env:, stdin_data:, **|
           request_id = cmd_array.last
           observed = File.binread(file_path)
           request_signals.fetch(request_id) << observed
@@ -1003,7 +1007,7 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
           end
           cleanup_steps.clear
         end
-        allow(executor).to receive(:execute_without_timeout) do |cmd_array, env:, stdin_data:|
+        allow(executor).to receive(:execute_streaming) do |cmd_array, env:, stdin_data:, **|
           request_id = cmd_array.last
           file_path = request_file_paths.fetch(request_id)
           observed = File.binread(file_path)
@@ -1056,7 +1060,7 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
 
       allow(executor).to receive(:apply_container_preparation)
       allow(executor).to receive(:cleanup_container_preparation)
-      allow(executor).to receive(:execute_without_timeout) do |cmd_array, env:, stdin_data:|
+      allow(executor).to receive(:execute_streaming) do |cmd_array, env:, stdin_data:, **|
         if cmd_array.last == "hold-a"
           signal << :entered
           wait.pop
@@ -1095,7 +1099,7 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
 
       allow(executor).to receive(:apply_container_preparation)
       allow(executor).to receive(:cleanup_container_preparation)
-      allow(executor).to receive(:execute_without_timeout) do |cmd_array, env:, stdin_data:|
+      allow(executor).to receive(:execute_streaming) do |cmd_array, env:, stdin_data:, **|
         if cmd_array.last == "hold-a"
           signal.push(:entered)
           wait.pop
@@ -1170,7 +1174,7 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
           cleanup_command: ["finalize"]
         }
       )
-      allow(executor).to receive(:execute_with_timeout).and_return(
+      allow(executor).to receive(:execute_streaming).and_return(
         ["output", "", instance_double(Process::Status, exitstatus: 0)]
       )
       allow(executor).to receive(:cleanup_container_preparation) do |cleanup_steps, timeout:, deadline:, command_name:|
@@ -1198,7 +1202,7 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
       allow(executor).to receive(:apply_container_preparation) do |preparation, timeout:, deadline:, env:, cleanup_steps:|
         cleanup_steps << {command: ["cleanup"]}
       end
-      allow(executor).to receive(:execute_with_timeout).and_raise(
+      allow(executor).to receive(:execute_streaming).and_raise(
         AgentHarness::CommandExecutionError, "execution failed"
       )
       allow(executor).to receive(:cleanup_container_preparation) do |cleanup_steps, timeout:, deadline:, command_name:|
@@ -1218,10 +1222,10 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
 
     private
 
-    def expect_popen3_with(expected_cmd, env: {})
+    def expect_popen3_with(expected_cmd, env: {}, options: {pgroup: true})
       allow(Open3).to receive(:popen3) do |actual_env, *actual_cmd, &block|
         expect(actual_env).to eq(env)
-        expect(actual_cmd).to eq(expected_cmd)
+        expect(actual_cmd).to eq(expected_cmd + [options])
         stdin = StringIO.new
         stdout = StringIO.new("output")
         stderr = StringIO.new("")
@@ -1238,7 +1242,8 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
         index += 1
 
         expect(actual_env).to eq(expected[:env])
-        expect(actual_cmd).to eq(expected[:cmd])
+        expected_cmd_with_opts = expected[:cmd] + [{pgroup: true}]
+        expect(actual_cmd).to eq(expected_cmd_with_opts)
 
         stdin = StringIO.new
         stdout = StringIO.new("output")

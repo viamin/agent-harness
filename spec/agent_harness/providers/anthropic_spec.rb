@@ -13,6 +13,117 @@ RSpec.describe AgentHarness::Providers::Anthropic do
     end
   end
 
+  describe ".install_contract" do
+    it "exposes the official install contract" do
+      contract = described_class.install_contract
+
+      expect(contract[:provider]).to eq(:claude)
+      expect(contract[:binary_name]).to eq("claude")
+      expect(contract[:binary_paths]).to eq(["$HOME/.local/bin/claude", "claude"])
+      expect(contract.dig(:install, :strategy)).to eq(:shell)
+      expect(contract.dig(:install, :command)).to eq(
+        "tmp_script=$(mktemp) && trap 'rm -f \"$tmp_script\"' EXIT && curl -fsSL https://claude.ai/install.sh -o \"$tmp_script\" && bash \"$tmp_script\" 2.1.92"
+      )
+      expect(contract.dig(:install, :warning)).to eq(
+        "Review the downloaded installer before execution and verify any published checksum or signature metadata when available."
+      )
+      expect(contract.dig(:install, :post_install_binary_path)).to eq("$HOME/.local/bin/claude")
+      expect(contract.dig(:supported_versions, :default)).to eq("2.1.92")
+      expect(contract.dig(:supported_versions, :requirement)).to eq(">= 2.1.92, < 2.2.0")
+      expect(contract.dig(:supported_versions, :channel)).to eq("stable")
+      expect(contract.dig(:runtime_contract, :available_via)).to eq(described_class.binary_name)
+      expect(contract.dig(:runtime_contract, :build_command)).to eq(["claude", "--print", "--output-format=json"])
+      expect(contract.dig(:runtime_contract, :required_features)).to include(
+        "print_mode",
+        "json_output",
+        "mcp_config",
+        "mcp_list",
+        "dangerously_skip_permissions",
+        "models_list"
+      )
+    end
+
+    it "keeps runtime assumptions aligned with the provider command contract" do
+      contract = described_class.install_contract
+      config = AgentHarness::ProviderConfig.new(:claude)
+      provider = described_class.new(config: config, executor: instance_double(AgentHarness::CommandExecutor))
+      command = provider.send(:build_command, "prompt", {})
+      contract_build_command = contract.dig(:runtime_contract, :build_command)
+
+      expect(contract.dig(:install, :post_install_binary_path)).to eq(contract[:binary_paths].first)
+      expect(command.first(contract_build_command.length)).to eq(contract_build_command)
+      expect(command[contract_build_command.length]).to eq("prompt")
+    end
+
+    it "does not include a root-only copy step in the install command" do
+      contract = described_class.install_contract
+
+      expect(contract.dig(:install, :command)).not_to include("/usr/local/bin")
+      expect(contract.dig(:install, :command)).not_to include("cp -L")
+    end
+
+    it "pins the installer target to the documented supported version" do
+      contract = described_class.install_contract
+
+      expect(contract.dig(:install, :command)).to include("bash \"$tmp_script\" #{contract.dig(:supported_versions, :default)}")
+    end
+
+    it "accepts an optional version override" do
+      contract = described_class.install_contract(version: "2.1.95")
+
+      expect(contract.dig(:install, :command)).to include("bash \"$tmp_script\" 2.1.95")
+    end
+
+    it "accepts semver with pre-release suffix" do
+      contract = described_class.install_contract(version: "2.2.0-beta.1")
+
+      expect(contract.dig(:install, :command)).to include("bash \"$tmp_script\" 2.2.0-beta.1")
+    end
+
+    it "accepts channel tokens like 'latest' and 'stable'" do
+      %w[latest stable].each do |channel|
+        contract = described_class.install_contract(version: channel)
+
+        expect(contract.dig(:install, :command)).to include("bash \"$tmp_script\" #{channel}")
+      end
+    end
+
+    it "warns that channel tokens are not pinned and may fall outside the supported range" do
+      %w[latest stable].each do |channel|
+        contract = described_class.install_contract(version: channel)
+
+        expect(contract.dig(:install, :warning)).to include("Channel '#{channel}' is not pinned")
+        expect(contract.dig(:install, :warning)).to include("outside the supported range")
+        expect(contract.dig(:install, :version_not_pinned)).to be true
+      end
+    end
+
+    it "does not include a channel warning for pinned versions" do
+      contract = described_class.install_contract
+
+      expect(contract.dig(:install, :warning)).not_to include("not pinned")
+      expect(contract.dig(:install, :version_not_pinned)).to be false
+    end
+
+    it "rejects versions outside the supported range" do
+      expect { described_class.install_contract(version: "9.0.0") }
+        .to raise_error(ArgumentError, /outside the supported range/)
+
+      expect { described_class.install_contract(version: "1.0.0") }
+        .to raise_error(ArgumentError, /outside the supported range/)
+    end
+
+    it "rejects versions containing shell metacharacters" do
+      expect { described_class.install_contract(version: "2.1.92; rm -rf /") }
+        .to raise_error(ArgumentError, /Invalid version/)
+    end
+
+    it "rejects arbitrary strings that are not semver or channel tokens" do
+      expect { described_class.install_contract(version: "$(whoami)") }
+        .to raise_error(ArgumentError, /Invalid version/)
+    end
+  end
+
   describe ".firewall_requirements" do
     it "returns required domains" do
       requirements = described_class.firewall_requirements

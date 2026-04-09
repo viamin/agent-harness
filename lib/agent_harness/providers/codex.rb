@@ -25,6 +25,15 @@ module AgentHarness
           !!executor.which(binary_name)
         end
 
+        def provider_metadata_overrides
+          {
+            auth: {
+              service: :openai,
+              api_family: :openai
+            }
+          }
+        end
+
         def firewall_requirements
           {
             domains: [
@@ -53,11 +62,17 @@ module AgentHarness
           ]
         end
 
-        def installation_contract
-          default_package = "@openai/codex@#{SUPPORTED_CLI_VERSION}".freeze
+        def installation_contract(version: SUPPORTED_CLI_VERSION)
+          unless SUPPORTED_CLI_REQUIREMENT.satisfied_by?(Gem::Version.new(version))
+            raise ArgumentError,
+              "Unsupported Codex CLI version #{version.inspect}; " \
+              "supported versions must satisfy #{SUPPORTED_CLI_REQUIREMENT}"
+          end
+
+          default_package = "@openai/codex@#{version}".freeze
           install_command_prefix = ["npm", "install", "-g", "--ignore-scripts"].freeze
           install_command = (install_command_prefix + [default_package]).freeze
-          supported_versions = [SUPPORTED_CLI_VERSION].freeze
+          supported_versions = [version].freeze
           version_requirement = SUPPORTED_CLI_REQUIREMENT.requirements
             .map { |op, ver| "#{op} #{ver}".freeze }
             .freeze
@@ -66,7 +81,7 @@ module AgentHarness
             source: :npm,
             package: default_package,
             package_name: "@openai/codex",
-            version: SUPPORTED_CLI_VERSION,
+            version: version,
             version_requirement: version_requirement,
             binary_name: binary_name,
             install_command_prefix: install_command_prefix,
@@ -78,6 +93,10 @@ module AgentHarness
             value.freeze if value.is_a?(String)
           end
           contract.freeze
+        end
+
+        def smoke_test_contract
+          Base::DEFAULT_SMOKE_TEST_CONTRACT
         end
       end
 
@@ -224,12 +243,16 @@ module AgentHarness
 
       def build_command(prompt, options)
         cmd = [self.class.binary_name, "exec"]
+        externally_sandboxed = externally_sandboxed?(options)
 
-        # When running inside an already-sandboxed Docker container, Codex's
-        # own sandboxing conflicts with the outer sandbox. Use --full-auto to
-        # skip nested sandboxing while keeping full tool access.
-        # Also applies when dangerous_mode is explicitly requested.
-        if sandboxed_environment? || options[:dangerous_mode]
+        # When externally_sandboxed is set, use --dangerously-bypass-approvals-and-sandbox
+        # instead of --full-auto. In the Codex CLI, full_auto is checked first and
+        # selects workspace-write sandbox mode, which overrides the bypass flag.
+        # Passing both would leave the run in the wrong sandbox mode.
+        #
+        # When NOT externally sandboxed: use --full-auto for Docker containers
+        # (to skip nested sandboxing) or when dangerous_mode is explicitly requested.
+        if !externally_sandboxed && (sandboxed_environment? || options[:dangerous_mode])
           cmd += dangerous_mode_flags
         end
 
@@ -238,10 +261,13 @@ module AgentHarness
           unless flags.is_a?(Array)
             raise ArgumentError, "Codex configuration error: default_flags must be an array of strings"
           end
+          # Strip --full-auto from defaults when externally sandboxed to avoid
+          # conflicting with --dangerously-bypass-approvals-and-sandbox.
+          flags -= dangerous_mode_flags if externally_sandboxed
           cmd += flags if flags.any?
         end
 
-        if externally_sandboxed?(options)
+        if externally_sandboxed
           cmd += sandbox_bypass_flags
         end
 
@@ -252,7 +278,10 @@ module AgentHarness
         runtime = options[:provider_runtime]
         if runtime
           cmd += ["--model", runtime.model] if runtime.model
-          cmd += runtime.flags unless runtime.flags.empty?
+          runtime_flags = runtime.flags
+          # Strip --full-auto from runtime flags when externally sandboxed.
+          runtime_flags -= dangerous_mode_flags if externally_sandboxed
+          cmd += runtime_flags unless runtime_flags.empty?
         end
 
         cmd << prompt
@@ -290,7 +319,7 @@ module AgentHarness
       end
 
       def sandbox_bypass_flags
-        ["--sandbox", "none"]
+        ["--dangerously-bypass-approvals-and-sandbox"]
       end
 
       def read_codex_credentials

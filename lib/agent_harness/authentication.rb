@@ -94,15 +94,26 @@ module AgentHarness
 
       def resolve_provider(provider_name)
         klass = Providers::Registry.instance.get(provider_name)
-        # Construct the provider with config/executor/logger to match
-        # ProviderManager#create_provider and support custom providers
-        # that may rely on these initializer arguments.
-        config = AgentHarness.configuration.providers[provider_name]
-        klass.new(
-          config: config,
-          executor: AgentHarness.configuration.command_executor,
-          logger: AgentHarness.logger
-        )
+        canonical_name = Providers::Registry.instance.canonical_name(provider_name)
+        config = provider_config_for(provider_name, canonical_name: canonical_name)
+        executor = AgentHarness.configuration.command_executor
+        logger = AgentHarness.logger
+
+        provider = if klass.respond_to?(:build_provider_instance, true)
+          klass.send(:build_provider_instance, config: config, executor: executor, logger: logger)
+        else
+          klass.new(config: config, executor: executor, logger: logger)
+        end
+
+        # Ensure the executor is available even when the provider constructor
+        # accepts only a subset of keywords (e.g. config: only).
+        if provider.respond_to?(:executor=) && provider.executor.nil?
+          provider.executor = executor
+        elsif !provider.respond_to?(:executor)
+          provider.define_singleton_method(:executor) { executor }
+        end
+
+        provider
       rescue ConfigurationError
         raise ProviderNotFoundError, "Unknown provider: #{provider_name}"
       end
@@ -150,6 +161,14 @@ module AgentHarness
 
       def claude_auth_url
         "https://claude.ai/oauth/authorize"
+      end
+
+      def provider_config_for(requested_name, canonical_name:)
+        requested_key = requested_name.to_sym
+        canonical_key = canonical_name.to_sym
+
+        AgentHarness.configuration.providers[requested_key] ||
+          AgentHarness.configuration.providers[canonical_key]
       end
 
       def refresh_claude_auth(token: nil)

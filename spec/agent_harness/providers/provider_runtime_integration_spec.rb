@@ -314,6 +314,7 @@ RSpec.describe "ProviderRuntime integration" do
 
   describe AgentHarness::Providers::Cursor do
     let(:provider) { described_class.new(executor: mock_executor) }
+    let(:cursor_binary) { described_class.binary_name }
 
     it "passes runtime env vars to the executor" do
       runtime = AgentHarness::ProviderRuntime.new(
@@ -353,7 +354,7 @@ RSpec.describe "ProviderRuntime integration" do
       runtime = AgentHarness::ProviderRuntime.new(flags: ["--verbose"])
 
       expect(mock_executor).to receive(:execute).with(
-        ["cursor-agent", "-p", "--verbose"],
+        [cursor_binary, "-p", "--verbose"],
         anything
       ).and_return(success_result)
 
@@ -376,7 +377,7 @@ RSpec.describe "ProviderRuntime integration" do
       )
 
       expect(mock_executor).to receive(:execute).with(
-        ["cursor-agent", "-p", "--debug"],
+        [cursor_binary, "-p", "--debug"],
         hash_including(stdin_data: "Hello", env: hash_including("CUSTOM_KEY" => "value"))
       ).and_return(success_result)
 

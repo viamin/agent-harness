@@ -13,6 +13,61 @@ RSpec.describe AgentHarness::Providers::Cursor do
     end
   end
 
+  describe ".install_metadata" do
+    it "returns the first-class install contract" do
+      metadata = described_class.install_metadata
+      binary_name = described_class.binary_name
+      build = described_class::INSTALL_BUILD
+      script_url = described_class::INSTALL_SCRIPT_URL
+      linux_x64_package_url = "https://downloads.cursor.com/lab/#{build}/linux/x64/agent-cli-package.tar.gz"
+
+      expect(metadata[:source]).to eq(
+        type: :shell_script,
+        url: script_url,
+        resolved_version: build,
+        default_artifact_url: linux_x64_package_url
+      )
+      expect(metadata[:source]).not_to have_key(:command)
+      expect(metadata[:checksum]).to eq(
+        strategy: :sha256,
+        targets: {
+          script: {
+            url: script_url,
+            value: described_class::INSTALL_SCRIPT_SHA256
+          },
+          artifacts: {
+            "linux/x64" => {
+              url: linux_x64_package_url,
+              value: described_class::INSTALL_LINUX_X64_PACKAGE_SHA256
+            }
+          }
+        }
+      )
+      expect(metadata.dig(:binary, :name)).to eq(binary_name)
+      expect(metadata.dig(:binary, :path)).to eq("$HOME/.local/bin/#{binary_name}")
+      expect(metadata.dig(:binary, :suggested_global_path)).to eq("/usr/local/bin/#{binary_name}")
+      expect(metadata.dig(:version, :default)).to eq("latest")
+      expect(metadata.dig(:version, :supported)).to eq("latest")
+      expect(metadata.dig(:version, :command)).to eq([binary_name, "--version"])
+    end
+
+    it "treats nil and latest as the same install target" do
+      expect(described_class.install_metadata(version: :latest)).to eq(described_class.install_metadata)
+    end
+
+    it "rejects unsupported install targets" do
+      expect {
+        described_class.install_metadata(version: "1.2.3")
+      }.to raise_error(ArgumentError, /Unsupported Cursor install target/)
+    end
+  end
+
+  describe ".install_command" do
+    it "returns nil because the contract does not provide a verified command" do
+      expect(described_class.install_command).to be_nil
+    end
+  end
+
   describe ".firewall_requirements" do
     it "returns required domains" do
       requirements = described_class.firewall_requirements
@@ -91,12 +146,13 @@ RSpec.describe AgentHarness::Providers::Cursor do
     end
 
     it "returns true when cursor-agent binary exists" do
-      allow(mock_executor).to receive(:which).with("cursor-agent").and_return("/usr/local/bin/cursor-agent")
+      binary_name = described_class.binary_name
+      allow(mock_executor).to receive(:which).with(binary_name).and_return("/usr/local/bin/#{binary_name}")
       expect(described_class.available?).to be true
     end
 
     it "returns false when cursor-agent binary is missing" do
-      allow(mock_executor).to receive(:which).with("cursor-agent").and_return(nil)
+      allow(mock_executor).to receive(:which).with(described_class.binary_name).and_return(nil)
       expect(described_class.available?).to be false
     end
   end
@@ -112,7 +168,8 @@ RSpec.describe AgentHarness::Providers::Cursor do
 
     context "when cursor-agent is available" do
       before do
-        allow(mock_executor).to receive(:which).with("cursor-agent").and_return("/usr/local/bin/cursor-agent")
+        binary_name = described_class.binary_name
+        allow(mock_executor).to receive(:which).with(binary_name).and_return("/usr/local/bin/#{binary_name}")
       end
 
       it "returns predefined models" do
@@ -130,7 +187,7 @@ RSpec.describe AgentHarness::Providers::Cursor do
 
     context "when cursor-agent is not available" do
       before do
-        allow(mock_executor).to receive(:which).with("cursor-agent").and_return(nil)
+        allow(mock_executor).to receive(:which).with(described_class.binary_name).and_return(nil)
       end
 
       it "returns empty array" do
@@ -219,7 +276,7 @@ RSpec.describe AgentHarness::Providers::Cursor do
         )
 
         expect(mock_executor).to receive(:execute).with(
-          ["cursor-agent", "-p"],
+          [described_class.binary_name, "-p"],
           hash_including(stdin_data: "Hello")
         )
 
@@ -278,6 +335,103 @@ RSpec.describe AgentHarness::Providers::Cursor do
         provider.send_message(prompt: "Hello", timeout: 60)
       end
 
+      it "passes through execution hooks" do
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "ok",
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        observer = Object.new
+
+        expect(mock_executor).to receive(:execute).with(
+          [described_class.binary_name, "-p"],
+          hash_including(
+            stdin_data: "Hello",
+            idle_timeout: 30,
+            on_stdout_chunk: kind_of(Proc),
+            on_stderr_chunk: kind_of(Proc),
+            on_heartbeat: kind_of(Proc),
+            heartbeat_interval: 2,
+            observer: observer
+          )
+        )
+
+        provider.send_message(
+          prompt: "Hello",
+          idle_timeout: 30,
+          on_stdout_chunk: ->(_chunk) {},
+          on_stderr_chunk: ->(_chunk) {},
+          on_heartbeat: ->(**_heartbeat) {},
+          heartbeat_interval: 2,
+          execution_observer: observer
+        )
+      end
+
+      it "preserves an explicit nil heartbeat interval" do
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "ok",
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        expect(mock_executor).to receive(:execute).with(
+          [described_class.binary_name, "-p"],
+          hash_including(
+            stdin_data: "Hello",
+            on_heartbeat: kind_of(Proc),
+            heartbeat_interval: nil
+          )
+        )
+
+        provider.send_message(
+          prompt: "Hello",
+          on_heartbeat: ->(**_heartbeat) {},
+          heartbeat_interval: nil
+        )
+      end
+
+      it "uses the executor default heartbeat interval when none is provided" do
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "ok",
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        expect(mock_executor).to receive(:execute).with(
+          [described_class.binary_name, "-p"],
+          satisfy { |execution_options|
+            execution_options[:stdin_data] == "Hello" &&
+              execution_options[:on_heartbeat].is_a?(Proc) &&
+              !execution_options.key?(:heartbeat_interval)
+          }
+        )
+
+        provider.send_message(
+          prompt: "Hello",
+          on_heartbeat: ->(**_heartbeat) {}
+        )
+      end
+
+      it "preserves idle timeout errors" do
+        allow(mock_executor).to receive(:execute).and_raise(
+          AgentHarness::IdleTimeoutError.new("Command exceeded idle timeout")
+        )
+
+        expect {
+          provider.send_message(prompt: "Hello")
+        }.to raise_error(AgentHarness::IdleTimeoutError)
+      end
+
       context "error handling" do
         it "raises RateLimitError for rate limit errors" do
           allow(mock_executor).to receive(:execute).and_raise(StandardError.new("rate limit exceeded"))
@@ -310,7 +464,8 @@ RSpec.describe AgentHarness::Providers::Cursor do
 
       context "when CLI succeeds" do
         before do
-          allow(mock_executor).to receive(:which).with("cursor-agent").and_return("/usr/local/bin/cursor-agent")
+          binary_name = described_class.binary_name
+          allow(mock_executor).to receive(:which).with(binary_name).and_return("/usr/local/bin/#{binary_name}")
           allow(mock_executor).to receive(:execute).and_return(
             AgentHarness::CommandExecutor::Result.new(
               stdout: "filesystem: ready\nmemory: disconnected",
@@ -322,6 +477,18 @@ RSpec.describe AgentHarness::Providers::Cursor do
         end
 
         it "parses servers correctly" do
+          cli_result = AgentHarness::CommandExecutor::Result.new(
+            stdout: "filesystem: ready\nmemory: disconnected",
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+
+          expect(mock_executor).to receive(:execute).with(
+            [described_class.binary_name, "mcp", "list"],
+            timeout: 5
+          ).and_return(cli_result)
+
           servers = provider.fetch_mcp_servers
           expect(servers.size).to eq(2)
 
@@ -348,7 +515,7 @@ RSpec.describe AgentHarness::Providers::Cursor do
         end
 
         before do
-          allow(mock_executor).to receive(:which).with("cursor-agent").and_return(nil)
+          allow(mock_executor).to receive(:which).with(described_class.binary_name).and_return(nil)
           allow(File).to receive(:exist?).and_call_original
           allow(File).to receive(:exist?).with(File.expand_path("~/.cursor/mcp.json")).and_return(true)
           allow(File).to receive(:read).with(File.expand_path("~/.cursor/mcp.json")).and_return(mcp_config.to_json)
@@ -364,7 +531,7 @@ RSpec.describe AgentHarness::Providers::Cursor do
 
       context "when both CLI and config fail" do
         before do
-          allow(mock_executor).to receive(:which).with("cursor-agent").and_return(nil)
+          allow(mock_executor).to receive(:which).with(described_class.binary_name).and_return(nil)
           allow(File).to receive(:exist?).and_call_original
           allow(File).to receive(:exist?).with(File.expand_path("~/.cursor/mcp.json")).and_return(false)
         end
@@ -376,7 +543,7 @@ RSpec.describe AgentHarness::Providers::Cursor do
 
       context "when config file has invalid JSON" do
         before do
-          allow(mock_executor).to receive(:which).with("cursor-agent").and_return(nil)
+          allow(mock_executor).to receive(:which).with(described_class.binary_name).and_return(nil)
           allow(File).to receive(:exist?).and_call_original
           allow(File).to receive(:exist?).with(File.expand_path("~/.cursor/mcp.json")).and_return(true)
           allow(File).to receive(:read).with(File.expand_path("~/.cursor/mcp.json")).and_return("invalid json")

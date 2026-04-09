@@ -103,6 +103,12 @@ RSpec.describe AgentHarness::Providers::Base do
     end
   end
 
+  describe ".smoke_test_contract" do
+    it "does not expose a smoke-test contract by default" do
+      expect(test_provider_class.smoke_test_contract).to be_nil
+    end
+  end
+
   describe "#parse_response" do
     let(:result) { instance_double("Result", stdout: "output", stderr: "", exit_code: 0) }
 

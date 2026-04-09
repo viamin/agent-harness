@@ -31,6 +31,15 @@ module AgentHarness
           !!executor.which(binary_name)
         end
 
+        def provider_metadata_overrides
+          {
+            auth: {
+              service: :openai,
+              api_family: :openai_compatible
+            }
+          }
+        end
+
         def firewall_requirements
           {
             domains: [
@@ -58,6 +67,10 @@ module AgentHarness
 
         def install_command(version: SUPPORTED_CLI_VERSION)
           installation_contract(version: version)[:install_command]
+        end
+
+        def smoke_test_contract
+          Base::DEFAULT_SMOKE_TEST_CONTRACT
         end
 
         private

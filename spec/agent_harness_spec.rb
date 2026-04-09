@@ -47,6 +47,37 @@ RSpec.describe AgentHarness do
     end
   end
 
+  describe ".install_contract" do
+    it "delegates to the provider registry" do
+      contract = {provider: :claude}
+      expect(AgentHarness::Providers::Registry.instance).to receive(:install_contract).with(:claude).and_return(contract)
+
+      expect(AgentHarness.install_contract(:claude)).to eq(contract)
+    end
+
+    it "accepts string provider names" do
+      contract = {provider: :claude}
+      expect(AgentHarness::Providers::Registry.instance).to receive(:install_contract).with("claude").and_return(contract)
+
+      expect(AgentHarness.install_contract("claude")).to eq(contract)
+    end
+  end
+
+  describe ".send_message" do
+    it "passes executor overrides to the conductor" do
+      executor = instance_double(AgentHarness::CommandExecutor)
+      response = instance_double(AgentHarness::Response)
+
+      expect(AgentHarness.conductor).to receive(:send_message)
+        .with("Hello", provider: :codex, executor: executor, temperature: 0.1)
+        .and_return(response)
+
+      expect(
+        AgentHarness.send_message("Hello", provider: :codex, executor: executor, temperature: 0.1)
+      ).to be(response)
+    end
+  end
+
   describe ".provider_installation_contract" do
     it "delegates to the provider registry" do
       contract = {binary_name: "kilo"}
@@ -146,6 +177,16 @@ RSpec.describe AgentHarness do
       )
     end
 
+    it "returns Aider provider install metadata" do
+      contract = AgentHarness.installation_contract(:aider)
+
+      expect(contract).to include(
+        source: :uv_tool,
+        package_name: "aider-chat",
+        binary_name: "aider"
+      )
+    end
+
     it "raises ConfigurationError for an unknown provider" do
       expect {
         AgentHarness.installation_contract(:nonexistent_provider_xyz)
@@ -192,7 +233,29 @@ RSpec.describe AgentHarness do
     it "returns all registered provider installation contracts" do
       contracts = AgentHarness.installation_contracts
 
-      expect(contracts).to include(:codex, :gemini, :opencode)
+      expect(contracts).to include(:codex, :aider, :gemini, :opencode)
+    end
+  end
+
+  describe ".provider_metadata" do
+    it "delegates to the provider registry" do
+      metadata = {provider: :claude, auth: {service: :anthropic}}
+
+      expect(AgentHarness::Providers::Registry.instance)
+        .to receive(:provider_metadata).with(:claude, refresh: false).and_return(metadata)
+
+      expect(AgentHarness.provider_metadata(:claude)).to eq(metadata)
+    end
+  end
+
+  describe ".provider_metadata_catalog" do
+    it "returns provider metadata for all providers" do
+      metadata = {claude: {provider: :claude}}
+
+      expect(AgentHarness::Providers::Registry.instance)
+        .to receive(:provider_metadata_catalog).with(refresh: false).and_return(metadata)
+
+      expect(AgentHarness.provider_metadata_catalog).to eq(metadata)
     end
   end
 

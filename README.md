@@ -5,7 +5,7 @@ A unified Ruby interface for CLI-based AI coding agents like Claude Code, Cursor
 ## Features
 
 - **Unified Interface**: Single API for multiple AI coding agents
-- **8 Built-in Providers**: Claude Code, Cursor, Gemini CLI, GitHub Copilot, Codex, Aider, OpenCode, Kilocode
+- **9 Built-in Providers**: Claude Code, Cursor, Gemini CLI, GitHub Copilot, Codex, Aider, OpenCode, Kilocode, Mistral Vibe
 - **Full Orchestration**: Provider switching, circuit breakers, rate limiting, and health monitoring
 - **Flexible Configuration**: YAML, Ruby DSL, or environment variables
 - **Token Tracking**: Monitor usage across providers for cost and limit management
@@ -107,6 +107,7 @@ end
 | `:aider` | `aider` | Aider coding assistant |
 | `:opencode` | `opencode` | OpenCode CLI |
 | `:kilocode` | `kilo` | Kilocode CLI |
+| `:mistral_vibe` | `mistral-vibe` | Mistral Vibe CLI |
 
 ### Provider Install Contracts
 
@@ -126,6 +127,41 @@ contract[:install_command]
 # => ["npm", "install", "-g", "--ignore-scripts", "@google/gemini-cli@0.35.3"]
 ```
 
+Cursor also exposes a first-class install contract for container/image builds.
+The contract publishes checksums for both the installer script and the default
+Linux x64 artifact so consumers can verify downloads independently:
+
+```ruby
+cursor_install = AgentHarness::Providers::Cursor.install_metadata
+
+cursor_install
+# => {
+#      source: {
+#        type: :shell_script,
+#        url: "https://cursor.com/install",
+#        resolved_version: "2026.03.30-a5d3e17",
+#        default_artifact_url: "https://downloads.cursor.com/lab/2026.03.30-a5d3e17/linux/x64/agent-cli-package.tar.gz"
+#      },
+#      checksum: {
+#        strategy: :sha256,
+#        targets: {
+#          script: { url: "https://cursor.com/install", value: "8371..." },
+#          artifacts: { "linux/x64" => { url: "https://downloads.cursor.com/...", value: "e0d4..." } }
+#        }
+#      },
+#      binary: {
+#        name: "cursor-agent",
+#        path: "$HOME/.local/bin/cursor-agent",
+#        suggested_global_path: "/usr/local/bin/cursor-agent"
+#      },
+#      version: {
+#        default: "latest",
+#        supported: "latest",
+#        command: ["cursor-agent", "--version"]
+#      }
+#    }
+```
+
 ### Direct Provider Access
 
 ```ruby
@@ -138,10 +174,27 @@ if AgentHarness::Providers::Registry.instance.get(:claude).available?
   puts "Claude CLI is installed"
 end
 
+# Ask the harness which Claude CLI install contract it supports
+contract = AgentHarness.install_contract(:claude)
+puts contract[:install][:command]
+# => "tmp_script=$(mktemp) && ... && bash \"$tmp_script\" 2.1.92"
+puts contract[:install][:post_install_binary_path]
+# => "$HOME/.local/bin/claude"
+puts contract[:supported_versions][:default]
+# => "2.1.92"
+puts contract[:supported_versions][:requirement]
+# => ">= 2.1.92, < 2.2.0"
+
 # List all registered providers
 AgentHarness::Providers::Registry.instance.all
-# => [:claude, :cursor, :gemini, :github_copilot, :codex, :opencode, :kilocode, :aider]
+# => [:claude, :cursor, :gemini, :github_copilot, :codex, :opencode, :kilocode, :aider, :mistral_vibe]
 ```
+
+For Claude, the install contract is the first-class source of truth for:
+
+- the official install recipe the current harness release expects
+- the expected binary name and normalized PATH entry that recipe leaves behind
+- the supported Claude CLI version boundary the current harness release validates (`default` plus the compatible version range)
 
 ### Provider Installation Contracts
 
@@ -170,6 +223,8 @@ Providers that expose installation contracts can also be queried through the
 generic API:
 
 ```ruby
+codex_install = AgentHarness.installation_contract(:codex)
+aider_install = AgentHarness.installation_contract(:aider)
 opencode_install = AgentHarness.installation_contract(:opencode)
 
 opencode_install
@@ -181,11 +236,94 @@ opencode_install
 #      binary_name: "opencode",
 #      install_command: ["npm", "install", "-g", "--ignore-scripts", "opencode-ai@1.3.2"]
 #    }
+
+aider_install
+# => {
+#      source: :uv_tool,
+#      bootstrap_package: "uv==0.8.17",
+#      package_name: "aider-chat",
+#      version: "0.86.2",
+#      binary_name: "aider",
+#      binary_path: "/usr/local/bin/aider",
+#      install_environment: {
+#        "UV_TOOL_BIN_DIR" => "/usr/local/bin",
+#        "UV_TOOL_DIR" => "/opt/uv/tools",
+#        "UV_PYTHON_INSTALL_DIR" => "/opt/uv/python"
+#      },
+#      bootstrap_commands: [
+#        ["python3", "-m", "pip", "install", "--no-cache-dir", "--break-system-packages", "uv==0.8.17"]
+#      ],
+#      install_command: ["uv", "tool", "install", "--force", "--python", "python3.12", "--with", "pip", "aider-chat==0.86.2"]
+#    }
+```
+
+For supported providers like Codex and Aider, the install contract tracks
+the CLI version supported by the current `agent-harness` release. The
+contract includes bootstrap requirements, install command shape, and the
+expected runtime binary, and the provider specs assert that runtime
+expectations remain aligned with the published install metadata.
+
+### Provider Metadata
+
+Downstream apps can also query a consolidated provider metadata contract for
+configuration UIs and policy decisions.
+
+The following example shows how to retrieve metadata for the Anthropic provider:
+
+```ruby
+metadata = AgentHarness.provider_metadata(:anthropic)
+
+metadata
+# => {
+#      provider: :claude,
+#      canonical_provider: :claude,
+#      aliases: [:anthropic],
+#      auth: {
+#        default_mode: :oauth,
+#        supported_modes: [:oauth],
+#        service: :anthropic,
+#        api_family: :anthropic
+#      },
+#      runtime: {
+#        interface: :cli,
+#        requires_cli: true,
+#        installable: false,
+#        installation: nil,
+#        supports_mcp: true,
+#        supports_dangerous_mode: true
+#      },
+#      health_check: {
+#        supports_registry_checks: true,
+#        auth_check_supported: true,
+#        lightweight: true
+#      },
+#      identity: {
+#        bot_usernames: ["claude", "anthropic"]
+#      }
+#    }
+```
+
+To enumerate the full catalog:
+
+```ruby
+AgentHarness.provider_metadata_catalog
+# => { claude: {...}, cursor: {...}, gemini: {...}, ... }
+```
+
+Provider metadata is cached so repeated catalog reads stay cheap.
+Pass `refresh: true` to rebuild metadata and re-run live availability checks when needed:
+
+```ruby
+AgentHarness.provider_metadata(:anthropic, refresh: true)
+AgentHarness.provider_metadata_catalog(refresh: true)
 ```
 
 For providers with install contracts, the metadata tracks the CLI version
 supported by the current `agent-harness` release, and the runtime adapter
 tests assert that the expected binary remains aligned with that contract.
+`runtime[:installation]` is normalized to a stable shape with
+`source_type`, `package_name`, version fields, and install commands so
+downstream apps do not need provider-specific branching.
 
 ### Custom Providers
 

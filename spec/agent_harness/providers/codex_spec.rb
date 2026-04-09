@@ -40,6 +40,19 @@ RSpec.describe AgentHarness::Providers::Codex do
       expect(contract[:binary_name]).to eq(described_class.binary_name)
     end
 
+    it "supports explicit version selection through the published contract API" do
+      contract = described_class.installation_contract(version: "0.116.5")
+
+      expect(contract).to include(
+        package: "@openai/codex@0.116.5",
+        version: "0.116.5"
+      )
+      expect(contract[:supported_versions]).to eq(["0.116.5"])
+      expect(contract[:install_command]).to eq(
+        ["npm", "install", "-g", "--ignore-scripts", "@openai/codex@0.116.5"]
+      )
+    end
+
     it "deep-freezes nested contract values" do
       contract = described_class.installation_contract
 
@@ -58,9 +71,15 @@ RSpec.describe AgentHarness::Providers::Codex do
     end
 
     it "supports explicit version overrides" do
-      expect(described_class.install_command(version: "0.115.0")).to eq(
-        ["npm", "install", "-g", "--ignore-scripts", "@openai/codex@0.115.0"]
+      expect(described_class.install_command(version: "0.116.5")).to eq(
+        ["npm", "install", "-g", "--ignore-scripts", "@openai/codex@0.116.5"]
       )
+    end
+
+    it "rejects unsupported explicit version overrides" do
+      expect {
+        described_class.install_command(version: "0.115.0")
+      }.to raise_error(ArgumentError, /Unsupported Codex CLI version "0.115.0"/)
     end
   end
 
@@ -183,6 +202,16 @@ RSpec.describe AgentHarness::Providers::Codex do
 
           provider.send_message(prompt: "Hello")
         end
+
+        it "uses only the bypass flag when externally sandboxed, skipping --full-auto" do
+          allow(docker_executor).to receive(:is_a?).with(AgentHarness::DockerCommandExecutor).and_return(true)
+          expect(docker_executor).to receive(:execute).with(
+            ["codex", "exec", "--dangerously-bypass-approvals-and-sandbox", "Hello"],
+            anything
+          ).and_return(success_result)
+
+          provider.send_message(prompt: "Hello", externally_sandboxed: true)
+        end
       end
 
       context "when dangerous_mode is requested" do
@@ -229,6 +258,25 @@ RSpec.describe AgentHarness::Providers::Codex do
         end
       end
 
+      context "with default_flags containing --full-auto and externally_sandboxed" do
+        let(:config_with_full_auto) do
+          AgentHarness::ProviderConfig.new(:codex).tap do |c|
+            c.default_flags = ["--full-auto", "--quiet"]
+            c.externally_sandboxed = true
+          end
+        end
+        let(:provider_with_full_auto) { described_class.new(config: config_with_full_auto, executor: mock_executor) }
+
+        it "strips --full-auto from default_flags to avoid sandbox mode conflict" do
+          expect(mock_executor).to receive(:execute).with(
+            ["codex", "exec", "--quiet", "--dangerously-bypass-approvals-and-sandbox", "Hello"],
+            anything
+          ).and_return(success_result)
+
+          provider_with_full_auto.send_message(prompt: "Hello")
+        end
+      end
+
       it "returns a Response object" do
         allow(mock_executor).to receive(:execute).and_return(
           AgentHarness::CommandExecutor::Result.new(
@@ -256,9 +304,9 @@ RSpec.describe AgentHarness::Providers::Codex do
       end
 
       context "with externally_sandboxed option" do
-        it "includes --sandbox none flag" do
+        it "includes bypass flag compatible with current codex cli" do
           expect(mock_executor).to receive(:execute).with(
-            ["codex", "exec", "--sandbox", "none", "Hello"],
+            ["codex", "exec", "--dangerously-bypass-approvals-and-sandbox", "Hello"],
             anything
           ).and_return(success_result)
 
@@ -274,9 +322,9 @@ RSpec.describe AgentHarness::Providers::Codex do
         end
         let(:sandboxed_provider) { described_class.new(config: sandboxed_config, executor: mock_executor) }
 
-        it "includes --sandbox none flag from config" do
+        it "includes bypass flag from config" do
           expect(mock_executor).to receive(:execute).with(
-            ["codex", "exec", "--sandbox", "none", "Hello"],
+            ["codex", "exec", "--dangerously-bypass-approvals-and-sandbox", "Hello"],
             anything
           ).and_return(success_result)
 
@@ -285,9 +333,9 @@ RSpec.describe AgentHarness::Providers::Codex do
       end
 
       context "with both dangerous_mode and externally_sandboxed" do
-        it "includes both flag sets" do
+        it "uses only the bypass flag, skipping --full-auto to avoid sandbox mode conflict" do
           expect(mock_executor).to receive(:execute).with(
-            ["codex", "exec", "--full-auto", "--sandbox", "none", "Hello"],
+            ["codex", "exec", "--dangerously-bypass-approvals-and-sandbox", "Hello"],
             anything
           ).and_return(success_result)
 
@@ -303,7 +351,7 @@ RSpec.describe AgentHarness::Providers::Codex do
         end
         let(:sandboxed_provider) { described_class.new(config: sandboxed_config, executor: mock_executor) }
 
-        it "does not include --sandbox none when per-call option is false" do
+        it "does not include bypass flag when per-call option is false" do
           expect(mock_executor).to receive(:execute).with(
             ["codex", "exec", "Hello"],
             anything
