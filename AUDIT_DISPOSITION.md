@@ -7,7 +7,7 @@ Audit of PRs merged before review completion in `viamin/agent-harness`.
 ### PR #55 — Per-request provider runtime overrides
 
 | Finding | Disposition |
-|---------|-------------|
+| ------- | ----------- |
 | env stringifies only keys, not values | Fixed in PR #55 itself |
 | Token tracking uses config model instead of runtime model | Fixed in PR #55 itself |
 | nil env/metadata raises NoMethodError | Fixed in PR #55 itself |
@@ -31,7 +31,7 @@ Audit of PRs merged before review completion in `viamin/agent-harness`.
 ### PR #81 — Kilocode CLI installation contract
 
 | Finding | Disposition |
-|---------|-------------|
+| ------- | ----------- |
 | `installation_contract` can raise NoMethodError for non-Adapter providers | Fixed in PR #81 itself |
 | `provider_installation_contract` doesn't forward `version:` | Fixed in PR #81 itself |
 | Default `installation_contract` doesn't accept `**options` | Fixed in PR #81 itself |
@@ -42,13 +42,13 @@ Audit of PRs merged before review completion in `viamin/agent-harness`.
 ### PR #57 — Provider configuration capabilities
 
 | Finding | Disposition |
-|---------|-------------|
+| ------- | ----------- |
 | All 19 findings (schema field removal, auth_modes derivation, model hints, accepts_arbitrary alignment) | All fixed in PR #57 itself across 5 review rounds |
 
 ### PR #42 — Gemini and Codex health/auth checks
 
 | Finding | Disposition |
-|---------|-------------|
+| ------- | ----------- |
 | Temp dir from Dir.mktmpdir never cleaned up | Fixed in PR #42 itself |
 | Config-file API key not validated for sk- prefix | Fixed in PR #42 itself |
 | Error message hardcodes ~/.codex/config.json | Fixed in PR #42 itself |
@@ -68,7 +68,7 @@ Audit of PRs merged before review completion in `viamin/agent-harness`.
 ### PR #16 — DockerCommandExecutor
 
 | Finding | Disposition |
-|---------|-------------|
+| ------- | ----------- |
 | Duplicated `normalize_command` method | Already resolved (inherits from protected parent) |
 | `which` missing timeout | Already resolved (timeout: 5 added) |
 | **container_id not validated for whitespace-only** | **Fixed forward in this PR** |
@@ -77,13 +77,13 @@ Audit of PRs merged before review completion in `viamin/agent-harness`.
 ### PR #83 — OpenCode CLI installation contract
 
 | Finding | Disposition |
-|---------|-------------|
+| ------- | ----------- |
 | No unresolved review comments | No action needed |
 
 ### PR #80 — Gemini CLI installation contract
 
 | Finding | Disposition |
-|---------|-------------|
+| ------- | ----------- |
 | `install_contract` signature mismatch between base adapter and callers | Already resolved in current adapter.rb |
 | No guard for providers without `install_contract` | Already resolved in registry.rb |
 | **Malformed version strings not handled gracefully** | Already resolved (Gemini rescues ArgumentError from Gem::Version) |
@@ -92,7 +92,7 @@ Audit of PRs merged before review completion in `viamin/agent-harness`.
 ### PR #1 — Initial extraction
 
 | Finding | Disposition |
-|---------|-------------|
+| ------- | ----------- |
 | `timecop` gem not declared in Gemfile | Already resolved (timecop removed from codebase) |
 | Missing YamlLoader/EnvLoader files | Already resolved (references removed) |
 | README binary name for Cursor incorrect | Already resolved (README says cursor-agent, matches code) |
