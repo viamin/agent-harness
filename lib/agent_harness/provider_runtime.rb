@@ -104,10 +104,10 @@ module AgentHarness
         model: hash_value(hash, :model),
         base_url: hash_value(hash, :base_url),
         api_provider: hash_value(hash, :api_provider),
-        env: hash_value(hash, :env) || {},
-        flags: hash_value(hash, :flags) || [],
-        unset_env: hash_value(hash, :unset_env) || [],
-        metadata: hash_value(hash, :metadata) || {}
+        env: hash_value(hash, :env).nil? ? {} : hash_value(hash, :env),
+        flags: hash_value(hash, :flags).nil? ? [] : hash_value(hash, :flags),
+        unset_env: hash_value(hash, :unset_env).nil? ? [] : hash_value(hash, :unset_env),
+        metadata: hash_value(hash, :metadata).nil? ? {} : hash_value(hash, :metadata)
       )
     end
 
