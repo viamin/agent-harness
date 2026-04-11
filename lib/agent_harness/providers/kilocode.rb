@@ -67,6 +67,12 @@ module AgentHarness
         private
 
         def validate_install_version!(version)
+          unless version.is_a?(String) && !version.strip.empty?
+            raise ArgumentError,
+              "Unsupported Kilocode CLI version #{version.inspect}; " \
+              "supported versions must satisfy #{SUPPORTED_VERSION_REQUIREMENT}"
+          end
+
           parsed_version = begin
             Gem::Version.new(version)
           rescue ArgumentError

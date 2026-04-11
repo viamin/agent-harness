@@ -48,6 +48,18 @@ RSpec.describe AgentHarness::Providers::Kilocode do
         described_class.installation_contract(version: "not-a-version")
       }.to raise_error(ArgumentError, /Unsupported Kilocode CLI version/)
     end
+
+    it "rejects nil version" do
+      expect {
+        described_class.installation_contract(version: nil)
+      }.to raise_error(ArgumentError, /Unsupported Kilocode CLI version/)
+    end
+
+    it "rejects empty version" do
+      expect {
+        described_class.installation_contract(version: "")
+      }.to raise_error(ArgumentError, /Unsupported Kilocode CLI version/)
+    end
   end
 
   describe ".install_command" do

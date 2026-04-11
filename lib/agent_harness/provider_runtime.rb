@@ -43,7 +43,7 @@ module AgentHarness
       @base_url = base_url
       @api_provider = api_provider
 
-      env_hash = env || {}
+      env_hash = env.nil? ? {} : env
       unless env_hash.is_a?(Hash)
         raise ArgumentError, "env must be a Hash (got #{env_hash.class})"
       end
@@ -56,7 +56,7 @@ module AgentHarness
       end
       @env = normalized_env.freeze
 
-      normalized_flags = flags || []
+      normalized_flags = flags.nil? ? [] : flags
       unless normalized_flags.is_a?(Array)
         raise ArgumentError, "flags must be an Array (got #{normalized_flags.class})"
       end
@@ -69,7 +69,7 @@ module AgentHarness
       end
       @flags = normalized_flags.freeze
 
-      metadata_hash = metadata || {}
+      metadata_hash = metadata.nil? ? {} : metadata
       unless metadata_hash.is_a?(Hash)
         raise ArgumentError, "metadata must be a Hash (got #{metadata_hash.class})"
       end
@@ -78,7 +78,7 @@ module AgentHarness
       # Unset environment variables for the request. These are variable names that
       # should be removed from the inherited environment before the provider
       # command runs.
-      unset_array = unset_env || []
+      unset_array = unset_env.nil? ? [] : unset_env
       unless unset_array.is_a?(Array)
         raise ArgumentError, "unset_env must be an Array (got #{unset_array.class})"
       end

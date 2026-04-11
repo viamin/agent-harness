@@ -201,6 +201,11 @@ RSpec.describe AgentHarness::ProviderRuntime do
       expect { described_class.from_hash("model" => false) }
         .to raise_error(ArgumentError, /model must be a String or nil/)
     end
+
+    it "raises ArgumentError when env is explicitly false" do
+      expect { described_class.from_hash(env: false) }
+        .to raise_error(ArgumentError, /env must be a Hash/)
+    end
   end
 
   describe ".wrap" do

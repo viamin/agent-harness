@@ -398,6 +398,7 @@ RSpec.describe AgentHarness::Providers::Gemini do
         it "returns invalid with expiry error" do
           status = provider.auth_status
           expect(status[:valid]).to be false
+          expect(status[:auth_method]).to eq(:oauth)
           expect(status[:error]).to include("expired")
           expect(status[:error]).to include("gemini auth login")
         end
