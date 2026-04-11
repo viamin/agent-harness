@@ -410,6 +410,44 @@ RSpec.describe AgentHarness::Providers::Anthropic do
         patterns = provider.error_patterns
         expect(patterns[:permanent]).not_to be_empty
       end
+
+      it "does not misclassify embedded numeric substrings as HTTP status codes" do
+        patterns = provider.error_patterns
+        expect(
+          AgentHarness::ErrorTaxonomy.classify(
+            StandardError.new("request id 4294967295 failed"),
+            patterns
+          )
+        ).to eq(:unknown)
+
+        expect(
+          AgentHarness::ErrorTaxonomy.classify(
+            StandardError.new("trace code 40123 emitted"),
+            patterns
+          )
+        ).to eq(:unknown)
+
+        expect(
+          AgentHarness::ErrorTaxonomy.classify(
+            StandardError.new("build 50321 aborted"),
+            patterns
+          )
+        ).to eq(:unknown)
+
+        expect(
+          AgentHarness::ErrorTaxonomy.classify(
+            StandardError.new("job 1502 failed"),
+            patterns
+          )
+        ).to eq(:unknown)
+
+        expect(
+          AgentHarness::ErrorTaxonomy.classify(
+            StandardError.new("task 50401 completed"),
+            patterns
+          )
+        ).to eq(:unknown)
+      end
     end
 
     describe "#fetch_mcp_servers" do

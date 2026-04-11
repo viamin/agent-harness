@@ -334,7 +334,7 @@ module AgentHarness
           rate_limited: [
             /rate.?limit/i,
             /too.?many.?requests/i,
-            /429/,
+            /\b429\b/,
             /overloaded/i,
             /session.?limit/i
           ],
@@ -343,7 +343,7 @@ module AgentHarness
             /authentication.*error/i,
             /invalid.*api.*key/i,
             /unauthorized/i,
-            /401/,
+            /\b401\b/,
             /session.*expired/i,
             /not.*logged.*in/i,
             /login.*required/i,
@@ -359,17 +359,17 @@ module AgentHarness
             /connection.*reset/i,
             /temporary.*error/i,
             /service.*unavailable/i,
-            /503/,
-            /502/,
-            /504/
+            /\b503\b/,
+            /\b502\b/,
+            /\b504\b/
           ],
           permanent: [
             /invalid.*model/i,
             /unsupported.*operation/i,
             /not.*found/i,
-            /404/,
+            /\b404\b/,
             /bad.*request/i,
-            /400/,
+            /\b400\b/,
             /model.*deprecated/i,
             /end-of-life/i
           ]

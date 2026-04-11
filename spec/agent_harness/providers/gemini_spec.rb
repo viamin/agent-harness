@@ -52,6 +52,18 @@ RSpec.describe AgentHarness::Providers::Gemini do
         ArgumentError, /Unsupported Gemini CLI version "not-a-version"/
       )
     end
+
+    it "rejects nil version" do
+      expect {
+        described_class.install_contract(version: nil)
+      }.to raise_error(ArgumentError, /Unsupported Gemini CLI version/)
+    end
+
+    it "rejects empty version" do
+      expect {
+        described_class.install_contract(version: "")
+      }.to raise_error(ArgumentError, /Unsupported Gemini CLI version/)
+    end
   end
 
   describe ".available?" do
