@@ -122,6 +122,16 @@ RSpec.describe AgentHarness::Providers::Anthropic do
       expect { described_class.install_contract(version: "$(whoami)") }
         .to raise_error(ArgumentError, /Invalid version/)
     end
+
+    it "rejects empty version" do
+      expect { described_class.install_contract(version: "") }
+        .to raise_error(ArgumentError, /Invalid version/)
+    end
+
+    it "rejects whitespace-only version" do
+      expect { described_class.install_contract(version: "   ") }
+        .to raise_error(ArgumentError, /Invalid version/)
+    end
   end
 
   describe ".firewall_requirements" do

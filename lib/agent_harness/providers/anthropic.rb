@@ -163,18 +163,26 @@ module AgentHarness
         private
 
         def validate_version!(version)
-          version_str = version.to_s
+          unless version.is_a?(String) && !version.strip.empty?
+            raise ArgumentError, "Invalid version: #{version.inspect}. " \
+              "Must be a semver string (e.g. '2.1.92'), optional pre-release suffix, or a channel token ('latest', 'stable')."
+          end
+
+          version_str = version.strip
 
           unless VALID_VERSION_PATTERN.match?(version_str)
             raise ArgumentError, "Invalid version: #{version.inspect}. " \
               "Must be a semver string (e.g. '2.1.92'), optional pre-release suffix, or a channel token ('latest', 'stable')."
           end
 
-          # Channel tokens are not concrete versions; skip requirement check.
           return if %w[latest stable].include?(version_str)
 
-          # Validate concrete versions against the supported range.
-          gem_version = Gem::Version.new(version_str)
+          gem_version = begin
+            Gem::Version.new(version_str)
+          rescue ArgumentError
+            raise ArgumentError, "Invalid version: #{version.inspect}. " \
+              "Must be a semver string (e.g. '2.1.92'), optional pre-release suffix, or a channel token ('latest', 'stable')."
+          end
           return if SUPPORTED_CLI_REQUIREMENT.satisfied_by?(gem_version)
 
           raise ArgumentError, "Version #{version.inspect} is outside the supported range " \
