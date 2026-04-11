@@ -1117,6 +1117,36 @@ RSpec.describe AgentHarness::CommandExecutor do
         }.to raise_error(ArgumentError, /path traversal/)
       end
 
+      it "rejects preparation paths containing command substitution" do
+        preparation = AgentHarness::ExecutionPreparation.new(
+          file_writes: [{path: "/tmp/$(whoami)/config.json", content: "{}"}]
+        )
+
+        expect {
+          executor.execute(["true"], preparation: preparation)
+        }.to raise_error(ArgumentError, /command substitution/)
+      end
+
+      it "rejects env-backed preparation paths when the env value contains path traversal" do
+        preparation = AgentHarness::ExecutionPreparation.new(
+          file_writes: [{path: "$TRaversal_VAR/config.json", content: "{}"}]
+        )
+
+        expect {
+          executor.execute(["true"], env: {"TRaversal_VAR" => "/tmp/../../etc"}, preparation: preparation)
+        }.to raise_error(ArgumentError, /path traversal/)
+      end
+
+      it "rejects home-relative preparation paths when HOME contains path traversal" do
+        preparation = AgentHarness::ExecutionPreparation.new(
+          file_writes: [{path: "~/.config/test.json", content: "{}"}]
+        )
+
+        expect {
+          executor.execute(["true"], env: {"HOME" => "/tmp/../../etc"}, preparation: preparation)
+        }.to raise_error(ArgumentError, /path traversal/)
+      end
+
       it "allows env-var prefixed paths that may contain dots after expansion" do
         Dir.mktmpdir do |dir|
           preparation = AgentHarness::ExecutionPreparation.new(

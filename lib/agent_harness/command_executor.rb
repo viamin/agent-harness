@@ -282,6 +282,8 @@ module AgentHarness
 
       preparation.file_writes.each do |write|
         validate_preparation_path_security!(write.path)
+        validate_preparation_path_env!(write.path, env)
+        validate_home_relative_preparation_path!(write.path, env)
         resolved_path = expand_preparation_path(write.path, env)
         created_directories = missing_parent_directories(resolved_path)
         snapshot = within_timeout(deadline, timeout:, command_name:) do
@@ -408,9 +410,22 @@ module AgentHarness
         raise ArgumentError, "preparation path must not contain pipe characters"
       end
 
+      if path.include?("$(")
+        raise ArgumentError, "preparation path must not contain command substitution"
+      end
+
       if path.include?("..") && !path.start_with?("$")
         raise ArgumentError, "preparation path must not contain path traversal"
       end
+    end
+
+    def validate_home_relative_preparation_path!(path, env)
+      return unless path == "~" || path.start_with?("~/")
+      return unless env.key?("HOME")
+
+      home = env["HOME"]
+      raise ArgumentError, "HOME cannot be nil or empty for home-relative preparation paths" if home.nil? || home.empty?
+      raise ArgumentError, "HOME must not contain path traversal" if home.include?("..")
     end
 
     def resolve_preparation_path_env_var(key, env)
@@ -420,6 +435,7 @@ module AgentHarness
 
       value = env[key]
       raise ArgumentError, "#{key} cannot be nil or empty for env-backed preparation paths" if value.nil? || value.empty?
+      raise ArgumentError, "#{key} must not contain path traversal" if value.include?("..")
 
       value
     end
@@ -428,6 +444,7 @@ module AgentHarness
       if env.key?("HOME")
         home = env["HOME"]
         raise ArgumentError, "HOME cannot be nil or empty for home-relative preparation paths" if home.nil? || home.empty?
+        raise ArgumentError, "HOME must not contain path traversal" if home.include?("..")
 
         return home
       end

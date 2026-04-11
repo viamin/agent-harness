@@ -487,6 +487,47 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
       expect(Open3).not_to have_received(:popen3)
     end
 
+    it "rejects preparation paths containing command substitution" do
+      expect {
+        executor.execute(
+          ["echo", "hello"],
+          preparation: AgentHarness::ExecutionPreparation.new(
+            file_writes: [{path: "/tmp/$(whoami)/config.json", content: "{}"}]
+          )
+        )
+      }.to raise_error(ArgumentError, /command substitution/)
+
+      expect(Open3).not_to have_received(:popen3)
+    end
+
+    it "rejects env-backed container preparation paths when the env value contains path traversal" do
+      expect {
+        executor.execute(
+          ["echo", "hello"],
+          env: {"DTRAV_VAR" => "/tmp/../../etc"},
+          preparation: AgentHarness::ExecutionPreparation.new(
+            file_writes: [{path: "$DTRAV_VAR/config.json", content: "{}"}]
+          )
+        )
+      }.to raise_error(ArgumentError, /path traversal/)
+
+      expect(Open3).not_to have_received(:popen3)
+    end
+
+    it "rejects home-relative container preparation paths when HOME contains path traversal" do
+      expect {
+        executor.execute(
+          ["echo", "hello"],
+          env: {"HOME" => "/tmp/../../etc"},
+          preparation: AgentHarness::ExecutionPreparation.new(
+            file_writes: [{path: "~/.config/test.json", content: "{}"}]
+          )
+        )
+      }.to raise_error(ArgumentError, /path traversal/)
+
+      expect(Open3).not_to have_received(:popen3)
+    end
+
     it "uses the remaining timeout budget for preparation and execution" do
       allow(SecureRandom).to receive(:hex).and_return("deadbeefcafebabe", "facefeedcafed00d")
       time_values = [
