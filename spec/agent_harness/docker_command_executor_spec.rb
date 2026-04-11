@@ -657,6 +657,33 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
       }.to raise_error(AgentHarness::TimeoutError, "Command timed out after 30 seconds: echo")
     end
 
+    it "preserves IdleTimeoutError for container commands after preparation" do
+      allow(SecureRandom).to receive(:hex).and_return("deadbeefcafebabe", "facefeedcafed00d")
+
+      allow(executor).to receive(:execute_streaming) do |cmd_array, timeout:, env:, stdin_data:, **|
+        if cmd_array == tracked_execution_command(["echo", "hello"])
+          raise AgentHarness::IdleTimeoutError, "Command exceeded idle timeout after #{timeout} seconds: echo"
+        end
+
+        [
+          "output",
+          "",
+          instance_double(Process::Status, exitstatus: 0)
+        ]
+      end
+
+      expect {
+        executor.execute(
+          ["echo", "hello"],
+          timeout: 30,
+          idle_timeout: 5,
+          preparation: AgentHarness::ExecutionPreparation.new(
+            file_writes: [{path: "~/.config/opencode/opencode.json", content: "{\"ok\":true}"}]
+          )
+        )
+      }.to raise_error(AgentHarness::IdleTimeoutError, /Command exceeded idle timeout after .* seconds: echo/)
+    end
+
     it "does not track timed container execution without preparation" do
       observed_calls = []
       expect(executor).not_to receive(:build_container_execution_tracking)

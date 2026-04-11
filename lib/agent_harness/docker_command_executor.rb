@@ -78,6 +78,8 @@ module AgentHarness
           stdin_data: stdin_data,
           **execution_options
         )
+      rescue IdleTimeoutError
+        raise
       rescue TimeoutError
         schedule_container_cleanup_preparation(
           cleanup_steps,
