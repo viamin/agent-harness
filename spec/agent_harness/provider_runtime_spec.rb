@@ -196,6 +196,11 @@ RSpec.describe AgentHarness::ProviderRuntime do
       expect { described_class.from_hash(api_provider: false) }
         .to raise_error(ArgumentError, /api_provider must be a String or nil/)
     end
+
+    it "raises ArgumentError when a string-keyed model is explicitly false" do
+      expect { described_class.from_hash("model" => false) }
+        .to raise_error(ArgumentError, /model must be a String or nil/)
+    end
   end
 
   describe ".wrap" do

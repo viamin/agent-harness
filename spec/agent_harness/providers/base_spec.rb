@@ -101,6 +101,45 @@ RSpec.describe AgentHarness::Providers::Base do
     it "is frozen to prevent accidental mutation" do
       expect(described_class::COMMON_ERROR_PATTERNS).to be_frozen
     end
+
+    it "classifies standalone HTTP status codes through the shared patterns" do
+      expect(
+        AgentHarness::ErrorTaxonomy.classify(
+          StandardError.new("upstream returned HTTP 429"),
+          described_class::COMMON_ERROR_PATTERNS
+        )
+      ).to eq(:rate_limited)
+
+      expect(
+        AgentHarness::ErrorTaxonomy.classify(
+          StandardError.new("upstream returned HTTP 503"),
+          described_class::COMMON_ERROR_PATTERNS
+        )
+      ).to eq(:transient)
+    end
+
+    it "does not misclassify embedded numeric substrings as HTTP status codes" do
+      expect(
+        AgentHarness::ErrorTaxonomy.classify(
+          StandardError.new("request id 4294967295 failed"),
+          described_class::COMMON_ERROR_PATTERNS
+        )
+      ).to eq(:unknown)
+
+      expect(
+        AgentHarness::ErrorTaxonomy.classify(
+          StandardError.new("build 50321 aborted"),
+          described_class::COMMON_ERROR_PATTERNS
+        )
+      ).to eq(:unknown)
+
+      expect(
+        AgentHarness::ErrorTaxonomy.classify(
+          StandardError.new("job 1502 failed"),
+          described_class::COMMON_ERROR_PATTERNS
+        )
+      ).to eq(:unknown)
+    end
   end
 
   describe ".smoke_test_contract" do
