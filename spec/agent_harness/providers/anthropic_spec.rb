@@ -133,6 +133,14 @@ RSpec.describe AgentHarness::Providers::Anthropic do
         .to raise_error(ArgumentError, /Invalid version/)
     end
 
+    it "rejects non-String version types with ArgumentError instead of NoMethodError" do
+      expect { described_class.install_contract(version: :latest) }
+        .to raise_error(ArgumentError, /Invalid version/)
+
+      expect { described_class.install_contract(version: 123) }
+        .to raise_error(ArgumentError, /Invalid version/)
+    end
+
     it "normalizes padded version strings in the install command" do
       contract = described_class.install_contract(version: " 2.1.95 ")
 

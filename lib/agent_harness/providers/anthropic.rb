@@ -33,7 +33,8 @@ module AgentHarness
         end
 
         def install_contract(version: nil)
-          target_version = version.nil? ? SUPPORTED_CLI_VERSION : version.strip
+          target_version = version.nil? ? SUPPORTED_CLI_VERSION : version
+          target_version = target_version.strip if target_version.respond_to?(:strip)
           validate_version!(target_version)
           version_requirement = SUPPORTED_CLI_REQUIREMENT.requirements
             .map { |op, ver| "#{op} #{ver}" }
