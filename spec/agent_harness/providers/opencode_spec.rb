@@ -283,6 +283,83 @@ RSpec.describe AgentHarness::Providers::Opencode do
 
         provider.send_message(prompt: "Hello")
       end
+
+      it "builds runtime config bootstrap from normalized runtime fields and metadata extras" do
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "response",
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        expect(mock_executor).to receive(:execute).with(
+          ["opencode", "run", "Hello"],
+          hash_including(
+            preparation: have_attributes(
+              file_writes: [
+                have_attributes(
+                  path: "~/.config/opencode/opencode.json",
+                  content: include(
+                    "\"model\": \"gpt-5.4\"",
+                    "\"provider\": \"openrouter\"",
+                    "\"baseURL\": \"https://openrouter.ai/api/v1\"",
+                    "\"theme\": \"system\""
+                  ),
+                  mode: 0o600
+                )
+              ]
+            )
+          )
+        )
+
+        provider.send_message(
+          prompt: "Hello",
+          provider_runtime: {
+            model: "gpt-5.4",
+            api_provider: "openrouter",
+            base_url: "https://openrouter.ai/api/v1",
+            metadata: {
+              config: {
+                theme: "system"
+              }
+            }
+          }
+        )
+      end
+
+      it "keeps the bootstrap destination fixed even when metadata includes a config path" do
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "response",
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        expect(mock_executor).to receive(:execute).with(
+          ["opencode", "run", "Hello"],
+          hash_including(
+            preparation: have_attributes(
+              file_writes: [
+                have_attributes(path: "~/.config/opencode/opencode.json")
+              ]
+            )
+          )
+        )
+
+        provider.send_message(
+          prompt: "Hello",
+          provider_runtime: {
+            metadata: {
+              config_path: "~/.ssh/authorized_keys",
+              config: {theme: "system"}
+            }
+          }
+        )
+      end
     end
 
     describe "#error_patterns" do

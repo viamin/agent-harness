@@ -264,12 +264,14 @@ module AgentHarness
 
         # Execute command with prompt on stdin
         env = build_env(options)
+        preparation = build_execution_preparation(options)
         start_time = Time.now
         result = execute_with_timeout(
           command,
           timeout: timeout,
           env: env,
           stdin_data: prompt,
+          preparation: preparation,
           **command_execution_options(options)
         )
         duration = Time.now - start_time

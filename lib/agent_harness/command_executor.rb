@@ -3,6 +3,10 @@
 require "open3"
 require "timeout"
 require "shellwords"
+require "fileutils"
+require "tempfile"
+require "tmpdir"
+require "digest"
 
 module AgentHarness
   # Executes shell commands with timeout support
@@ -18,6 +22,10 @@ module AgentHarness
   # @example With timeout
   #   result = executor.execute("claude --print", timeout: 300)
   class CommandExecutor
+    PREPARATION_LOCK_POLL_INTERVAL = 0.01
+    PREPARATION_CLEANUP_GRACE_PERIOD = 5
+    PREPARATION_LOCK_ROOT = File.join(Dir.tmpdir, "agent-harness-preparation-locks")
+
     # Result of a command execution
     Result = Struct.new(:stdout, :stderr, :exit_code, :duration, keyword_init: true) do
       def success?
@@ -42,6 +50,8 @@ module AgentHarness
     # @param idle_timeout [Integer, Float, nil] idle timeout in seconds based on output activity
     # @param env [Hash] environment variables
     # @param stdin_data [String, nil] data to send to stdin
+    # @param preparation [ExecutionPreparation, nil] request-scoped bootstrap
+    #   work for the runtime environment
     # @param on_stdout_chunk [Proc, nil] callback for stdout chunks as they are produced
     # @param on_stderr_chunk [Proc, nil] callback for stderr chunks as they are produced
     # @param on_heartbeat [Proc, nil] callback invoked periodically while the command is running
@@ -51,7 +61,7 @@ module AgentHarness
     # @return [Result] execution result
     # @raise [TimeoutError] if the command times out
     # @raise [IdleTimeoutError] if the command exceeds the idle timeout
-    def execute(command, timeout: nil, idle_timeout: nil, env: {}, stdin_data: nil,
+    def execute(command, timeout: nil, idle_timeout: nil, env: {}, stdin_data: nil, preparation: nil,
       on_stdout_chunk: nil, on_stderr_chunk: nil, on_heartbeat: nil,
       heartbeat_interval: 1.0, observer: nil)
       validate_duration!(timeout, name: :timeout, allow_nil: true)
@@ -60,28 +70,70 @@ module AgentHarness
 
       cmd_array = normalize_command(command)
       cmd_string = cmd_array.shelljoin
+      command_name = cmd_array.first
+      start_time = current_time
+      deadline = timeout_deadline(timeout)
+      applied_preparation = []
+      held_preparation_locks = []
+      background_cleanup_scheduled = false
 
       log_debug("Executing command",
         command: cmd_string,
         timeout: timeout,
         idle_timeout: idle_timeout)
 
-      start_time = Time.now
-
-      stdout, stderr, status = execute_streaming(
-        cmd_array,
-        timeout: timeout,
-        idle_timeout: idle_timeout,
+      held_preparation_locks = acquire_preparation_locks(
+        preparation,
         env: env,
-        stdin_data: stdin_data,
-        on_stdout_chunk: on_stdout_chunk,
-        on_stderr_chunk: on_stderr_chunk,
-        on_heartbeat: on_heartbeat,
-        heartbeat_interval: heartbeat_interval,
-        observer: observer
+        timeout: timeout,
+        deadline: deadline,
+        command_name: command_name
+      )
+      apply_preparation(
+        preparation,
+        env: env,
+        timeout: timeout,
+        deadline: deadline,
+        command_name: command_name,
+        applied_preparation: applied_preparation
       )
 
-      duration = Time.now - start_time
+      begin
+        stdout, stderr, status = execute_streaming(
+          cmd_array,
+          timeout: remaining_timeout(deadline, timeout:, command_name: command_name),
+          idle_timeout: idle_timeout,
+          env: env,
+          stdin_data: stdin_data,
+          on_stdout_chunk: on_stdout_chunk,
+          on_stderr_chunk: on_stderr_chunk,
+          on_heartbeat: on_heartbeat,
+          heartbeat_interval: heartbeat_interval,
+          observer: observer
+        )
+      rescue TimeoutError => e
+        raise e if e.is_a?(IdleTimeoutError)
+
+        raise TimeoutError, "Command timed out after #{timeout} seconds: #{command_name}"
+      end
+
+      begin
+        cleanup_preparation(
+          applied_preparation,
+          command_name: command_name,
+          timeout: timeout,
+          deadline: cleanup_deadline(deadline, timeout:)
+        )
+      rescue TimeoutError
+        schedule_cleanup_preparation(
+          applied_preparation,
+          held_preparation_locks,
+          command_name: command_name
+        )
+        background_cleanup_scheduled = true
+        held_preparation_locks = []
+      end
+      duration = current_time - start_time
 
       Result.new(
         stdout: stdout,
@@ -89,6 +141,46 @@ module AgentHarness
         exit_code: status.exitstatus,
         duration: duration
       )
+    ensure
+      pending_exception = $!
+      unless background_cleanup_scheduled || applied_preparation.nil? || applied_preparation.empty?
+        begin
+          cleanup_preparation(
+            applied_preparation,
+            command_name: command_name,
+            timeout: timeout,
+            deadline: cleanup_deadline(deadline, timeout:)
+          )
+        rescue TimeoutError => e
+          raise e if pending_exception.nil?
+
+          if pending_exception.is_a?(TimeoutError)
+            schedule_cleanup_preparation(
+              applied_preparation,
+              held_preparation_locks,
+              command_name: command_name
+            )
+            background_cleanup_scheduled = true
+            held_preparation_locks = []
+          else
+            # Preserve the original non-timeout exception; surface that
+            # cleanup also timed out so callers know bootstrap state may
+            # have leaked.
+            raise pending_exception.class,
+              "#{pending_exception.message} (cleanup also failed: #{e.message})"
+          end
+        rescue => e
+          raise e if pending_exception.nil?
+
+          # Surface cleanup failures even when unwinding from another exception,
+          # so callers know request-scoped bootstrap state may have leaked.
+          raise pending_exception.class,
+            "#{pending_exception.message} (cleanup also failed: #{e.message})"
+        end
+      end
+      unless background_cleanup_scheduled || held_preparation_locks.nil? || held_preparation_locks.empty?
+        release_preparation_locks(held_preparation_locks)
+      end
     end
 
     # Check if a binary exists in PATH
@@ -125,6 +217,351 @@ module AgentHarness
     end
 
     private
+
+    def acquire_preparation_locks(preparation, env:, timeout:, deadline:, command_name:)
+      return [] if preparation.nil? || preparation.empty?
+
+      preparation.file_writes.each { |write| validate_preparation_path_security!(write.path) }
+
+      acquired_locks = []
+
+      preparation_lock_keys(preparation, env).each do |key|
+        acquired_locks << acquire_preparation_lock(key, timeout:, deadline:, command_name:)
+      end
+      acquired_locks
+    rescue
+      release_preparation_locks(acquired_locks) if acquired_locks && !acquired_locks.empty?
+      raise
+    end
+
+    def acquire_preparation_lock(key, timeout:, deadline:, command_name:)
+      lock_path = preparation_lock_path(key)
+      FileUtils.mkdir_p(File.dirname(lock_path), mode: 0o700)
+      lock_file = File.open(lock_path, File::RDWR | File::CREAT, 0o600)
+
+      begin
+        if timeout.nil?
+          lock_file.flock(File::LOCK_EX)
+        else
+          until lock_file.flock(File::LOCK_EX | File::LOCK_NB)
+            sleep([PREPARATION_LOCK_POLL_INTERVAL, remaining_timeout(deadline, timeout:, command_name:)].min)
+          end
+        end
+      rescue
+        lock_file.close unless lock_file.closed?
+        raise
+      end
+
+      {key: key, file: lock_file}
+    end
+
+    def release_preparation_locks(held_preparation_locks)
+      held_preparation_locks.reverse_each do |lock|
+        file = lock[:file]
+        next if file.nil? || file.closed?
+
+        file.flock(File::LOCK_UN)
+        file.close
+      end
+    end
+
+    def preparation_lock_keys(preparation, env)
+      preparation.file_writes.map do |write|
+        "#{preparation_lock_scope}:#{expand_preparation_path(write.path, env)}"
+      end.uniq.sort
+    end
+
+    def preparation_lock_scope
+      "host"
+    end
+
+    def preparation_lock_path(key)
+      File.join(PREPARATION_LOCK_ROOT, "#{Digest::SHA256.hexdigest(key)}.lock")
+    end
+
+    def apply_preparation(preparation, env:, timeout:, deadline:, command_name:, applied_preparation:)
+      return if preparation.nil? || preparation.empty?
+
+      preparation.file_writes.each do |write|
+        validate_preparation_path_security!(write.path)
+        validate_preparation_path_env!(write.path, env)
+        validate_home_relative_preparation_path!(write.path, env)
+        resolved_path = expand_preparation_path(write.path, env)
+        created_directories = missing_parent_directories(resolved_path)
+        snapshot = within_timeout(deadline, timeout:, command_name:) do
+          snapshot_file_state(resolved_path)
+        end
+        applied_preparation << {
+          path: resolved_path,
+          snapshot: snapshot,
+          created_directories: created_directories
+        }
+
+        within_timeout(deadline, timeout:, command_name:) do
+          FileUtils.mkdir_p(File.dirname(resolved_path))
+          delete_preparation_path(resolved_path) if snapshot[:type] == :symlink
+          File.binwrite(resolved_path, write.content)
+          File.chmod(write.mode, resolved_path) if write.mode
+        end
+      rescue => e
+        begin
+          cleanup_preparation(
+            applied_preparation,
+            command_name: command_name,
+            timeout: timeout,
+            deadline: cleanup_deadline(deadline, timeout:)
+          )
+        rescue => cleanup_error
+          log_debug("Failed to clean up runtime preparation", error: cleanup_error.message)
+        end
+        raise e
+      end
+    end
+
+    def cleanup_preparation(applied_preparation, command_name:, timeout: nil, deadline: nil)
+      applied_preparation.reverse_each do |entry|
+        within_timeout(deadline, timeout:, command_name:) do
+          unless entry[:restored]
+            restore_file_state(entry[:path], entry[:snapshot])
+            entry[:restored] = true
+          end
+          cleanup_created_directories(entry[:created_directories])
+        end
+      end
+      applied_preparation.clear
+    end
+
+    def missing_parent_directories(path)
+      directories = []
+      current = File.dirname(path)
+
+      until current == File.dirname(current) || File.exist?(current) || File.symlink?(current)
+        directories << current
+        current = File.dirname(current)
+      end
+
+      directories
+    end
+
+    def cleanup_created_directories(directories)
+      directories.each do |directory|
+        next unless File.directory?(directory) && !File.symlink?(directory)
+
+        Dir.rmdir(directory)
+      rescue Errno::ENOENT
+        next
+      rescue Errno::ENOTEMPTY, Errno::EEXIST
+        break
+      end
+    end
+
+    def schedule_cleanup_preparation(applied_preparation, held_preparation_locks, command_name:)
+      cleanup_deadline = timeout_deadline(PREPARATION_CLEANUP_GRACE_PERIOD)
+      Thread.new(applied_preparation, held_preparation_locks, cleanup_deadline, command_name) do |entries, locks, deadline_at, cleanup_command_name|
+        Thread.current.report_on_exception = false if Thread.current.respond_to?(:report_on_exception=)
+
+        begin
+          cleanup_preparation(
+            entries,
+            command_name: cleanup_command_name,
+            timeout: PREPARATION_CLEANUP_GRACE_PERIOD,
+            deadline: deadline_at
+          )
+        rescue => e
+          log_debug("Failed to clean up runtime preparation after timeout", error: e.message)
+        ensure
+          release_preparation_locks(locks) unless locks.nil? || locks.empty?
+        end
+      end
+    end
+
+    def expand_preparation_path(path, env)
+      expanded_path = path.gsub(/\$(\w+)|\$\{([^}]+)\}/) do
+        key = Regexp.last_match(1) || Regexp.last_match(2)
+        resolve_preparation_path_env_var(key, env)
+      end
+
+      if expanded_path == "~"
+        return File.expand_path(resolve_preparation_home(env))
+      end
+
+      if expanded_path.start_with?("~/")
+        return File.expand_path(File.join(resolve_preparation_home(env), expanded_path.delete_prefix("~/")))
+      end
+
+      File.expand_path(expanded_path)
+    end
+
+    def validate_preparation_path_env!(path, env)
+      path.scan(/\$(\w+)|\$\{([^}]+)\}/) do |match|
+        key = match.compact.first
+        resolve_preparation_path_env_var(key, env)
+      end
+    end
+
+    def validate_preparation_path_security!(path)
+      if path.include?("\x00")
+        raise ArgumentError, "preparation path must not contain null bytes"
+      end
+
+      if path.include?("\n")
+        raise ArgumentError, "preparation path must not contain newline characters"
+      end
+
+      if path.include?("\r")
+        raise ArgumentError, "preparation path must not contain carriage return characters"
+      end
+
+      if path.include?("`")
+        raise ArgumentError, "preparation path must not contain backtick characters"
+      end
+
+      if path.include?(";")
+        raise ArgumentError, "preparation path must not contain semicolon characters"
+      end
+
+      if path.include?("|")
+        raise ArgumentError, "preparation path must not contain pipe characters"
+      end
+
+      if path.include?("$(")
+        raise ArgumentError, "preparation path must not contain command substitution"
+      end
+
+      if path.include?("..")
+        raise ArgumentError, "preparation path must not contain path traversal"
+      end
+    end
+
+    def validate_home_relative_preparation_path!(path, env)
+      return unless path == "~" || path.start_with?("~/")
+      return unless env.key?("HOME")
+
+      home = env["HOME"]
+      raise ArgumentError, "HOME cannot be nil or empty for home-relative preparation paths" if home.nil? || home.empty?
+      raise ArgumentError, "HOME must not contain path traversal" if home.include?("..")
+    end
+
+    def resolve_preparation_path_env_var(key, env)
+      unless env.key?(key)
+        raise ArgumentError, "#{key} cannot be nil or empty for env-backed preparation paths"
+      end
+
+      value = env[key]
+      raise ArgumentError, "#{key} cannot be nil or empty for env-backed preparation paths" if value.nil? || value.empty?
+      raise ArgumentError, "#{key} must not contain path traversal" if value.include?("..")
+
+      value
+    end
+
+    def resolve_preparation_home(env)
+      if env.key?("HOME")
+        home = env["HOME"]
+        raise ArgumentError, "HOME cannot be nil or empty for home-relative preparation paths" if home.nil? || home.empty?
+        raise ArgumentError, "HOME must not contain path traversal" if home.include?("..")
+
+        return home
+      end
+
+      ENV["HOME"] || Dir.home
+    end
+
+    def snapshot_file_state(path)
+      stat = File.lstat(path)
+
+      if stat.symlink?
+        {
+          existed: true,
+          type: :symlink,
+          target: File.readlink(path)
+        }
+      elsif stat.file?
+        backup_file = Tempfile.new("agent-harness-preparation")
+        backup_path = backup_file.path
+        backup_file.close!
+        FileUtils.cp(path, backup_path, preserve: true)
+
+        {
+          existed: true,
+          type: :file,
+          backup_path: backup_path
+        }
+      else
+        raise ArgumentError, "preparation target must be a regular file or symlink: #{path}"
+      end
+    rescue Errno::ENOENT
+      {existed: false}
+    rescue
+      FileUtils.rm_f(backup_path) if defined?(backup_path) && backup_path
+      raise
+    end
+
+    def restore_file_state(path, snapshot)
+      if snapshot[:type] == :symlink
+        delete_preparation_path(path)
+        FileUtils.mkdir_p(File.dirname(path))
+        File.symlink(snapshot[:target], path)
+      elsif snapshot[:existed]
+        backup_path = snapshot.fetch(:backup_path)
+        raise ArgumentError, "missing runtime preparation backup: #{backup_path}" unless File.exist?(backup_path)
+
+        delete_preparation_path(path)
+        FileUtils.mkdir_p(File.dirname(path))
+        FileUtils.cp(backup_path, path, preserve: true)
+      else
+        delete_preparation_path(path)
+      end
+
+      # Only remove the backup after restore succeeds. If restore fails (e.g. the
+      # prepared path was replaced by a directory), the backup must survive so
+      # later cleanup retries can still restore the original user file.
+      FileUtils.rm_f(snapshot[:backup_path]) if snapshot[:type] == :file && snapshot[:backup_path]
+    end
+
+    def delete_preparation_path(path)
+      return unless File.exist?(path) || File.symlink?(path)
+
+      raise ArgumentError, "preparation target changed into a directory during execution: #{path}" if File.directory?(path) && !File.symlink?(path)
+
+      File.delete(path)
+    end
+
+    def timeout_deadline(timeout)
+      return nil if timeout.nil?
+
+      current_time + timeout
+    end
+
+    def cleanup_deadline(deadline, timeout:)
+      return nil if timeout.nil?
+
+      # Keep synchronous cleanup within the caller's original timeout budget.
+      # If cleanup overruns after a successful command or after a timeout/error,
+      # execute schedules bounded background cleanup instead of extending execute.
+      deadline
+    end
+
+    def remaining_timeout(deadline, timeout:, command_name:)
+      return nil if deadline.nil?
+
+      remaining = deadline - current_time
+      raise TimeoutError, "Command timed out after #{timeout} seconds: #{command_name}" if remaining <= 0
+
+      remaining
+    end
+
+    def within_timeout(deadline, timeout:, command_name:)
+      remaining = remaining_timeout(deadline, timeout:, command_name:)
+      return yield if remaining.nil?
+
+      Timeout.timeout(remaining) { yield }
+    rescue Timeout::Error
+      raise TimeoutError, "Command timed out after #{timeout} seconds: #{command_name}"
+    end
+
+    def current_time
+      Process.clock_gettime(Process::CLOCK_MONOTONIC)
+    end
 
     def execute_streaming(cmd_array, timeout:, idle_timeout:, env:, stdin_data:,
       on_stdout_chunk:, on_stderr_chunk:, on_heartbeat:, heartbeat_interval:, observer:)

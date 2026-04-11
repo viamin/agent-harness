@@ -238,6 +238,7 @@ end
 require_relative "agent_harness/errors"
 require_relative "agent_harness/mcp_server"
 require_relative "agent_harness/provider_runtime"
+require_relative "agent_harness/execution_preparation"
 require_relative "agent_harness/configuration"
 require_relative "agent_harness/command_executor"
 require_relative "agent_harness/docker_command_executor"

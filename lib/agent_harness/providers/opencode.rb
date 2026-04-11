@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "json"
+
 module AgentHarness
   module Providers
     # OpenCode CLI provider
@@ -183,8 +185,56 @@ module AgentHarness
         env
       end
 
+      def build_execution_preparation(options)
+        runtime = options[:provider_runtime]
+        return nil unless runtime
+
+        config_payload = opencode_config_payload(runtime)
+        return nil unless config_payload
+
+        ExecutionPreparation.new(
+          file_writes: [
+            {
+              path: opencode_config_path(runtime),
+              content: serialize_opencode_config(config_payload),
+              mode: 0o600
+            }
+          ]
+        )
+      end
+
       def default_timeout
         300
+      end
+
+      private
+
+      def opencode_config_payload(runtime)
+        metadata = runtime.metadata
+        config_extras = metadata[:config] || metadata["config"] || {}
+        unless config_extras.is_a?(Hash)
+          raise ArgumentError, "OpenCode runtime metadata config must be a Hash of provider-specific extras (got #{config_extras.class})"
+        end
+
+        payload = stringify_keys(config_extras)
+        payload["model"] = runtime.model if runtime.model
+        payload["provider"] = runtime.api_provider if runtime.api_provider
+        payload["baseURL"] = runtime.base_url if runtime.base_url
+        payload.empty? ? nil : payload
+      end
+
+      def opencode_config_path(_runtime)
+        "~/.config/opencode/opencode.json"
+      end
+
+      def serialize_opencode_config(payload)
+        JSON.pretty_generate(payload)
+      end
+
+      def stringify_keys(hash)
+        hash.each_with_object({}) do |(key, value), result|
+          result[key.to_s] = value
+        end
       end
     end
   end

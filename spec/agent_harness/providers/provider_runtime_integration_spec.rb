@@ -175,6 +175,53 @@ RSpec.describe "ProviderRuntime integration" do
 
       provider.send_message(prompt: "Hello", provider_runtime: runtime)
     end
+
+    it "keeps legacy executors working when no preparation is needed" do
+      seen = nil
+      legacy_executor = Object.new
+      legacy_executor.define_singleton_method(:execute) do |command, timeout:, env:|
+        seen = {
+          command: command,
+          timeout: timeout,
+          env: env
+        }
+
+        AgentHarness::CommandExecutor::Result.new(
+          stdout: "ok",
+          stderr: "",
+          exit_code: 0,
+          duration: 1.0
+        )
+      end
+
+      response = test_provider_class.new(executor: legacy_executor).send_message(prompt: "Hello")
+      expect(response.output).to eq("ok")
+      expect(seen).to eq(command: ["test-cli", "Hello"], timeout: 300, env: {})
+    end
+
+    it "fails loudly for legacy executors that do not accept preparation" do
+      legacy_executor = Object.new
+      legacy_executor.define_singleton_method(:execute) do |command, timeout:, env:|
+        raise ArgumentError, "unknown keyword: :preparation"
+      end
+
+      provider_with_legacy_executor = Class.new(test_provider_class) do
+        protected
+
+        def build_execution_preparation(_options)
+          AgentHarness::ExecutionPreparation.new(
+            file_writes: [{path: "/tmp/test-runtime.json", content: "{\"ok\":true}"}]
+          )
+        end
+      end.new(executor: legacy_executor)
+
+      expect {
+        provider_with_legacy_executor.send_message(prompt: "Hello")
+      }.to raise_error(
+        AgentHarness::ProviderError,
+        /must accept the preparation: keyword argument/
+      )
+    end
   end
 
   describe AgentHarness::Providers::Opencode do
@@ -227,6 +274,41 @@ RSpec.describe "ProviderRuntime integration" do
 
       response = provider.send_message(prompt: "Write tests", provider_runtime: runtime)
       expect(response.model).to eq("anthropic/claude-opus-4.1")
+    end
+
+    it "derives structured runtime preparation for config-file bootstrap from normalized runtime fields" do
+      runtime = AgentHarness::ProviderRuntime.new(
+        model: "anthropic/claude-opus-4.1",
+        base_url: "https://openrouter.ai/api/v1",
+        api_provider: "openrouter",
+        metadata: {
+          config: {
+            theme: "system"
+          }
+        }
+      )
+
+      expect(mock_executor).to receive(:execute).with(
+        ["opencode", "run", "Write tests"],
+        hash_including(
+          preparation: have_attributes(
+            file_writes: [
+              have_attributes(
+                path: "~/.config/opencode/opencode.json",
+                content: include(
+                  "\"provider\": \"openrouter\"",
+                  "\"model\": \"anthropic/claude-opus-4.1\"",
+                  "\"baseURL\": \"https://openrouter.ai/api/v1\"",
+                  "\"theme\": \"system\""
+                ),
+                mode: 0o600
+              )
+            ]
+          )
+        )
+      ).and_return(success_result)
+
+      provider.send_message(prompt: "Write tests", provider_runtime: runtime)
     end
   end
 
@@ -301,6 +383,35 @@ RSpec.describe "ProviderRuntime integration" do
 
       provider.send_message(prompt: "Hello", provider_runtime: runtime)
     end
+
+    it "keeps stdin-based legacy executors working when no preparation is needed" do
+      seen = nil
+      legacy_executor = Object.new
+      legacy_executor.define_singleton_method(:execute) do |command, timeout:, env:, stdin_data: nil|
+        seen = {
+          command: command,
+          timeout: timeout,
+          env: env,
+          stdin_data: stdin_data
+        }
+
+        AgentHarness::CommandExecutor::Result.new(
+          stdout: stdin_data,
+          stderr: "",
+          exit_code: 0,
+          duration: 1.0
+        )
+      end
+
+      response = described_class.new(executor: legacy_executor).send_message(prompt: "Hello")
+      expect(response.output).to eq("Hello")
+      expect(seen).to eq(
+        command: ["cursor-agent", "-p"],
+        timeout: 300,
+        env: {},
+        stdin_data: "Hello"
+      )
+    end
   end
 
   describe AgentHarness::Providers::Codex do
@@ -359,6 +470,46 @@ RSpec.describe "ProviderRuntime integration" do
         prompt: "Hello",
         session: "sess-123",
         provider_runtime: runtime
+      )
+    end
+  end
+
+  describe AgentHarness::Providers::Cursor do
+    let(:provider_class) do
+      Class.new(described_class) do
+        protected
+
+        def build_execution_preparation(_options)
+          AgentHarness::ExecutionPreparation.new(
+            file_writes: [{path: "/tmp/cursor-runtime.json", content: "{\"ok\":true}"}]
+          )
+        end
+      end
+    end
+    let(:provider) { provider_class.new(executor: legacy_executor) }
+    let(:legacy_executor) do
+      Object.new.tap do |executor|
+        executor.define_singleton_method(:execute) do |command, timeout:, env:, stdin_data: nil|
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: stdin_data,
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        end
+      end
+    end
+
+    it "fails loudly for legacy executors that do not accept preparation" do
+      runtime = AgentHarness::ProviderRuntime.new(
+        metadata: {config: {"theme" => "system"}}
+      )
+
+      expect {
+        provider.send_message(prompt: "Hello", provider_runtime: runtime)
+      }.to raise_error(
+        AgentHarness::ProviderError,
+        /must accept the preparation: keyword argument/
       )
     end
   end

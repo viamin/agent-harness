@@ -98,6 +98,8 @@ module AgentHarness
       # @option options [ProviderRuntime, Hash, nil] :provider_runtime per-request
       #   runtime overrides (model, base_url, api_provider, env, flags, metadata).
       #   A plain Hash is automatically coerced into a ProviderRuntime.
+      #   Providers can derive request-scoped execution preparation from this
+      #   runtime to materialize config files or other bootstrap state.
       # @return [Response] the response
       def send_message(prompt:, **options)
         log_debug("send_message_start", prompt_length: prompt.length, options: options.keys)
@@ -111,6 +113,7 @@ module AgentHarness
 
         # Build command
         command = build_command(prompt, options)
+        preparation = build_execution_preparation(options)
 
         # Calculate timeout
         timeout = options[:timeout] || @config.timeout || default_timeout
@@ -121,6 +124,7 @@ module AgentHarness
           command,
           timeout: timeout,
           env: build_env(options),
+          preparation: preparation,
           **command_execution_options(options)
         )
         duration = Time.now - start_time
@@ -208,6 +212,17 @@ module AgentHarness
         env = runtime.env.dup
         runtime.unset_env.each { |key| env[key] = nil }
         env
+      end
+
+      # Build structured runtime preparation for the executor.
+      #
+      # Provider subclasses can override to request request-scoped file writes
+      # or other bootstrap work without shell-wrapping the main command.
+      #
+      # @param options [Hash] options
+      # @return [ExecutionPreparation, nil] preparation contract or nil
+      def build_execution_preparation(options)
+        nil
       end
 
       # Parse CLI output into Response - override in subclasses
@@ -309,8 +324,22 @@ module AgentHarness
         execution_options
       end
 
-      def execute_with_timeout(command, timeout:, env:, stdin_data: nil, **execution_options)
-        @executor.execute(command, timeout: timeout, env: env, stdin_data: stdin_data, **execution_options)
+      def execute_with_timeout(command, timeout:, env:, preparation: nil, stdin_data: nil, **execution_options)
+        kwargs = {timeout: timeout, env: env}
+        kwargs[:stdin_data] = stdin_data unless stdin_data.nil?
+        kwargs[:preparation] = preparation unless preparation.nil?
+        kwargs.merge!(execution_options)
+
+        @executor.execute(command, **kwargs)
+      rescue ArgumentError => e
+        unknown_keyword_message = e.message
+        raise unless unknown_keyword_message.start_with?("unknown keyword", "unknown keywords")
+        raise unless unknown_keyword_message.include?(":preparation")
+
+        raise ProviderError.new(
+          "Injected executor #{@executor.class}#execute must accept the preparation: keyword argument",
+          original_error: e
+        )
       end
 
       def track_tokens(response)
