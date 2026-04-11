@@ -71,6 +71,12 @@ RSpec.describe AgentHarness::Providers::Aider do
       }.to raise_error(ArgumentError, /Unsupported Aider CLI version "0.85.0"/)
     end
 
+    it "rejects malformed version strings with a provider-specific message" do
+      expect {
+        described_class.installation_contract(version: "not-a-version")
+      }.to raise_error(ArgumentError, /Unsupported Aider CLI version/)
+    end
+
     it "freezes nested command arrays" do
       contract = described_class.installation_contract
 
