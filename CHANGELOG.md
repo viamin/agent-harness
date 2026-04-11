@@ -1,5 +1,15 @@
 ## [Unreleased]
 
+## [0.5.8](https://github.com/viamin/agent-harness/compare/agent-harness/v0.5.7...agent-harness/v0.5.8) (2026-04-07)
+
+
+### Bug Fixes
+
+* 64: feat(installers): make Claude CLI installation/version support a first-class provider contract ([#78](https://github.com/viamin/agent-harness/issues/78)) ([0d83590](https://github.com/viamin/agent-harness/commit/0d83590dc9bb9bc7c8d621660bcd73b8eb613d43))
+* 70: feat(installers): make Cursor agent CLI installation/version support a first-class provider contract ([#82](https://github.com/viamin/agent-harness/issues/82)) ([483e9be](https://github.com/viamin/agent-harness/commit/483e9be752de9548020135a86170d978d2a23ae8))
+* 71: feat(installers): make Aider CLI installation/version support a first-class provider contract ([#84](https://github.com/viamin/agent-harness/issues/84)) ([3cfcc1c](https://github.com/viamin/agent-harness/commit/3cfcc1cac831060c12fd8a39130ee7bb9b048aa5))
+* 74: feat(providers): expose provider capability/installability/auth metadata for downstream apps ([#88](https://github.com/viamin/agent-harness/issues/88)) ([4f9b3ba](https://github.com/viamin/agent-harness/commit/4f9b3ba6a53c830eaf53e9233e8df38970c52c8c))
+
 ## [0.5.7](https://github.com/viamin/agent-harness/compare/agent-harness/v0.5.6...agent-harness/v0.5.7) (2026-04-07)
 
 
