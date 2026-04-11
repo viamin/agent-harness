@@ -41,7 +41,7 @@ module AgentHarness
         rate_limited: [
           /rate.?limit/i,
           /too.?many.?requests/i,
-          /429/
+          /\b429\b/
         ],
         auth_expired: [
           /invalid.*api.*key/i,
@@ -57,8 +57,8 @@ module AgentHarness
           /timeout/i,
           /connection.*error/i,
           /service.*unavailable/i,
-          /503/,
-          /502/
+          /\b503\b/,
+          /\b502\b/
         ]
       }.tap { |patterns| patterns.each_value(&:freeze) }.freeze
 
