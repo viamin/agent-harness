@@ -48,6 +48,12 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
       }.to raise_error(ArgumentError, /container_id cannot be nil or blank/)
     end
 
+    it "raises ArgumentError when container_id is not a String" do
+      expect {
+        described_class.new(container_id: 12345)
+      }.to raise_error(ArgumentError, /container_id cannot be nil or blank/)
+    end
+
     it "raises CommandExecutionError when docker CLI is not found" do
       allow(File).to receive(:executable?).with("/usr/local/bin/docker").and_return(false)
       allow(File).to receive(:executable?).with("/usr/bin/docker").and_return(false)

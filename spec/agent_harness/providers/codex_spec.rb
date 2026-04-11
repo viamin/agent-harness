@@ -81,6 +81,12 @@ RSpec.describe AgentHarness::Providers::Codex do
         described_class.install_command(version: "0.115.0")
       }.to raise_error(ArgumentError, /Unsupported Codex CLI version "0.115.0"/)
     end
+
+    it "rejects malformed version strings with a provider-specific message" do
+      expect {
+        described_class.installation_contract(version: "not-a-version")
+      }.to raise_error(ArgumentError, /Unsupported Codex CLI version/)
+    end
   end
 
   describe ".firewall_requirements" do

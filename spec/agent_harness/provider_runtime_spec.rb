@@ -181,6 +181,21 @@ RSpec.describe AgentHarness::ProviderRuntime do
       expect { described_class.from_hash("bad") }
         .to raise_error(ArgumentError, /expected a Hash/)
     end
+
+    it "raises ArgumentError when model is explicitly false" do
+      expect { described_class.from_hash(model: false) }
+        .to raise_error(ArgumentError, /model must be a String or nil/)
+    end
+
+    it "raises ArgumentError when base_url is explicitly false" do
+      expect { described_class.from_hash(base_url: false) }
+        .to raise_error(ArgumentError, /base_url must be a String or nil/)
+    end
+
+    it "raises ArgumentError when api_provider is explicitly false" do
+      expect { described_class.from_hash(api_provider: false) }
+        .to raise_error(ArgumentError, /api_provider must be a String or nil/)
+    end
   end
 
   describe ".wrap" do

@@ -100,14 +100,19 @@ module AgentHarness
     def self.from_hash(hash)
       raise ArgumentError, "expected a Hash, got #{hash.class}" unless hash.is_a?(Hash)
 
+      env_val = hash_value(hash, :env)
+      flags_val = hash_value(hash, :flags)
+      unset_env_val = hash_value(hash, :unset_env)
+      metadata_val = hash_value(hash, :metadata)
+
       new(
         model: hash_value(hash, :model),
         base_url: hash_value(hash, :base_url),
         api_provider: hash_value(hash, :api_provider),
-        env: hash_value(hash, :env).nil? ? {} : hash_value(hash, :env),
-        flags: hash_value(hash, :flags).nil? ? [] : hash_value(hash, :flags),
-        unset_env: hash_value(hash, :unset_env).nil? ? [] : hash_value(hash, :unset_env),
-        metadata: hash_value(hash, :metadata).nil? ? {} : hash_value(hash, :metadata)
+        env: env_val.nil? ? {} : env_val,
+        flags: flags_val.nil? ? [] : flags_val,
+        unset_env: unset_env_val.nil? ? [] : unset_env_val,
+        metadata: metadata_val.nil? ? {} : metadata_val
       )
     end
 

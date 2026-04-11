@@ -63,7 +63,15 @@ module AgentHarness
         end
 
         def installation_contract(version: SUPPORTED_CLI_VERSION)
-          unless SUPPORTED_CLI_REQUIREMENT.satisfied_by?(Gem::Version.new(version))
+          parsed_version = begin
+            Gem::Version.new(version)
+          rescue ArgumentError
+            raise ArgumentError,
+              "Unsupported Codex CLI version #{version.inspect}; " \
+              "supported versions must satisfy #{SUPPORTED_CLI_REQUIREMENT}"
+          end
+
+          unless SUPPORTED_CLI_REQUIREMENT.satisfied_by?(parsed_version)
             raise ArgumentError,
               "Unsupported Codex CLI version #{version.inspect}; " \
               "supported versions must satisfy #{SUPPORTED_CLI_REQUIREMENT}"
