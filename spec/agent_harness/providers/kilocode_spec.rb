@@ -61,6 +61,12 @@ RSpec.describe AgentHarness::Providers::Kilocode do
       }.to raise_error(ArgumentError, /Unsupported Kilocode CLI version/)
     end
 
+    it "preserves non-String version in error message" do
+      expect {
+        described_class.installation_contract(version: 42)
+      }.to raise_error(ArgumentError, /Unsupported Kilocode CLI version 42/)
+    end
+
     it "normalizes padded version strings in the install command" do
       contract = described_class.installation_contract(version: " 7.1.3 ")
 

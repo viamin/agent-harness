@@ -41,9 +41,9 @@ module AgentHarness
         end
 
         def installation_contract(version: DEFAULT_VERSION)
-          normalized_version = version.strip if version.respond_to?(:strip)
-          validate_install_version!(normalized_version)
-          package_spec = "#{PACKAGE_NAME}@#{normalized_version}"
+          version = version.strip if version.respond_to?(:strip)
+          validate_install_version!(version)
+          package_spec = "#{PACKAGE_NAME}@#{version}"
 
           {
             source: {
