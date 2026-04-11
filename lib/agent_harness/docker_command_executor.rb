@@ -322,6 +322,7 @@ module AgentHarness
     end
 
     def materialize_file_write(write, timeout:, deadline:, env:)
+      validate_preparation_path_security!(write.path)
       validate_preparation_path_env!(write.path, env)
       validate_home_relative_preparation_path!(write.path, env)
       resolved_write_path = resolve_container_preparation_path(write.path, env)

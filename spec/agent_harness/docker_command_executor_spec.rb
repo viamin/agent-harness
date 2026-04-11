@@ -435,6 +435,58 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
       expect(Open3).not_to have_received(:popen3)
     end
 
+    it "rejects preparation paths containing backticks" do
+      expect {
+        executor.execute(
+          ["echo", "hello"],
+          preparation: AgentHarness::ExecutionPreparation.new(
+            file_writes: [{path: "/tmp/`whoami`/config.json", content: "{}"}]
+          )
+        )
+      }.to raise_error(ArgumentError, /backtick/)
+
+      expect(Open3).not_to have_received(:popen3)
+    end
+
+    it "rejects preparation paths containing semicolons" do
+      expect {
+        executor.execute(
+          ["echo", "hello"],
+          preparation: AgentHarness::ExecutionPreparation.new(
+            file_writes: [{path: "/tmp/;rm -rf /;/config.json", content: "{}"}]
+          )
+        )
+      }.to raise_error(ArgumentError, /semicolon/)
+
+      expect(Open3).not_to have_received(:popen3)
+    end
+
+    it "rejects preparation paths containing pipes" do
+      expect {
+        executor.execute(
+          ["echo", "hello"],
+          preparation: AgentHarness::ExecutionPreparation.new(
+            file_writes: [{path: "/tmp/|cat /etc/passwd|/config.json", content: "{}"}]
+          )
+        )
+      }.to raise_error(ArgumentError, /pipe/)
+
+      expect(Open3).not_to have_received(:popen3)
+    end
+
+    it "rejects preparation paths containing path traversal" do
+      expect {
+        executor.execute(
+          ["echo", "hello"],
+          preparation: AgentHarness::ExecutionPreparation.new(
+            file_writes: [{path: "/tmp/../../../etc/passwd", content: "{}"}]
+          )
+        )
+      }.to raise_error(ArgumentError, /path traversal/)
+
+      expect(Open3).not_to have_received(:popen3)
+    end
+
     it "uses the remaining timeout budget for preparation and execution" do
       allow(SecureRandom).to receive(:hex).and_return("deadbeefcafebabe", "facefeedcafed00d")
       time_values = [

@@ -1076,6 +1076,58 @@ RSpec.describe AgentHarness::CommandExecutor do
           }.to raise_error(AgentHarness::TimeoutError, /cleanup also failed.*Permission denied/)
         end
       end
+
+      it "rejects preparation paths containing backticks" do
+        preparation = AgentHarness::ExecutionPreparation.new(
+          file_writes: [{path: "/tmp/`whoami`/config.json", content: "{}"}]
+        )
+
+        expect {
+          executor.execute(["true"], preparation: preparation)
+        }.to raise_error(ArgumentError, /backtick/)
+      end
+
+      it "rejects preparation paths containing semicolons" do
+        preparation = AgentHarness::ExecutionPreparation.new(
+          file_writes: [{path: "/tmp/;rm -rf /;/config.json", content: "{}"}]
+        )
+
+        expect {
+          executor.execute(["true"], preparation: preparation)
+        }.to raise_error(ArgumentError, /semicolon/)
+      end
+
+      it "rejects preparation paths containing pipes" do
+        preparation = AgentHarness::ExecutionPreparation.new(
+          file_writes: [{path: "/tmp/|cat /etc/passwd|/config.json", content: "{}"}]
+        )
+
+        expect {
+          executor.execute(["true"], preparation: preparation)
+        }.to raise_error(ArgumentError, /pipe/)
+      end
+
+      it "rejects preparation paths containing path traversal" do
+        preparation = AgentHarness::ExecutionPreparation.new(
+          file_writes: [{path: "/tmp/../../../etc/passwd", content: "{}"}]
+        )
+
+        expect {
+          executor.execute(["true"], preparation: preparation)
+        }.to raise_error(ArgumentError, /path traversal/)
+      end
+
+      it "allows env-var prefixed paths that may contain dots after expansion" do
+        Dir.mktmpdir do |dir|
+          preparation = AgentHarness::ExecutionPreparation.new(
+            file_writes: [{path: "$TEST_DOT_VAR/config.json", content: "{\"ok\":true}"}]
+          )
+
+          executor.execute(["true"], env: {"TEST_DOT_VAR" => dir}, preparation: preparation)
+
+          expect(File.exist?(File.join(dir, "config.json"))).to be false
+        end
+      end
     end
   end
 

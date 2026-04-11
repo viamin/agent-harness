@@ -281,6 +281,7 @@ module AgentHarness
       return if preparation.nil? || preparation.empty?
 
       preparation.file_writes.each do |write|
+        validate_preparation_path_security!(write.path)
         resolved_path = expand_preparation_path(write.path, env)
         created_directories = missing_parent_directories(resolved_path)
         snapshot = within_timeout(deadline, timeout:, command_name:) do
@@ -391,6 +392,24 @@ module AgentHarness
       path.scan(/\$(\w+)|\$\{([^}]+)\}/) do |match|
         key = match.compact.first
         resolve_preparation_path_env_var(key, env)
+      end
+    end
+
+    def validate_preparation_path_security!(path)
+      if path.include?("`")
+        raise ArgumentError, "preparation path must not contain backtick characters"
+      end
+
+      if path.include?(";")
+        raise ArgumentError, "preparation path must not contain semicolon characters"
+      end
+
+      if path.include?("|")
+        raise ArgumentError, "preparation path must not contain pipe characters"
+      end
+
+      if path.include?("..") && !path.start_with?("$")
+        raise ArgumentError, "preparation path must not contain path traversal"
       end
     end
 
