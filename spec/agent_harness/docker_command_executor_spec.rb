@@ -487,6 +487,20 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
       expect(Open3).not_to have_received(:popen3)
     end
 
+    it "rejects env-var-prefixed paths containing literal traversal sequences" do
+      expect {
+        executor.execute(
+          ["echo", "hello"],
+          env: {"DCONFIG_DIR" => "/opt/app"},
+          preparation: AgentHarness::ExecutionPreparation.new(
+            file_writes: [{path: "$DCONFIG_DIR/../../../etc/passwd", content: "{}"}]
+          )
+        )
+      }.to raise_error(ArgumentError, /path traversal/)
+
+      expect(Open3).not_to have_received(:popen3)
+    end
+
     it "rejects preparation paths containing command substitution" do
       expect {
         executor.execute(
@@ -496,6 +510,45 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
           )
         )
       }.to raise_error(ArgumentError, /command substitution/)
+
+      expect(Open3).not_to have_received(:popen3)
+    end
+
+    it "rejects preparation paths containing null bytes" do
+      expect {
+        executor.execute(
+          ["echo", "hello"],
+          preparation: AgentHarness::ExecutionPreparation.new(
+            file_writes: [{path: "/tmp/config\x00.json", content: "{}"}]
+          )
+        )
+      }.to raise_error(ArgumentError, /null bytes/)
+
+      expect(Open3).not_to have_received(:popen3)
+    end
+
+    it "rejects preparation paths containing newlines" do
+      expect {
+        executor.execute(
+          ["echo", "hello"],
+          preparation: AgentHarness::ExecutionPreparation.new(
+            file_writes: [{path: "/tmp/con\nfig.json", content: "{}"}]
+          )
+        )
+      }.to raise_error(ArgumentError, /newline/)
+
+      expect(Open3).not_to have_received(:popen3)
+    end
+
+    it "rejects preparation paths containing carriage returns" do
+      expect {
+        executor.execute(
+          ["echo", "hello"],
+          preparation: AgentHarness::ExecutionPreparation.new(
+            file_writes: [{path: "/tmp/con\rfig.json", content: "{}"}]
+          )
+        )
+      }.to raise_error(ArgumentError, /carriage return/)
 
       expect(Open3).not_to have_received(:popen3)
     end
@@ -1192,7 +1245,7 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
         executor.execute(
           ["echo", "hold-a"],
           preparation: AgentHarness::ExecutionPreparation.new(
-            file_writes: [{path: "~/./tmp/../.config/opencode.json", content: "A"}]
+            file_writes: [{path: "~/./.config/./opencode.json", content: "A"}]
           )
         )
       end

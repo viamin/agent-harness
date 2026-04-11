@@ -221,6 +221,8 @@ module AgentHarness
     def acquire_preparation_locks(preparation, env:, timeout:, deadline:, command_name:)
       return [] if preparation.nil? || preparation.empty?
 
+      preparation.file_writes.each { |write| validate_preparation_path_security!(write.path) }
+
       acquired_locks = []
 
       preparation_lock_keys(preparation, env).each do |key|
@@ -228,7 +230,7 @@ module AgentHarness
       end
       acquired_locks
     rescue
-      release_preparation_locks(acquired_locks) unless acquired_locks.empty?
+      release_preparation_locks(acquired_locks) if acquired_locks && !acquired_locks.empty?
       raise
     end
 
@@ -398,6 +400,18 @@ module AgentHarness
     end
 
     def validate_preparation_path_security!(path)
+      if path.include?("\x00")
+        raise ArgumentError, "preparation path must not contain null bytes"
+      end
+
+      if path.include?("\n")
+        raise ArgumentError, "preparation path must not contain newline characters"
+      end
+
+      if path.include?("\r")
+        raise ArgumentError, "preparation path must not contain carriage return characters"
+      end
+
       if path.include?("`")
         raise ArgumentError, "preparation path must not contain backtick characters"
       end
@@ -414,7 +428,7 @@ module AgentHarness
         raise ArgumentError, "preparation path must not contain command substitution"
       end
 
-      if path.include?("..") && !path.start_with?("$")
+      if path.include?("..")
         raise ArgumentError, "preparation path must not contain path traversal"
       end
     end

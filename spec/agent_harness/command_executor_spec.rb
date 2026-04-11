@@ -1117,6 +1117,16 @@ RSpec.describe AgentHarness::CommandExecutor do
         }.to raise_error(ArgumentError, /path traversal/)
       end
 
+      it "rejects env-var-prefixed paths containing literal traversal sequences" do
+        preparation = AgentHarness::ExecutionPreparation.new(
+          file_writes: [{path: "$CONFIG_DIR/../../../etc/passwd", content: "{}"}]
+        )
+
+        expect {
+          executor.execute(["true"], env: {"CONFIG_DIR" => "/opt/app"}, preparation: preparation)
+        }.to raise_error(ArgumentError, /path traversal/)
+      end
+
       it "rejects preparation paths containing command substitution" do
         preparation = AgentHarness::ExecutionPreparation.new(
           file_writes: [{path: "/tmp/$(whoami)/config.json", content: "{}"}]
@@ -1125,6 +1135,36 @@ RSpec.describe AgentHarness::CommandExecutor do
         expect {
           executor.execute(["true"], preparation: preparation)
         }.to raise_error(ArgumentError, /command substitution/)
+      end
+
+      it "rejects preparation paths containing null bytes" do
+        preparation = AgentHarness::ExecutionPreparation.new(
+          file_writes: [{path: "/tmp/config\x00.json", content: "{}"}]
+        )
+
+        expect {
+          executor.execute(["true"], preparation: preparation)
+        }.to raise_error(ArgumentError, /null bytes/)
+      end
+
+      it "rejects preparation paths containing newlines" do
+        preparation = AgentHarness::ExecutionPreparation.new(
+          file_writes: [{path: "/tmp/con\nfig.json", content: "{}"}]
+        )
+
+        expect {
+          executor.execute(["true"], preparation: preparation)
+        }.to raise_error(ArgumentError, /newline/)
+      end
+
+      it "rejects preparation paths containing carriage returns" do
+        preparation = AgentHarness::ExecutionPreparation.new(
+          file_writes: [{path: "/tmp/con\rfig.json", content: "{}"}]
+        )
+
+        expect {
+          executor.execute(["true"], preparation: preparation)
+        }.to raise_error(ArgumentError, /carriage return/)
       end
 
       it "rejects env-backed preparation paths when the env value contains path traversal" do
