@@ -99,6 +99,15 @@ RSpec.describe AgentHarness::Providers::Codex do
         described_class.installation_contract(version: "")
       }.to raise_error(ArgumentError, /Unsupported Codex CLI version/)
     end
+
+    it "normalizes padded version strings in the install command and contract" do
+      contract = described_class.installation_contract(version: " 0.116.5 ")
+
+      expect(contract[:version]).to eq("0.116.5")
+      expect(contract[:install_command]).to eq(
+        ["npm", "install", "-g", "--ignore-scripts", "@openai/codex@0.116.5"]
+      )
+    end
   end
 
   describe ".firewall_requirements" do

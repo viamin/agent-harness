@@ -40,7 +40,9 @@ module AgentHarness
         end
 
         def install_contract(version: SUPPORTED_CLI_VERSION)
-          unless version.is_a?(String) && !version.strip.empty?
+          version = version.strip if version.respond_to?(:strip)
+
+          unless version.is_a?(String) && !version.empty?
             raise ArgumentError, "Unsupported Gemini CLI version #{version.inspect}. Supported requirement: #{SUPPORTED_CLI_REQUIREMENT}"
           end
 

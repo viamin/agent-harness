@@ -89,6 +89,15 @@ RSpec.describe AgentHarness::Providers::Aider do
       }.to raise_error(ArgumentError, /Unsupported Aider CLI version/)
     end
 
+    it "normalizes padded version strings in the install command and contract" do
+      contract = described_class.installation_contract(version: " 0.86.5 ")
+
+      expect(contract[:version]).to eq("0.86.5")
+      expect(contract[:install_command]).to eq(
+        ["uv", "tool", "install", "--force", "--python", "python3.12", "--with", "pip", "aider-chat==0.86.5"]
+      )
+    end
+
     it "freezes nested command arrays" do
       contract = described_class.installation_contract
 

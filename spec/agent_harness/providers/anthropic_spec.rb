@@ -132,6 +132,21 @@ RSpec.describe AgentHarness::Providers::Anthropic do
       expect { described_class.install_contract(version: "   ") }
         .to raise_error(ArgumentError, /Invalid version/)
     end
+
+    it "normalizes padded version strings in the install command" do
+      contract = described_class.install_contract(version: " 2.1.95 ")
+
+      expect(contract.dig(:install, :command)).to include("bash \"$tmp_script\" 2.1.95")
+      expect(contract.dig(:install, :command)).not_to include(" 2.1.95 ")
+    end
+
+    it "normalizes padded channel tokens and emits the channel warning" do
+      contract = described_class.install_contract(version: " latest ")
+
+      expect(contract.dig(:install, :command)).to include("bash \"$tmp_script\" latest")
+      expect(contract.dig(:install, :warning)).to include("Channel 'latest' is not pinned")
+      expect(contract.dig(:install, :version_not_pinned)).to be true
+    end
   end
 
   describe ".firewall_requirements" do

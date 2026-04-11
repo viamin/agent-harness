@@ -64,6 +64,15 @@ RSpec.describe AgentHarness::Providers::Gemini do
         described_class.install_contract(version: "")
       }.to raise_error(ArgumentError, /Unsupported Gemini CLI version/)
     end
+
+    it "normalizes padded version strings in the install command and contract" do
+      contract = described_class.install_contract(version: " 0.35.3 ")
+
+      expect(contract[:resolved_version]).to eq("0.35.3")
+      expect(contract[:install_command]).to eq(
+        ["npm", "install", "-g", "--ignore-scripts", "@google/gemini-cli@0.35.3"]
+      )
+    end
   end
 
   describe ".available?" do
