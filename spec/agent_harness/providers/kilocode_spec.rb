@@ -156,7 +156,7 @@ RSpec.describe AgentHarness::Providers::Kilocode do
       it "executes kilo run with --format json and the prompt" do
         allow(mock_executor).to receive(:execute).and_return(
           AgentHarness::CommandExecutor::Result.new(
-            stdout: '{"result":"response"}',
+            stdout: '{"type":"text","part":{"text":"response"}}',
             stderr: "",
             exit_code: 0,
             duration: 1.0
@@ -201,18 +201,15 @@ RSpec.describe AgentHarness::Providers::Kilocode do
     end
 
     context "with token usage parsing" do
-      it "extracts token usage from JSON output" do
-        json_output = JSON.generate({
-          "result" => "Hello! How can I help?",
-          "usage" => {
-            "input_tokens" => 100,
-            "output_tokens" => 50
-          }
-        })
+      it "extracts token usage from a multi-event NDJSON stream" do
+        ndjson = [
+          {"type" => "text", "part" => {"text" => "Hello! How can I help?"}},
+          {"type" => "result", "usage" => {"input_tokens" => 100, "output_tokens" => 50}}
+        ].map { |e| JSON.generate(e) }.join("\n")
 
         allow(mock_executor).to receive(:execute).and_return(
           AgentHarness::CommandExecutor::Result.new(
-            stdout: json_output,
+            stdout: ndjson,
             stderr: "",
             exit_code: 0,
             duration: 1.0
@@ -227,14 +224,35 @@ RSpec.describe AgentHarness::Providers::Kilocode do
         expect(response.total_tokens).to eq(150)
       end
 
-      it "handles JSON output without usage data" do
-        json_output = JSON.generate({
-          "result" => "Hello!"
-        })
+      it "concatenates text from multiple text events" do
+        ndjson = [
+          {"type" => "text", "part" => {"text" => "Hello! "}},
+          {"type" => "text", "part" => {"text" => "How can I help?"}},
+          {"type" => "result", "usage" => {"input_tokens" => 100, "output_tokens" => 50}}
+        ].map { |e| JSON.generate(e) }.join("\n")
 
         allow(mock_executor).to receive(:execute).and_return(
           AgentHarness::CommandExecutor::Result.new(
-            stdout: json_output,
+            stdout: ndjson,
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        response = provider.send_message(prompt: "Hello")
+        expect(response.output).to eq("Hello! How can I help?")
+        expect(response.tokens).to eq({input: 100, output: 50, total: 150})
+      end
+
+      it "handles NDJSON output without usage data" do
+        ndjson = [
+          {"type" => "text", "part" => {"text" => "Hello!"}}
+        ].map { |e| JSON.generate(e) }.join("\n")
+
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: ndjson,
             stderr: "",
             exit_code: 0,
             duration: 1.0
@@ -261,17 +279,15 @@ RSpec.describe AgentHarness::Providers::Kilocode do
         expect(response.tokens).to be_nil
       end
 
-      it "handles JSON with usage containing only input tokens" do
-        json_output = JSON.generate({
-          "result" => "Response text",
-          "usage" => {
-            "input_tokens" => 80
-          }
-        })
+      it "handles usage containing only input tokens" do
+        ndjson = [
+          {"type" => "text", "part" => {"text" => "Response text"}},
+          {"type" => "result", "usage" => {"input_tokens" => 80}}
+        ].map { |e| JSON.generate(e) }.join("\n")
 
         allow(mock_executor).to receive(:execute).and_return(
           AgentHarness::CommandExecutor::Result.new(
-            stdout: json_output,
+            stdout: ndjson,
             stderr: "",
             exit_code: 0,
             duration: 1.0
@@ -282,17 +298,15 @@ RSpec.describe AgentHarness::Providers::Kilocode do
         expect(response.tokens).to eq({input: 80, output: 0, total: 80})
       end
 
-      it "handles JSON with usage containing only output tokens" do
-        json_output = JSON.generate({
-          "result" => "Response text",
-          "usage" => {
-            "output_tokens" => 30
-          }
-        })
+      it "handles usage containing only output tokens" do
+        ndjson = [
+          {"type" => "text", "part" => {"text" => "Response text"}},
+          {"type" => "result", "usage" => {"output_tokens" => 30}}
+        ].map { |e| JSON.generate(e) }.join("\n")
 
         allow(mock_executor).to receive(:execute).and_return(
           AgentHarness::CommandExecutor::Result.new(
-            stdout: json_output,
+            stdout: ndjson,
             stderr: "",
             exit_code: 0,
             duration: 1.0
@@ -303,18 +317,15 @@ RSpec.describe AgentHarness::Providers::Kilocode do
         expect(response.tokens).to eq({input: 0, output: 30, total: 30})
       end
 
-      it "extracts text from 'text' field when 'result' is absent" do
-        json_output = JSON.generate({
-          "text" => "Text field response",
-          "usage" => {
-            "input_tokens" => 10,
-            "output_tokens" => 5
-          }
-        })
+      it "extracts usage from a standalone usage event" do
+        ndjson = [
+          {"type" => "text", "part" => {"text" => "Response"}},
+          {"type" => "usage", "usage" => {"input_tokens" => 10, "output_tokens" => 5}}
+        ].map { |e| JSON.generate(e) }.join("\n")
 
         allow(mock_executor).to receive(:execute).and_return(
           AgentHarness::CommandExecutor::Result.new(
-            stdout: json_output,
+            stdout: ndjson,
             stderr: "",
             exit_code: 0,
             duration: 1.0
@@ -322,22 +333,19 @@ RSpec.describe AgentHarness::Providers::Kilocode do
         )
 
         response = provider.send_message(prompt: "Hello")
-        expect(response.output).to eq("Text field response")
+        expect(response.output).to eq("Response")
         expect(response.tokens).to eq({input: 10, output: 5, total: 15})
       end
 
       it "records tokens with the global token tracker" do
-        json_output = JSON.generate({
-          "result" => "Tracked response",
-          "usage" => {
-            "input_tokens" => 50,
-            "output_tokens" => 25
-          }
-        })
+        ndjson = [
+          {"type" => "text", "part" => {"text" => "Tracked response"}},
+          {"type" => "result", "usage" => {"input_tokens" => 50, "output_tokens" => 25}}
+        ].map { |e| JSON.generate(e) }.join("\n")
 
         allow(mock_executor).to receive(:execute).and_return(
           AgentHarness::CommandExecutor::Result.new(
-            stdout: json_output,
+            stdout: ndjson,
             stderr: "",
             exit_code: 0,
             duration: 1.0
@@ -368,6 +376,63 @@ RSpec.describe AgentHarness::Providers::Kilocode do
         response = provider.send_message(prompt: "Hello")
         expect(response.failed?).to be true
         expect(response.error).to eq("rate limit exceeded")
+      end
+
+      it "handles empty stdout" do
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "",
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        response = provider.send_message(prompt: "Hello")
+        expect(response.output).to eq("")
+        expect(response.tokens).to be_nil
+      end
+
+      it "skips malformed JSON lines in the event stream" do
+        ndjson = [
+          "not-json",
+          JSON.generate({"type" => "text", "part" => {"text" => "valid text"}}),
+          "",
+          JSON.generate({"type" => "result", "usage" => {"input_tokens" => 5, "output_tokens" => 3}})
+        ].join("\n")
+
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: ndjson,
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        response = provider.send_message(prompt: "Hello")
+        expect(response.output).to eq("valid text")
+        expect(response.tokens).to eq({input: 5, output: 3, total: 8})
+      end
+
+      it "uses last usage event when multiple events contain usage" do
+        ndjson = [
+          {"type" => "text", "part" => {"text" => "Response"}, "usage" => {"input_tokens" => 10, "output_tokens" => 5}},
+          {"type" => "result", "usage" => {"input_tokens" => 50, "output_tokens" => 25}}
+        ].map { |e| JSON.generate(e) }.join("\n")
+
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: ndjson,
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        response = provider.send_message(prompt: "Hello")
+        expect(response.output).to eq("Response")
+        expect(response.tokens).to eq({input: 50, output: 25, total: 75})
       end
     end
   end

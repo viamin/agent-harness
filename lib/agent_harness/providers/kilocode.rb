@@ -151,11 +151,19 @@ module AgentHarness
           error = combined unless combined.empty?
         end
 
-        parsed = parse_json_output(output)
-        if parsed
-          output = parsed["result"] || parsed["text"] || output
-          tokens = extract_tokens(parsed)
+        text_parts = []
+        usage_data = nil
+
+        each_json_event(output) do |event|
+          if event["type"] == "text"
+            text = event.dig("part", "text")
+            text_parts << text if text
+          end
+          usage_data = event["usage"] if event["usage"]
         end
+
+        output = text_parts.join unless text_parts.empty?
+        tokens = build_token_counts(usage_data) if usage_data
 
         Response.new(
           output: output,
@@ -174,18 +182,20 @@ module AgentHarness
 
       private
 
-      def parse_json_output(output)
-        return nil if output.nil? || output.empty?
+      def each_json_event(output)
+        return if output.nil? || output.empty?
 
-        JSON.parse(output)
-      rescue JSON::ParserError
-        nil
+        output.each_line do |line|
+          line = line.strip
+          next if line.empty?
+
+          yield JSON.parse(line)
+        rescue JSON::ParserError
+          next
+        end
       end
 
-      def extract_tokens(parsed)
-        usage = parsed["usage"]
-        return nil unless usage
-
+      def build_token_counts(usage)
         input = usage["input_tokens"]
         output = usage["output_tokens"]
         return nil unless input || output
