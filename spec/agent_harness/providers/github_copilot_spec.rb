@@ -64,7 +64,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
       metadata = described_class.provider_metadata
 
       expect(metadata[:runtime]).to include(
-        output_format: :json,
+        output_format: :text,
         supports_token_counting: true,
         supports_dangerous_mode: false
       )
@@ -240,7 +240,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
       it "returns the full provider contract" do
         semantics = provider.execution_semantics
         expect(semantics[:prompt_delivery]).to eq(:arg)
-        expect(semantics[:output_format]).to eq(:json)
+        expect(semantics[:output_format]).to eq(:text)
         expect(semantics[:sandbox_aware]).to be false
         expect(semantics[:uses_subcommand]).to be false
         expect(semantics[:non_interactive_flag]).to eq("-p")

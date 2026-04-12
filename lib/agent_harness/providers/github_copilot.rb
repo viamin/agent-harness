@@ -137,7 +137,9 @@ module AgentHarness
       def execution_semantics
         {
           prompt_delivery: :arg,
-          output_format: :json,
+          # Older Copilot CLIs fall back to plain-text prompt mode, so metadata
+          # must not claim JSON-only output even though newer versions support it.
+          output_format: :text,
           sandbox_aware: false,
           uses_subcommand: false,
           non_interactive_flag: "-p",
