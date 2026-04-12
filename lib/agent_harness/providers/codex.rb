@@ -593,22 +593,30 @@ module AgentHarness
         delta_parts = extract_delta_content_parts(delta)
         return false if delta_parts.nil?
 
+        appended = false
         delta_parts.each do |part|
-          parts << part unless part.empty?
+          next if part.empty?
+
+          parts << part
+          appended = true
         end
 
-        true
+        appended
       end
 
       def append_wrapped_delta_text(parts, payload)
         delta_parts = extract_wrapped_delta_parts(payload)
         return false if delta_parts.nil?
 
+        appended = false
         delta_parts.each do |part|
-          parts << part unless part.empty?
+          next if part.empty?
+
+          parts << part
+          appended = true
         end
 
-        true
+        appended
       end
 
       def assistant_message_item?(item)

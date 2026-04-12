@@ -1427,6 +1427,43 @@ RSpec.describe AgentHarness::Providers::Codex do
           expect(response.tokens).to eq({input: 4, output: 2, total: 6})
         end
 
+        it "preserves raw output when wrapped agent_message_delta content is empty and no later text is emitted" do
+          jsonl_output = [
+            JSON.generate({
+              "type" => "event_msg",
+              "payload" => {
+                "type" => "agent_message_delta",
+                "message" => ""
+              }
+            }),
+            JSON.generate({
+              "type" => "event_msg",
+              "payload" => {
+                "type" => "token_count",
+                "info" => {
+                  "last_token_usage" => {
+                    "input_tokens" => 50,
+                    "output_tokens" => 10
+                  }
+                }
+              }
+            })
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq(jsonl_output)
+          expect(response.tokens).to eq({input: 50, output: 10, total: 60})
+        end
+
         it "extracts final assistant text from roleless wrapped agent_message payloads" do
           jsonl_output = [
             JSON.generate({"type" => "event_msg", "payload" => {"type" => "agent_message_delta", "message" => "partial"}}),
@@ -2084,6 +2121,26 @@ RSpec.describe AgentHarness::Providers::Codex do
 
           response = provider.send_message(prompt: "Hello")
           expect(response.output).to eq("Hello from fallback blocks")
+          expect(response.tokens).to eq({input: 100, output: 25, total: 125})
+        end
+
+        it "preserves raw output when message.delta text is empty and no later text is emitted" do
+          jsonl_output = [
+            JSON.generate({"type" => "message.delta", "delta" => {"text" => ""}}),
+            JSON.generate({"type" => "turn.completed", "usage" => {"input_tokens" => 100, "output_tokens" => 25}})
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq(jsonl_output)
           expect(response.tokens).to eq({input: 100, output: 25, total: 125})
         end
 
