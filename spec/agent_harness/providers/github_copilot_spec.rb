@@ -38,10 +38,11 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
   end
 
   describe ".smoke_test_contract" do
-    it "returns a Copilot-specific contract without expected_output" do
+    it "returns a Copilot-specific contract that requires the exact OK response" do
       contract = described_class.smoke_test_contract
       expect(contract).to eq(AgentHarness::Providers::GithubCopilot::SMOKE_TEST_CONTRACT)
-      expect(contract[:expected_output]).to be_nil
+      expect(contract[:prompt]).to eq("Reply with exactly OK.")
+      expect(contract[:expected_output]).to eq("OK")
       expect(contract[:require_output]).to be true
     end
   end

@@ -11,7 +11,7 @@ module AgentHarness
 
       SMOKE_TEST_CONTRACT = {
         prompt: "Reply with exactly OK.",
-        expected_output: nil,
+        expected_output: "OK",
         timeout: 30,
         require_output: true,
         success_message: "Smoke test passed"
