@@ -597,6 +597,17 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         end.to raise_error(AgentHarness::TimeoutError, "Command timed out before execution started")
       end
 
+      it "fails fast on non-positive timeout before probing the CLI version" do
+        expect do
+          provider.send_message(prompt: "Hello", timeout: 0)
+        end.to raise_error(AgentHarness::TimeoutError, "Command timed out before execution started")
+
+        expect(mock_executor).not_to have_received(:execute).with(
+          ["github-copilot-cli", "--version"],
+          any_args
+        )
+      end
+
       it "falls back to plain prompt mode when JSON output is unsupported" do
         allow(mock_executor).to receive(:execute).with(
           ["github-copilot-cli", "--version"],

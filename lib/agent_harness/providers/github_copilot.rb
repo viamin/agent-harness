@@ -186,6 +186,8 @@ module AgentHarness
         validate_mcp_servers!(options[:mcp_servers]) if options[:mcp_servers]&.any?
 
         timeout = options[:timeout] || @config.timeout || default_timeout
+        raise TimeoutError, "Command timed out before execution started" if timeout <= 0
+
         env = build_env(options)
         options = options.merge(_version_probe_timeout: [timeout, 5].min, _command_env: env)
 
