@@ -765,29 +765,36 @@ module AgentHarness
         last_usage = wrapped_token_usage[:last]
 
         if existing_source == :turn_completed
-          replacement_usage = total_usage || last_usage
+          replacement_usage = merged_wrapped_usage(existing_usage, existing_source, last_usage, total_usage)
           return [existing_usage, existing_source] unless replacement_usage
 
           return [merge_same_turn_usage(existing_usage, replacement_usage), :turn_completed]
         end
 
-        if total_usage
-          expected_total = if existing_source == :wrapped && existing_usage && last_usage
-            add_token_usage(existing_usage, last_usage)
-          else
-            last_usage
+        merged_usage = merged_wrapped_usage(existing_usage, existing_source, last_usage, total_usage)
+        [merged_usage, :wrapped]
+      end
+
+      def merged_wrapped_usage(existing_usage, existing_source, last_usage, total_usage)
+        if last_usage
+          replacement_usage = last_usage
+          if total_usage && same_turn_usage?(replacement_usage, total_usage)
+            replacement_usage = merge_same_turn_usage(replacement_usage, total_usage)
           end
 
-          return [total_usage, :wrapped] unless same_usage_values?(expected_total, total_usage)
+          return replacement_usage unless existing_source == :wrapped && existing_usage
+
+          merged_usage = add_token_usage(existing_usage, last_usage)
+          if total_usage && same_turn_usage?(merged_usage, total_usage)
+            return merge_same_turn_usage(merged_usage, total_usage)
+          end
+
+          return replacement_usage if total_usage && same_turn_usage?(last_usage, total_usage)
+
+          return merged_usage
         end
 
-        merged_usage = if last_usage && existing_source == :wrapped && existing_usage
-          add_token_usage(existing_usage, last_usage)
-        else
-          last_usage || total_usage
-        end
-
-        [merged_usage, :wrapped]
+        total_usage
       end
 
       def wrapped_token_usage_starts_new_turn?(existing_usage, existing_source, turn_completed, wrapped_token_usage)

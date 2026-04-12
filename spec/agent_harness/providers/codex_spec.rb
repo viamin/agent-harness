@@ -1555,6 +1555,42 @@ RSpec.describe AgentHarness::Providers::Codex do
           expect(response.tokens).to eq({input: 42, output: 7, total: 49})
         end
 
+        it "prefers per-turn wrapped usage over mismatched cumulative session totals" do
+          jsonl_output = [
+            JSON.generate({"type" => "event_msg", "payload" => {"type" => "agent_message", "message" => "wrapped output"}}),
+            JSON.generate({
+              "type" => "event_msg",
+              "payload" => {
+                "type" => "token_count",
+                "info" => {
+                  "last_token_usage" => {
+                    "input_tokens" => 42,
+                    "output_tokens" => 7
+                  },
+                  "total_token_usage" => {
+                    "input_tokens" => 420,
+                    "output_tokens" => 70,
+                    "total_tokens" => 600
+                  }
+                }
+              }
+            })
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq("wrapped output")
+          expect(response.tokens).to eq({input: 42, output: 7, total: 49})
+        end
+
         it "does not finalize a wrapped turn on token_count before later deltas" do
           jsonl_output = [
             JSON.generate({"type" => "event_msg", "payload" => {"type" => "agent_message_delta", "message" => "hel"}}),
