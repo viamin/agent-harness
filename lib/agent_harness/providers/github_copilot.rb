@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "json"
+
 module AgentHarness
   module Providers
     # GitHub Copilot CLI provider
@@ -185,7 +187,7 @@ module AgentHarness
       protected
 
       def build_command(prompt, options)
-        cmd = [self.class.binary_name, "what-the-shell", prompt]
+        cmd = [self.class.binary_name, "what-the-shell", prompt, "--output-format", "json"]
 
         # Opt in to unrestricted tool access explicitly to preserve a safe default.
         if supports_dangerous_mode? && options[:dangerous_mode]
@@ -202,6 +204,63 @@ module AgentHarness
 
       def default_timeout
         300
+      end
+
+      # Override parse_response to handle JSONL output and token extraction
+      def parse_response(result, duration:)
+        output = result.stdout
+        error = nil
+        tokens = nil
+
+        # Collect error if command failed
+        if result.failed?
+          combined = [result.stdout, result.stderr].compact.join("\n")
+          error = combined unless combined.empty?
+        end
+
+        # Attempt to parse JSONL lines for output and token usage
+        total_input = 0
+        total_output = 0
+        aggregated_output = ""
+        result.stdout.lines.each do |line|
+          line = line.strip
+          next if line.empty?
+          begin
+            obj = JSON.parse(line)
+          rescue JSON::ParserError
+            next
+          end
+          # Extract textual output (common keys)
+          if obj["output"]
+            aggregated_output << obj["output"]
+          elsif obj["content"]
+            aggregated_output << obj["content"]
+          elsif obj["message"] && obj["message"]["content"]
+            aggregated_output << obj["message"]["content"]
+          end
+          # Extract token usage (common structures)
+          usage = obj["usage"] || obj["tokens"]
+          if usage
+            total_input += usage["input_tokens"].to_i if usage["input_tokens"]
+            total_output += usage["output_tokens"].to_i if usage["output_tokens"]
+            total_input += usage["input"].to_i if usage["input"]
+            total_output += usage["output"].to_i if usage["output"]
+          end
+        end
+        if total_input > 0 || total_output > 0
+          tokens = {input: total_input, output: total_output, total: total_input + total_output}
+        end
+        final_output = aggregated_output.empty? ? output : aggregated_output
+
+        Response.new(
+          output: final_output,
+          exit_code: result.exit_code,
+          duration: duration,
+          provider: self.class.provider_name,
+          model: @config.model,
+          tokens: tokens,
+          error: error
+        )
       end
     end
   end
