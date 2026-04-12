@@ -448,8 +448,17 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         result = make_result(stdout: jsonl)
         response = provider.send(:parse_response, result, duration: 1.0)
 
-        expect(response.output).to eq(jsonl)
+        expect(response.output).to eq("")
         expect(response.tokens).to be_nil
+      end
+
+      it "does not surface structured usage events as raw output when no reply text is present" do
+        jsonl = '{"type":"usage","data":{"inputTokens":3,"outputTokens":4}}'
+        result = make_result(stdout: jsonl)
+        response = provider.send(:parse_response, result, duration: 1.0)
+
+        expect(response.output).to eq("")
+        expect(response.tokens).to eq({input: 3, output: 4, total: 7})
       end
 
       it "sums assistant reply token payloads when multiple reply events include tokens" do

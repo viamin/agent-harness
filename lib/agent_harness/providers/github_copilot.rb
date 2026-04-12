@@ -221,6 +221,7 @@ module AgentHarness
           error = combined unless combined.empty?
         end
 
+        structured_json_seen = false
         shutdown_input = 0
         shutdown_output = 0
         shutdown_tokens_present = false
@@ -239,6 +240,8 @@ module AgentHarness
           rescue JSON::ParserError
             next
           end
+
+          structured_json_seen ||= obj.is_a?(Hash)
 
           text = extract_event_text(obj)
           aggregated_output << text if text
@@ -272,7 +275,11 @@ module AgentHarness
           fallback_input: fallback_input,
           fallback_output: fallback_output
         )
-        final_output = aggregated_output.empty? ? output : aggregated_output
+        final_output = if aggregated_output.empty?
+          structured_json_seen ? "" : output
+        else
+          aggregated_output
+        end
 
         Response.new(
           output: final_output,
