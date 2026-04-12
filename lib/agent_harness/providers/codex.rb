@@ -377,7 +377,11 @@ module AgentHarness
           when "item.completed"
             item = event["item"]
             next unless item.is_a?(Hash)
-            next unless item["role"] == "assistant" || item["type"] == "agent_message"
+
+            item_role = item["role"]
+            item_type = item["type"]
+            allowed_item = item_role == "assistant" || (item_role.nil? && item_type == "agent_message")
+            next unless allowed_item
 
             completed_parts = []
 

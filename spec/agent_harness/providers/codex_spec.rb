@@ -674,6 +674,29 @@ RSpec.describe AgentHarness::Providers::Codex do
           expect(response.output).to eq("")
           expect(response.tokens).to eq({input: 10, output: 5, total: 15})
         end
+
+        it "ignores agent_message items with explicit non-assistant roles" do
+          jsonl_output = [
+            JSON.generate({
+              "type" => "item.completed",
+              "item" => {"type" => "agent_message", "role" => "tool", "text" => "tool text"}
+            }),
+            JSON.generate({"type" => "turn.completed", "usage" => {"input_tokens" => 10, "output_tokens" => 5}})
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq("")
+          expect(response.tokens).to eq({input: 10, output: 5, total: 15})
+        end
       end
 
       context "with token usage parsing" do
