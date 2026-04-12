@@ -23,7 +23,9 @@ module AgentHarness
     # @param logger [Logger, nil] optional logger
     # @raise [CommandExecutionError] if Docker CLI is not found on the host
     def initialize(container_id:, logger: nil)
-      raise ArgumentError, "container_id cannot be nil or empty" if container_id.nil? || container_id.empty?
+      unless container_id.is_a?(String) && !container_id.strip.empty?
+        raise ArgumentError, "container_id cannot be nil or blank"
+      end
 
       super(logger: logger)
       @container_id = container_id

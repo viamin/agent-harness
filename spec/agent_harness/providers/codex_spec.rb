@@ -81,6 +81,33 @@ RSpec.describe AgentHarness::Providers::Codex do
         described_class.install_command(version: "0.115.0")
       }.to raise_error(ArgumentError, /Unsupported Codex CLI version "0.115.0"/)
     end
+
+    it "rejects malformed version strings with a provider-specific message" do
+      expect {
+        described_class.installation_contract(version: "not-a-version")
+      }.to raise_error(ArgumentError, /Unsupported Codex CLI version/)
+    end
+
+    it "rejects nil version" do
+      expect {
+        described_class.installation_contract(version: nil)
+      }.to raise_error(ArgumentError, /Unsupported Codex CLI version/)
+    end
+
+    it "rejects empty version" do
+      expect {
+        described_class.installation_contract(version: "")
+      }.to raise_error(ArgumentError, /Unsupported Codex CLI version/)
+    end
+
+    it "normalizes padded version strings in the install command and contract" do
+      contract = described_class.installation_contract(version: " 0.116.5 ")
+
+      expect(contract[:version]).to eq("0.116.5")
+      expect(contract[:install_command]).to eq(
+        ["npm", "install", "-g", "--ignore-scripts", "@openai/codex@0.116.5"]
+      )
+    end
   end
 
   describe ".firewall_requirements" do
@@ -414,6 +441,23 @@ RSpec.describe AgentHarness::Providers::Codex do
         expect(patterns[:sandbox_failure]).not_to be_empty
         expect(patterns[:sandbox_failure].any? { |p| "bwrap: No permissions to create a new namespace" =~ p }).to be true
       end
+
+      it "does not misclassify embedded numeric substrings as HTTP status codes" do
+        patterns = provider.error_patterns
+        expect(
+          AgentHarness::ErrorTaxonomy.classify(
+            StandardError.new("request id 401234 failed"),
+            patterns
+          )
+        ).to eq(:unknown)
+
+        expect(
+          AgentHarness::ErrorTaxonomy.classify(
+            StandardError.new("request id 4294967295 failed"),
+            patterns
+          )
+        ).to eq(:unknown)
+      end
     end
 
     describe "#auth_status" do
@@ -451,6 +495,11 @@ RSpec.describe AgentHarness::Providers::Codex do
           status = provider.auth_status
           expect(status[:valid]).to be false
           expect(status[:error]).to include("does not appear to be a valid")
+        end
+
+        it "includes auth_method key" do
+          status = provider.auth_status
+          expect(status).to have_key(:auth_method)
         end
       end
 
@@ -505,6 +554,11 @@ RSpec.describe AgentHarness::Providers::Codex do
           expect(status[:valid]).to be false
           expect(status[:error]).to include("No OpenAI API key")
           expect(status[:error]).to include("OPENAI_API_KEY")
+        end
+
+        it "includes auth_method key" do
+          status = provider.auth_status
+          expect(status).to have_key(:auth_method)
         end
       end
 

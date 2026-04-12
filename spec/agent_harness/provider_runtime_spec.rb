@@ -130,6 +130,21 @@ RSpec.describe AgentHarness::ProviderRuntime do
       expect { described_class.new(unset_env: "OPENAI_BASE_URL") }
         .to raise_error(ArgumentError, /unset_env must be an Array/)
     end
+
+    it "raises ArgumentError when model is not a String" do
+      expect { described_class.new(model: 42) }
+        .to raise_error(ArgumentError, /model must be a String or nil/)
+    end
+
+    it "raises ArgumentError when base_url is not a String" do
+      expect { described_class.new(base_url: 123) }
+        .to raise_error(ArgumentError, /base_url must be a String or nil/)
+    end
+
+    it "raises ArgumentError when api_provider is not a String" do
+      expect { described_class.new(api_provider: :openrouter) }
+        .to raise_error(ArgumentError, /api_provider must be a String or nil/)
+    end
   end
 
   describe ".from_hash" do
@@ -165,6 +180,31 @@ RSpec.describe AgentHarness::ProviderRuntime do
     it "raises ArgumentError when given a non-Hash" do
       expect { described_class.from_hash("bad") }
         .to raise_error(ArgumentError, /expected a Hash/)
+    end
+
+    it "raises ArgumentError when model is explicitly false" do
+      expect { described_class.from_hash(model: false) }
+        .to raise_error(ArgumentError, /model must be a String or nil/)
+    end
+
+    it "raises ArgumentError when base_url is explicitly false" do
+      expect { described_class.from_hash(base_url: false) }
+        .to raise_error(ArgumentError, /base_url must be a String or nil/)
+    end
+
+    it "raises ArgumentError when api_provider is explicitly false" do
+      expect { described_class.from_hash(api_provider: false) }
+        .to raise_error(ArgumentError, /api_provider must be a String or nil/)
+    end
+
+    it "raises ArgumentError when a string-keyed model is explicitly false" do
+      expect { described_class.from_hash("model" => false) }
+        .to raise_error(ArgumentError, /model must be a String or nil/)
+    end
+
+    it "raises ArgumentError when env is explicitly false" do
+      expect { described_class.from_hash(env: false) }
+        .to raise_error(ArgumentError, /env must be a Hash/)
     end
   end
 

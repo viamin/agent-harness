@@ -41,6 +41,16 @@ RSpec.describe AgentHarness::ErrorTaxonomy do
       expect(described_class.classify_message("HTTP 429")).to eq(:rate_limited)
     end
 
+    it "does not misclassify embedded numeric substrings as HTTP status codes" do
+      expect(described_class.classify_message("request id 4294967295 failed")).to eq(:unknown)
+      expect(described_class.classify_message("trace code 40123 emitted")).to eq(:unknown)
+      expect(described_class.classify_message("build 50321 aborted")).to eq(:unknown)
+      expect(described_class.classify_message("job 1502 failed")).to eq(:unknown)
+      expect(described_class.classify_message("trace id 4000 emitted")).to eq(:unknown)
+      expect(described_class.classify_message("code 4035 processed")).to eq(:unknown)
+      expect(described_class.classify_message("build 5001 completed")).to eq(:unknown)
+    end
+
     it "classifies quota errors" do
       expect(described_class.classify_message("quota exceeded")).to eq(:quota_exceeded)
       expect(described_class.classify_message("usage limit reached")).to eq(:quota_exceeded)

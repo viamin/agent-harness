@@ -638,7 +638,14 @@ module AgentHarness
               entry.is_a?(Array) ? "#{entry[0]} #{entry[1]}" : entry
             end
             parsed_requirement = Gem::Requirement.new(*requirement_args)
-            unless parsed_requirement.satisfied_by?(Gem::Version.new(version))
+            parsed_version = begin
+              Gem::Version.new(version)
+            rescue ArgumentError
+              raise ArgumentError,
+                "Unsupported #{provider_name} CLI version #{version.inspect}; " \
+                "supported versions must satisfy #{parsed_requirement}"
+            end
+            unless parsed_requirement.satisfied_by?(parsed_version)
               raise ArgumentError,
                 "Unsupported #{provider_name} CLI version #{version.inspect}; " \
                 "supported versions must satisfy #{parsed_requirement}"

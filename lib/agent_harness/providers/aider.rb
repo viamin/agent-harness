@@ -62,7 +62,23 @@ module AgentHarness
         end
 
         def installation_contract(version: SUPPORTED_CLI_VERSION)
-          unless SUPPORTED_CLI_REQUIREMENT.satisfied_by?(Gem::Version.new(version))
+          version = version.strip if version.respond_to?(:strip)
+
+          unless version.is_a?(String) && !version.empty?
+            raise ArgumentError,
+              "Unsupported Aider CLI version #{version.inspect}; " \
+              "supported versions must satisfy #{SUPPORTED_CLI_REQUIREMENT}"
+          end
+
+          parsed_version = begin
+            Gem::Version.new(version)
+          rescue ArgumentError
+            raise ArgumentError,
+              "Unsupported Aider CLI version #{version.inspect}; " \
+              "supported versions must satisfy #{SUPPORTED_CLI_REQUIREMENT}"
+          end
+
+          unless SUPPORTED_CLI_REQUIREMENT.satisfied_by?(parsed_version)
             raise ArgumentError,
               "Unsupported Aider CLI version #{version.inspect}; " \
               "supported versions must satisfy #{SUPPORTED_CLI_REQUIREMENT}"

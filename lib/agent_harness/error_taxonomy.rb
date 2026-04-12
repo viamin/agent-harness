@@ -122,17 +122,17 @@ module AgentHarness
         case message
         when /idle.?timeout/i
           :idle_timeout
-        when /rate.?limit|too many requests|429/i
+        when /rate.?limit|too many requests|\b429\b/i
           :rate_limited
         when /quota|usage.?limit|billing/i
           :quota_exceeded
-        when /auth|unauthorized|forbidden|invalid.*(key|token)|401|403/i
+        when /auth|unauthorized|forbidden|invalid.*(key|token)|\b401\b|\b403\b/i
           :auth_expired
         when /timeout|timed.?out/i
           :timeout
-        when /temporary|retry|503|502|500/i
+        when /temporary|retry|\b503\b|\b502\b|\b500\b/i
           :transient
-        when /invalid|malformed|bad.?request|400/i
+        when /invalid|malformed|bad.?request|\b400\b/i
           :permanent
         else
           :unknown

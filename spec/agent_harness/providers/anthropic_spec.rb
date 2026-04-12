@@ -122,6 +122,39 @@ RSpec.describe AgentHarness::Providers::Anthropic do
       expect { described_class.install_contract(version: "$(whoami)") }
         .to raise_error(ArgumentError, /Invalid version/)
     end
+
+    it "rejects empty version" do
+      expect { described_class.install_contract(version: "") }
+        .to raise_error(ArgumentError, /Invalid version/)
+    end
+
+    it "rejects whitespace-only version" do
+      expect { described_class.install_contract(version: "   ") }
+        .to raise_error(ArgumentError, /Invalid version/)
+    end
+
+    it "rejects non-String version types with ArgumentError instead of NoMethodError" do
+      expect { described_class.install_contract(version: :latest) }
+        .to raise_error(ArgumentError, /Invalid version/)
+
+      expect { described_class.install_contract(version: 123) }
+        .to raise_error(ArgumentError, /Invalid version/)
+    end
+
+    it "normalizes padded version strings in the install command" do
+      contract = described_class.install_contract(version: " 2.1.95 ")
+
+      expect(contract.dig(:install, :command)).to include("bash \"$tmp_script\" 2.1.95")
+      expect(contract.dig(:install, :command)).not_to include(" 2.1.95 ")
+    end
+
+    it "normalizes padded channel tokens and emits the channel warning" do
+      contract = described_class.install_contract(version: " latest ")
+
+      expect(contract.dig(:install, :command)).to include("bash \"$tmp_script\" latest")
+      expect(contract.dig(:install, :warning)).to include("Channel 'latest' is not pinned")
+      expect(contract.dig(:install, :version_not_pinned)).to be true
+    end
   end
 
   describe ".firewall_requirements" do
@@ -409,6 +442,44 @@ RSpec.describe AgentHarness::Providers::Anthropic do
       it "includes permanent patterns" do
         patterns = provider.error_patterns
         expect(patterns[:permanent]).not_to be_empty
+      end
+
+      it "does not misclassify embedded numeric substrings as HTTP status codes" do
+        patterns = provider.error_patterns
+        expect(
+          AgentHarness::ErrorTaxonomy.classify(
+            StandardError.new("request id 4294967295 failed"),
+            patterns
+          )
+        ).to eq(:unknown)
+
+        expect(
+          AgentHarness::ErrorTaxonomy.classify(
+            StandardError.new("trace code 40123 emitted"),
+            patterns
+          )
+        ).to eq(:unknown)
+
+        expect(
+          AgentHarness::ErrorTaxonomy.classify(
+            StandardError.new("build 50321 aborted"),
+            patterns
+          )
+        ).to eq(:unknown)
+
+        expect(
+          AgentHarness::ErrorTaxonomy.classify(
+            StandardError.new("job 1502 failed"),
+            patterns
+          )
+        ).to eq(:unknown)
+
+        expect(
+          AgentHarness::ErrorTaxonomy.classify(
+            StandardError.new("task 50401 completed"),
+            patterns
+          )
+        ).to eq(:unknown)
       end
     end
 

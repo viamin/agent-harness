@@ -101,11 +101,13 @@ module AgentHarness
           raise ArgumentError, unsupported_version_message(version) unless version.is_a?(String) && !version.strip.empty?
 
           normalized_version = version.strip
-          parsed_version = Gem::Version.new(normalized_version)
+          parsed_version = begin
+            Gem::Version.new(normalized_version)
+          rescue ArgumentError
+            raise ArgumentError, unsupported_version_message(version)
+          end
           return normalized_version if SUPPORTED_CLI_REQUIREMENT.satisfied_by?(parsed_version)
 
-          raise ArgumentError, unsupported_version_message(version)
-        rescue ArgumentError
           raise ArgumentError, unsupported_version_message(version)
         end
 

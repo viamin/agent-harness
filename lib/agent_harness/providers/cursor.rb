@@ -228,7 +228,7 @@ module AgentHarness
           rate_limited: [
             /rate.?limit/i,
             /too.?many.?requests/i,
-            /429/
+            /\b429\b/
           ],
           auth_expired: [
             /authentication.*error/i,

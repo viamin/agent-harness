@@ -41,6 +41,7 @@ module AgentHarness
         end
 
         def installation_contract(version: DEFAULT_VERSION)
+          version = version.strip if version.respond_to?(:strip)
           validate_install_version!(version)
           package_spec = "#{PACKAGE_NAME}@#{version}"
 
@@ -67,8 +68,22 @@ module AgentHarness
         private
 
         def validate_install_version!(version)
+          unless version.is_a?(String) && !version.strip.empty?
+            raise ArgumentError,
+              "Unsupported Kilocode CLI version #{version.inspect}; " \
+              "supported versions must satisfy #{SUPPORTED_VERSION_REQUIREMENT}"
+          end
+
+          parsed_version = begin
+            Gem::Version.new(version)
+          rescue ArgumentError
+            raise ArgumentError,
+              "Unsupported Kilocode CLI version #{version.inspect}; " \
+              "supported versions must satisfy #{SUPPORTED_VERSION_REQUIREMENT}"
+          end
+
           requirement = Gem::Requirement.new(SUPPORTED_VERSION_REQUIREMENT)
-          return if requirement.satisfied_by?(Gem::Version.new(version))
+          return if requirement.satisfied_by?(parsed_version)
 
           raise ArgumentError,
             "Unsupported Kilocode CLI version #{version.inspect}; " \

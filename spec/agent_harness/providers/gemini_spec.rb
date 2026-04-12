@@ -52,6 +52,27 @@ RSpec.describe AgentHarness::Providers::Gemini do
         ArgumentError, /Unsupported Gemini CLI version "not-a-version"/
       )
     end
+
+    it "rejects nil version" do
+      expect {
+        described_class.install_contract(version: nil)
+      }.to raise_error(ArgumentError, /Unsupported Gemini CLI version/)
+    end
+
+    it "rejects empty version" do
+      expect {
+        described_class.install_contract(version: "")
+      }.to raise_error(ArgumentError, /Unsupported Gemini CLI version/)
+    end
+
+    it "normalizes padded version strings in the install command and contract" do
+      contract = described_class.install_contract(version: " 0.35.3 ")
+
+      expect(contract[:resolved_version]).to eq("0.35.3")
+      expect(contract[:install_command]).to eq(
+        ["npm", "install", "-g", "--ignore-scripts", "@google/gemini-cli@0.35.3"]
+      )
+    end
   end
 
   describe ".available?" do
@@ -226,6 +247,23 @@ RSpec.describe AgentHarness::Providers::Gemini do
         patterns = provider.error_patterns
         expect(patterns[:auth_expired]).not_to be_empty
       end
+
+      it "does not misclassify embedded numeric substrings as HTTP status codes" do
+        patterns = provider.error_patterns
+        expect(
+          AgentHarness::ErrorTaxonomy.classify(
+            StandardError.new("request id 4294967295 failed"),
+            patterns
+          )
+        ).to eq(:unknown)
+
+        expect(
+          AgentHarness::ErrorTaxonomy.classify(
+            StandardError.new("build 50321 aborted"),
+            patterns
+          )
+        ).to eq(:unknown)
+      end
     end
 
     describe "#send_message" do
@@ -398,6 +436,7 @@ RSpec.describe AgentHarness::Providers::Gemini do
         it "returns invalid with expiry error" do
           status = provider.auth_status
           expect(status[:valid]).to be false
+          expect(status[:auth_method]).to eq(:oauth)
           expect(status[:error]).to include("expired")
           expect(status[:error]).to include("gemini auth login")
         end
@@ -410,6 +449,11 @@ RSpec.describe AgentHarness::Providers::Gemini do
           expect(status[:error]).to include("No Gemini credentials")
           expect(status[:error]).to include("GEMINI_API_KEY")
           expect(status[:error]).to include("GOOGLE_API_KEY")
+        end
+
+        it "includes auth_method key" do
+          status = provider.auth_status
+          expect(status).to have_key(:auth_method)
         end
       end
 
@@ -453,6 +497,11 @@ RSpec.describe AgentHarness::Providers::Gemini do
           status = provider.auth_status
           expect(status[:valid]).to be false
           expect(status[:error]).to include("Permission denied")
+        end
+
+        it "includes auth_method key" do
+          status = provider.auth_status
+          expect(status).to have_key(:auth_method)
         end
       end
 

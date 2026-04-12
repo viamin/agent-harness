@@ -63,7 +63,23 @@ module AgentHarness
         end
 
         def installation_contract(version: SUPPORTED_CLI_VERSION)
-          unless SUPPORTED_CLI_REQUIREMENT.satisfied_by?(Gem::Version.new(version))
+          version = version.strip if version.respond_to?(:strip)
+
+          unless version.is_a?(String) && !version.empty?
+            raise ArgumentError,
+              "Unsupported Codex CLI version #{version.inspect}; " \
+              "supported versions must satisfy #{SUPPORTED_CLI_REQUIREMENT}"
+          end
+
+          parsed_version = begin
+            Gem::Version.new(version)
+          rescue ArgumentError
+            raise ArgumentError,
+              "Unsupported Codex CLI version #{version.inspect}; " \
+              "supported versions must satisfy #{SUPPORTED_CLI_REQUIREMENT}"
+          end
+
+          unless SUPPORTED_CLI_REQUIREMENT.satisfied_by?(parsed_version)
             raise ArgumentError,
               "Unsupported Codex CLI version #{version.inspect}; " \
               "supported versions must satisfy #{SUPPORTED_CLI_REQUIREMENT}"
@@ -156,7 +172,7 @@ module AgentHarness
 
       def error_patterns
         COMMON_ERROR_PATTERNS.merge(
-          auth_expired: COMMON_ERROR_PATTERNS[:auth_expired] + [/401/, /incorrect.*api.*key/i],
+          auth_expired: COMMON_ERROR_PATTERNS[:auth_expired] + [/\b401\b/, /incorrect.*api.*key/i],
           transient: COMMON_ERROR_PATTERNS[:transient] + [/connection.*reset/i],
           sandbox_failure: [
             /bwrap.*no permissions/i,
@@ -172,7 +188,7 @@ module AgentHarness
           if api_key.strip.start_with?("sk-")
             return {valid: true, expires_at: nil, error: nil, auth_method: :api_key}
           else
-            return {valid: false, expires_at: nil, error: "OPENAI_API_KEY is set but does not appear to be a valid OpenAI API key"}
+            return {valid: false, expires_at: nil, error: "OPENAI_API_KEY is set but does not appear to be a valid OpenAI API key", auth_method: nil}
           end
         end
 
@@ -183,14 +199,14 @@ module AgentHarness
             if key.strip.start_with?("sk-")
               return {valid: true, expires_at: nil, error: nil, auth_method: :config_file}
             else
-              return {valid: false, expires_at: nil, error: "Config file API key is set but does not appear to be a valid OpenAI API key"}
+              return {valid: false, expires_at: nil, error: "Config file API key is set but does not appear to be a valid OpenAI API key", auth_method: nil}
             end
           end
         end
 
-        {valid: false, expires_at: nil, error: "No OpenAI API key found. Set OPENAI_API_KEY or configure in #{codex_config_path}"}
+        {valid: false, expires_at: nil, error: "No OpenAI API key found. Set OPENAI_API_KEY or configure in #{codex_config_path}", auth_method: nil}
       rescue IOError, JSON::ParserError => e
-        {valid: false, expires_at: nil, error: e.message}
+        {valid: false, expires_at: nil, error: e.message, auth_method: nil}
       end
 
       def health_status

@@ -33,7 +33,8 @@ module AgentHarness
         end
 
         def install_contract(version: nil)
-          target_version = version || SUPPORTED_CLI_VERSION
+          target_version = version.nil? ? SUPPORTED_CLI_VERSION : version
+          target_version = target_version.strip if target_version.respond_to?(:strip)
           validate_version!(target_version)
           version_requirement = SUPPORTED_CLI_REQUIREMENT.requirements
             .map { |op, ver| "#{op} #{ver}" }
@@ -163,18 +164,26 @@ module AgentHarness
         private
 
         def validate_version!(version)
-          version_str = version.to_s
+          unless version.is_a?(String) && !version.strip.empty?
+            raise ArgumentError, "Invalid version: #{version.inspect}. " \
+              "Must be a semver string (e.g. '2.1.92'), optional pre-release suffix, or a channel token ('latest', 'stable')."
+          end
+
+          version_str = version.strip
 
           unless VALID_VERSION_PATTERN.match?(version_str)
             raise ArgumentError, "Invalid version: #{version.inspect}. " \
               "Must be a semver string (e.g. '2.1.92'), optional pre-release suffix, or a channel token ('latest', 'stable')."
           end
 
-          # Channel tokens are not concrete versions; skip requirement check.
           return if %w[latest stable].include?(version_str)
 
-          # Validate concrete versions against the supported range.
-          gem_version = Gem::Version.new(version_str)
+          gem_version = begin
+            Gem::Version.new(version_str)
+          rescue ArgumentError
+            raise ArgumentError, "Invalid version: #{version.inspect}. " \
+              "Must be a semver string (e.g. '2.1.92'), optional pre-release suffix, or a channel token ('latest', 'stable')."
+          end
           return if SUPPORTED_CLI_REQUIREMENT.satisfied_by?(gem_version)
 
           raise ArgumentError, "Version #{version.inspect} is outside the supported range " \
@@ -334,7 +343,7 @@ module AgentHarness
           rate_limited: [
             /rate.?limit/i,
             /too.?many.?requests/i,
-            /429/,
+            /\b429\b/,
             /overloaded/i,
             /session.?limit/i
           ],
@@ -343,7 +352,7 @@ module AgentHarness
             /authentication.*error/i,
             /invalid.*api.*key/i,
             /unauthorized/i,
-            /401/,
+            /\b401\b/,
             /session.*expired/i,
             /not.*logged.*in/i,
             /login.*required/i,
@@ -359,17 +368,17 @@ module AgentHarness
             /connection.*reset/i,
             /temporary.*error/i,
             /service.*unavailable/i,
-            /503/,
-            /502/,
-            /504/
+            /\b503\b/,
+            /\b502\b/,
+            /\b504\b/
           ],
           permanent: [
             /invalid.*model/i,
             /unsupported.*operation/i,
             /not.*found/i,
-            /404/,
+            /\b404\b/,
             /bad.*request/i,
-            /400/,
+            /\b400\b/,
             /model.*deprecated/i,
             /end-of-life/i
           ]
