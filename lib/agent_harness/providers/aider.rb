@@ -1,6 +1,5 @@
 # frozen_string_literal: true
 
-require "json"
 require "securerandom"
 
 module AgentHarness
@@ -196,11 +195,54 @@ module AgentHarness
       end
 
       def send_message(prompt:, **options)
-        @llm_history_path = generate_llm_history_path
-        super
+        log_debug("send_message_start", prompt_length: prompt.length, options: options.keys)
+
+        options = normalize_provider_runtime(options)
+        runtime = options[:provider_runtime]
+
+        options = normalize_mcp_servers(options)
+        validate_mcp_servers!(options[:mcp_servers]) if options[:mcp_servers]&.any?
+
+        llm_history_path = generate_llm_history_path
+        command = build_command(prompt, options.merge(llm_history_path: llm_history_path))
+        preparation = build_execution_preparation(options)
+        timeout = options[:timeout] || @config.timeout || default_timeout
+
+        start_time = Time.now
+        result = execute_with_timeout(
+          command,
+          timeout: timeout,
+          env: build_env(options),
+          preparation: preparation,
+          **command_execution_options(options)
+        )
+        duration = Time.now - start_time
+
+        response = parse_response(result, duration: duration, llm_history_path: llm_history_path)
+        if runtime&.model
+          response = Response.new(
+            output: response.output,
+            exit_code: response.exit_code,
+            duration: response.duration,
+            provider: response.provider,
+            model: runtime.model,
+            tokens: response.tokens,
+            metadata: response.metadata,
+            error: response.error
+          )
+        end
+
+        track_tokens(response) if response.tokens
+
+        log_debug("send_message_complete", duration: duration, tokens: response.tokens)
+
+        response
+      rescue McpConfigurationError, McpUnsupportedError, McpTransportUnsupportedError
+        raise
+      rescue => e
+        handle_error(e, prompt: prompt, options: options)
       ensure
-        cleanup_llm_history_file!
-        @llm_history_path = nil
+        cleanup_llm_history_file!(llm_history_path)
       end
 
       protected
@@ -210,8 +252,8 @@ module AgentHarness
 
         cmd << "--yes"
 
-        if @llm_history_path
-          cmd += ["--llm-history-file", @llm_history_path]
+        if options[:llm_history_path]
+          cmd += ["--llm-history-file", options[:llm_history_path]]
         end
 
         if @config.model && !@config.model.empty?
@@ -227,9 +269,9 @@ module AgentHarness
         cmd
       end
 
-      def parse_response(result, duration:)
-        response = super
-        tokens = parse_llm_history_tokens(@llm_history_path)
+      def parse_response(result, duration:, llm_history_path: nil)
+        response = super(result, duration: duration)
+        tokens = parse_token_usage(result, llm_history_path: llm_history_path)
 
         return response unless tokens
 
@@ -251,72 +293,50 @@ module AgentHarness
 
       private
 
+      TOKEN_USAGE_PATTERN =
+        /Tokens:\s*(?<input>[\d,]+)\s+sent(?:,\s*[\d,]+\s+cache\s+\w+)*,\s*(?<output>[\d,]+)\s+received\./i
+
       def generate_llm_history_path
         File.join(Dir.tmpdir, "aider_llm_history_#{Process.pid}_#{SecureRandom.hex(8)}")
       end
 
-      def parse_llm_history_tokens(path)
-        return nil unless path && File.exist?(path) && !File.zero?(path)
-
-        content = File.read(path)
-        return nil if content.strip.empty?
-
-        total_input = 0
-        total_output = 0
-        found_usage = false
-
-        content.each_line do |line|
-          line = line.strip
-          next if line.empty?
-
-          entry = begin
-            JSON.parse(line)
-          rescue JSON::ParserError
-            next
-          end
-
-          usage = extract_usage_from_entry(entry)
-          next unless usage
-
-          found_usage = true
-          total_input += usage[:input]
-          total_output += usage[:output]
-        end
-
-        return nil unless found_usage
-
-        {input: total_input, output: total_output, total: total_input + total_output}
+      def parse_token_usage(result, llm_history_path:)
+        # Aider 0.86.x writes --llm-history-file as conversation text, not JSONL.
+        # Prefer the request-local history file when it includes a token report,
+        # but fall back to captured command output because the usage summary is
+        # printed there during normal runs.
+        parse_token_usage_text(read_llm_history(llm_history_path)) ||
+          parse_token_usage_text([result.stdout, result.stderr].compact.join("\n"))
       rescue => e
         log_debug("llm_history_parse_error", error: e.message)
         nil
       end
 
-      def extract_usage_from_entry(entry)
-        usage = entry["usage"]
-        tokens = extract_token_counts(usage) if usage.is_a?(Hash)
-        return tokens if tokens
+      def read_llm_history(path)
+        return nil unless path && File.exist?(path) && !File.zero?(path)
 
-        response = entry["response"]
-        if response.is_a?(Hash)
-          usage = response["usage"]
-          return extract_token_counts(usage) if usage.is_a?(Hash)
-        end
+        content = File.read(path)
+        return nil if content.strip.empty?
 
-        nil
+        content
       end
 
-      def extract_token_counts(usage)
-        input = usage["prompt_tokens"] || usage["input_tokens"]
-        output = usage["completion_tokens"] || usage["output_tokens"]
-        return nil unless input || output
+      def parse_token_usage_text(content)
+        return nil if content.nil? || content.strip.empty?
 
-        {input: input.to_i, output: output.to_i}
+        match = content.to_enum(:scan, TOKEN_USAGE_PATTERN).map { Regexp.last_match }.last
+        return nil unless match
+
+        input = match[:input].delete(",").to_i
+        output = match[:output].delete(",").to_i
+
+        {input: input, output: output, total: input + output}
       end
 
-      def cleanup_llm_history_file!
-        return unless @llm_history_path
+      def cleanup_llm_history_file!(path)
+        return unless path
 
-        File.delete(@llm_history_path) if File.exist?(@llm_history_path)
+        File.delete(path) if File.exist?(path)
       rescue => e
         log_debug("llm_history_cleanup_error", error: e.message)
         nil

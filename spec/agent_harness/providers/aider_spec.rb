@@ -242,16 +242,12 @@ RSpec.describe AgentHarness::Providers::Aider do
       end
 
       it "includes --llm-history-file when llm_history_path is set" do
-        provider.instance_variable_set(:@llm_history_path, "/tmp/test_history.jsonl")
-        command = provider.send(:build_command, "hello", {})
+        command = provider.send(:build_command, "hello", llm_history_path: "/tmp/test_history.log")
 
-        expect(command).to include("--llm-history-file", "/tmp/test_history.jsonl")
-      ensure
-        provider.instance_variable_set(:@llm_history_path, nil)
+        expect(command).to include("--llm-history-file", "/tmp/test_history.log")
       end
 
       it "does not include --llm-history-file when llm_history_path is nil" do
-        provider.instance_variable_set(:@llm_history_path, nil)
         command = provider.send(:build_command, "hello", {})
 
         expect(command).not_to include("--llm-history-file")
@@ -308,13 +304,17 @@ RSpec.describe AgentHarness::Providers::Aider do
         expect(File.exist?(history_path)).to be false
       end
 
-      it "extracts OpenAI-format tokens from the history file" do
+      it "extracts tokens from plain-text usage reports in the history file" do
         allow(mock_executor).to receive(:execute) do |cmd, **kwargs|
           history_path = cmd[cmd.index("--llm-history-file") + 1]
-          File.write(history_path, <<~JSONL)
-            {"role":"user","content":"hello"}
-            {"role":"assistant","content":"world","usage":{"prompt_tokens":10,"completion_tokens":20,"total_tokens":30}}
-          JSONL
+          File.write(history_path, <<~TEXT)
+            TO LLM 2026-04-12T00:00:00
+            -------
+            USER hello
+            LLM RESPONSE 2026-04-12T00:00:01
+            ASSISTANT world
+            Tokens: 10 sent, 20 received.
+          TEXT
           result
         end
 
@@ -322,32 +322,37 @@ RSpec.describe AgentHarness::Providers::Aider do
         expect(response.tokens).to eq({input: 10, output: 20, total: 30})
       end
 
-      it "extracts Anthropic-format tokens from the history file" do
+      it "parses comma-delimited token counts from command output when history lacks usage" do
         allow(mock_executor).to receive(:execute) do |cmd, **kwargs|
           history_path = cmd[cmd.index("--llm-history-file") + 1]
-          File.write(history_path, <<~JSONL)
-            {"role":"user","content":"hello"}
-            {"role":"assistant","content":"world","usage":{"input_tokens":15,"output_tokens":25}}
-          JSONL
-          result
+          File.write(history_path, <<~TEXT)
+            TO LLM 2026-04-12T00:00:00
+            -------
+            USER hello
+          TEXT
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "response text\nTokens: 1,500 sent, 250 received.\n",
+            stderr: "",
+            exit_code: 0
+          )
         end
 
         response = provider.send_message(prompt: "hello")
-        expect(response.tokens).to eq({input: 15, output: 25, total: 40})
+        expect(response.tokens).to eq({input: 1500, output: 250, total: 1750})
       end
 
-      it "aggregates tokens across multiple responses" do
+      it "uses the last token report when multiple usage lines are present" do
         allow(mock_executor).to receive(:execute) do |cmd, **kwargs|
           history_path = cmd[cmd.index("--llm-history-file") + 1]
-          File.write(history_path, <<~JSONL)
-            {"role":"assistant","usage":{"prompt_tokens":10,"completion_tokens":5}}
-            {"role":"assistant","usage":{"prompt_tokens":20,"completion_tokens":10}}
-          JSONL
+          File.write(history_path, <<~TEXT)
+            Tokens: 10 sent, 5 received.
+            Tokens: 20 sent, 10 received.
+          TEXT
           result
         end
 
         response = provider.send_message(prompt: "hello")
-        expect(response.tokens).to eq({input: 30, output: 15, total: 45})
+        expect(response.tokens).to eq({input: 20, output: 10, total: 30})
       end
 
       it "returns nil tokens when history file is empty" do
@@ -364,10 +369,13 @@ RSpec.describe AgentHarness::Providers::Aider do
       it "returns nil tokens when history file has no usage data" do
         allow(mock_executor).to receive(:execute) do |cmd, **kwargs|
           history_path = cmd[cmd.index("--llm-history-file") + 1]
-          File.write(history_path, <<~JSONL)
-            {"role":"user","content":"hello"}
-            {"role":"assistant","content":"world"}
-          JSONL
+          File.write(history_path, <<~TEXT)
+            TO LLM 2026-04-12T00:00:00
+            -------
+            USER hello
+            LLM RESPONSE 2026-04-12T00:00:01
+            ASSISTANT world
+          TEXT
           result
         end
 
@@ -380,32 +388,65 @@ RSpec.describe AgentHarness::Providers::Aider do
         expect(response.tokens).to be_nil
       end
 
-      it "handles malformed JSON lines gracefully" do
+      it "parses token usage from stderr when stdout has none" do
         allow(mock_executor).to receive(:execute) do |cmd, **kwargs|
           history_path = cmd[cmd.index("--llm-history-file") + 1]
-          File.write(history_path, <<~JSONL)
-            not-json
-            {"role":"assistant","usage":{"prompt_tokens":10,"completion_tokens":20}}
-            {broken
-          JSONL
-          result
+          File.write(history_path, "")
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "response text",
+            stderr: "Tokens: 12 sent, 34 received.",
+            exit_code: 0
+          )
         end
 
         response = provider.send_message(prompt: "hello")
-        expect(response.tokens).to eq({input: 10, output: 20, total: 30})
+        expect(response.tokens).to eq({input: 12, output: 34, total: 46})
       end
 
-      it "extracts usage from nested response objects" do
+      it "keeps llm history paths request-local across concurrent calls" do
+        paths = Queue.new
+        mutex = Mutex.new
+        ready = ConditionVariable.new
+        started = 0
+
         allow(mock_executor).to receive(:execute) do |cmd, **kwargs|
           history_path = cmd[cmd.index("--llm-history-file") + 1]
-          File.write(history_path, <<~JSONL)
-            {"response":{"usage":{"input_tokens":5,"output_tokens":8}}}
-          JSONL
-          result
+          call_number = nil
+
+          mutex.synchronize do
+            started += 1
+            call_number = started
+            ready.wait(mutex) while started < 2
+            ready.broadcast
+          end
+
+          File.write(history_path, "Tokens: #{call_number}0 sent, #{call_number} received.\n")
+          paths << history_path
+          sleep(0.05) if call_number == 2
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "response #{call_number}",
+            stderr: "",
+            exit_code: 0
+          )
         end
 
-        response = provider.send_message(prompt: "hello")
-        expect(response.tokens).to eq({input: 5, output: 8, total: 13})
+        responses = Queue.new
+        threads = 2.times.map do
+          Thread.new do
+            responses << provider.send_message(prompt: "hello")
+          end
+        end
+        threads.each(&:join)
+
+        returned_paths = 2.times.map { paths.pop }
+        returned_tokens = 2.times.map { responses.pop.tokens }
+
+        expect(returned_paths.uniq.size).to eq(2)
+        expect(returned_tokens).to contain_exactly(
+          {input: 10, output: 1, total: 11},
+          {input: 20, output: 2, total: 22}
+        )
+        expect(returned_paths).to all(satisfy { |path| !File.exist?(path) })
       end
     end
 
@@ -420,31 +461,25 @@ RSpec.describe AgentHarness::Providers::Aider do
 
       it "augments the base response with tokens from the history file" do
         Dir.mktmpdir do |dir|
-          path = File.join(dir, "history.jsonl")
-          File.write(path, '{"usage":{"prompt_tokens":100,"completion_tokens":50}}')
-          provider.instance_variable_set(:@llm_history_path, path)
+          path = File.join(dir, "history.log")
+          File.write(path, "Tokens: 100 sent, 50 received.")
 
-          response = provider.send(:parse_response, result, duration: 1.0)
+          response = provider.send(:parse_response, result, duration: 1.0, llm_history_path: path)
           expect(response.output).to eq("response text")
           expect(response.exit_code).to eq(0)
           expect(response.tokens).to eq({input: 100, output: 50, total: 150})
         end
-      ensure
-        provider.instance_variable_set(:@llm_history_path, nil)
       end
 
       it "returns the base response unchanged when no tokens are found" do
         Dir.mktmpdir do |dir|
-          path = File.join(dir, "history.jsonl")
-          File.write(path, '{"role":"user","content":"hello"}')
-          provider.instance_variable_set(:@llm_history_path, path)
+          path = File.join(dir, "history.log")
+          File.write(path, "TO LLM 2026-04-12T00:00:00\nUSER hello")
 
-          response = provider.send(:parse_response, result, duration: 1.0)
+          response = provider.send(:parse_response, result, duration: 1.0, llm_history_path: path)
           expect(response.output).to eq("response text")
           expect(response.tokens).to be_nil
         end
-      ensure
-        provider.instance_variable_set(:@llm_history_path, nil)
       end
     end
   end
