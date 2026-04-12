@@ -869,6 +869,7 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
 
     it "returns success and schedules async cleanup when container cleanup times out after success" do
       cleanup_timeouts = Queue.new
+      now = 1000.0
 
       allow(executor).to receive(:apply_container_preparation) do |preparation, timeout:, deadline:, env:, cleanup_steps:|
         cleanup_steps << {command: ["cleanup"]}
@@ -892,6 +893,13 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
         cleanup_timeouts << timeout
         steps.clear
       end
+      allow(executor).to receive(:current_time).and_return(
+        now,
+        now,
+        now + 0.005,
+        now + 0.005,
+        now + 0.005
+      )
 
       result = executor.execute(
         ["echo", "hello"],
