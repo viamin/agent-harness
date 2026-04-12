@@ -518,6 +518,21 @@ RSpec.describe AgentHarness::Providers::Aider do
         expect(response.tokens).to eq({input: 12, output: 34, total: 46})
       end
 
+      it "parses stdout token usage even when stderr contains diagnostics" do
+        allow(mock_executor).to receive(:execute) do |cmd, **kwargs|
+          history_path = cmd[cmd.index("--llm-history-file") + 1]
+          File.write(history_path, "")
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "response text\n\nTokens: 12 sent, 34 received.\n",
+            stderr: "warning: model metadata unavailable\n",
+            exit_code: 0
+          )
+        end
+
+        response = provider.send_message(prompt: "hello")
+        expect(response.tokens).to eq({input: 12, output: 34, total: 46})
+      end
+
       it "ignores standalone output token lines without a footer separator" do
         allow(mock_executor).to receive(:execute) do |cmd, **kwargs|
           history_path = cmd[cmd.index("--llm-history-file") + 1]

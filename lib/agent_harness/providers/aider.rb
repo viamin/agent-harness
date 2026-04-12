@@ -314,7 +314,8 @@ module AgentHarness
         # but fall back to captured command output because the usage summary is
         # printed there during normal runs.
         parse_token_usage_text(read_llm_history(llm_history_path), source: :history) ||
-          parse_token_usage_text([result.stdout, result.stderr].compact.join("\n"), source: :output)
+          parse_token_usage_text(result.stdout, source: :output) ||
+          parse_token_usage_text(result.stderr, source: :output)
       rescue => e
         log_debug("llm_history_parse_error", error: e.message)
         nil
