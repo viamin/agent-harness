@@ -420,6 +420,10 @@ module AgentHarness
       end
 
       def extract_top_level_token_usage(obj)
+        return nil if obj.key?("role") && !assistant_role?(obj["role"])
+        return nil if obj["message"].is_a?(Hash) && obj["message"].key?("role") &&
+          !assistant_role?(obj["message"]["role"])
+
         usage = extract_payload_token_usage(
           obj["usage"],
           source: :usage,

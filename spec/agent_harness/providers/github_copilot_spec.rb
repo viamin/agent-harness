@@ -321,6 +321,30 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         expect(response.tokens).to be_nil
       end
 
+      it "ignores top-level token payloads on non-assistant role objects" do
+        jsonl = <<~JSONL
+          {"role":"user","usage":{"input_tokens":99,"output_tokens":1}}
+          {"role":"assistant","content":"ok"}
+        JSONL
+        result = make_result(stdout: jsonl)
+        response = provider.send(:parse_response, result, duration: 1.0)
+
+        expect(response.output).to eq("ok")
+        expect(response.tokens).to be_nil
+      end
+
+      it "ignores top-level token payloads on non-assistant nested message objects" do
+        jsonl = <<~JSONL
+          {"message":{"role":"system","content":"prompt"},"tokens":{"input_tokens":99,"output_tokens":1}}
+          {"message":{"role":"assistant","content":"ok"}}
+        JSONL
+        result = make_result(stdout: jsonl)
+        response = provider.send(:parse_response, result, duration: 1.0)
+
+        expect(response.output).to eq("ok")
+        expect(response.tokens).to be_nil
+      end
+
       it "falls back to assistant.message token fields when usage events are absent" do
         jsonl = '{"type":"assistant.message","data":{"content":"hi","inputTokens":10,"outputTokens":5}}'
         result = make_result(stdout: jsonl)
