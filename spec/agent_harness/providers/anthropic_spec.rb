@@ -390,6 +390,12 @@ RSpec.describe AgentHarness::Providers::Anthropic do
       end
     end
 
+    describe "#supports_token_counting?" do
+      it "returns true" do
+        expect(provider.supports_token_counting?).to be true
+      end
+    end
+
     describe "#dangerous_mode_flags" do
       it "returns the skip permissions flag" do
         expect(provider.dangerous_mode_flags).to include("--dangerously-skip-permissions")
