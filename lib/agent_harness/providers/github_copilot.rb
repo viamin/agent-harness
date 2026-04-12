@@ -297,13 +297,20 @@ module AgentHarness
           return [total_input, total_output]
         end
 
-        usage = obj["usage"] || obj["tokens"]
-        if usage.is_a?(Hash)
+        usage = extract_top_level_usage(obj)
+        if usage
           total_input += token_value(usage, "input_tokens", "inputTokens", "input")
           total_output += token_value(usage, "output_tokens", "outputTokens", "output")
         end
 
         [total_input, total_output]
+      end
+
+      def extract_top_level_usage(obj)
+        return obj["usage"] if obj["usage"].is_a?(Hash) && !obj["usage"].empty?
+        return obj["tokens"] if obj["tokens"].is_a?(Hash)
+
+        nil
       end
 
       def token_value(obj, *keys)

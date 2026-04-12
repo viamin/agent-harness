@@ -427,6 +427,14 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         expect(response.tokens).to eq({input: 2, output: 6, total: 8})
       end
 
+      it "falls back to top-level tokens when usage is present but empty" do
+        jsonl = '{"usage":{},"tokens":{"input_tokens":2,"output_tokens":6}}'
+        result = make_result(stdout: jsonl)
+        response = provider.send(:parse_response, result, duration: 1.0)
+
+        expect(response.tokens).to eq({input: 2, output: 6, total: 8})
+      end
+
       it "extracts tokens from top-level camelCase usage fields" do
         jsonl = '{"usage":{"inputTokens":9,"outputTokens":1}}'
         result = make_result(stdout: jsonl)
