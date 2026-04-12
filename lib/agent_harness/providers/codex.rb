@@ -23,8 +23,8 @@ module AgentHarness
       OAUTH_REFRESH_TRANSIENT_PATTERNS = [
         /your access token could not be refreshed because (?:the )?auth(?:entication)? service(?:\s+(?:is|was))?\s+unavailable/i,
         /your access token could not be refreshed because .*connection.*error/i,
-        /failed to refresh token:.*connection.*error/i,
-        /failed to refresh token\b.*service(?:\s+(?:is|was))?\s+unavailable/i
+        /failed to refresh token:.*connection.*error/im,
+        /failed to refresh token\b.*service(?:\s+(?:is|was))?\s+unavailable/im
       ].freeze
 
       class << self
@@ -191,7 +191,7 @@ module AgentHarness
           rate_limited: COMMON_ERROR_PATTERNS[:rate_limited],
           timeout: [
             /your access token could not be refreshed.*(?:timeout|timed.?out)/i,
-            /failed to refresh token\b.*(?:timeout|timed.?out)/i
+            /failed to refresh token\b.*(?:timeout|timed.?out)/im
           ],
           transient: COMMON_ERROR_PATTERNS[:transient] + [
             /connection.*reset/i
