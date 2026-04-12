@@ -510,6 +510,15 @@ RSpec.describe AgentHarness::Providers::Codex do
             patterns
           )
         ).to eq(:transient)
+
+        expect(
+          AgentHarness::ErrorTaxonomy.classify(
+            StandardError.new(
+              "Your access token could not be refreshed because the auth service was unavailable."
+            ),
+            patterns
+          )
+        ).to eq(:transient)
       end
 
       it "does not classify generic re-login prompts as refresh auth failures" do

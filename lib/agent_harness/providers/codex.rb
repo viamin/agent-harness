@@ -194,6 +194,8 @@ module AgentHarness
           quota_exceeded: COMMON_ERROR_PATTERNS[:quota_exceeded],
           transient: COMMON_ERROR_PATTERNS[:transient] + [
             /connection.*reset/i,
+            /your access token could not be refreshed because .*connection.*error/i,
+            /your access token could not be refreshed because .*service.*unavailable/i,
             /failed to refresh token:.*connection.*error/i,
             /failed to refresh token:.*service.*unavailable/i
           ],
