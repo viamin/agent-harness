@@ -131,6 +131,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
 
     describe "#execution_semantics" do
       it "returns the full provider contract" do
+        allow(provider).to receive(:copilot_cli_supports_json_output?).and_return(true)
         semantics = provider.execution_semantics
         expect(semantics[:prompt_delivery]).to eq(:arg)
         expect(semantics[:output_format]).to eq(:json)
@@ -140,6 +141,12 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         expect(semantics[:legitimate_exit_codes]).to eq([0])
         expect(semantics[:stderr_is_diagnostic]).to be true
         expect(semantics[:parses_rate_limit_reset]).to be false
+      end
+
+      it "reports legacy text output when the installed CLI lacks JSON mode" do
+        allow(provider).to receive(:copilot_cli_supports_json_output?).and_return(false)
+
+        expect(provider.execution_semantics[:output_format]).to eq(:text)
       end
     end
 
@@ -243,13 +250,37 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
       it "aggregates text from event envelope data.content" do
         jsonl = <<~JSONL
           {"type":"assistant","data":{"content":"Hello"}}
-          {"type":"assistant","data":{"content":" world"}}
+          {"type":"assistant.message","data":{"content":" world"}}
         JSONL
         result = make_result(stdout: jsonl)
         response = provider.send(:parse_response, result, duration: 1.0)
 
         expect(response.output).to eq("Hello world")
         expect(response.error).to be_nil
+      end
+
+      it "ignores envelope content from non-assistant reply events" do
+        jsonl = <<~JSONL
+          {"type":"assistant.reasoning","data":{"content":"scratchpad"}}
+          {"type":"user.message","data":{"content":"user prompt"}}
+          {"type":"system.message","data":{"content":"system prompt"}}
+          {"type":"assistant.message","data":{"content":"final answer"}}
+        JSONL
+        result = make_result(stdout: jsonl)
+        response = provider.send(:parse_response, result, duration: 1.0)
+
+        expect(response.output).to eq("final answer")
+      end
+
+      it "ignores non-string event content values" do
+        jsonl = <<~JSONL
+          {"type":"assistant.message","data":{"content":["not","text"]}}
+          {"type":"assistant.message","data":{"content":"ok"}}
+        JSONL
+        result = make_result(stdout: jsonl)
+        response = provider.send(:parse_response, result, duration: 1.0)
+
+        expect(response.output).to eq("ok")
       end
 
       it "extracts tokens from event envelope camelCase fields" do

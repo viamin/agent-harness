@@ -151,7 +151,7 @@ module AgentHarness
       def execution_semantics
         {
           prompt_delivery: :arg,
-          output_format: :json,
+          output_format: copilot_cli_supports_json_output? ? :json : :text,
           sandbox_aware: false,
           uses_subcommand: true,
           non_interactive_flag: nil,
@@ -253,25 +253,37 @@ module AgentHarness
         )
       end
 
+      ASSISTANT_OUTPUT_EVENT_TYPES = %w[assistant assistant.message].freeze
+      USAGE_EVENT_TYPES = %w[usage assistant.usage].freeze
+
       def extract_event_text(obj)
         return nil unless obj.is_a?(Hash)
 
         if obj["type"] && obj["data"].is_a?(Hash)
+          return nil unless ASSISTANT_OUTPUT_EVENT_TYPES.include?(obj["type"])
+
           data = obj["data"]
-          return data["content"] if data["content"]
-          return nil
+          return string_content(data["content"])
         end
 
-        return obj["output"] if obj["output"]
-        return obj["content"] if obj["content"]
-        if obj["message"].is_a?(Hash) && obj["message"]["content"]
-          return obj["message"]["content"]
+        output = string_content(obj["output"])
+        return output if output
+
+        content = string_content(obj["content"])
+        return content if content
+
+        if obj["message"].is_a?(Hash)
+          return string_content(obj["message"]["content"])
         end
 
         nil
       end
 
-      USAGE_EVENT_TYPES = %w[usage assistant.usage].freeze
+      def string_content(value)
+        return value if value.is_a?(String)
+
+        nil
+      end
 
       def accumulate_token_usage(obj, total_input, total_output)
         return [total_input, total_output] unless obj.is_a?(Hash)
@@ -284,16 +296,17 @@ module AgentHarness
             total_input += data["input_tokens"].to_i if data["input_tokens"]
             total_output += data["output_tokens"].to_i if data["output_tokens"]
           end
-        else
-          usage = obj["usage"] || obj["tokens"]
-          if usage
-            total_input += usage["input_tokens"].to_i if usage["input_tokens"]
-            total_output += usage["output_tokens"].to_i if usage["output_tokens"]
-            total_input += usage["inputTokens"].to_i if usage["inputTokens"]
-            total_output += usage["outputTokens"].to_i if usage["outputTokens"]
-            total_input += usage["input"].to_i if usage["input"]
-            total_output += usage["output"].to_i if usage["output"]
-          end
+          return [total_input, total_output]
+        end
+
+        usage = obj["usage"] || obj["tokens"]
+        if usage.is_a?(Hash)
+          total_input += usage["input_tokens"].to_i if usage["input_tokens"]
+          total_output += usage["output_tokens"].to_i if usage["output_tokens"]
+          total_input += usage["inputTokens"].to_i if usage["inputTokens"]
+          total_output += usage["outputTokens"].to_i if usage["outputTokens"]
+          total_input += usage["input"].to_i if usage["input"]
+          total_output += usage["output"].to_i if usage["output"]
         end
 
         [total_input, total_output]
