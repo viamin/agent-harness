@@ -165,7 +165,7 @@ module AgentHarness
 
           if event["type"] == "step_finish"
             part_tokens = event.dig("part", "tokens")
-            if part_tokens
+            if part_tokens.is_a?(Hash)
               accumulated_input += part_tokens["input"].to_i
               accumulated_output += part_tokens["output"].to_i
               has_step_tokens = true
