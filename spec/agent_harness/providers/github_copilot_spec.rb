@@ -58,7 +58,13 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
   end
 
   describe "instance" do
-    subject(:provider) { described_class.new }
+    let(:mock_executor) do
+      instance_double(AgentHarness::CommandExecutor)
+    end
+
+    let(:config) { AgentHarness::ProviderConfig.new(:github_copilot) }
+
+    subject(:provider) { described_class.new(config: config, executor: mock_executor) }
 
     describe "#name" do
       it "returns github_copilot" do
@@ -122,6 +128,12 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
       end
     end
 
+    describe "#supports_token_counting?" do
+      it "returns true" do
+        expect(provider.supports_token_counting?).to be true
+      end
+    end
+
     describe "#error_patterns" do
       it "includes auth patterns" do
         patterns = provider.error_patterns
@@ -133,10 +145,10 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
       it "returns the full provider contract" do
         semantics = provider.execution_semantics
         expect(semantics[:prompt_delivery]).to eq(:arg)
-        expect(semantics[:output_format]).to eq(:text)
+        expect(semantics[:output_format]).to eq(:json)
         expect(semantics[:sandbox_aware]).to be false
-        expect(semantics[:uses_subcommand]).to be true
-        expect(semantics[:non_interactive_flag]).to be_nil
+        expect(semantics[:uses_subcommand]).to be false
+        expect(semantics[:non_interactive_flag]).to eq("-p")
         expect(semantics[:legitimate_exit_codes]).to eq([0])
         expect(semantics[:stderr_is_diagnostic]).to be true
         expect(semantics[:parses_rate_limit_reset]).to be false
@@ -144,13 +156,15 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
     end
 
     describe "#build_command" do
-      it "places the subcommand and prompt before optional flags" do
+      it "uses prompt mode with JSON output format" do
         command = provider.send(:build_command, "Hello", {})
 
         expect(command).to eq([
           "github-copilot-cli",
-          "what-the-shell",
-          "Hello"
+          "-p",
+          "Hello",
+          "--output-format",
+          "json"
         ])
       end
 
@@ -159,19 +173,23 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
 
         expect(command).to eq([
           "github-copilot-cli",
-          "what-the-shell",
+          "-p",
           "Hello",
+          "--output-format",
+          "json",
           "--allow-all-tools"
         ])
       end
 
-      it "appends session resume flags after the prompt and any dangerous mode flags" do
+      it "appends session resume flags after dangerous mode flags" do
         command = provider.send(:build_command, "Hello", {session: "session-123"})
 
         expect(command).to eq([
           "github-copilot-cli",
-          "what-the-shell",
+          "-p",
           "Hello",
+          "--output-format",
+          "json",
           "--resume",
           "session-123"
         ])
@@ -182,12 +200,179 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
 
         expect(command).to eq([
           "github-copilot-cli",
-          "what-the-shell",
+          "-p",
           "Hello",
+          "--output-format",
+          "json",
           "--allow-all-tools",
           "--resume",
           "session-123"
         ])
+      end
+    end
+
+    describe "#send_message" do
+      it "sends prompt in non-interactive mode with JSON output" do
+        jsonl_output = [
+          {"text" => "response"},
+          {"usage" => {"input_tokens" => 10, "output_tokens" => 5}}
+        ].map { |o| JSON.generate(o) }.join("\n")
+
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: jsonl_output,
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        expect(mock_executor).to receive(:execute).with(
+          ["github-copilot-cli", "-p", "Hello", "--output-format", "json"],
+          anything
+        )
+
+        provider.send_message(prompt: "Hello")
+      end
+
+      context "with token usage parsing" do
+        it "extracts token usage from JSONL output with usage in separate line" do
+          jsonl_output = [
+            {"text" => "Hello! How can I help?"},
+            {"usage" => {"input_tokens" => 100, "output_tokens" => 50}}
+          ].map { |o| JSON.generate(o) }.join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq("Hello! How can I help?")
+          expect(response.tokens).to eq({input: 100, output: 50, total: 150})
+          expect(response.input_tokens).to eq(100)
+          expect(response.output_tokens).to eq(50)
+          expect(response.total_tokens).to eq(150)
+        end
+
+        it "extracts token usage from JSONL output with prompt_tokens format" do
+          jsonl_output = [
+            {"text" => "response"},
+            {"usage" => {"prompt_tokens" => 200, "completion_tokens" => 75}}
+          ].map { |o| JSON.generate(o) }.join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.tokens).to eq({input: 200, output: 75, total: 275})
+        end
+
+        it "extracts usage from nested message.usage" do
+          jsonl_output = [
+            {"text" => "response"},
+            {"message" => {"usage" => {"input_tokens" => 30, "output_tokens" => 15}}}
+          ].map { |o| JSON.generate(o) }.join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.tokens).to eq({input: 30, output: 15, total: 45})
+        end
+
+        it "handles non-JSON output gracefully" do
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: "plain text response",
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq("plain text response")
+          expect(response.tokens).to be_nil
+        end
+
+        it "handles JSONL without usage data" do
+          jsonl_output = [
+            {"text" => "Hello!"},
+            {"text" => " World!"}
+          ].map { |o| JSON.generate(o) }.join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq("Hello! World!")
+          expect(response.tokens).to be_nil
+        end
+
+        it "records tokens with the global token tracker" do
+          jsonl_output = [
+            {"text" => "Tracked response"},
+            {"usage" => {"input_tokens" => 50, "output_tokens" => 25}}
+          ].map { |o| JSON.generate(o) }.join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          tracker = AgentHarness.token_tracker
+          tracker.clear!
+
+          provider.send_message(prompt: "Hello")
+
+          summary = tracker.summary
+          expect(summary[:total_input_tokens]).to eq(50)
+          expect(summary[:total_output_tokens]).to eq(25)
+          expect(summary[:total_tokens]).to eq(75)
+        end
+      end
+
+      context "error handling" do
+        it "classifies error from combined output on failure" do
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: "",
+              stderr: "not authorized",
+              exit_code: 1,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.error).to include("not authorized")
+        end
       end
     end
   end

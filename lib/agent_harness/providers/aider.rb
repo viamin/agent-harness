@@ -1,10 +1,10 @@
 # frozen_string_literal: true
 
+require "json"
+require "tempfile"
+
 module AgentHarness
   module Providers
-    # Aider AI coding assistant provider
-    #
-    # Provides integration with the Aider CLI tool.
     class Aider < Base
       UV_VERSION = "0.8.17"
       SUPPORTED_CLI_VERSION = "0.86.2"
@@ -192,13 +192,29 @@ module AgentHarness
         ["--restore-chat-history", session_id]
       end
 
+      def supports_token_counting?
+        true
+      end
+
+      def send_message(prompt:, **options)
+        @aider_history_tempfile = Tempfile.new(["aider_llm_history_", ".json"])
+        @aider_history_tempfile.close
+        options = options.merge(_aider_history_file: @aider_history_tempfile.path)
+        super
+      ensure
+        cleanup_history_tempfile
+      end
+
       protected
 
       def build_command(prompt, options)
         cmd = [self.class.binary_name]
 
-        # Run in non-interactive mode
         cmd << "--yes"
+
+        if @aider_history_tempfile&.path
+          cmd += ["--llm-history-file", @aider_history_tempfile.path]
+        end
 
         if @config.model && !@config.model.empty?
           cmd += ["--model", @config.model]
@@ -213,8 +229,104 @@ module AgentHarness
         cmd
       end
 
+      def parse_response(result, duration:)
+        response = super
+
+        tokens = extract_tokens_from_history
+        return response unless tokens
+
+        Response.new(
+          output: response.output,
+          exit_code: response.exit_code,
+          duration: response.duration,
+          provider: response.provider,
+          model: response.model,
+          tokens: tokens,
+          metadata: response.metadata,
+          error: response.error
+        )
+      end
+
       def default_timeout
-        600 # Aider can take longer
+        600
+      end
+
+      private
+
+      def cleanup_history_tempfile
+        return unless @aider_history_tempfile
+
+        @aider_history_tempfile.close unless @aider_history_tempfile.closed?
+        @aider_history_tempfile.unlink
+      rescue => e
+        log_debug("cleanup_history_tempfile_failed", error: e.message)
+        nil
+      ensure
+        @aider_history_tempfile = nil
+      end
+
+      def extract_tokens_from_history
+        path = @aider_history_tempfile&.path
+        return nil unless path && File.exist?(path) && !File.zero?(path)
+
+        content = File.read(path)
+        return nil if content.nil? || content.strip.empty?
+
+        entries = parse_history_entries(content)
+        return nil unless entries&.any?
+
+        aggregate_token_counts(entries)
+      rescue => e
+        log_debug("extract_tokens_from_history_failed", error: e.message)
+        nil
+      end
+
+      def parse_history_entries(content)
+        parsed = JSON.parse(content)
+        case parsed
+        when Array
+          parsed
+        when Hash
+          [parsed]
+        end
+      rescue JSON::ParserError
+        content.lines.filter_map do |line|
+          JSON.parse(line)
+        rescue JSON::ParserError
+          nil
+        end
+      end
+
+      def aggregate_token_counts(entries)
+        total_input = 0
+        total_output = 0
+        found = false
+
+        entries.each do |entry|
+          usage = find_usage_in_entry(entry)
+          next unless usage
+
+          input = usage["prompt_tokens"] || usage["input_tokens"] || 0
+          output_tok = usage["completion_tokens"] || usage["output_tokens"] || 0
+          total_input += input
+          total_output += output_tok
+          found = true
+        end
+
+        return nil unless found
+        return nil if total_input.zero? && total_output.zero?
+
+        {input: total_input, output: total_output, total: total_input + total_output}
+      end
+
+      def find_usage_in_entry(entry)
+        usage = entry["usage"]
+        return usage if usage.is_a?(Hash)
+
+        usage = entry.dig("response", "usage")
+        return usage if usage.is_a?(Hash)
+
+        nil
       end
     end
   end

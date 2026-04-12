@@ -868,6 +868,13 @@ module AgentHarness
         []
       end
 
+      # Whether this provider can extract token usage from CLI output
+      #
+      # @return [Boolean] true if the provider returns token counts
+      def supports_token_counting?
+        false
+      end
+
       # Validate provider configuration
       #
       # @return [Hash] with :valid, :errors keys

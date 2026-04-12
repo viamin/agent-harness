@@ -1,22 +1,14 @@
 # frozen_string_literal: true
 
+require "json"
+
 module AgentHarness
   module Providers
-    # GitHub Copilot CLI provider
-    #
-    # Provides integration with the GitHub Copilot CLI tool.
     class GithubCopilot < Base
-      # Model name pattern for GitHub Copilot (uses OpenAI models)
       MODEL_PATTERN = /^gpt-[\d.o-]+(?:-turbo)?(?:-mini)?$/i
 
-      # Copilot-specific smoke test contract.  The `what-the-shell` subcommand
-      # translates natural language into shell commands, so the generic
-      # "Reply with exactly OK." prompt would produce something like
-      # `echo "OK"` rather than the literal text "OK".  We use a prompt that
-      # is meaningful for the shell-translation path and only require
-      # non-empty output (no exact match).
       SMOKE_TEST_CONTRACT = {
-        prompt: "list files in the current directory",
+        prompt: "Reply with exactly OK.",
         expected_output: nil,
         timeout: 30,
         require_output: true,
@@ -147,10 +139,10 @@ module AgentHarness
       def execution_semantics
         {
           prompt_delivery: :arg,
-          output_format: :text,
+          output_format: :json,
           sandbox_aware: false,
-          uses_subcommand: true,
-          non_interactive_flag: nil,
+          uses_subcommand: false,
+          non_interactive_flag: "-p",
           legitimate_exit_codes: [0],
           stderr_is_diagnostic: true,
           parses_rate_limit_reset: false
@@ -182,17 +174,21 @@ module AgentHarness
         }
       end
 
+      def supports_token_counting?
+        true
+      end
+
       protected
 
       def build_command(prompt, options)
-        cmd = [self.class.binary_name, "what-the-shell", prompt]
+        cmd = [self.class.binary_name, "-p", prompt]
 
-        # Opt in to unrestricted tool access explicitly to preserve a safe default.
+        cmd += ["--output-format", "json"]
+
         if supports_dangerous_mode? && options[:dangerous_mode]
           cmd += dangerous_mode_flags
         end
 
-        # Add session support if provided
         if options[:session] && !options[:session].empty?
           cmd += session_flags(options[:session])
         end
@@ -200,8 +196,84 @@ module AgentHarness
         cmd
       end
 
+      def parse_response(result, duration:)
+        output = result.stdout
+        error = nil
+        tokens = nil
+
+        if result.failed?
+          combined = [result.stdout, result.stderr].compact.join("\n")
+          error = combined unless combined.strip.empty?
+        end
+
+        parsed_lines = parse_jsonl_output(output)
+        if parsed_lines
+          output = extract_text_from_jsonl(parsed_lines) || output
+          tokens = extract_tokens_from_jsonl(parsed_lines)
+        end
+
+        Response.new(
+          output: output,
+          exit_code: result.exit_code,
+          duration: duration,
+          provider: self.class.provider_name,
+          model: @config.model,
+          tokens: tokens,
+          error: error
+        )
+      end
+
       def default_timeout
         300
+      end
+
+      private
+
+      def parse_jsonl_output(output)
+        return nil if output.nil? || output.strip.empty?
+
+        lines = output.strip.split("\n")
+        parsed = lines.filter_map do |line|
+          JSON.parse(line)
+        rescue JSON::ParserError
+          nil
+        end
+        parsed.empty? ? nil : parsed
+      end
+
+      def extract_text_from_jsonl(parsed_lines)
+        text_parts = parsed_lines.filter_map do |obj|
+          obj["text"] || obj["content"] || obj["result"]
+        end
+        text_parts.empty? ? nil : text_parts.join
+      end
+
+      def extract_tokens_from_jsonl(parsed_lines)
+        total_input = 0
+        total_output = 0
+        found = false
+
+        parsed_lines.each do |obj|
+          usage = find_usage(obj)
+          next unless usage
+
+          input = usage["input_tokens"] || usage["prompt_tokens"] || 0
+          output_tok = usage["output_tokens"] || usage["completion_tokens"] || 0
+          total_input += input
+          total_output += output_tok
+          found = true
+        end
+
+        return nil unless found
+        return nil if total_input.zero? && total_output.zero?
+
+        {input: total_input, output: total_output, total: total_input + total_output}
+      end
+
+      def find_usage(obj)
+        return obj["usage"] if obj["usage"].is_a?(Hash)
+        return obj.dig("message", "usage") if obj.dig("message", "usage").is_a?(Hash)
+        nil
       end
     end
   end

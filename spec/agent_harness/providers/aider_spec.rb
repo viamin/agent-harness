@@ -235,10 +235,234 @@ RSpec.describe AgentHarness::Providers::Aider do
     describe "#build_command" do
       it "uses the install contract binary name and non-interactive flag" do
         contract = described_class.installation_contract
+        allow(provider).to receive(:instance_variable_get).with(:@aider_history_tempfile).and_return(nil)
         command = provider.send(:build_command, "hello", {})
 
         expect(command.first).to eq(contract[:binary_name])
         expect(command).to include(provider.execution_semantics[:non_interactive_flag])
+      end
+    end
+
+    describe "#supports_token_counting?" do
+      it "returns true" do
+        expect(provider.supports_token_counting?).to be true
+      end
+    end
+  end
+
+  describe "instance with executor" do
+    let(:mock_executor) do
+      instance_double(AgentHarness::CommandExecutor)
+    end
+
+    let(:config) do
+      AgentHarness::ProviderConfig.new(:aider).tap do |c|
+        c.model = "gpt-4o"
+      end
+    end
+
+    subject(:provider) { described_class.new(config: config, executor: mock_executor) }
+
+    describe "#send_message" do
+      it "includes --llm-history-file in the command" do
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "response",
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        expect(mock_executor).to receive(:execute).with(
+          array_including("--llm-history-file"),
+          anything
+        )
+
+        provider.send_message(prompt: "Hello")
+      end
+
+      it "cleans up the history tempfile after execution" do
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "response",
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        provider.send_message(prompt: "Hello")
+        expect(provider.instance_variable_get(:@aider_history_tempfile)).to be_nil
+      end
+
+      it "cleans up the history tempfile even when execution fails" do
+        allow(mock_executor).to receive(:execute).and_raise(StandardError.new("something went wrong"))
+
+        expect {
+          provider.send_message(prompt: "Hello")
+        }.to raise_error(AgentHarness::ProviderError)
+
+        expect(provider.instance_variable_get(:@aider_history_tempfile)).to be_nil
+      end
+
+      context "with token usage from history file" do
+        it "extracts tokens from OpenAI-format history" do
+          allow(mock_executor).to receive(:execute) do |_cmd, _opts|
+            tempfile = provider.instance_variable_get(:@aider_history_tempfile)
+            history_path = tempfile.path if tempfile
+            if history_path
+              File.write(history_path, JSON.generate([
+                {"usage" => {"prompt_tokens" => 100, "completion_tokens" => 50, "total_tokens" => 150}}
+              ]))
+            end
+
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: "response text",
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          end
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.tokens).to eq({input: 100, output: 50, total: 150})
+          expect(response.output).to eq("response text")
+        end
+
+        it "extracts tokens from Anthropic-format history" do
+          allow(mock_executor).to receive(:execute) do |_cmd, _opts|
+            tempfile = provider.instance_variable_get(:@aider_history_tempfile)
+            path = tempfile.path if tempfile
+            if path
+              File.write(path, JSON.generate([
+                {"usage" => {"input_tokens" => 200, "output_tokens" => 75}}
+              ]))
+            end
+
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: "response text",
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          end
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.tokens).to eq({input: 200, output: 75, total: 275})
+        end
+
+        it "aggregates tokens from multiple history entries" do
+          allow(mock_executor).to receive(:execute) do |_cmd, _opts|
+            tempfile = provider.instance_variable_get(:@aider_history_tempfile)
+            path = tempfile.path if tempfile
+            if path
+              File.write(path, JSON.generate([
+                {"usage" => {"prompt_tokens" => 100, "completion_tokens" => 50}},
+                {"usage" => {"prompt_tokens" => 50, "completion_tokens" => 25}}
+              ]))
+            end
+
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: "response text",
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          end
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.tokens).to eq({input: 150, output: 75, total: 225})
+        end
+
+        it "extracts tokens from nested response.usage format" do
+          allow(mock_executor).to receive(:execute) do |_cmd, _opts|
+            tempfile = provider.instance_variable_get(:@aider_history_tempfile)
+            path = tempfile.path if tempfile
+            if path
+              File.write(path, JSON.generate([
+                {"response" => {"usage" => {"prompt_tokens" => 80, "completion_tokens" => 40}}}
+              ]))
+            end
+
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: "response text",
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          end
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.tokens).to eq({input: 80, output: 40, total: 120})
+        end
+
+        it "returns nil tokens when history file is empty" do
+          allow(mock_executor).to receive(:execute) do |_cmd, _opts|
+            tempfile = provider.instance_variable_get(:@aider_history_tempfile)
+            path = tempfile.path if tempfile
+            File.write(path, "") if path
+
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: "response text",
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          end
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.tokens).to be_nil
+        end
+
+        it "returns nil tokens when history file has no usage data" do
+          allow(mock_executor).to receive(:execute) do |_cmd, _opts|
+            tempfile = provider.instance_variable_get(:@aider_history_tempfile)
+            path = tempfile.path if tempfile
+            if path
+              File.write(path, JSON.generate([{"content" => "no usage here"}]))
+            end
+
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: "response text",
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          end
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.tokens).to be_nil
+        end
+
+        it "records tokens with the global token tracker" do
+          allow(mock_executor).to receive(:execute) do |_cmd, _opts|
+            tempfile = provider.instance_variable_get(:@aider_history_tempfile)
+            path = tempfile.path if tempfile
+            if path
+              File.write(path, JSON.generate([
+                {"usage" => {"prompt_tokens" => 50, "completion_tokens" => 25}}
+              ]))
+            end
+
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: "response text",
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          end
+
+          tracker = AgentHarness.token_tracker
+          tracker.clear!
+
+          provider.send_message(prompt: "Hello")
+
+          summary = tracker.summary
+          expect(summary[:total_input_tokens]).to eq(50)
+          expect(summary[:total_output_tokens]).to eq(25)
+          expect(summary[:total_tokens]).to eq(75)
+        end
       end
     end
   end

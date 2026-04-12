@@ -325,6 +325,10 @@ module AgentHarness
         :oauth
       end
 
+      def supports_token_counting?
+        true
+      end
+
       def execution_semantics
         {
           prompt_delivery: :arg,
