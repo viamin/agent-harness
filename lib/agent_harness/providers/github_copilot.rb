@@ -187,9 +187,8 @@ module AgentHarness
 
         cmd += ["--output-format", "json"] if supports_json_output_format?
 
-        if options[:dangerous_mode] && supports_dangerous_mode?
-          cmd += dangerous_mode_flags
-        end
+        # Copilot prompt mode is non-interactive, so tool approvals must be pre-authorized.
+        cmd += dangerous_mode_flags if supports_dangerous_mode?
 
         if options[:session] && !options[:session].empty?
           cmd += session_flags(options[:session])
