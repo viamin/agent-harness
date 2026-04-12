@@ -383,6 +383,10 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         jsonl = <<~JSONL
           {"type":"tool.execution_start","data":{"tool":"bash"}}
           {"type":"permission.requested","data":{"scope":"tools"}}
+          {"type":"user_input.requested","data":{"prompt":"confirm"}}
+          {"type":"elicitation.requested","data":{"fields":["path"]}}
+          {"type":"exit_plan_mode.requested","data":{"reason":"done"}}
+          {"type":"skill.started","data":{"name":"planner"}}
           {"type":"subagent.started","data":{"name":"planner"}}
           {"type":"external_tool.finished","data":{"name":"shell"}}
           {"type":"command.completed","data":{"argv":["ls"]}}

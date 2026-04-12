@@ -297,10 +297,14 @@ module AgentHarness
       COPILOT_EVENT_TYPE_PREFIXES = %w[
         assistant.
         user.
+        user_input.
         system.
         session.
         tool.
         permission.
+        elicitation.
+        exit_plan_mode.
+        skill.
         subagent.
         external_tool.
         command.
