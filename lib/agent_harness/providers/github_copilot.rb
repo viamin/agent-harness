@@ -189,17 +189,21 @@ module AgentHarness
         start_time = Time.now
         command = build_command(prompt, options)
         preparation = build_execution_preparation(options)
+        remaining_timeout = timeout - (Time.now - start_time)
+        raise TimeoutError, "Command timed out before execution started" if remaining_timeout <= 0
+
+        json_output_requested = command.include?("--output-format") && command.include?("json")
 
         result = execute_with_timeout(
           command,
-          timeout: timeout,
+          timeout: remaining_timeout,
           env: build_env(options),
           preparation: preparation,
           **command_execution_options(options)
         )
         duration = Time.now - start_time
 
-        response = parse_response(result, duration: duration)
+        response = parse_response(result, duration: duration, json_output_requested: json_output_requested)
         runtime = options[:provider_runtime]
         if runtime&.model
           response = Response.new(
@@ -249,12 +253,12 @@ module AgentHarness
         cmd
       end
 
-      def parse_response(result, duration:)
-        response = super
+      def parse_response(result, duration:, json_output_requested: false)
+        response = super(result, duration: duration)
         output = response.output
         tokens = nil
 
-        parsed_lines = parse_jsonl_output(output)
+        parsed_lines = json_output_requested ? parse_jsonl_output(output) : nil
         if parsed_lines
           output = extract_text_from_jsonl(parsed_lines) || output
           tokens = extract_tokens_from_jsonl(parsed_lines)
