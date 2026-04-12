@@ -1990,6 +1990,26 @@ RSpec.describe AgentHarness::Providers::Codex do
           expect(response.tokens).to eq({input: 110, output: 30, total: 140})
         end
 
+        it "aggregates consecutive turn.completed usage without intermediate deltas" do
+          jsonl_output = [
+            JSON.generate({"type" => "turn.completed", "result" => "Part 1", "usage" => {"input_tokens" => 50, "output_tokens" => 10}}),
+            JSON.generate({"type" => "turn.completed", "result" => "Part 2", "usage" => {"input_tokens" => 60, "output_tokens" => 20}})
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 2.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq("Part 2")
+          expect(response.tokens).to eq({input: 110, output: 30, total: 140})
+        end
+
         it "does not double-count mixed wrapped and turn.completed usage for the same turn" do
           jsonl_output = [
             JSON.generate({"type" => "message.delta", "delta" => {"text" => "partial"}}),

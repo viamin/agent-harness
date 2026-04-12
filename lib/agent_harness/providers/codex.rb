@@ -456,6 +456,11 @@ module AgentHarness
             completed_parts = extract_message_content_parts(item)
             current_turn_parts = completed_parts unless completed_parts.nil?
           when "turn.completed"
+            if turn_completed && pending_turn_usage_source == :turn_completed
+              commit_pending_turn.call
+              turn_completed = false
+            end
+
             usage = event["usage"]
             if usage.is_a?(Hash)
               input_tokens = parse_token_count(usage["input_tokens"])
