@@ -501,6 +501,21 @@ module AgentHarness
           when "turn.completed"
             turn_usage = build_token_usage(event["usage"])
             result = event["result"]
+            wrapped_completion_without_new_data =
+              pending_turn_usage_source == :wrapped &&
+              pending_turn_usage &&
+              turn_usage.nil? &&
+              !result.is_a?(String)
+
+            if wrapped_completion_without_new_data
+              wrapped_output_parts = pending_wrapped_output_parts || current_turn_parts
+              latest_completed_parts = wrapped_output_parts.dup
+              current_turn_parts = [] if current_turn_parts.equal?(wrapped_output_parts)
+              commit_pending_turn.call
+              turn_completed = true
+              current_turn_finalized_output = false
+              next
+            end
 
             # Wrapped streams can emit token_count before the matching top-level
             # turn.completed for the same turn; treat matching usage as a replacement.
