@@ -275,6 +275,19 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         expect(response.error).to be_nil
       end
 
+      it "prefers the final assistant.message over preceding delta chunks" do
+        jsonl = <<~JSONL
+          {"type":"assistant.message_delta","data":{"deltaContent":"Hel"}}
+          {"type":"assistant.message_delta","data":{"deltaContent":"lo"}}
+          {"type":"assistant.message","data":{"content":"Hello"}}
+        JSONL
+        result = make_result(stdout: jsonl)
+        response = provider.send(:parse_response, result, duration: 1.0)
+
+        expect(response.output).to eq("Hello")
+        expect(response.error).to be_nil
+      end
+
       it "preserves assistant.message_delta output when no final assistant.message is emitted" do
         jsonl = <<~JSONL
           {"type":"assistant.message_delta","data":{"deltaContent":"partial"}}

@@ -226,25 +226,39 @@ module AgentHarness
         usage_tokens = empty_token_totals
         fallback_tokens = empty_token_totals
         output_segments = []
+        pending_delta_segment = nil
         output.lines.each do |line|
           stripped_line = line.strip
           if stripped_line.empty?
+            flush_pending_delta!(output_segments, pending_delta_segment)
+            pending_delta_segment = nil
             output_segments << {kind: :raw, content: line, terminated: line.end_with?("\n")}
             next
           end
           begin
             obj = JSON.parse(stripped_line)
           rescue JSON::ParserError
+            flush_pending_delta!(output_segments, pending_delta_segment)
+            pending_delta_segment = nil
             output_segments << {kind: :raw, content: line, terminated: line.end_with?("\n")}
             next
           end
 
           structured_json_seen ||= obj.is_a?(Hash)
 
-          text = extract_event_text(obj)
+          text, text_kind = extract_event_text(obj)
           if text
-            output_segments << {kind: :assistant, content: text, terminated: line.end_with?("\n")}
+            if text_kind == :assistant_delta
+              pending_delta_segment ||= {kind: :assistant, content: +"", terminated: false}
+              pending_delta_segment[:content] << text
+              pending_delta_segment[:terminated] = line.end_with?("\n")
+            else
+              pending_delta_segment = nil
+              output_segments << {kind: :assistant, content: text, terminated: line.end_with?("\n")}
+            end
           elsif preserve_raw_json_line?(obj) || !obj.is_a?(Hash)
+            flush_pending_delta!(output_segments, pending_delta_segment)
+            pending_delta_segment = nil
             output_segments << {kind: :raw, content: line, terminated: line.end_with?("\n")}
           end
 
@@ -259,6 +273,7 @@ module AgentHarness
             accumulate_token_totals!(fallback_tokens, token_usage)
           end
         end
+        flush_pending_delta!(output_segments, pending_delta_segment)
 
         tokens = build_tokens(shutdown_tokens: shutdown_tokens, usage_tokens: usage_tokens, fallback_tokens: fallback_tokens)
         final_output = structured_json_seen ? render_output_segments(output_segments) : output
@@ -283,36 +298,38 @@ module AgentHarness
       USAGE_EVENT_TYPES = %w[usage assistant.usage].freeze
 
       def extract_event_text(obj)
-        return nil unless obj.is_a?(Hash)
+        return [nil, nil] unless obj.is_a?(Hash)
 
         if obj.key?("type")
-          return nil unless obj["data"].is_a?(Hash)
-          return nil unless ASSISTANT_OUTPUT_EVENT_TYPES.include?(obj["type"])
+          return [nil, nil] unless obj["data"].is_a?(Hash)
+          return [nil, nil] unless ASSISTANT_OUTPUT_EVENT_TYPES.include?(obj["type"])
 
           data = obj["data"]
           if obj["type"] == "assistant.message_delta"
             delta_content = string_content(data["deltaContent"])
-            return delta_content if delta_content
+            return [delta_content, :assistant_delta] if delta_content
           end
 
-          return string_content(data["content"])
+          return [string_content(data["content"]), :assistant] if data.key?("content")
+
+          return [nil, nil]
         end
 
-        return nil if obj.key?("role") && !assistant_role?(obj["role"])
+        return [nil, nil] if obj.key?("role") && !assistant_role?(obj["role"])
 
         output = string_content(obj["output"])
-        return output if output
+        return [output, :assistant] if output
 
         content = string_content(obj["content"])
-        return content if content
+        return [content, :assistant] if content
 
         if obj["message"].is_a?(Hash)
-          return nil if obj["message"].key?("role") && !assistant_role?(obj["message"]["role"])
+          return [nil, nil] if obj["message"].key?("role") && !assistant_role?(obj["message"]["role"])
 
-          return string_content(obj["message"]["content"])
+          return [string_content(obj["message"]["content"]), :assistant] if obj["message"].key?("content")
         end
 
-        nil
+        [nil, nil]
       end
 
       def string_content(value)
@@ -536,6 +553,12 @@ module AgentHarness
         end
 
         rendered
+      end
+
+      def flush_pending_delta!(segments, pending_delta_segment)
+        return unless pending_delta_segment
+
+        segments << pending_delta_segment
       end
 
       def copilot_cli_supports_json_output?
