@@ -322,7 +322,6 @@ module AgentHarness
         /\A(?:git|bundle|ruby|python\d*(?:\.\d+)?|uv|npm|yarn|pnpm|node|bash|sh|zsh|make|rake|rspec|rails|go|pytest|bin\/[\w.-]+|sed|rg|grep|find|ls|cat|cp|mv|rm|mkdir|touch|chmod|chown|docker|kubectl)\z/
       EXECUTOR_LLM_HISTORY_TIMEOUT = 10
       HistoryFileHandle = Struct.new(:path)
-
       def generate_llm_history_path
         return "/tmp/aider_llm_history_#{SecureRandom.hex(8)}.json" if sandboxed_environment?
 
@@ -599,7 +598,7 @@ module AgentHarness
         if sandboxed_environment?
           @aider_history_path = generate_llm_history_path
         else
-          path = generate_llm_history_path
+          path = reserve_local_llm_history_path
           @aider_history_tempfile = HistoryFileHandle.new(path)
           path
         end
@@ -667,6 +666,19 @@ module AgentHarness
       rescue => e
         log_debug("llm_history_cleanup_error", error: e.message)
         nil
+      end
+
+      def reserve_local_llm_history_path
+        loop do
+          path = generate_llm_history_path
+
+          begin
+            File.open(path, File::WRONLY | File::CREAT | File::EXCL, 0o600, &:close)
+            return path
+          rescue Errno::EEXIST
+            next
+          end
+        end
       end
     end
   end

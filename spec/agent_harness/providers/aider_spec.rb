@@ -1134,6 +1134,23 @@ RSpec.describe AgentHarness::Providers::Aider do
         provider.send_message(prompt: "Hello")
       end
 
+      it "creates the local history file before execution starts" do
+        allow(mock_executor).to receive(:execute) do |_cmd, _opts|
+          tempfile = provider.instance_variable_get(:@aider_history_tempfile)
+          expect(tempfile).not_to be_nil
+          expect(File.exist?(tempfile.path)).to be true
+
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "response",
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        end
+
+        provider.send_message(prompt: "Hello")
+      end
+
       it "cleans up the history tempfile after execution" do
         allow(mock_executor).to receive(:execute).and_return(
           AgentHarness::CommandExecutor::Result.new(
