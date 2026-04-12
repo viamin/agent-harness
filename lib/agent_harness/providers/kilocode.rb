@@ -171,6 +171,7 @@ module AgentHarness
         accumulated_extra_total = 0
         has_step_tokens = false
         result_usage = nil
+        result_text = nil
         saw_structured_event = false
 
         each_json_event(output) do |event|
@@ -182,6 +183,11 @@ module AgentHarness
           if event["type"] == "text"
             text = part["text"] if part.is_a?(Hash)
             text_parts << text if text.is_a?(String)
+          end
+
+          if event["type"] == "result"
+            result_payload = event["result"]
+            result_text = result_payload if result_payload.is_a?(String)
           end
 
           if event["type"] == "error"
@@ -216,7 +222,7 @@ module AgentHarness
         end
 
         if saw_structured_event
-          output = text_parts.empty? ? nil : text_parts.join
+          output = text_parts.empty? ? result_text : text_parts.join
           if result.failed? || structured_errors.any?
             error = build_structured_error(
               result,
