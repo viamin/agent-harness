@@ -314,6 +314,8 @@ module AgentHarness
           return string_content(data["content"])
         end
 
+        return nil if obj.key?("role") && !assistant_role?(obj["role"])
+
         output = string_content(obj["output"])
         return output if output
 
@@ -321,6 +323,8 @@ module AgentHarness
         return content if content
 
         if obj["message"].is_a?(Hash)
+          return nil if obj["message"].key?("role") && !assistant_role?(obj["message"]["role"])
+
           return string_content(obj["message"]["content"])
         end
 
@@ -336,12 +340,19 @@ module AgentHarness
       def preserve_raw_json_line?(obj)
         return false unless obj.is_a?(Hash)
         return false if obj.key?("type")
+        return false if obj.key?("role") && !assistant_role?(obj["role"])
+        return false if obj["message"].is_a?(Hash) && obj["message"].key?("role") &&
+          !assistant_role?(obj["message"]["role"])
         return false if extract_token_usage(obj)
         return false if string_content(obj["output"])
         return false if string_content(obj["content"])
         return false if obj["message"].is_a?(Hash) && string_content(obj["message"]["content"])
 
         true
+      end
+
+      def assistant_role?(role)
+        role == "assistant"
       end
 
       def extract_token_usage(obj)

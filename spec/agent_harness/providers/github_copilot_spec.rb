@@ -362,6 +362,28 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         expect(response.output).to eq("nested output")
       end
 
+      it "ignores top-level non-assistant role content objects" do
+        jsonl = <<~JSONL
+          {"role":"user","content":"user prompt"}
+          {"role":"assistant","content":"assistant reply"}
+        JSONL
+        result = make_result(stdout: jsonl)
+        response = provider.send(:parse_response, result, duration: 1.0)
+
+        expect(response.output).to eq("assistant reply")
+      end
+
+      it "ignores top-level non-assistant nested message content objects" do
+        jsonl = <<~JSONL
+          {"message":{"role":"system","content":"system prompt"}}
+          {"message":{"role":"assistant","content":"assistant reply"}}
+        JSONL
+        result = make_result(stdout: jsonl)
+        response = provider.send(:parse_response, result, duration: 1.0)
+
+        expect(response.output).to eq("assistant reply")
+      end
+
       it "falls back to raw stdout when no JSONL text is found" do
         result = make_result(stdout: "raw output here")
         response = provider.send(:parse_response, result, duration: 1.0)
