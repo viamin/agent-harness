@@ -957,6 +957,20 @@ RSpec.describe AgentHarness::Providers::Aider do
         expect(tokens).to be_nil
       end
 
+      it "ignores output token counters followed by status-like lines ending in a period" do
+        tokens = provider.send(
+          :parse_token_usage_text,
+          <<~TEXT
+            response text
+
+            Tokens: 42 sent, 8 received.
+            Done.
+          TEXT
+        )
+
+        expect(tokens).to be_nil
+      end
+
       it "parses history footer token counters after a blank-line separator" do
         tokens = provider.send(
           :parse_token_usage_text,

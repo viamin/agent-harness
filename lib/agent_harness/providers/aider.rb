@@ -310,7 +310,9 @@ module AgentHarness
       RUN_SHELL_COMMAND_PATTERN = /^\s*Run shell command\?.*$/i
       OUTPUT_STATUS_PATTERN =
         /^\s*(?:Applied edit to|Commit\b|Committing\b|You can use \/undo\b|Added .+ to the chat\.|Removed .+ from the chat\.|Use \/help\b|Create new file\?|Allow edits to\b|Edit the files\?|Run shell command\?).*$/i
-      OUTPUT_PATH_PATTERN = %r{^\s*[\w.-]*[/.][\w./-]*\s*$}
+      OUTPUT_PATH_PATTERN = /\A(?:\.\.?\/|\/|~\/)[\w.\-\/]+\z/
+      OUTPUT_DOTFILE_PATTERN = /\A\.[\w.-]+\z/
+      OUTPUT_FILENAME_PATTERN = /\A[\w.-]+\.[A-Za-z][\w.-]*\z/
       COMMON_SHELL_COMMAND_PATTERN =
         /\A(?:git|bundle|ruby|python\d*(?:\.\d+)?|uv|npm|yarn|pnpm|node|bash|sh|zsh|make|rake|rspec|rails|bin\/[\w.-]+|sed|rg|grep|find|ls|cat|cp|mv|rm|mkdir|touch|chmod|chown|docker|kubectl)\z/
       EXECUTOR_LLM_HISTORY_TIMEOUT = 10
@@ -428,9 +430,16 @@ module AgentHarness
             TOKEN_USAGE_PATTERN.match?(line) ||
             FOOTER_COST_PATTERN.match?(line) ||
             OUTPUT_STATUS_PATTERN.match?(line) ||
-            OUTPUT_PATH_PATTERN.match?(line) ||
+            output_path_footer_line?(stripped) ||
             output_command_footer_line?(line, line_index, shell_prompt_index)
         end
+      end
+
+      def output_path_footer_line?(line)
+        OUTPUT_PATH_PATTERN.match?(line) ||
+          OUTPUT_DOTFILE_PATTERN.match?(line) ||
+          OUTPUT_FILENAME_PATTERN.match?(line) ||
+          (line.include?("/") && line.match?(/\A[\w.\-\/]+\z/))
       end
 
       def output_command_footer_line?(line, line_index, shell_prompt_index)
