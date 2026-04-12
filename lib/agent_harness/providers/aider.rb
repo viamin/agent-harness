@@ -311,6 +311,8 @@ module AgentHarness
       OUTPUT_STATUS_PATTERN =
         /^\s*(?:Applied edit to|Commit\b|You can use \/undo\b|Added .+ to the chat\.|Removed .+ from the chat\.|Use \/help\b|Create new file\?|Allow edits to\b|Edit the files\?|Run shell command\?).*$/i
       OUTPUT_PATH_PATTERN = %r{^\s*[\w.-]*[/.][\w./-]*\s*$}
+      COMMON_SHELL_COMMAND_PATTERN =
+        /\A(?:git|bundle|ruby|python\d*(?:\.\d+)?|uv|npm|yarn|pnpm|node|bash|sh|zsh|make|rake|rspec|rails|bin\/[\w.-]+|sed|rg|grep|find|ls|cat|cp|mv|rm|mkdir|touch|chmod|chown|docker|kubectl)\z/
       EXECUTOR_LLM_HISTORY_TIMEOUT = 10
 
       def generate_llm_history_path
@@ -440,18 +442,25 @@ module AgentHarness
 
         tokens = stripped.sub(/\A[$>#]\s*/, "").split(/\s+/)
         return false if tokens.empty?
-        return false unless tokens.first.match?(/\A[\w.\/~:-]+\z/)
-        return command_token?(tokens.first) if tokens.length == 1
+        command = tokens.first
+        return false unless command.match?(/\A[\w.\/~:-]+\z/)
+        return command_token?(command) if tokens.length == 1
+        return false unless command_line_token?(command)
 
-        tokens[1..].all? do |token|
-          token.match?(%r{\A(?:&&|\|\|?|[<>]|>>|&>|2>|[~-]|["'$`(])}) ||
-            token.match?(%r{[/.=:]}) ||
-            (tokens.length == 2 && token.match?(/\A[\w-]+\z/))
-        end
+        tokens[1..].all? { |token| command_argument_token?(token) }
       end
 
       def command_token?(token)
         token.match?(/\A[a-z0-9_][\w.\/~:-]*\z/) && token.match?(/[a-z]/)
+      end
+
+      def command_line_token?(token)
+        command_token?(token) && COMMON_SHELL_COMMAND_PATTERN.match?(token)
+      end
+
+      def command_argument_token?(token)
+        token.match?(%r{\A(?:&&|\|\|?|[<>]|>>|&>|2>|[~-]|["'$`(])}) ||
+          token.match?(%r{\A[-\w@%+=:,./~^]+\z})
       end
 
       def parse_token_count(value)

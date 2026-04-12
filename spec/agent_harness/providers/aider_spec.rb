@@ -866,6 +866,22 @@ RSpec.describe AgentHarness::Providers::Aider do
         expect(tokens).to eq({input: 42, output: 8, total: 50})
       end
 
+      it "parses output footer token counters for multi-argument shell commands" do
+        tokens = provider.send(
+          :parse_token_usage_text,
+          <<~TEXT
+            response text
+
+            Tokens: 42 sent, 8 received.
+
+            bundle exec rspec
+            Run shell command?
+          TEXT
+        )
+
+        expect(tokens).to eq({input: 42, output: 8, total: 50})
+      end
+
       it "ignores capitalized status lines before a shell prompt" do
         tokens = provider.send(
           :parse_token_usage_text,
