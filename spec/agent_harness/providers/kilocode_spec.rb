@@ -1140,6 +1140,41 @@ RSpec.describe AgentHarness::Providers::Kilocode do
         expect(response.tokens).to eq({input: 120, output: 50, total: 170})
       end
 
+      it "clears stale total aliases and extra categories on a later full usage replacement" do
+        ndjson = [
+          {
+            "type" => "usage",
+            "usage" => {
+              "input_tokens" => 100,
+              "output_tokens" => 50,
+              "total" => 190,
+              "reasoning_tokens" => 20,
+              "cache_read_input_tokens" => 20
+            }
+          },
+          {
+            "type" => "result",
+            "usage" => {
+              "input_tokens" => 120,
+              "output_tokens" => 40,
+              "reasoning_tokens" => 10
+            }
+          }
+        ].map { |e| JSON.generate(e) }.join("\n")
+
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: ndjson,
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        response = provider.send_message(prompt: "Hello")
+        expect(response.tokens).to eq({input: 120, output: 40, total: 170})
+      end
+
       it "preserves earlier valid usage when a later usage hash is empty" do
         ndjson = [
           {"type" => "result", "usage" => {"input_tokens" => 50, "output_tokens" => 25}},
