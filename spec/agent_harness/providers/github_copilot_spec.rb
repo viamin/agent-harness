@@ -478,6 +478,14 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         expect(response.tokens).to be_nil
       end
 
+      it "ignores invalid usage-event token aliases when the sibling metric is valid" do
+        jsonl = '{"type":"usage","data":{"inputTokens":1.5,"outputTokens":6}}'
+        result = make_result(stdout: jsonl)
+        response = provider.send(:parse_response, result, duration: 1.0)
+
+        expect(response.tokens).to eq({input: 0, output: 6, total: 6})
+      end
+
       it "extracts tokens from top-level tokens key" do
         jsonl = '{"tokens":{"input_tokens":2,"output_tokens":6}}'
         result = make_result(stdout: jsonl)
@@ -550,6 +558,14 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         expect { response = provider.send(:parse_response, result, duration: 1.0) }.not_to raise_error
         expect(response.output).to eq("ok")
         expect(response.tokens).to be_nil
+      end
+
+      it "ignores invalid top-level token aliases when the sibling metric is valid" do
+        jsonl = '{"usage":{"input_tokens":"-2","output_tokens":6}}'
+        result = make_result(stdout: jsonl)
+        response = provider.send(:parse_response, result, duration: 1.0)
+
+        expect(response.tokens).to eq({input: 0, output: 6, total: 6})
       end
 
       it "handles nil stdout gracefully" do

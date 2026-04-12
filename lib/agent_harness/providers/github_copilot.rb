@@ -411,14 +411,14 @@ module AgentHarness
       def coerce_token_value(value)
         case value
         when Integer
-          [value, value >= 0]
+          return [value, true] if value >= 0
         when Float
-          [value.to_i, value.finite? && value >= 0 && value == value.to_i]
+          return [value.to_i, true] if value.finite? && value >= 0 && value == value.to_i
         when String
-          [value.to_i, /\A\+?\d+\z/.match?(value)]
-        else
-          [0, false]
+          return [value.to_i, true] if /\A\+?\d+\z/.match?(value)
         end
+
+        [0, false]
       end
     end
   end
