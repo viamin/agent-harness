@@ -49,7 +49,8 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
       allow(AgentHarness.configuration).to receive(:command_executor).and_return(metadata_executor)
       allow(metadata_executor).to receive(:execute).with(
         ["github-copilot-cli", "--version"],
-        timeout: 5
+        timeout: 5,
+        env: {}
       ).and_return(
         AgentHarness::CommandExecutor::Result.new(
           stdout: "github-copilot-cli 0.0.422",
@@ -116,7 +117,8 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
     before do
       allow(mock_executor).to receive(:execute).with(
         ["github-copilot-cli", "--version"],
-        timeout: 5
+        timeout: 5,
+        env: {}
       ).and_return(version_result)
     end
 
@@ -190,7 +192,8 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
       it "returns false when the installed CLI does not support JSON output" do
         allow(mock_executor).to receive(:execute).with(
           ["github-copilot-cli", "--version"],
-          timeout: 5
+          timeout: 5,
+          env: {}
         ).and_return(
           AgentHarness::CommandExecutor::Result.new(
             stdout: "github-copilot-cli 0.0.421",
@@ -206,7 +209,8 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
       it "returns false when the version probe fails" do
         allow(mock_executor).to receive(:execute).with(
           ["github-copilot-cli", "--version"],
-          timeout: 5
+          timeout: 5,
+          env: {}
         ).and_raise(StandardError, "temporary failure")
 
         expect(provider.supports_token_counting?).to be false
@@ -215,7 +219,8 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
       it "returns false when the version probe output is unparsable" do
         allow(mock_executor).to receive(:execute).with(
           ["github-copilot-cli", "--version"],
-          timeout: 5
+          timeout: 5,
+          env: {}
         ).and_return(
           AgentHarness::CommandExecutor::Result.new(
             stdout: "github-copilot-cli version unknown",
@@ -254,7 +259,8 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
       it "retries CLI version detection after transient failures" do
         allow(mock_executor).to receive(:execute).with(
           ["github-copilot-cli", "--version"],
-          timeout: 5
+          timeout: 5,
+          env: {}
         ).and_raise(StandardError, "temporary failure").once
 
         first_command = provider.send(:build_command, "Hello", {})
@@ -268,7 +274,8 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
 
         allow(mock_executor).to receive(:execute).with(
           ["github-copilot-cli", "--version"],
-          timeout: 5
+          timeout: 5,
+          env: {}
         ).and_return(version_result)
 
         second_command = provider.send(:build_command, "Hello", {})
@@ -298,7 +305,8 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
       it "omits --output-format json on older CLI versions" do
         allow(mock_executor).to receive(:execute).with(
           ["github-copilot-cli", "--version"],
-          timeout: 5
+          timeout: 5,
+          env: {}
         ).and_return(
           AgentHarness::CommandExecutor::Result.new(
             stdout: "github-copilot-cli 0.0.421",
@@ -324,14 +332,83 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
 
         expect(mock_executor).to have_received(:execute).with(
           ["github-copilot-cli", "--version"],
-          timeout: 5
+          timeout: 5,
+          env: {}
         ).once
+      end
+
+      it "probes the Copilot CLI version with the same runtime env as the request command" do
+        runtime = AgentHarness::ProviderRuntime.new(
+          env: {"PATH" => "/custom/copilot/bin"},
+          unset_env: ["GITHUB_COPILOT_TOKEN"]
+        )
+
+        allow(mock_executor).to receive(:execute).with(
+          ["github-copilot-cli", "--version"],
+          timeout: 5,
+          env: {"PATH" => "/custom/copilot/bin", "GITHUB_COPILOT_TOKEN" => nil}
+        ).and_return(version_result)
+
+        command = provider.send(:build_command, "Hello", {provider_runtime: runtime})
+
+        expect(command).to eq([
+          "github-copilot-cli",
+          "-p",
+          "Hello",
+          "--output-format",
+          "json",
+          "--allow-all-tools"
+        ])
+      end
+
+      it "caches CLI versions per effective runtime env" do
+        legacy_runtime = AgentHarness::ProviderRuntime.new(env: {"PATH" => "/legacy/copilot/bin"})
+        json_runtime = AgentHarness::ProviderRuntime.new(env: {"PATH" => "/json/copilot/bin"})
+
+        allow(mock_executor).to receive(:execute).with(
+          ["github-copilot-cli", "--version"],
+          timeout: 5,
+          env: {"PATH" => "/legacy/copilot/bin"}
+        ).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "github-copilot-cli 0.0.421",
+            stderr: "",
+            exit_code: 0,
+            duration: 0.1
+          )
+        )
+
+        allow(mock_executor).to receive(:execute).with(
+          ["github-copilot-cli", "--version"],
+          timeout: 5,
+          env: {"PATH" => "/json/copilot/bin"}
+        ).and_return(version_result)
+
+        legacy_command = provider.send(:build_command, "Hello", {provider_runtime: legacy_runtime})
+        json_command = provider.send(:build_command, "Hello", {provider_runtime: json_runtime})
+
+        expect(legacy_command).to eq([
+          "github-copilot-cli",
+          "-p",
+          "Hello",
+          "-s",
+          "--allow-all-tools"
+        ])
+        expect(json_command).to eq([
+          "github-copilot-cli",
+          "-p",
+          "Hello",
+          "--output-format",
+          "json",
+          "--allow-all-tools"
+        ])
       end
 
       it "retries CLI version detection after an unparsable probe result" do
         allow(mock_executor).to receive(:execute).with(
           ["github-copilot-cli", "--version"],
-          timeout: 5
+          timeout: 5,
+          env: {}
         ).and_return(
           AgentHarness::CommandExecutor::Result.new(
             stdout: "github-copilot-cli version unknown",
@@ -415,7 +492,8 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
 
         allow(mock_executor).to receive(:execute).with(
           ["github-copilot-cli", "--version"],
-          timeout: 5
+          timeout: 5,
+          env: {}
         ).and_return(version_result)
 
         allow(mock_executor).to receive(:execute).with(
@@ -438,10 +516,43 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         provider.send_message(prompt: "Hello")
       end
 
+      it "uses the same runtime env for the version probe and prompt command" do
+        runtime = AgentHarness::ProviderRuntime.new(
+          env: {"PATH" => "/custom/copilot/bin"},
+          unset_env: ["GITHUB_COPILOT_TOKEN"]
+        )
+        jsonl_output = [
+          {"text" => "response"},
+          {"usage" => {"input_tokens" => 10, "output_tokens" => 5}}
+        ].map { |o| JSON.generate(o) }.join("\n")
+        request_env = {"PATH" => "/custom/copilot/bin", "GITHUB_COPILOT_TOKEN" => nil}
+
+        allow(mock_executor).to receive(:execute).with(
+          ["github-copilot-cli", "--version"],
+          timeout: 5,
+          env: request_env
+        ).and_return(version_result)
+
+        expect(mock_executor).to receive(:execute).with(
+          ["github-copilot-cli", "-p", "Hello", "--output-format", "json", "--allow-all-tools"],
+          hash_including(env: request_env)
+        ).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: jsonl_output,
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        provider.send_message(prompt: "Hello", provider_runtime: runtime)
+      end
+
       it "uses the remaining request timeout budget for the prompt command and includes probe time in duration" do
         allow(mock_executor).to receive(:execute).with(
           ["github-copilot-cli", "--version"],
-          timeout: 2
+          timeout: 2,
+          env: {}
         ).and_return(version_result)
 
         allow(mock_executor).to receive(:execute).with(
@@ -471,7 +582,8 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
       it "times out before execution if the version probe exhausts the request budget" do
         allow(mock_executor).to receive(:execute).with(
           ["github-copilot-cli", "--version"],
-          timeout: 1
+          timeout: 1,
+          env: {}
         ).and_return(version_result)
 
         times = [
@@ -488,7 +600,8 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
       it "falls back to plain prompt mode when JSON output is unsupported" do
         allow(mock_executor).to receive(:execute).with(
           ["github-copilot-cli", "--version"],
-          timeout: 5
+          timeout: 5,
+          env: {}
         ).and_return(
           AgentHarness::CommandExecutor::Result.new(
             stdout: "github-copilot-cli 0.0.421",
@@ -518,7 +631,8 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
       it "does not decode plain-text fallback output that happens to be valid JSON" do
         allow(mock_executor).to receive(:execute).with(
           ["github-copilot-cli", "--version"],
-          timeout: 5
+          timeout: 5,
+          env: {}
         ).and_return(
           AgentHarness::CommandExecutor::Result.new(
             stdout: "github-copilot-cli 0.0.421",
@@ -554,7 +668,8 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
 
           allow(mock_executor).to receive(:execute).with(
             ["github-copilot-cli", "--version"],
-            timeout: 5
+            timeout: 5,
+            env: {}
           ).and_return(version_result)
 
           allow(mock_executor).to receive(:execute).with(
@@ -587,7 +702,8 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
 
           allow(mock_executor).to receive(:execute).with(
             ["github-copilot-cli", "--version"],
-            timeout: 5
+            timeout: 5,
+            env: {}
           ).and_return(version_result)
 
           allow(mock_executor).to receive(:execute).with(
@@ -618,7 +734,8 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
 
           allow(mock_executor).to receive(:execute).with(
             ["github-copilot-cli", "--version"],
-            timeout: 5
+            timeout: 5,
+            env: {}
           ).and_return(version_result)
 
           allow(mock_executor).to receive(:execute).with(
@@ -649,7 +766,8 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
 
           allow(mock_executor).to receive(:execute).with(
             ["github-copilot-cli", "--version"],
-            timeout: 5
+            timeout: 5,
+            env: {}
           ).and_return(version_result)
 
           allow(mock_executor).to receive(:execute).with(
@@ -676,7 +794,8 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
 
           allow(mock_executor).to receive(:execute).with(
             ["github-copilot-cli", "--version"],
-            timeout: 5
+            timeout: 5,
+            env: {}
           ).and_return(version_result)
 
           allow(mock_executor).to receive(:execute).with(
@@ -704,7 +823,8 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
 
           allow(mock_executor).to receive(:execute).with(
             ["github-copilot-cli", "--version"],
-            timeout: 5
+            timeout: 5,
+            env: {}
           ).and_return(version_result)
 
           allow(mock_executor).to receive(:execute).with(
@@ -733,7 +853,8 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
 
           allow(mock_executor).to receive(:execute).with(
             ["github-copilot-cli", "--version"],
-            timeout: 5
+            timeout: 5,
+            env: {}
           ).and_return(version_result)
 
           allow(mock_executor).to receive(:execute).with(
@@ -796,7 +917,8 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
 
           allow(mock_executor).to receive(:execute).with(
             ["github-copilot-cli", "--version"],
-            timeout: 5
+            timeout: 5,
+            env: {}
           ).and_return(version_result)
 
           allow(mock_executor).to receive(:execute).with(
@@ -824,7 +946,8 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
 
           allow(mock_executor).to receive(:execute).with(
             ["github-copilot-cli", "--version"],
-            timeout: 5
+            timeout: 5,
+            env: {}
           ).and_return(version_result)
 
           allow(mock_executor).to receive(:execute).with(
@@ -874,7 +997,8 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
 
           allow(mock_executor).to receive(:execute).with(
             ["github-copilot-cli", "--version"],
-            timeout: 5
+            timeout: 5,
+            env: {}
           ).and_return(version_result)
 
           allow(mock_executor).to receive(:execute).with(
@@ -944,7 +1068,8 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
       it "uses silent prompt mode on older CLIs so the exact OK contract still passes" do
         allow(mock_executor).to receive(:execute).with(
           ["github-copilot-cli", "--version"],
-          timeout: 5
+          timeout: 5,
+          env: {}
         ).and_return(
           AgentHarness::CommandExecutor::Result.new(
             stdout: "github-copilot-cli 0.0.421",

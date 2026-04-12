@@ -186,7 +186,8 @@ module AgentHarness
         validate_mcp_servers!(options[:mcp_servers]) if options[:mcp_servers]&.any?
 
         timeout = options[:timeout] || @config.timeout || default_timeout
-        options = options.merge(_version_probe_timeout: [timeout, 5].min)
+        env = build_env(options)
+        options = options.merge(_version_probe_timeout: [timeout, 5].min, _command_env: env)
 
         start_time = Time.now
         command = build_command(prompt, options)
@@ -199,7 +200,7 @@ module AgentHarness
         result = execute_with_timeout(
           command,
           timeout: remaining_timeout,
-          env: build_env(options),
+          env: env,
           preparation: preparation,
           **command_execution_options(options)
         )
@@ -235,8 +236,9 @@ module AgentHarness
 
       def build_command(prompt, options)
         cmd = [self.class.binary_name, "-p", prompt]
+        env = options.fetch(:_command_env) { build_env(options) }
 
-        if supports_json_output_format?(probe_timeout: options[:_version_probe_timeout])
+        if supports_json_output_format?(probe_timeout: options[:_version_probe_timeout], env: env)
           cmd += ["--output-format", "json"]
         else
           # Silent mode suppresses the model/stats decoration older CLIs print in
@@ -286,21 +288,27 @@ module AgentHarness
 
       private
 
-      def supports_json_output_format?(probe_timeout: nil)
-        version = copilot_cli_version(probe_timeout: probe_timeout)
+      def supports_json_output_format?(probe_timeout: nil, env: {})
+        version = copilot_cli_version(probe_timeout: probe_timeout, env: env)
         !version.nil? && version >= JSON_OUTPUT_MIN_VERSION
       end
 
-      def copilot_cli_version(probe_timeout: nil)
-        return @copilot_cli_version if instance_variable_defined?(:@copilot_cli_version)
+      def copilot_cli_version(probe_timeout: nil, env: {})
+        cache_key = version_probe_cache_key(env)
+        @copilot_cli_versions ||= {}
+        return @copilot_cli_versions[cache_key] if @copilot_cli_versions.key?(cache_key)
 
-        result = @executor.execute([self.class.binary_name, "--version"], timeout: probe_timeout || 5)
+        result = @executor.execute([self.class.binary_name, "--version"], timeout: probe_timeout || 5, env: env)
         version = extract_version(result)
-        @copilot_cli_version = version if version
+        @copilot_cli_versions[cache_key] = version if version
         version
       rescue => e
         log_debug("copilot_cli_version_check_failed", error: e.message)
         nil
+      end
+
+      def version_probe_cache_key(env)
+        env.to_a.sort_by(&:first)
       end
 
       def extract_version(result)
