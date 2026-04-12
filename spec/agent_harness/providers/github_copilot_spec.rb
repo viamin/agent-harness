@@ -109,14 +109,20 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
     end
 
     describe "#supports_dangerous_mode?" do
-      it "returns true" do
-        expect(provider.supports_dangerous_mode?).to be true
+      it "returns false because prompt mode already requires tool pre-approval" do
+        expect(provider.supports_dangerous_mode?).to be false
       end
     end
 
-    describe "#dangerous_mode_flags" do
+    describe "#programmatic_tool_approval_flags" do
       it "returns allow-all-tools flag" do
-        expect(provider.dangerous_mode_flags).to include("--allow-all-tools")
+        expect(provider.send(:programmatic_tool_approval_flags)).to include("--allow-all-tools")
+      end
+    end
+
+    describe "#capabilities" do
+      it "does not advertise dangerous_mode as an opt-in capability" do
+        expect(provider.capabilities[:dangerous_mode]).to be false
       end
     end
 
@@ -311,7 +317,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         ])
       end
 
-      it "includes session flags alongside --allow-all-tools in dangerous_mode" do
+      it "keeps the same command shape when dangerous_mode is passed" do
         command = provider.send(:build_command, "Hello", {session: "session-123", dangerous_mode: true})
 
         expect(command).to eq([
@@ -376,7 +382,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
       end
 
       context "with dangerous_mode" do
-        it "includes --allow-all-tools in the command" do
+        it "keeps the same command because prompt mode always requires tool approval" do
           jsonl_output = [
             {"text" => "response"},
             {"usage" => {"input_tokens" => 10, "output_tokens" => 5}}
