@@ -244,10 +244,14 @@ module AgentHarness
         output = result.stdout
         error = nil
         tokens = nil
+        legitimate = execution_semantics[:legitimate_exit_codes] || [0]
 
-        if result.failed?
-          combined = [result.stdout, result.stderr].compact.join("\n")
-          error = combined unless combined.to_s.strip.empty?
+        unless legitimate.include?(result.exit_code)
+          combined = [result.stderr, result.stdout]
+            .map { |stream| stream.to_s.strip }
+            .reject(&:empty?)
+            .join("\n")
+          error = combined unless combined.empty?
         end
 
         parsed = parse_jsonl_output(output)
@@ -263,6 +267,9 @@ module AgentHarness
           provider: self.class.provider_name,
           model: @config.model,
           tokens: tokens,
+          metadata: {
+            legitimate_exit_codes: legitimate
+          },
           error: error
         )
 
@@ -274,6 +281,9 @@ module AgentHarness
             provider: self.class.provider_name,
             model: @config.model,
             tokens: tokens,
+            metadata: {
+              legitimate_exit_codes: legitimate
+            },
             error: "Sandbox failure detected: #{result.stderr.strip}"
           )
         end

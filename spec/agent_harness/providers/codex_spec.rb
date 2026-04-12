@@ -328,6 +328,13 @@ RSpec.describe AgentHarness::Providers::Codex do
         expect(response.output).to eq("response output")
       end
 
+      it "preserves legitimate_exit_codes metadata on responses" do
+        allow(mock_executor).to receive(:execute).and_return(success_result)
+
+        response = provider.send_message(prompt: "Hello")
+        expect(response.metadata[:legitimate_exit_codes]).to eq([0])
+      end
+
       context "with dangerous_mode option" do
         it "includes --full-auto flag" do
           expect(mock_executor).to receive(:execute).with(
