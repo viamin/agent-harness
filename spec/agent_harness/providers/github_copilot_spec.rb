@@ -37,6 +37,44 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
     end
   end
 
+  describe ".provider_metadata" do
+    let(:metadata_executor) do
+      instance_double(
+        AgentHarness::CommandExecutor,
+        which: "/usr/bin/github-copilot-cli"
+      )
+    end
+
+    before do
+      allow(AgentHarness.configuration).to receive(:command_executor).and_return(metadata_executor)
+      allow(metadata_executor).to receive(:execute).with(
+        ["github-copilot-cli", "--version"],
+        timeout: 5
+      ).and_return(
+        AgentHarness::CommandExecutor::Result.new(
+          stdout: "github-copilot-cli 0.0.422",
+          stderr: "",
+          exit_code: 0,
+          duration: 0.1
+        )
+      )
+    end
+
+    it "publishes the runtime token-counting contract without advertising dangerous_mode" do
+      metadata = described_class.provider_metadata
+
+      expect(metadata[:runtime]).to include(
+        output_format: :json,
+        supports_token_counting: true,
+        supports_dangerous_mode: false
+      )
+      expect(metadata[:capabilities]).to include(
+        tool_use: true,
+        dangerous_mode: false
+      )
+    end
+  end
+
   describe ".smoke_test_contract" do
     it "returns a Copilot-specific contract that requires the exact OK response" do
       contract = described_class.smoke_test_contract
