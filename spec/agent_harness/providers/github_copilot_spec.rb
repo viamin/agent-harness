@@ -641,6 +641,14 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         expect(response.tokens).to eq({input: 0, output: 4, total: 4})
       end
 
+      it "falls back to secondary aliases when the preferred usage-event aliases are malformed" do
+        jsonl = '{"type":"usage","data":{"inputTokens":1.5,"input_tokens":9,"outputTokens":[],"output_tokens":8}}'
+        result = make_result(stdout: jsonl)
+        response = provider.send(:parse_response, result, duration: 1.0)
+
+        expect(response.tokens).to eq({input: 9, output: 8, total: 17})
+      end
+
       it "ignores malformed token values on usage events" do
         jsonl = <<~JSONL
           {"type":"usage","data":{"inputTokens":true,"outputTokens":[]}}
@@ -746,6 +754,14 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         response = provider.send(:parse_response, result, duration: 1.0)
 
         expect(response.tokens).to eq({input: 0, output: 7, total: 7})
+      end
+
+      it "falls back to secondary aliases when the preferred top-level usage aliases are malformed" do
+        jsonl = '{"usage":{"input_tokens":{},"inputTokens":9,"output_tokens":"-2","outputTokens":8}}'
+        result = make_result(stdout: jsonl)
+        response = provider.send(:parse_response, result, duration: 1.0)
+
+        expect(response.tokens).to eq({input: 9, output: 8, total: 17})
       end
 
       it "ignores malformed token values in top-level usage payloads" do

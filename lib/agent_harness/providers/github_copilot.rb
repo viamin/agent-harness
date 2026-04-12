@@ -459,10 +459,14 @@ module AgentHarness
       end
 
       def token_value(obj, *keys)
-        key = keys.find { |candidate| obj.key?(candidate) }
-        return [0, false] unless key
+        keys.each do |candidate|
+          next unless obj.key?(candidate)
 
-        coerce_token_value(obj[key])
+          value, valid = coerce_token_value(obj[candidate])
+          return [value, true] if valid
+        end
+
+        [0, false]
       end
 
       def build_tokens(shutdown_tokens_present:, shutdown_input:, shutdown_output:, usage_tokens_present:, usage_input:,
