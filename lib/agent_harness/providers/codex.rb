@@ -412,6 +412,7 @@ module AgentHarness
         pending_turn_usage = nil
         pending_turn_usage_source = nil
         turn_completed = false
+        current_turn_finalized_output = false
 
         commit_pending_turn = lambda do
           next unless pending_turn_usage
@@ -428,6 +429,7 @@ module AgentHarness
 
           commit_pending_turn.call
           turn_completed = false
+          current_turn_finalized_output = false
         end
 
         replace_current_turn_parts = lambda do |parts|
@@ -435,12 +437,14 @@ module AgentHarness
 
           current_turn_parts = parts
           saw_assistant_output = true
+          current_turn_finalized_output = true
         end
 
         finalize_current_turn = lambda do
           latest_completed_parts = current_turn_parts.dup
           current_turn_parts = []
           turn_completed = true
+          current_turn_finalized_output = false
         end
 
         finalize_pending_wrapped_turn = lambda do
@@ -450,6 +454,7 @@ module AgentHarness
           current_turn_parts = []
           commit_pending_turn.call
           turn_completed = false
+          current_turn_finalized_output = false
         end
 
         events.each do |event|
@@ -459,12 +464,14 @@ module AgentHarness
           when "message.delta"
             start_new_turn.call
             appended = append_delta_text(current_turn_parts, event["delta"])
+            current_turn_finalized_output = false if appended
             saw_assistant_output ||= appended
           when "agent_message_delta"
             next unless wrapped_assistant_payload?(event)
 
             start_new_turn.call
             appended = append_wrapped_delta_text(current_turn_parts, event)
+            current_turn_finalized_output = false if appended
             saw_assistant_output ||= appended
           when "agent_message"
             next unless wrapped_assistant_payload?(event)
@@ -480,10 +487,13 @@ module AgentHarness
             replace_current_turn_parts.call(extract_message_content_parts(item))
           when "turn.completed"
             turn_usage = build_token_usage(event["usage"])
+            result = event["result"]
 
             # Wrapped streams can emit token_count before the matching top-level
             # turn.completed for the same turn; treat matching usage as a replacement.
-            same_wrapped_turn = pending_turn_usage_source == :wrapped && same_turn_usage?(pending_turn_usage, turn_usage)
+            same_wrapped_turn = pending_turn_usage_source == :wrapped &&
+              same_turn_usage?(pending_turn_usage, turn_usage) &&
+              same_turn_output?(current_turn_parts, current_turn_finalized_output, result)
 
             finalize_pending_wrapped_turn.call unless same_wrapped_turn
 
@@ -499,10 +509,10 @@ module AgentHarness
               pending_turn_usage_source = :turn_completed
             end
 
-            result = event["result"]
             if result.is_a?(String)
               current_turn_parts = [result]
               saw_assistant_output = true
+              current_turn_finalized_output = true
             end
 
             finalize_current_turn.call
@@ -516,6 +526,7 @@ module AgentHarness
 
               start_new_turn.call
               appended = append_wrapped_delta_text(current_turn_parts, payload)
+              current_turn_finalized_output = false if appended
               saw_assistant_output ||= appended
             when "agent_message"
               next unless wrapped_assistant_payload?(payload)
@@ -829,6 +840,14 @@ module AgentHarness
         left[:input] == right[:input] &&
           left[:output] == right[:output] &&
           left[:total] == right[:total]
+      end
+
+      def same_turn_output?(current_turn_parts, current_turn_finalized_output, result)
+        return true unless result.is_a?(String)
+        return true if current_turn_parts.empty?
+        return true unless current_turn_finalized_output
+
+        current_turn_parts.join == result
       end
 
       def parse_token_count(value)
