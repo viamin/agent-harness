@@ -542,6 +542,26 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         expect(response.tokens).to eq({input: 50, output: 25, total: 75})
         expect(response.error).to be_nil
       end
+
+      it "treats stdout as plain text when JSON output is unsupported" do
+        allow(provider).to receive(:copilot_cli_supports_json_output?).and_return(false)
+        result = make_result(stdout: '{"content":"literal shell text"}')
+
+        response = provider.send(:parse_response, result, duration: 1.0)
+
+        expect(response.output).to eq('{"content":"literal shell text"}')
+        expect(response.tokens).to be_nil
+      end
+
+      it "uses base error parsing for legacy text mode" do
+        allow(provider).to receive(:copilot_cli_supports_json_output?).and_return(false)
+        result = make_result(stdout: "partial output", stderr: "fatal error", exit_code: 1)
+
+        response = provider.send(:parse_response, result, duration: 1.0)
+
+        expect(response.error).to eq("fatal error\npartial output")
+        expect(response.metadata[:legitimate_exit_codes]).to eq([0])
+      end
     end
 
     describe "#copilot_cli_supports_json_output?" do

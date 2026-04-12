@@ -210,6 +210,8 @@ module AgentHarness
       end
 
       def parse_response(result, duration:)
+        return super unless copilot_cli_supports_json_output?
+
         output = result.stdout.to_s
         error = nil
 
