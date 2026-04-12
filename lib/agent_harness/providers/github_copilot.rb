@@ -308,7 +308,8 @@ module AgentHarness
       def extract_event_text(obj)
         return nil unless obj.is_a?(Hash)
 
-        if obj["type"] && obj["data"].is_a?(Hash)
+        if obj.key?("type")
+          return nil unless obj["data"].is_a?(Hash)
           return nil unless ASSISTANT_OUTPUT_EVENT_TYPES.include?(obj["type"])
 
           data = obj["data"]
@@ -337,7 +338,9 @@ module AgentHarness
       def extract_token_usage(obj)
         return nil unless obj.is_a?(Hash)
 
-        if obj["type"] && obj["data"].is_a?(Hash)
+        if obj.key?("type")
+          return nil unless obj["data"].is_a?(Hash)
+
           data = obj["data"]
 
           if SESSION_SHUTDOWN_EVENT_TYPES.include?(obj["type"])

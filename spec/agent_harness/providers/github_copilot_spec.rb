@@ -276,6 +276,17 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         expect(response.output).to eq("final answer")
       end
 
+      it "ignores typed top-level content on malformed control events" do
+        jsonl = <<~JSONL
+          {"type":"assistant.reasoning","content":"scratchpad"}
+          {"type":"assistant.message","data":{"content":"final answer"}}
+        JSONL
+        result = make_result(stdout: jsonl)
+        response = provider.send(:parse_response, result, duration: 1.0)
+
+        expect(response.output).to eq("final answer")
+      end
+
       it "ignores non-string event content values" do
         jsonl = <<~JSONL
           {"type":"assistant.message","data":{"content":["not","text"]}}
@@ -296,6 +307,18 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         response = provider.send(:parse_response, result, duration: 1.0)
 
         expect(response.tokens).to eq({input: 10, output: 20, total: 30})
+      end
+
+      it "ignores top-level token payloads on typed objects without envelope data" do
+        jsonl = <<~JSONL
+          {"type":"assistant.reasoning","usage":{"input_tokens":99,"output_tokens":1}}
+          {"type":"assistant.message","data":{"content":"ok"}}
+        JSONL
+        result = make_result(stdout: jsonl)
+        response = provider.send(:parse_response, result, duration: 1.0)
+
+        expect(response.output).to eq("ok")
+        expect(response.tokens).to be_nil
       end
 
       it "falls back to assistant.message token fields when usage events are absent" do
