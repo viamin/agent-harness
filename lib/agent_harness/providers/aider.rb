@@ -363,11 +363,14 @@ module AgentHarness
       end
 
       def footer_prefix?(lines, index)
-        previous_index = index - 1
-        return true if previous_index.negative?
+        block_start = index
+        while block_start.positive? && TOKEN_USAGE_PATTERN.match?(lines[block_start - 1])
+          block_start -= 1
+        end
 
-        previous_line = lines[previous_index]
-        previous_line.strip.empty? || TOKEN_USAGE_PATTERN.match?(previous_line)
+        return false if block_start.zero?
+
+        lines[block_start - 1].strip.empty?
       end
 
       def footer_suffix?(lines, index)

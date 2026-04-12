@@ -396,6 +396,8 @@ RSpec.describe AgentHarness::Providers::Aider do
         allow(mock_executor).to receive(:execute) do |cmd, **kwargs|
           history_path = cmd[cmd.index("--llm-history-file") + 1]
           File.write(history_path, <<~TEXT)
+            ASSISTANT world
+
             Tokens: 10 sent, 5 received.
             Tokens: 20 sent, 10 received.
           TEXT
@@ -442,6 +444,20 @@ RSpec.describe AgentHarness::Providers::Aider do
             -------
             USER Please repeat this exactly:
             Tokens: 42 sent, 8 received.
+          TEXT
+          result
+        end
+
+        response = provider.send_message(prompt: "hello")
+        expect(response.tokens).to be_nil
+      end
+
+      it "ignores token-only history files that are missing a footer separator" do
+        allow(mock_executor).to receive(:execute) do |cmd, **kwargs|
+          history_path = cmd[cmd.index("--llm-history-file") + 1]
+          File.write(history_path, <<~TEXT)
+            Tokens: 42 sent, 8 received.
+            Tokens: 50 sent, 10 received.
           TEXT
           result
         end
@@ -503,7 +519,11 @@ RSpec.describe AgentHarness::Providers::Aider do
             ready.broadcast
           end
 
-          File.write(history_path, "Tokens: #{call_number}0 sent, #{call_number} received.\n")
+          File.write(history_path, <<~TEXT)
+            ASSISTANT response #{call_number}
+
+            Tokens: #{call_number}0 sent, #{call_number} received.
+          TEXT
           paths << history_path
           sleep(0.05) if call_number == 2
           AgentHarness::CommandExecutor::Result.new(
@@ -631,6 +651,19 @@ RSpec.describe AgentHarness::Providers::Aider do
         )
 
         expect(tokens).to eq({input: 42, output: 8, total: 50})
+      end
+
+      it "ignores token-only history content without a blank-line footer separator" do
+        tokens = provider.send(
+          :parse_token_usage_text,
+          <<~TEXT,
+            Tokens: 42 sent, 8 received.
+            Tokens: 50 sent, 10 received.
+          TEXT
+          source: :history
+        )
+
+        expect(tokens).to be_nil
       end
 
       it "ignores history token counters when later transcript lines follow" do
