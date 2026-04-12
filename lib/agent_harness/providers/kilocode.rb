@@ -289,9 +289,11 @@ module AgentHarness
         explicit_total = extract_explicit_total_token_count(usage)
         usage_extra_total = usage_extra_token_total(usage)
 
-        input = fallback[:input] if input.nil? && fallback
-        output = fallback[:output] if output.nil? && fallback
+        input_from_fallback = input.nil? && fallback && !fallback[:input].nil?
+        output_from_fallback = output.nil? && fallback && !fallback[:output].nil?
         fallback_total = fallback[:total] if fallback
+        input = fallback[:input] if input_from_fallback
+        output = fallback[:output] if output_from_fallback
         return nil unless input || output || explicit_total || usage_extra_total || fallback_total
 
         input ||= 0
@@ -301,8 +303,10 @@ module AgentHarness
           explicit_total
         elsif usage_extra_total
           input + output + usage_extra_total
+        elsif input_from_fallback || output_from_fallback
+          input + output + fallback_extra_total
         else
-          [input + output + fallback_extra_total, fallback_total].compact.max
+          input + output
         end
 
         {input: input, output: output, total: total}

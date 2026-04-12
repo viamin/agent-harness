@@ -1624,6 +1624,36 @@ RSpec.describe AgentHarness::Providers::Kilocode do
         response = provider.send_message(prompt: "Hello")
         expect(response.tokens).to eq({input: 120, output: 50, total: 170})
       end
+
+      it "recomputes total from updated usage instead of keeping a larger step fallback total" do
+        ndjson = [
+          {"type" => "text", "part" => {"text" => "Response"}},
+          {
+            "type" => "step_finish",
+            "part" => {
+              "tokens" => {
+                "input" => 100,
+                "output" => 50,
+                "reasoning" => 20,
+                "cache" => {"read" => 5}
+              }
+            }
+          },
+          {"type" => "result", "usage" => {"input_tokens" => 80, "output_tokens" => 40}}
+        ].map { |e| JSON.generate(e) }.join("\n")
+
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: ndjson,
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        response = provider.send_message(prompt: "Hello")
+        expect(response.tokens).to eq({input: 80, output: 40, total: 120})
+      end
     end
   end
 end
