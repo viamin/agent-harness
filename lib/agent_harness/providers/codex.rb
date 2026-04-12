@@ -12,11 +12,11 @@ module AgentHarness
       SUPPORTED_CLI_REQUIREMENT = Gem::Requirement.new(">= #{SUPPORTED_CLI_VERSION}", "< 0.117.0").freeze
       OAUTH_REFRESH_FAILURE_PATTERNS = [
         /refresh_token_reused/i,
-        /failed to refresh token:.*\b401\b/i,
-        /failed to refresh token:.*unauthorized/i,
-        /failed to refresh token:.*invalid_client/i,
-        /failed to refresh token:.*invalid_grant/i,
-        /failed to refresh token:.*invalid.*refresh.*token/i,
+        /failed to refresh token\b.*\b401\b/i,
+        /failed to refresh token\b.*unauthorized/i,
+        /failed to refresh token\b.*invalid_client/i,
+        /failed to refresh token\b.*invalid_grant/i,
+        /failed to refresh token\b.*invalid.*refresh.*token/i,
         /your access token could not be refreshed because your refresh token .*already (?:been )?used/i,
         /refresh token .*already (?:been )?used/i
       ].freeze
