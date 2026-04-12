@@ -155,6 +155,7 @@ module AgentHarness
         text_parts = []
         accumulated_input = 0
         accumulated_output = 0
+        accumulated_total = 0
         has_step_tokens = false
         result_usage = nil
         saw_structured_event = false
@@ -176,12 +177,16 @@ module AgentHarness
           if event["type"] == "step_finish"
             part_tokens = part["tokens"] if part.is_a?(Hash)
             if part_tokens.is_a?(Hash)
-              step_input = coerce_token_count(part_tokens["input"])
-              step_output = coerce_token_count(part_tokens["output"])
+              step_token_counts = build_token_counts({
+                "input_tokens" => part_tokens["input"],
+                "output_tokens" => part_tokens["output"],
+                "total_tokens" => part_tokens["total_tokens"] || part_tokens["total"]
+              })
 
-              if step_input || step_output
-                accumulated_input += step_input || 0
-                accumulated_output += step_output || 0
+              if step_token_counts
+                accumulated_input += step_token_counts[:input]
+                accumulated_output += step_token_counts[:output]
+                accumulated_total += step_token_counts[:total]
                 has_step_tokens = true
               end
             end
@@ -201,7 +206,8 @@ module AgentHarness
         if has_step_tokens
           step_tokens = build_token_counts({
             "input_tokens" => accumulated_input,
-            "output_tokens" => accumulated_output
+            "output_tokens" => accumulated_output,
+            "total_tokens" => accumulated_total
           })
         end
         tokens = resolve_token_counts(result_usage, fallback: step_tokens) if result_usage
@@ -250,26 +256,31 @@ module AgentHarness
       def build_token_counts(usage)
         input = coerce_token_count(usage["input_tokens"])
         output = coerce_token_count(usage["output_tokens"])
-        return nil unless input || output
+        total = coerce_total_token_count(usage, input:, output:)
+        return nil unless input || output || total
 
         input ||= 0
         output ||= 0
 
-        {input: input, output: output, total: input + output}
+        {input: input, output: output, total: total}
       end
 
       def resolve_token_counts(usage, fallback: nil)
         input = coerce_token_count(usage["input_tokens"])
         output = coerce_token_count(usage["output_tokens"])
+        explicit_total = coerce_total_token_count(usage, input:, output:)
 
         input = fallback[:input] if input.nil? && fallback
         output = fallback[:output] if output.nil? && fallback
-        return nil unless input || output
+        fallback_total = fallback[:total] if fallback
+        return nil unless input || output || explicit_total || fallback_total
 
         input ||= 0
         output ||= 0
 
-        {input: input, output: output, total: input + output}
+        total = [input + output, explicit_total, fallback_total].compact.max
+
+        {input: input, output: output, total: total}
       end
 
       def extract_error_message(event)
@@ -324,6 +335,13 @@ module AgentHarness
         end
 
         nil
+      end
+
+      def coerce_total_token_count(usage, input:, output:)
+        explicit_total = coerce_token_count(usage["total_tokens"] || usage["total"])
+        minimum_total = (input || 0) + (output || 0)
+
+        [minimum_total, explicit_total].compact.max
       end
     end
   end

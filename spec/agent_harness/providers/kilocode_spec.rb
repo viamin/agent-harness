@@ -977,6 +977,64 @@ RSpec.describe AgentHarness::Providers::Kilocode do
         expect(response.tokens).to eq({input: 200, output: 100, total: 300})
       end
 
+      it "preserves explicit step totals when step metadata includes extra token categories" do
+        ndjson = [
+          {"type" => "text", "part" => {"text" => "Response"}},
+          {"type" => "step_finish", "part" => {"tokens" => {"input" => 100, "output" => 50, "total" => 175}}},
+          {"type" => "step_finish", "part" => {"tokens" => {"input" => 80, "output" => 40, "total_tokens" => 150}}}
+        ].map { |e| JSON.generate(e) }.join("\n")
+
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: ndjson,
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        response = provider.send_message(prompt: "Hello")
+        expect(response.tokens).to eq({input: 180, output: 90, total: 325})
+      end
+
+      it "preserves explicit result usage totals when usage includes extra token categories" do
+        ndjson = [
+          {"type" => "text", "part" => {"text" => "Response"}},
+          {"type" => "result", "usage" => {"input_tokens" => 100, "output_tokens" => 50, "total_tokens" => 175}}
+        ].map { |e| JSON.generate(e) }.join("\n")
+
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: ndjson,
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        response = provider.send_message(prompt: "Hello")
+        expect(response.tokens).to eq({input: 100, output: 50, total: 175})
+      end
+
+      it "preserves total-only usage payloads" do
+        ndjson = [
+          {"type" => "text", "part" => {"text" => "Response"}},
+          {"type" => "result", "usage" => {"total_tokens" => 175}}
+        ].map { |e| JSON.generate(e) }.join("\n")
+
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: ndjson,
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        response = provider.send_message(prompt: "Hello")
+        expect(response.tokens).to eq({input: 0, output: 0, total: 175})
+      end
+
       it "falls back to accumulated step_finish tokens when usage is empty" do
         ndjson = [
           {"type" => "text", "part" => {"text" => "Response"}},
