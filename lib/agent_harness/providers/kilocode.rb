@@ -223,7 +223,7 @@ module AgentHarness
 
         if saw_structured_event
           joined_text = text_parts.join if text_parts.any?
-          output = if joined_text && !joined_text.empty?
+          output = if joined_text && !joined_text.strip.empty?
             joined_text
           else
             result_text
