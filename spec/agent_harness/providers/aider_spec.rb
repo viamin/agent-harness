@@ -776,6 +776,22 @@ RSpec.describe AgentHarness::Providers::Aider do
         expect(tokens).to eq({input: 42, output: 8, total: 50})
       end
 
+      it "parses output footer token counters when aider prints a shell command before the prompt" do
+        tokens = provider.send(
+          :parse_token_usage_text,
+          <<~TEXT
+            response text
+
+            Tokens: 42 sent, 8 received.
+
+            touch a.txt
+            Run shell command?
+          TEXT
+        )
+
+        expect(tokens).to eq({input: 42, output: 8, total: 50})
+      end
+
       it "still ignores output token counters followed by arbitrary prose" do
         tokens = provider.send(
           :parse_token_usage_text,
@@ -784,6 +800,21 @@ RSpec.describe AgentHarness::Providers::Aider do
 
             Tokens: 42 sent, 8 received.
             Here is more assistant prose after the token line.
+          TEXT
+        )
+
+        expect(tokens).to be_nil
+      end
+
+      it "ignores output token counters followed by prose before a shell prompt" do
+        tokens = provider.send(
+          :parse_token_usage_text,
+          <<~TEXT
+            response text
+
+            Tokens: 42 sent, 8 received.
+            Here is a sentence.
+            Run shell command?
           TEXT
         )
 

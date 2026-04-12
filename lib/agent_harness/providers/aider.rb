@@ -306,6 +306,7 @@ module AgentHarness
       TOKEN_USAGE_PATTERN =
         /^\s*Tokens:\s*(?<input>#{TOKEN_COUNT_PATTERN})\s+sent(?:,\s*#{TOKEN_COUNT_PATTERN}\s+cache\s+\w+)*,\s*(?<output>#{TOKEN_COUNT_PATTERN})\s+received\.?(?:\s+Cost:\s+.+)?\s*$/i
       FOOTER_COST_PATTERN = /^\s*Cost:\s+.+\s*$/i
+      RUN_SHELL_COMMAND_PATTERN = /^\s*Run shell command\?.*$/i
       OUTPUT_STATUS_PATTERN =
         /^\s*(?:Applied edit to|Commit\b|You can use \/undo\b|Added .+ to the chat\.|Removed .+ from the chat\.|Use \/help\b|Create new file\?|Allow edits to\b|Edit the files\?|Run shell command\?).*$/i
       OUTPUT_PATH_PATTERN = %r{^\s*[\w.-]*[/.][\w./-]*\s*$}
@@ -407,13 +408,36 @@ module AgentHarness
       end
 
       def output_footer_suffix?(lines, index)
-        lines[(index + 1)..].to_a.all? do |line|
+        suffix_lines = lines[(index + 1)..].to_a
+        shell_prompt_index = suffix_lines.index { |line| RUN_SHELL_COMMAND_PATTERN.match?(line) }
+
+        suffix_lines.each_with_index.all? do |line, line_index|
           stripped = line.strip
           stripped.empty? ||
             TOKEN_USAGE_PATTERN.match?(line) ||
             FOOTER_COST_PATTERN.match?(line) ||
             OUTPUT_STATUS_PATTERN.match?(line) ||
-            OUTPUT_PATH_PATTERN.match?(line)
+            OUTPUT_PATH_PATTERN.match?(line) ||
+            output_command_footer_line?(line, line_index, shell_prompt_index)
+        end
+      end
+
+      def output_command_footer_line?(line, line_index, shell_prompt_index)
+        return false unless shell_prompt_index && line_index < shell_prompt_index
+
+        stripped = line.strip
+        return false if stripped.end_with?(".", "?", "!")
+        return false if stripped.empty?
+
+        tokens = stripped.sub(/\A[$>#]\s*/, "").split(/\s+/)
+        return false if tokens.empty?
+        return false unless tokens.first.match?(/\A[\w.\/~:-]+\z/)
+        return true if tokens.length == 1
+
+        tokens[1..].all? do |token|
+          token.match?(%r{\A(?:&&|\|\|?|[<>]|>>|&>|2>|[~-]|["'$`(])}) ||
+            token.match?(%r{[/.=:]}) ||
+            (tokens.length == 2 && token.match?(/\A[\w-]+\z/))
         end
       end
 
