@@ -1812,6 +1812,52 @@ RSpec.describe AgentHarness::Providers::Codex do
           expect(response.tokens).to eq({input: 5, output: 5, total: 10})
         end
 
+        it "does not treat repeated finalized wrapped agent_message events as new turns" do
+          jsonl_output = [
+            JSON.generate({"type" => "event_msg", "payload" => {"type" => "agent_message", "message" => "draft wrapped output"}}),
+            JSON.generate({
+              "type" => "event_msg",
+              "payload" => {
+                "type" => "token_count",
+                "info" => {
+                  "total_token_usage" => {
+                    "input_tokens" => 70,
+                    "output_tokens" => 30,
+                    "total_tokens" => 100
+                  }
+                }
+              }
+            }),
+            JSON.generate({"type" => "event_msg", "payload" => {"type" => "agent_message", "message" => "final wrapped output"}}),
+            JSON.generate({
+              "type" => "event_msg",
+              "payload" => {
+                "type" => "token_count",
+                "info" => {
+                  "total_token_usage" => {
+                    "input_tokens" => 80,
+                    "output_tokens" => 40,
+                    "total_tokens" => 120
+                  }
+                }
+              }
+            })
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq("final wrapped output")
+          expect(response.tokens).to eq({input: 80, output: 40, total: 120})
+        end
+
         it "falls back to the latest wrapped cumulative snapshot when per-event usage is unavailable" do
           jsonl_output = [
             JSON.generate({"type" => "event_msg", "payload" => {"type" => "agent_message", "message" => "wrapped output"}}),

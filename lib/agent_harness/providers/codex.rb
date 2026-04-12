@@ -486,7 +486,7 @@ module AgentHarness
           when "agent_message"
             next unless wrapped_assistant_payload?(event)
 
-            start_new_finalized_turn.call
+            start_new_turn.call
             replace_current_turn_parts.call(extract_message_content_parts(event))
           when "item.completed"
             item = event["item"]
@@ -541,7 +541,7 @@ module AgentHarness
             when "agent_message"
               next unless wrapped_assistant_payload?(payload)
 
-              start_new_finalized_turn.call
+              start_new_turn.call
               replace_current_turn_parts.call(extract_message_content_parts(payload))
             when "token_count"
               wrapped_token_usage = extract_wrapped_tokens(payload["info"])
