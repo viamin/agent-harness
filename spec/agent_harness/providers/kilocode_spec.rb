@@ -765,6 +765,28 @@ RSpec.describe AgentHarness::Providers::Kilocode do
         expect(response.tokens).to eq({input: 10, output: 5, total: 15})
       end
 
+      it "ignores text events whose part.text payload is not a String" do
+        ndjson = [
+          {"type" => "text", "part" => {"text" => {"bad" => true}}},
+          {"type" => "text", "part" => {"text" => 42}},
+          {"type" => "text", "part" => {"text" => "Done!"}},
+          {"type" => "result", "usage" => {"input_tokens" => 10, "output_tokens" => 5}}
+        ].map { |e| JSON.generate(e) }.join("\n")
+
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: ndjson,
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        response = provider.send_message(prompt: "Hello")
+        expect(response.output).to eq("Done!")
+        expect(response.tokens).to eq({input: 10, output: 5, total: 15})
+      end
+
       it "skips usage payloads that are not Hashes" do
         ndjson = [
           {"type" => "text", "part" => {"text" => "Done!"}, "usage" => "invalid"},

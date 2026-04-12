@@ -165,7 +165,7 @@ module AgentHarness
 
           if event["type"] == "text"
             text = part["text"] if part.is_a?(Hash)
-            text_parts << text if text
+            text_parts << text if text.is_a?(String)
           end
 
           if event["type"] == "error"
