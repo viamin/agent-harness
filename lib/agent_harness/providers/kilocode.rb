@@ -217,7 +217,11 @@ module AgentHarness
         if saw_structured_event
           output = text_parts.empty? ? nil : text_parts.join
           if result.failed? || structured_errors.any?
-            error = build_structured_error(result, structured_errors, fallback: error)
+            error = build_structured_error(
+              result,
+              structured_errors,
+              fallback: build_error_fallback(result.stderr, extract_unstructured_output(result.stdout))
+            )
           end
         end
         step_tokens = nil
@@ -416,9 +420,37 @@ module AgentHarness
         error_lines = [stderr, *structured_errors].compact.reject(&:empty?).uniq
         return error_lines.join("\n") if error_lines.any?
 
+        return fallback if fallback && !fallback.empty?
+
         return "Kilocode exited with code #{result.exit_code}" if result.failed?
 
         fallback
+      end
+
+      def build_error_fallback(*parts)
+        combined = parts
+          .map { |part| part.to_s.strip }
+          .reject(&:empty?)
+          .join("\n")
+        combined.empty? ? nil : combined
+      end
+
+      def extract_unstructured_output(output)
+        return if output.nil? || output.empty?
+
+        lines = output.each_line.filter_map do |line|
+          stripped_line = line.strip
+          next if stripped_line.empty?
+
+          event = JSON.parse(stripped_line)
+          next if event.is_a?(Hash) && structured_event?(event)
+
+          stripped_line
+        rescue JSON::ParserError
+          stripped_line
+        end
+
+        lines.empty? ? nil : lines.join("\n")
       end
 
       def structured_event?(event)

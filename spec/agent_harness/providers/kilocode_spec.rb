@@ -446,6 +446,28 @@ RSpec.describe AgentHarness::Providers::Kilocode do
         expect(response.tokens).to eq({input: 10, output: 5, total: 15})
       end
 
+      it "preserves fallback stdout diagnostics for mixed structured failures" do
+        stdout = [
+          JSON.generate({"type" => "text", "part" => {"text" => "Partial response"}}),
+          "network timeout while uploading transcript"
+        ].join("\n")
+
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: stdout,
+            stderr: "",
+            exit_code: 1,
+            duration: 1.0
+          )
+        )
+
+        response = provider.send_message(prompt: "Hello")
+        expect(response.failed?).to be true
+        expect(response.error).to eq("network timeout while uploading transcript")
+        expect(response.error).to include("network timeout while uploading transcript")
+        expect(response.output).to eq("Partial response")
+      end
+
       it "classifies errors on non-zero exit code" do
         allow(mock_executor).to receive(:execute).and_return(
           AgentHarness::CommandExecutor::Result.new(
