@@ -373,7 +373,7 @@ module AgentHarness
           when "item.completed"
             item = event["item"]
             next unless item.is_a?(Hash)
-            next if item["role"] && item["role"] != "assistant"
+            next unless item["role"] == "assistant" || item["type"] == "agent_message"
 
             item_text = item["text"]
             text_parts << item_text if item_text.is_a?(String) && !item_text.empty?
