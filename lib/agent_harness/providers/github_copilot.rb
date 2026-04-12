@@ -377,20 +377,7 @@ module AgentHarness
           return nil
         end
 
-        usage = extract_payload_token_usage(
-          obj["usage"],
-          source: :usage,
-          input_keys: ["input_tokens", "inputTokens", "input"],
-          output_keys: ["output_tokens", "outputTokens", "output"]
-        )
-        return usage if usage
-
-        extract_payload_token_usage(
-          obj["tokens"],
-          source: :usage,
-          input_keys: ["input_tokens", "inputTokens", "input"],
-          output_keys: ["output_tokens", "outputTokens", "output"]
-        )
+        extract_top_level_token_usage(obj)
       end
 
       def extract_shutdown_token_usage(data)
@@ -435,8 +422,40 @@ module AgentHarness
         {
           source: source,
           input: input,
-          output: output
+          output: output,
+          input_present: input_present,
+          output_present: output_present
         }
+      end
+
+      def extract_top_level_token_usage(obj)
+        usage = extract_payload_token_usage(
+          obj["usage"],
+          source: :usage,
+          input_keys: ["input_tokens", "inputTokens", "input"],
+          output_keys: ["output_tokens", "outputTokens", "output"]
+        )
+        tokens = extract_payload_token_usage(
+          obj["tokens"],
+          source: :usage,
+          input_keys: ["input_tokens", "inputTokens", "input"],
+          output_keys: ["output_tokens", "outputTokens", "output"]
+        )
+        return nil unless usage || tokens
+
+        input, input_present = merged_token_metric(usage, tokens, :input)
+        output, output_present = merged_token_metric(usage, tokens, :output)
+        return nil unless input_present || output_present
+
+        {source: :usage, input: input, output: output}
+      end
+
+      def merged_token_metric(primary, fallback, metric)
+        present_key = :"#{metric}_present"
+        return [primary[metric], true] if primary&.[](present_key)
+        return [fallback[metric], true] if fallback&.[](present_key)
+
+        [0, false]
       end
 
       def token_value(obj, *keys)
