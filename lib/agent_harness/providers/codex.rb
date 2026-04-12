@@ -689,12 +689,23 @@ module AgentHarness
       def build_token_usage(usage)
         return unless token_usage_fields_present?(usage)
 
-        input = parse_token_count(usage["input_tokens"]) || 0
-        output = parse_token_count(usage["output_tokens"]) || 0
-        total = parse_token_count(usage["total_tokens"])
+        input_value = parse_token_count(usage["input_tokens"])
+        output_value = parse_token_count(usage["output_tokens"])
+        total_value = parse_token_count(usage["total_tokens"])
+
+        input = input_value || 0
+        output = output_value || 0
+        total = total_value
         total ||= (input + output)
 
-        {input: input, output: output, total: total}
+        {
+          input: input,
+          output: output,
+          total: total,
+          input_reported: !input_value.nil?,
+          output_reported: !output_value.nil?,
+          total_reported: !total_value.nil?
+        }
       end
 
       def merge_wrapped_turn_usage(existing_usage, existing_source, wrapped_token_usage)
@@ -710,7 +721,7 @@ module AgentHarness
             last_usage
           end
 
-          return [total_usage, :wrapped] unless expected_total == total_usage
+          return [total_usage, :wrapped] unless same_usage_values?(expected_total, total_usage)
         end
 
         merged_usage = if last_usage && existing_source == :wrapped && existing_usage
@@ -726,14 +737,31 @@ module AgentHarness
         {
           input: left[:input] + right[:input],
           output: left[:output] + right[:output],
-          total: left[:total] + right[:total]
+          total: left[:total] + right[:total],
+          input_reported: left[:input_reported] || right[:input_reported],
+          output_reported: left[:output_reported] || right[:output_reported],
+          total_reported: left[:total_reported] || right[:total_reported]
         }
       end
 
       def same_turn_usage?(left, right)
         return false unless left && right
 
-        left[:input] == right[:input] && left[:output] == right[:output]
+        detailed_usage_matches = left[:input_reported] &&
+          right[:input_reported] &&
+          left[:output_reported] &&
+          right[:output_reported]
+        return left[:input] == right[:input] && left[:output] == right[:output] if detailed_usage_matches
+
+        left[:total_reported] && right[:total_reported] && left[:total] == right[:total]
+      end
+
+      def same_usage_values?(left, right)
+        return false unless left && right
+
+        left[:input] == right[:input] &&
+          left[:output] == right[:output] &&
+          left[:total] == right[:total]
       end
 
       def parse_token_count(value)
