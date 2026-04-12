@@ -159,6 +159,17 @@ module AgentHarness
             text = event.dig("part", "text")
             text_parts << text if text
           end
+
+          if event["type"] == "step_finish"
+            part_tokens = event.dig("part", "tokens")
+            if part_tokens
+              usage_data = {
+                "input_tokens" => part_tokens["input"],
+                "output_tokens" => part_tokens["output"]
+              }
+            end
+          end
+
           usage_data = event["usage"] if event["usage"]
         end
 

@@ -415,6 +415,65 @@ RSpec.describe AgentHarness::Providers::Kilocode do
         expect(response.tokens).to eq({input: 5, output: 3, total: 8})
       end
 
+      it "extracts tokens from step_finish event part.tokens" do
+        ndjson = [
+          {"type" => "text", "part" => {"text" => "Done!"}},
+          {"type" => "step_finish", "part" => {"tokens" => {"input" => 200, "output" => 100}}}
+        ].map { |e| JSON.generate(e) }.join("\n")
+
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: ndjson,
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        response = provider.send_message(prompt: "Hello")
+        expect(response.output).to eq("Done!")
+        expect(response.tokens).to eq({input: 200, output: 100, total: 300})
+      end
+
+      it "prefers usage from result event over step_finish when both present" do
+        ndjson = [
+          {"type" => "text", "part" => {"text" => "Response"}},
+          {"type" => "step_finish", "part" => {"tokens" => {"input" => 10, "output" => 5}}},
+          {"type" => "result", "usage" => {"input_tokens" => 50, "output_tokens" => 25}}
+        ].map { |e| JSON.generate(e) }.join("\n")
+
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: ndjson,
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        response = provider.send_message(prompt: "Hello")
+        expect(response.tokens).to eq({input: 50, output: 25, total: 75})
+      end
+
+      it "handles step_finish with only input token count" do
+        ndjson = [
+          {"type" => "text", "part" => {"text" => "Partial"}},
+          {"type" => "step_finish", "part" => {"tokens" => {"input" => 42}}}
+        ].map { |e| JSON.generate(e) }.join("\n")
+
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: ndjson,
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        response = provider.send_message(prompt: "Hello")
+        expect(response.tokens).to eq({input: 42, output: 0, total: 42})
+      end
+
       it "uses last usage event when multiple events contain usage" do
         ndjson = [
           {"type" => "text", "part" => {"text" => "Response"}, "usage" => {"input_tokens" => 10, "output_tokens" => 5}},
