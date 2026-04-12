@@ -378,14 +378,16 @@ module AgentHarness
             completed_parts = []
 
             item_text = item["text"]
-            completed_parts << item_text if item_text.is_a?(String) && !item_text.empty?
-
-            item_content = item["content"]
-            if item_content.is_a?(Array)
-              item_content.each do |block|
-                next unless block.is_a?(Hash)
-                block_text = block["text"]
-                completed_parts << block_text if block_text.is_a?(String) && !block_text.empty?
+            if item_text.is_a?(String) && !item_text.empty?
+              completed_parts << item_text
+            else
+              item_content = item["content"]
+              if item_content.is_a?(Array)
+                item_content.each do |block|
+                  next unless block.is_a?(Hash)
+                  block_text = block["text"]
+                  completed_parts << block_text if block_text.is_a?(String) && !block_text.empty?
+                end
               end
             end
 
