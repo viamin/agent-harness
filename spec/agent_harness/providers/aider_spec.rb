@@ -549,6 +549,22 @@ RSpec.describe AgentHarness::Providers::Aider do
         expect(response.tokens).to eq({input: 12, output: 34, total: 46})
       end
 
+      it "falls back to command output when reading llm history raises" do
+        allow(provider).to receive(:read_llm_history).and_raise(Timeout::Error, "history read timed out")
+        allow(mock_executor).to receive(:execute) do |cmd, **kwargs|
+          history_path = cmd[cmd.index("--llm-history-file") + 1]
+          File.write(history_path, "ASSISTANT world\n")
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "response text\n\nTokens: 12 sent, 34 received.\n",
+            stderr: "",
+            exit_code: 0
+          )
+        end
+
+        response = provider.send_message(prompt: "hello")
+        expect(response.tokens).to eq({input: 12, output: 34, total: 46})
+      end
+
       it "parses stdout token usage when aider prints edit status after the token footer" do
         allow(mock_executor).to receive(:execute) do |cmd, **kwargs|
           history_path = cmd[cmd.index("--llm-history-file") + 1]

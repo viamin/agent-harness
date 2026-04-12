@@ -324,12 +324,9 @@ module AgentHarness
         # Prefer the request-local history file when it includes a token report,
         # but fall back to captured command output because the usage summary is
         # printed there during normal runs.
-        parse_token_usage_text(read_llm_history(llm_history_path), source: :history) ||
+        parse_token_usage_text(safe_read_llm_history(llm_history_path), source: :history) ||
           parse_token_usage_text(result.stdout, source: :output) ||
           parse_token_usage_text(result.stderr, source: :output)
-      rescue => e
-        log_debug("llm_history_parse_error", error: e.message)
-        nil
       end
 
       def read_llm_history(path)
@@ -340,6 +337,13 @@ module AgentHarness
         return nil if content.strip.empty?
 
         content
+      end
+
+      def safe_read_llm_history(path)
+        read_llm_history(path)
+      rescue => e
+        log_debug("llm_history_parse_error", error: e.message)
+        nil
       end
 
       def parse_token_usage_text(content, source: :output)
