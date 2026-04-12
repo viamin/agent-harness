@@ -339,9 +339,10 @@ module AgentHarness
 
       def coerce_total_token_count(usage, input:, output:)
         explicit_total = coerce_token_count(usage["total_tokens"] || usage["total"])
-        minimum_total = (input || 0) + (output || 0)
+        return explicit_total if explicit_total
+        return nil if input.nil? && output.nil?
 
-        [minimum_total, explicit_total].compact.max
+        (input || 0) + (output || 0)
       end
     end
   end

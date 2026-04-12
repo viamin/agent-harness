@@ -1075,6 +1075,44 @@ RSpec.describe AgentHarness::Providers::Kilocode do
         expect(response.tokens).to eq({input: 100, output: 50, total: 150})
       end
 
+      it "returns nil tokens when usage is empty and no token counts were reported" do
+        ndjson = [
+          {"type" => "text", "part" => {"text" => "Response"}},
+          {"type" => "result", "usage" => {}}
+        ].map { |e| JSON.generate(e) }.join("\n")
+
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: ndjson,
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        response = provider.send_message(prompt: "Hello")
+        expect(response.tokens).to be_nil
+      end
+
+      it "returns nil tokens when usage has no token keys and no fallback totals exist" do
+        ndjson = [
+          {"type" => "text", "part" => {"text" => "Response"}},
+          {"type" => "result", "usage" => {"cache_creation_input_tokens" => 25}}
+        ].map { |e| JSON.generate(e) }.join("\n")
+
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: ndjson,
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        response = provider.send_message(prompt: "Hello")
+        expect(response.tokens).to be_nil
+      end
+
       it "fills missing usage token keys from accumulated step_finish totals" do
         ndjson = [
           {"type" => "text", "part" => {"text" => "Response"}},
