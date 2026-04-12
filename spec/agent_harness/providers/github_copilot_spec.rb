@@ -156,7 +156,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
     end
 
     describe "#build_command" do
-      it "omits --allow-all-tools when dangerous_mode is not set" do
+      it "always includes --allow-all-tools for -p mode" do
         command = provider.send(:build_command, "Hello", {})
 
         expect(command).to eq([
@@ -164,7 +164,8 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
           "-p",
           "Hello",
           "--output-format",
-          "json"
+          "json",
+          "--allow-all-tools"
         ])
       end
 
@@ -181,7 +182,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         ])
       end
 
-      it "appends session resume flags without dangerous mode" do
+      it "appends session resume flags after --allow-all-tools" do
         command = provider.send(:build_command, "Hello", {session: "session-123"})
 
         expect(command).to eq([
@@ -190,12 +191,13 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
           "Hello",
           "--output-format",
           "json",
+          "--allow-all-tools",
           "--resume",
           "session-123"
         ])
       end
 
-      it "appends session resume flags after dangerous mode flags when both are provided" do
+      it "appends session resume flags with all options combined" do
         command = provider.send(:build_command, "Hello", {dangerous_mode: true, session: "session-123"})
 
         expect(command).to eq([
@@ -232,7 +234,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
           anything
         )
 
-        provider.send_message(prompt: "Hello", dangerous_mode: true)
+        provider.send_message(prompt: "Hello")
       end
 
       context "with token usage parsing" do
