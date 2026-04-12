@@ -220,7 +220,7 @@ module AgentHarness
             error = build_structured_error(
               result,
               structured_errors,
-              fallback: build_error_fallback(result.stderr, extract_unstructured_output(result.stdout))
+              unstructured_output: extract_unstructured_output(result.stdout)
             )
           end
         end
@@ -415,24 +415,14 @@ module AgentHarness
         JSON.generate(event)
       end
 
-      def build_structured_error(result, structured_errors, fallback:)
+      def build_structured_error(result, structured_errors, unstructured_output:)
         stderr = result.stderr.to_s.strip
-        error_lines = [stderr, *structured_errors].compact.reject(&:empty?).uniq
+        error_lines = [stderr, *structured_errors, unstructured_output].compact.reject(&:empty?).uniq
         return error_lines.join("\n") if error_lines.any?
-
-        return fallback if fallback && !fallback.empty?
 
         return "Kilocode exited with code #{result.exit_code}" if result.failed?
 
-        fallback
-      end
-
-      def build_error_fallback(*parts)
-        combined = parts
-          .map { |part| part.to_s.strip }
-          .reject(&:empty?)
-          .join("\n")
-        combined.empty? ? nil : combined
+        nil
       end
 
       def extract_unstructured_output(output)

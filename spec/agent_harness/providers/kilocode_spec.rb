@@ -541,6 +541,28 @@ RSpec.describe AgentHarness::Providers::Kilocode do
         expect(response.tokens).to eq({input: 10, output: 5, total: 15})
       end
 
+      it "preserves plain-text stdout diagnostics alongside structured error messages" do
+        stdout = [
+          JSON.generate({"type" => "error", "message" => "Provider request failed"}),
+          JSON.generate({"type" => "step_finish", "part" => {"tokens" => {"input" => 10, "output" => 5}}}),
+          "network timeout while uploading transcript"
+        ].join("\n")
+
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: stdout,
+            stderr: "",
+            exit_code: 1,
+            duration: 1.0
+          )
+        )
+
+        response = provider.send_message(prompt: "Hello")
+        expect(response.failed?).to be true
+        expect(response.error).to eq("Provider request failed\nnetwork timeout while uploading transcript")
+        expect(response.tokens).to eq({input: 10, output: 5, total: 15})
+      end
+
       it "deduplicates identical stderr and structured error messages" do
         ndjson = [
           {"type" => "error", "message" => "Provider request failed"},
