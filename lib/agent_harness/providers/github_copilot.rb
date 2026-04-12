@@ -517,7 +517,10 @@ module AgentHarness
         previous_terminated = false
 
         segments.each do |segment|
-          if previous_terminated && previous_kind == :assistant && segment[:kind] != :assistant && !rendered.end_with?("\n")
+          if previous_terminated && previous_kind == :assistant &&
+              segment[:kind] != :assistant &&
+              !rendered.empty? &&
+              !rendered.end_with?("\n")
             rendered << "\n"
           end
 

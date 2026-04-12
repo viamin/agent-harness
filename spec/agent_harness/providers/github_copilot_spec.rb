@@ -531,6 +531,17 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         expect(response.output).to eq("echo hello\n{\"argv\":[\"echo\",\"hello\"]}\n")
       end
 
+      it "does not add a leading newline after empty assistant events before literal output" do
+        jsonl = <<~JSONL
+          {"type":"assistant.message","data":{"content":""}}
+          literal output
+        JSONL
+        result = make_result(stdout: jsonl)
+        response = provider.send(:parse_response, result, duration: 1.0)
+
+        expect(response.output).to eq("literal output\n")
+      end
+
       it "ignores scalar JSON lines when extracting text" do
         jsonl = "true\n1\n{\"type\":\"assistant\",\"data\":{\"content\":\"ok\"}}\n"
         result = make_result(stdout: jsonl)
