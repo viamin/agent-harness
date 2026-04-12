@@ -631,5 +631,72 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         end
       end
     end
+
+    describe "#smoke_test" do
+      it "passes on JSON-capable CLIs by extracting the exact OK response from JSONL output" do
+        jsonl_output = [
+          {"text" => "OK"},
+          {"usage" => {"input_tokens" => 1, "output_tokens" => 1}}
+        ].map { |o| JSON.generate(o) }.join("\n")
+
+        allow(mock_executor).to receive(:execute).with(
+          ["github-copilot-cli", "-p", "Reply with exactly OK.", "--output-format", "json"],
+          anything
+        ).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: jsonl_output,
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        result = provider.smoke_test
+
+        expect(result).to include(
+          ok: true,
+          status: "ok",
+          message: "Smoke test passed",
+          output: "OK",
+          exit_code: 0
+        )
+      end
+
+      it "uses silent prompt mode on older CLIs so the exact OK contract still passes" do
+        allow(mock_executor).to receive(:execute).with(
+          ["github-copilot-cli", "--version"],
+          timeout: 5
+        ).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "github-copilot-cli 0.0.421",
+            stderr: "",
+            exit_code: 0,
+            duration: 0.1
+          )
+        )
+
+        expect(mock_executor).to receive(:execute).with(
+          ["github-copilot-cli", "-p", "Reply with exactly OK.", "-s"],
+          anything
+        ).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "OK\n",
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        result = provider.smoke_test
+
+        expect(result).to include(
+          ok: true,
+          status: "ok",
+          message: "Smoke test passed",
+          output: "OK",
+          exit_code: 0
+        )
+      end
+    end
   end
 end
