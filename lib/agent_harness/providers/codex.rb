@@ -408,6 +408,7 @@ module AgentHarness
         total_output = 0
         total_tokens = 0
         has_usage = false
+        saw_assistant_output = false
         pending_turn_usage = nil
         pending_turn_usage_source = nil
         turn_completed = false
@@ -429,66 +430,68 @@ module AgentHarness
           turn_completed = false
         end
 
+        replace_current_turn_parts = lambda do |parts|
+          next if parts.nil?
+
+          current_turn_parts = parts
+          saw_assistant_output = true
+        end
+
+        finalize_current_turn = lambda do
+          latest_completed_parts = current_turn_parts.dup
+          current_turn_parts = []
+          turn_completed = true
+        end
+
         events.each do |event|
           type = event["type"]
 
           case type
           when "message.delta"
             start_new_turn.call
-            append_delta_text(current_turn_parts, event["delta"])
+            saw_assistant_output ||= append_delta_text(current_turn_parts, event["delta"])
           when "agent_message_delta"
             next unless wrapped_assistant_payload?(event)
 
             start_new_turn.call
-            append_wrapped_delta_text(current_turn_parts, event)
+            saw_assistant_output ||= append_wrapped_delta_text(current_turn_parts, event)
           when "agent_message"
             next unless wrapped_assistant_payload?(event)
 
             start_new_turn.call
-            completed_parts = extract_message_content_parts(event)
-            current_turn_parts = completed_parts unless completed_parts.nil?
+            replace_current_turn_parts.call(extract_message_content_parts(event))
           when "item.completed"
             item = event["item"]
             next unless item.is_a?(Hash)
             next unless assistant_message_item?(item)
 
             start_new_turn.call
-            completed_parts = extract_message_content_parts(item)
-            current_turn_parts = completed_parts unless completed_parts.nil?
+            replace_current_turn_parts.call(extract_message_content_parts(item))
           when "turn.completed"
-            if turn_completed && pending_turn_usage_source == :turn_completed
+            turn_usage = build_token_usage(event["usage"])
+
+            # Wrapped streams can emit token_count before the matching top-level
+            # turn.completed for the same turn; treat matching usage as a replacement.
+            same_wrapped_turn = pending_turn_usage_source == :wrapped && same_turn_usage?(pending_turn_usage, turn_usage)
+
+            if turn_completed && !same_wrapped_turn
               commit_pending_turn.call
               turn_completed = false
             end
 
-            usage = event["usage"]
-            if usage.is_a?(Hash)
-              input_tokens = parse_token_count(usage["input_tokens"])
-              output_tokens = parse_token_count(usage["output_tokens"])
-              usage_total = parse_token_count(usage["total_tokens"])
-
-              if input_tokens || output_tokens || usage_total
-                has_usage = true
-                input_tokens ||= 0
-                output_tokens ||= 0
-                usage_total ||= (input_tokens + output_tokens)
-                pending_turn_usage = {
-                  input: input_tokens,
-                  output: output_tokens,
-                  total: usage_total
-                }
-                pending_turn_usage_source = :turn_completed
-              end
+            if turn_usage
+              has_usage = true
+              pending_turn_usage = turn_usage
+              pending_turn_usage_source = :turn_completed
             end
 
             result = event["result"]
             if result.is_a?(String)
               current_turn_parts = [result]
+              saw_assistant_output = true
             end
 
-            latest_completed_parts = current_turn_parts.dup unless current_turn_parts.empty?
-            current_turn_parts = []
-            turn_completed = true
+            finalize_current_turn.call
           when "event_msg"
             payload = event["payload"]
             next unless payload.is_a?(Hash)
@@ -498,13 +501,12 @@ module AgentHarness
               next unless wrapped_assistant_payload?(payload)
 
               start_new_turn.call
-              append_wrapped_delta_text(current_turn_parts, payload)
+              saw_assistant_output ||= append_wrapped_delta_text(current_turn_parts, payload)
             when "agent_message"
               next unless wrapped_assistant_payload?(payload)
 
               start_new_turn.call
-              completed_parts = extract_message_content_parts(payload)
-              current_turn_parts = completed_parts unless completed_parts.nil?
+              replace_current_turn_parts.call(extract_message_content_parts(payload))
             when "token_count"
               wrapped_token_usage = extract_wrapped_tokens(payload["info"])
               if wrapped_token_usage
@@ -514,9 +516,7 @@ module AgentHarness
                   pending_turn_usage_source,
                   wrapped_token_usage
                 )
-                latest_completed_parts = current_turn_parts.dup unless current_turn_parts.empty?
-                current_turn_parts = []
-                turn_completed = true
+                finalize_current_turn.call if !turn_completed || !current_turn_parts.empty?
               end
             end
           when "response_item"
@@ -524,14 +524,17 @@ module AgentHarness
             next unless payload.is_a?(Hash) && response_item_assistant_payload?(payload)
 
             start_new_turn.call
-            completed_parts = extract_message_content_parts(payload)
-            current_turn_parts = completed_parts unless completed_parts.nil?
+            replace_current_turn_parts.call(extract_message_content_parts(payload))
           end
         end
 
         commit_pending_turn.call
         final_parts = current_turn_parts.empty? ? latest_completed_parts : current_turn_parts
-        text = final_parts.empty? ? nil : final_parts.join
+        text = if final_parts.empty?
+          (turn_completed && saw_assistant_output) ? "" : nil
+        else
+          final_parts.join
+        end
 
         {
           text: text,
@@ -546,23 +549,27 @@ module AgentHarness
       end
 
       def append_delta_text(parts, delta)
-        return unless delta.is_a?(Hash)
+        return false unless delta.is_a?(Hash)
 
         delta_parts = extract_delta_content_parts(delta)
-        return if delta_parts.nil?
+        return false if delta_parts.nil?
 
         delta_parts.each do |part|
           parts << part unless part.empty?
         end
+
+        true
       end
 
       def append_wrapped_delta_text(parts, payload)
         delta_parts = extract_wrapped_delta_parts(payload)
-        return if delta_parts.nil?
+        return false if delta_parts.nil?
 
         delta_parts.each do |part|
           parts << part unless part.empty?
         end
+
+        true
       end
 
       def assistant_message_item?(item)
@@ -721,6 +728,12 @@ module AgentHarness
           output: left[:output] + right[:output],
           total: left[:total] + right[:total]
         }
+      end
+
+      def same_turn_usage?(left, right)
+        return false unless left && right
+
+        left[:input] == right[:input] && left[:output] == right[:output]
       end
 
       def parse_token_count(value)

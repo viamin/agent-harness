@@ -2010,6 +2010,27 @@ RSpec.describe AgentHarness::Providers::Codex do
           expect(response.tokens).to eq({input: 110, output: 30, total: 140})
         end
 
+        it "treats a later turn.completed without output as an empty final response" do
+          jsonl_output = [
+            JSON.generate({"type" => "message.delta", "delta" => {"text" => "Part 1"}}),
+            JSON.generate({"type" => "turn.completed", "usage" => {"input_tokens" => 50, "output_tokens" => 10}}),
+            JSON.generate({"type" => "turn.completed", "usage" => {"input_tokens" => 60, "output_tokens" => 20}})
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 2.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq("")
+          expect(response.tokens).to eq({input: 110, output: 30, total: 140})
+        end
+
         it "does not double-count mixed wrapped and turn.completed usage for the same turn" do
           jsonl_output = [
             JSON.generate({"type" => "message.delta", "delta" => {"text" => "partial"}}),
@@ -2040,6 +2061,38 @@ RSpec.describe AgentHarness::Providers::Codex do
           response = provider.send_message(prompt: "Hello")
           expect(response.output).to eq("final answer")
           expect(response.tokens).to eq({input: 50, output: 10, total: 60})
+        end
+
+        it "commits wrapped usage before a new turn.completed turn begins" do
+          jsonl_output = [
+            JSON.generate({"type" => "event_msg", "payload" => {"type" => "agent_message", "message" => "first wrapped answer"}}),
+            JSON.generate({
+              "type" => "event_msg",
+              "payload" => {
+                "type" => "token_count",
+                "info" => {
+                  "last_token_usage" => {
+                    "input_tokens" => 50,
+                    "output_tokens" => 10
+                  }
+                }
+              }
+            }),
+            JSON.generate({"type" => "turn.completed", "result" => "second answer", "usage" => {"input_tokens" => 60, "output_tokens" => 20}})
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq("second answer")
+          expect(response.tokens).to eq({input: 110, output: 30, total: 140})
         end
 
         it "preserves zero-usage token reports from turn.completed events" do
