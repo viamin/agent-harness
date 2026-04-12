@@ -276,6 +276,7 @@ module AgentHarness
           event["message"],
           error_payload,
           error_payload.is_a?(Hash) ? error_payload["message"] : nil,
+          (error_payload.is_a?(Hash) && error_payload["data"].is_a?(Hash)) ? error_payload["data"]["message"] : nil,
           part.is_a?(Hash) ? part["text"] : nil,
           part.is_a?(Hash) ? part["message"] : nil
         ]

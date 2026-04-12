@@ -442,6 +442,27 @@ RSpec.describe AgentHarness::Providers::Kilocode do
         expect(response.tokens).to eq({input: 10, output: 5, total: 15})
       end
 
+      it "captures structured error text from nested error data payloads" do
+        ndjson = [
+          {"type" => "error", "error" => {"data" => {"message" => "Nested data failure"}}},
+          {"type" => "step_finish", "part" => {"tokens" => {"input" => 10, "output" => 5}}}
+        ].map { |e| JSON.generate(e) }.join("\n")
+
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: ndjson,
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        response = provider.send_message(prompt: "Hello")
+        expect(response.failed?).to be true
+        expect(response.error).to eq("Nested data failure")
+        expect(response.tokens).to eq({input: 10, output: 5, total: 15})
+      end
+
       it "handles scalar structured error payloads without raising" do
         ndjson = [
           {"type" => "error", "error" => "Provider request failed"},
