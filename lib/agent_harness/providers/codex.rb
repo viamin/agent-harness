@@ -484,13 +484,16 @@ module AgentHarness
         total_usage = info["total_token_usage"]
         return unless total_usage.is_a?(Hash)
 
-        input_val = total_usage["input_tokens"]
-        output_val = total_usage["output_tokens"]
-        return unless input_val || output_val
+        input_present = total_usage.key?("input_tokens")
+        output_present = total_usage.key?("output_tokens")
+        total_present = total_usage.key?("total_tokens")
+        return unless input_present || output_present || total_present
 
-        input = input_val.to_i
-        output = output_val.to_i
-        {input: input, output: output, total: input + output}
+        input = total_usage["input_tokens"].to_i
+        output = total_usage["output_tokens"].to_i
+        total = total_present ? total_usage["total_tokens"].to_i : (input + output)
+
+        {input: input, output: output, total: total}
       end
 
       def externally_sandboxed?(options)

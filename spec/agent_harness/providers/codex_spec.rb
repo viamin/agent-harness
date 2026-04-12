@@ -787,6 +787,40 @@ RSpec.describe AgentHarness::Providers::Codex do
           expect(response.output).to eq("wrapped output")
           expect(response.tokens).to eq({input: 42, output: 7, total: 49})
         end
+
+        it "preserves wrapped zero-usage reports and explicit total_tokens" do
+          jsonl_output = [
+            JSON.generate({"type" => "event_msg", "payload" => {"type" => "agent_message", "message" => "wrapped output"}}),
+            JSON.generate({
+              "type" => "event_msg",
+              "payload" => {
+                "type" => "token_count",
+                "info" => {
+                  "total_token_usage" => {
+                    "input_tokens" => 0,
+                    "output_tokens" => 0,
+                    "reasoning_output_tokens" => 17,
+                    "total_tokens" => 17
+                  }
+                }
+              }
+            })
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq("wrapped output")
+          expect(response.tokens).to eq({input: 0, output: 0, total: 17})
+          expect(response.total_tokens).to eq(17)
+        end
       end
 
       context "with token usage parsing" do
