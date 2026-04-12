@@ -10,6 +10,16 @@ module AgentHarness
     class Codex < Base
       SUPPORTED_CLI_VERSION = "0.116.0"
       SUPPORTED_CLI_REQUIREMENT = Gem::Requirement.new(">= #{SUPPORTED_CLI_VERSION}", "< 0.117.0").freeze
+      OAUTH_REFRESH_FAILURE_PATTERNS = [
+        /refresh_token_reused/i,
+        /failed to refresh token:.*\b401\b/i,
+        /failed to refresh token:.*unauthorized/i,
+        /failed to refresh token:.*invalid_grant/i,
+        /failed to refresh token:.*invalid.*refresh.*token/i,
+        /your access token could not be refreshed/i,
+        /refresh token .*already been used/i,
+        /please log out and sign in again/i
+      ].freeze
 
       class << self
         def provider_name
@@ -174,13 +184,14 @@ module AgentHarness
         COMMON_ERROR_PATTERNS.merge(
           auth_expired: COMMON_ERROR_PATTERNS[:auth_expired] + [
             /\b401\b/,
-            /incorrect.*api.*key/i,
-            /refresh_token_reused/i,
-            /failed to refresh token/i,
-            /please log out and sign in again/i,
-            /your access token could not be refreshed/i
+            /incorrect.*api.*key/i
+          ] + OAUTH_REFRESH_FAILURE_PATTERNS,
+          transient: COMMON_ERROR_PATTERNS[:transient] + [
+            /connection.*reset/i,
+            /failed to refresh token:.*(?:timeout|timed out)/i,
+            /failed to refresh token:.*connection.*error/i,
+            /failed to refresh token:.*service.*unavailable/i
           ],
-          transient: COMMON_ERROR_PATTERNS[:transient] + [/connection.*reset/i],
           sandbox_failure: [
             /bwrap.*no permissions/i,
             /no permissions to create a new namespace/i,

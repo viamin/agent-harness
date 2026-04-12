@@ -491,6 +491,17 @@ RSpec.describe AgentHarness::Providers::Codex do
           )
         ).to eq(:auth_expired)
       end
+
+      it "does not classify transient refresh failures as auth_expired" do
+        patterns = provider.error_patterns
+
+        expect(
+          AgentHarness::ErrorTaxonomy.classify(
+            StandardError.new("Failed to refresh token: connection error while contacting oauth endpoint"),
+            patterns
+          )
+        ).to eq(:transient)
+      end
     end
 
     describe "#smoke_test" do
