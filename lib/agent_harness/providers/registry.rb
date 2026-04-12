@@ -486,6 +486,7 @@ module AgentHarness
             uses_subcommand: nil,
             supports_mcp: false,
             supported_mcp_transports: [],
+            supports_token_counting: false,
             supports_sessions: false,
             supports_dangerous_mode: false
           },

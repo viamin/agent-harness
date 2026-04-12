@@ -583,6 +583,7 @@ RSpec.describe AgentHarness::Providers::Registry do
         installable: false,
         installation: nil,
         supports_mcp: false,
+        supports_token_counting: false,
         supports_sessions: false
       )
       expect(metadata[:health_check]).to include(
