@@ -207,18 +207,18 @@ module AgentHarness
       end
 
       def parse_response(result, duration:)
-        output = result.stdout
+        output = result.stdout.to_s
         error = nil
 
         if result.failed?
-          combined = [result.stdout, result.stderr].compact.join("\n")
+          combined = [output, result.stderr.to_s].map(&:strip).reject(&:empty?).join("\n")
           error = combined unless combined.empty?
         end
 
         total_input = 0
         total_output = 0
         aggregated_output = +""
-        result.stdout.lines.each do |line|
+        output.lines.each do |line|
           line = line.strip
           next if line.empty?
           begin

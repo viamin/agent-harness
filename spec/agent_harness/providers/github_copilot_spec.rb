@@ -354,6 +354,42 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
 
         expect(response.tokens).to eq({input: 4, output: 7, total: 11})
       end
+
+      it "handles nil stdout gracefully" do
+        result = make_result(stdout: nil, exit_code: 0)
+        response = provider.send(:parse_response, result, duration: 1.0)
+
+        expect(response.output).to eq("")
+        expect(response.error).to be_nil
+      end
+
+      it "sets error from stdout only when stderr is empty" do
+        result = make_result(stdout: "stdout error", stderr: "", exit_code: 1)
+        response = provider.send(:parse_response, result, duration: 1.0)
+
+        expect(response.error).to eq("stdout error")
+      end
+
+      it "sets error from stderr only when stdout is empty" do
+        result = make_result(stdout: "", stderr: "stderr error", exit_code: 1)
+        response = provider.send(:parse_response, result, duration: 1.0)
+
+        expect(response.error).to eq("stderr error")
+      end
+
+      it "processes a full conversation with text and usage events" do
+        jsonl = <<~JSONL
+          {"type":"assistant","data":{"content":"Hello"}}
+          {"type":"assistant","data":{"content":" world!"}}
+          {"type":"usage","data":{"inputTokens":50,"outputTokens":25}}
+        JSONL
+        result = make_result(stdout: jsonl)
+        response = provider.send(:parse_response, result, duration: 2.5)
+
+        expect(response.output).to eq("Hello world!")
+        expect(response.tokens).to eq({input: 50, output: 25, total: 75})
+        expect(response.error).to be_nil
+      end
     end
   end
 end
