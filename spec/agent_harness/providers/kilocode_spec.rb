@@ -1488,6 +1488,36 @@ RSpec.describe AgentHarness::Providers::Kilocode do
         expect(response.tokens).to eq({input: 120, output: 50, total: 170})
       end
 
+      it "preserves step-derived extra totals when usage only updates one token side" do
+        ndjson = [
+          {"type" => "text", "part" => {"text" => "Response"}},
+          {
+            "type" => "step_finish",
+            "part" => {
+              "tokens" => {
+                "input" => 100,
+                "output" => 50,
+                "reasoning" => 20,
+                "cache" => {"read" => 5}
+              }
+            }
+          },
+          {"type" => "result", "usage" => {"input_tokens" => 120}}
+        ].map { |e| JSON.generate(e) }.join("\n")
+
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: ndjson,
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        response = provider.send_message(prompt: "Hello")
+        expect(response.tokens).to eq({input: 120, output: 50, total: 195})
+      end
+
       it "fills malformed usage token values from accumulated step_finish totals" do
         ndjson = [
           {"type" => "text", "part" => {"text" => "Response"}},

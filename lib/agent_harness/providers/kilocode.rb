@@ -167,6 +167,7 @@ module AgentHarness
         accumulated_input = 0
         accumulated_output = 0
         accumulated_total = 0
+        accumulated_extra_total = 0
         has_step_tokens = false
         result_usage = nil
         saw_structured_event = false
@@ -201,6 +202,7 @@ module AgentHarness
                 accumulated_input += step_token_counts[:input]
                 accumulated_output += step_token_counts[:output]
                 accumulated_total += step_token_counts[:total]
+                accumulated_extra_total += portable_step_extra_total(part_tokens, step_token_counts[:total])
                 has_step_tokens = true
               end
             end
@@ -226,7 +228,7 @@ module AgentHarness
             "total_tokens" => accumulated_total
           })
         end
-        tokens = resolve_token_counts(result_usage, fallback: step_tokens) if result_usage
+        tokens = resolve_token_counts(result_usage, fallback: step_tokens, fallback_extra_total: accumulated_extra_total) if result_usage
         tokens ||= step_tokens
         if structured_errors.any? && !saw_structured_event
           error_lines = [error, *structured_errors].compact.reject(&:empty?).uniq
@@ -281,7 +283,7 @@ module AgentHarness
         {input: input, output: output, total: total}
       end
 
-      def resolve_token_counts(usage, fallback: nil)
+      def resolve_token_counts(usage, fallback: nil, fallback_extra_total: 0)
         input = coerce_token_count(usage["input_tokens"])
         output = coerce_token_count(usage["output_tokens"])
         explicit_total = extract_explicit_total_token_count(usage)
@@ -295,7 +297,7 @@ module AgentHarness
         input ||= 0
         output ||= 0
 
-        total = explicit_total || [synthesized_total, input + output, fallback_total].compact.max
+        total = explicit_total || [synthesized_total, input + output + fallback_extra_total, fallback_total].compact.max
 
         {input: input, output: output, total: total}
       end
@@ -435,6 +437,31 @@ module AgentHarness
         return nil if counts.empty?
 
         counts.sum
+      end
+
+      def portable_step_extra_total(tokens, total)
+        return 0 unless step_component_tokens_present?(tokens)
+
+        input = coerce_token_count(tokens["input"]) || 0
+        output = coerce_token_count(tokens["output"]) || 0
+
+        [total - input - output, 0].max
+      end
+
+      def step_component_tokens_present?(tokens)
+        counts = [
+          coerce_token_count(tokens["input"]),
+          coerce_token_count(tokens["output"]),
+          coerce_token_count(tokens["reasoning"])
+        ]
+
+        cache = tokens["cache"]
+        if cache.is_a?(Hash)
+          counts << coerce_token_count(cache["read"])
+          counts << coerce_token_count(cache["write"])
+        end
+
+        counts.any?
       end
 
       def extract_explicit_total_token_count(usage)
