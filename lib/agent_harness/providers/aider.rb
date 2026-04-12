@@ -309,7 +309,7 @@ module AgentHarness
       FOOTER_COST_PATTERN = /^\s*Cost:\s+.+\s*$/i
       RUN_SHELL_COMMAND_PATTERN = /^\s*Run shell command\?.*$/i
       OUTPUT_STATUS_PATTERN =
-        /^\s*(?:Applied edit to|Commit\b|You can use \/undo\b|Added .+ to the chat\.|Removed .+ from the chat\.|Use \/help\b|Create new file\?|Allow edits to\b|Edit the files\?|Run shell command\?).*$/i
+        /^\s*(?:Applied edit to|Commit\b|Committing\b|You can use \/undo\b|Added .+ to the chat\.|Removed .+ from the chat\.|Use \/help\b|Create new file\?|Allow edits to\b|Edit the files\?|Run shell command\?).*$/i
       OUTPUT_PATH_PATTERN = %r{^\s*[\w.-]*[/.][\w./-]*\s*$}
       COMMON_SHELL_COMMAND_PATTERN =
         /\A(?:git|bundle|ruby|python\d*(?:\.\d+)?|uv|npm|yarn|pnpm|node|bash|sh|zsh|make|rake|rspec|rails|bin\/[\w.-]+|sed|rg|grep|find|ls|cat|cp|mv|rm|mkdir|touch|chmod|chown|docker|kubectl)\z/
