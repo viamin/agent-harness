@@ -186,7 +186,8 @@ module AgentHarness
           end
 
           if event["type"] == "result"
-            result_text = extract_result_text(event["result"])
+            extracted_result_text = extract_result_text(event["result"])
+            result_text = extracted_result_text if extracted_result_text
           end
 
           if event["type"] == "error"
