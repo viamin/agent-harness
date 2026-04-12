@@ -557,17 +557,17 @@ module AgentHarness
 
       def extract_message_content_parts(item)
         item_text = item["text"]
-        if item_text.is_a?(String)
-          return extract_fallback_content_parts(item, item_text) if item_text.empty?
-
-          return [item_text]
-        end
+        return [item_text] if item_text.is_a?(String) && !item_text.empty?
 
         item_message = item["message"]
-        if item_message.is_a?(String)
-          return extract_fallback_content_parts(item, item_message) if item_message.empty?
+        return [item_message] if item_message.is_a?(String) && !item_message.empty?
 
-          return [item_message]
+        if item_text.is_a?(String)
+          return extract_fallback_content_parts(item, item_text)
+        end
+
+        if item_message.is_a?(String)
+          return extract_fallback_content_parts(item, item_message)
         end
 
         item_content = item["content"]
