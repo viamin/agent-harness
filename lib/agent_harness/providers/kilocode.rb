@@ -177,10 +177,11 @@ module AgentHarness
           if event["type"] == "step_finish"
             part_tokens = part["tokens"] if part.is_a?(Hash)
             if part_tokens.is_a?(Hash)
+              step_total = coerce_step_total_token_count(part_tokens)
               step_token_counts = build_token_counts({
                 "input_tokens" => part_tokens["input"],
                 "output_tokens" => part_tokens["output"],
-                "total_tokens" => part_tokens["total_tokens"] || part_tokens["total"]
+                "total_tokens" => step_total
               })
 
               if step_token_counts
@@ -343,6 +344,28 @@ module AgentHarness
         return nil if input.nil? && output.nil?
 
         (input || 0) + (output || 0)
+      end
+
+      def coerce_step_total_token_count(tokens)
+        explicit_total = coerce_token_count(tokens["total_tokens"] || tokens["total"])
+        return explicit_total if explicit_total
+
+        counts = [
+          coerce_token_count(tokens["input"]),
+          coerce_token_count(tokens["output"]),
+          coerce_token_count(tokens["reasoning"])
+        ]
+
+        cache = tokens["cache"]
+        if cache.is_a?(Hash)
+          counts << coerce_token_count(cache["read"])
+          counts << coerce_token_count(cache["write"])
+        end
+
+        counts.compact!
+        return nil if counts.empty?
+
+        counts.sum
       end
     end
   end
