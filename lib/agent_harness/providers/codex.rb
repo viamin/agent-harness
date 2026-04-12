@@ -17,7 +17,7 @@ module AgentHarness
         /failed to refresh token:.*invalid_client/i,
         /failed to refresh token:.*invalid_grant/i,
         /failed to refresh token:.*invalid.*refresh.*token/i,
-        /your access token could not be refreshed/i,
+        /your access token could not be refreshed because your refresh token .*already (?:been )?used/i,
         /refresh token .*already been used/i
       ].freeze
 
@@ -181,14 +181,19 @@ module AgentHarness
       end
 
       def error_patterns
-        COMMON_ERROR_PATTERNS.merge(
+        {
+          rate_limited: COMMON_ERROR_PATTERNS[:rate_limited],
+          timeout: [
+            /your access token could not be refreshed.*(?:timeout|timed out)/i,
+            /failed to refresh token:.*(?:timeout|timed out)/i
+          ],
           auth_expired: COMMON_ERROR_PATTERNS[:auth_expired] + [
             /\b401\b/,
             /incorrect.*api.*key/i
           ] + OAUTH_REFRESH_FAILURE_PATTERNS,
+          quota_exceeded: COMMON_ERROR_PATTERNS[:quota_exceeded],
           transient: COMMON_ERROR_PATTERNS[:transient] + [
             /connection.*reset/i,
-            /failed to refresh token:.*(?:timeout|timed out)/i,
             /failed to refresh token:.*connection.*error/i,
             /failed to refresh token:.*service.*unavailable/i
           ],
@@ -197,7 +202,7 @@ module AgentHarness
             /no permissions to create a new namespace/i,
             /unprivileged.*namespace/i
           ]
-        )
+        }
       end
 
       def auth_status

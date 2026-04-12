@@ -486,7 +486,9 @@ RSpec.describe AgentHarness::Providers::Codex do
 
         expect(
           AgentHarness::ErrorTaxonomy.classify(
-            StandardError.new("Your access token could not be refreshed. Please log out and sign in again."),
+            StandardError.new(
+              "Your access token could not be refreshed because your refresh token has already been used. Please log out and sign in again."
+            ),
             patterns
           )
         ).to eq(:auth_expired)
@@ -519,6 +521,17 @@ RSpec.describe AgentHarness::Providers::Codex do
             patterns
           )
         ).to eq(:unknown)
+      end
+
+      it "does not classify non-auth refresh failures as auth_expired" do
+        patterns = provider.error_patterns
+
+        expect(
+          AgentHarness::ErrorTaxonomy.classify(
+            StandardError.new("Your access token could not be refreshed because the auth service timed out."),
+            patterns
+          )
+        ).to eq(:timeout)
       end
     end
 
