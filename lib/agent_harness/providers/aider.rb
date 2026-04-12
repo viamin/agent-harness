@@ -388,11 +388,17 @@ module AgentHarness
           [parsed]
         end
       rescue JSON::ParserError
-        content.lines.filter_map do |line|
-          JSON.parse(line)
+        parsed_lines = []
+
+        content.each_line do |line|
+          next if line.strip.empty?
+
+          parsed_lines << JSON.parse(line)
         rescue JSON::ParserError
-          nil
+          return nil
         end
+
+        parsed_lines.empty? ? nil : parsed_lines
       end
 
       def aggregate_token_counts(entries)
