@@ -1512,6 +1512,33 @@ RSpec.describe AgentHarness::Providers::Codex do
           expect(response.output).to eq("final wrapped agent message")
         end
 
+        it "extracts final assistant text from response_item when item_type is assistant_message" do
+          jsonl_output = [
+            JSON.generate({"type" => "event_msg", "payload" => {"type" => "agent_message_delta", "message" => "partial"}}),
+            JSON.generate({
+              "type" => "response_item",
+              "payload" => {
+                "item_type" => "assistant_message",
+                "message" => "final assistant item_type message"
+              }
+            }),
+            JSON.generate({"type" => "turn.completed", "usage" => {"input_tokens" => 9, "output_tokens" => 4}})
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq("final assistant item_type message")
+          expect(response.tokens).to eq({input: 9, output: 4, total: 13})
+        end
+
         it "ignores wrapped non-assistant agent_message events and deltas" do
           jsonl_output = [
             JSON.generate({"type" => "event_msg", "payload" => {"type" => "agent_message_delta", "role" => "user", "message" => "user partial"}}),

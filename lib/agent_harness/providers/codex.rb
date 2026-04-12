@@ -678,9 +678,11 @@ module AgentHarness
       def response_item_assistant_payload?(payload)
         payload_type = payload["type"]
         payload_role = payload["role"]
+        payload_item_type = payload["item_type"]
 
         (payload_type == "message" && payload_role == "assistant") ||
-          (payload_type == "agent_message" && (payload_role.nil? || payload_role == "assistant"))
+          (payload_type == "agent_message" && (payload_role.nil? || payload_role == "assistant")) ||
+          (payload_role.nil? && payload_item_type == "assistant_message")
       end
 
       def extract_message_content_parts(item)
