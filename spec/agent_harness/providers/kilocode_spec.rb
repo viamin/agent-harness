@@ -153,10 +153,10 @@ RSpec.describe AgentHarness::Providers::Kilocode do
         expect(described_class.installation_contract[:binary_name]).to eq(described_class.binary_name)
       end
 
-      it "executes kilo run with the prompt" do
+      it "executes kilo run with --format json and the prompt" do
         allow(mock_executor).to receive(:execute).and_return(
           AgentHarness::CommandExecutor::Result.new(
-            stdout: "response",
+            stdout: '{"result":"response"}',
             stderr: "",
             exit_code: 0,
             duration: 1.0
@@ -164,7 +164,7 @@ RSpec.describe AgentHarness::Providers::Kilocode do
         )
 
         expect(mock_executor).to receive(:execute).with(
-          ["kilo", "run", "Hello"],
+          ["kilo", "run", "--format", "json", "Hello"],
           anything
         )
 
@@ -193,6 +193,181 @@ RSpec.describe AgentHarness::Providers::Kilocode do
     describe "#execution_semantics" do
       it "reports uses_subcommand as true" do
         expect(provider.execution_semantics[:uses_subcommand]).to be true
+      end
+
+      it "reports output_format as json" do
+        expect(provider.execution_semantics[:output_format]).to eq(:json)
+      end
+    end
+
+    context "with token usage parsing" do
+      it "extracts token usage from JSON output" do
+        json_output = JSON.generate({
+          "result" => "Hello! How can I help?",
+          "usage" => {
+            "input_tokens" => 100,
+            "output_tokens" => 50
+          }
+        })
+
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: json_output,
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        response = provider.send_message(prompt: "Hello")
+        expect(response.output).to eq("Hello! How can I help?")
+        expect(response.tokens).to eq({input: 100, output: 50, total: 150})
+        expect(response.input_tokens).to eq(100)
+        expect(response.output_tokens).to eq(50)
+        expect(response.total_tokens).to eq(150)
+      end
+
+      it "handles JSON output without usage data" do
+        json_output = JSON.generate({
+          "result" => "Hello!"
+        })
+
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: json_output,
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        response = provider.send_message(prompt: "Hello")
+        expect(response.output).to eq("Hello!")
+        expect(response.tokens).to be_nil
+      end
+
+      it "handles non-JSON output gracefully" do
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "plain text response",
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        response = provider.send_message(prompt: "Hello")
+        expect(response.output).to eq("plain text response")
+        expect(response.tokens).to be_nil
+      end
+
+      it "handles JSON with usage containing only input tokens" do
+        json_output = JSON.generate({
+          "result" => "Response text",
+          "usage" => {
+            "input_tokens" => 80
+          }
+        })
+
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: json_output,
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        response = provider.send_message(prompt: "Hello")
+        expect(response.tokens).to eq({input: 80, output: 0, total: 80})
+      end
+
+      it "handles JSON with usage containing only output tokens" do
+        json_output = JSON.generate({
+          "result" => "Response text",
+          "usage" => {
+            "output_tokens" => 30
+          }
+        })
+
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: json_output,
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        response = provider.send_message(prompt: "Hello")
+        expect(response.tokens).to eq({input: 0, output: 30, total: 30})
+      end
+
+      it "extracts text from 'text' field when 'result' is absent" do
+        json_output = JSON.generate({
+          "text" => "Text field response",
+          "usage" => {
+            "input_tokens" => 10,
+            "output_tokens" => 5
+          }
+        })
+
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: json_output,
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        response = provider.send_message(prompt: "Hello")
+        expect(response.output).to eq("Text field response")
+        expect(response.tokens).to eq({input: 10, output: 5, total: 15})
+      end
+
+      it "records tokens with the global token tracker" do
+        json_output = JSON.generate({
+          "result" => "Tracked response",
+          "usage" => {
+            "input_tokens" => 50,
+            "output_tokens" => 25
+          }
+        })
+
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: json_output,
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        tracker = AgentHarness.token_tracker
+        tracker.clear!
+
+        provider.send_message(prompt: "Hello")
+
+        summary = tracker.summary
+        expect(summary[:total_input_tokens]).to eq(50)
+        expect(summary[:total_output_tokens]).to eq(25)
+        expect(summary[:total_tokens]).to eq(75)
+      end
+
+      it "classifies errors on non-zero exit code" do
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "",
+            stderr: "rate limit exceeded",
+            exit_code: 1,
+            duration: 1.0
+          )
+        )
+
+        response = provider.send_message(prompt: "Hello")
+        expect(response.failed?).to be true
+        expect(response.error).to eq("rate limit exceeded")
       end
     end
   end

@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "json"
+
 module AgentHarness
   module Providers
     # Kilocode CLI provider
@@ -118,7 +120,7 @@ module AgentHarness
       def execution_semantics
         {
           prompt_delivery: :arg,
-          output_format: :text,
+          output_format: :json,
           sandbox_aware: false,
           uses_subcommand: true,
           non_interactive_flag: nil,
@@ -131,13 +133,67 @@ module AgentHarness
       protected
 
       def build_command(prompt, options)
-        cmd = [self.class.binary_name, "run"]
+        cmd = [self.class.binary_name, "run", "--format", "json"]
         cmd << prompt
         cmd
       end
 
+      def parse_response(result, duration:)
+        output = result.stdout
+        error = nil
+        tokens = nil
+
+        if result.failed?
+          combined = [result.stdout, result.stderr]
+            .map { |s| s.to_s.strip }
+            .reject(&:empty?)
+            .join("\n")
+          error = combined unless combined.empty?
+        end
+
+        parsed = parse_json_output(output)
+        if parsed
+          output = parsed["result"] || parsed["text"] || output
+          tokens = extract_tokens(parsed)
+        end
+
+        Response.new(
+          output: output,
+          exit_code: result.exit_code,
+          duration: duration,
+          provider: self.class.provider_name,
+          model: @config.model,
+          tokens: tokens,
+          error: error
+        )
+      end
+
       def default_timeout
         300
+      end
+
+      private
+
+      def parse_json_output(output)
+        return nil if output.nil? || output.empty?
+
+        JSON.parse(output)
+      rescue JSON::ParserError
+        nil
+      end
+
+      def extract_tokens(parsed)
+        usage = parsed["usage"]
+        return nil unless usage
+
+        input = usage["input_tokens"]
+        output = usage["output_tokens"]
+        return nil unless input || output
+
+        input ||= 0
+        output ||= 0
+
+        {input: input, output: output, total: input + output}
       end
     end
   end
