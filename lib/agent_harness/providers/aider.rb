@@ -1,5 +1,8 @@
 # frozen_string_literal: true
 
+require "json"
+require "securerandom"
+
 module AgentHarness
   module Providers
     # Aider AI coding assistant provider
@@ -192,13 +195,24 @@ module AgentHarness
         ["--restore-chat-history", session_id]
       end
 
+      def send_message(prompt:, **options)
+        @llm_history_path = generate_llm_history_path
+        super
+      ensure
+        cleanup_llm_history_file!
+        @llm_history_path = nil
+      end
+
       protected
 
       def build_command(prompt, options)
         cmd = [self.class.binary_name]
 
-        # Run in non-interactive mode
         cmd << "--yes"
+
+        if @llm_history_path
+          cmd += ["--llm-history-file", @llm_history_path]
+        end
 
         if @config.model && !@config.model.empty?
           cmd += ["--model", @config.model]
@@ -213,8 +227,99 @@ module AgentHarness
         cmd
       end
 
+      def parse_response(result, duration:)
+        response = super
+        tokens = parse_llm_history_tokens(@llm_history_path)
+
+        return response unless tokens
+
+        Response.new(
+          output: response.output,
+          exit_code: response.exit_code,
+          duration: response.duration,
+          provider: response.provider,
+          model: response.model,
+          tokens: tokens,
+          metadata: response.metadata,
+          error: response.error
+        )
+      end
+
       def default_timeout
-        600 # Aider can take longer
+        600
+      end
+
+      private
+
+      def generate_llm_history_path
+        File.join(Dir.tmpdir, "aider_llm_history_#{Process.pid}_#{SecureRandom.hex(8)}")
+      end
+
+      def parse_llm_history_tokens(path)
+        return nil unless path && File.exist?(path) && !File.zero?(path)
+
+        content = File.read(path)
+        return nil if content.strip.empty?
+
+        total_input = 0
+        total_output = 0
+        found_usage = false
+
+        content.each_line do |line|
+          line = line.strip
+          next if line.empty?
+
+          entry = begin
+            JSON.parse(line)
+          rescue JSON::ParserError
+            next
+          end
+
+          usage = extract_usage_from_entry(entry)
+          next unless usage
+
+          found_usage = true
+          total_input += usage[:input]
+          total_output += usage[:output]
+        end
+
+        return nil unless found_usage
+
+        {input: total_input, output: total_output, total: total_input + total_output}
+      rescue => e
+        log_debug("llm_history_parse_error", error: e.message)
+        nil
+      end
+
+      def extract_usage_from_entry(entry)
+        usage = entry["usage"]
+        tokens = extract_token_counts(usage) if usage.is_a?(Hash)
+        return tokens if tokens
+
+        response = entry["response"]
+        if response.is_a?(Hash)
+          usage = response["usage"]
+          return extract_token_counts(usage) if usage.is_a?(Hash)
+        end
+
+        nil
+      end
+
+      def extract_token_counts(usage)
+        input = usage["prompt_tokens"] || usage["input_tokens"]
+        output = usage["completion_tokens"] || usage["output_tokens"]
+        return nil unless input || output
+
+        {input: input.to_i, output: output.to_i}
+      end
+
+      def cleanup_llm_history_file!
+        return unless @llm_history_path
+
+        File.delete(@llm_history_path) if File.exist?(@llm_history_path)
+      rescue => e
+        log_debug("llm_history_cleanup_error", error: e.message)
+        nil
       end
     end
   end

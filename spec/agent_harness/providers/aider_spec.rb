@@ -240,6 +240,212 @@ RSpec.describe AgentHarness::Providers::Aider do
         expect(command.first).to eq(contract[:binary_name])
         expect(command).to include(provider.execution_semantics[:non_interactive_flag])
       end
+
+      it "includes --llm-history-file when llm_history_path is set" do
+        provider.instance_variable_set(:@llm_history_path, "/tmp/test_history.jsonl")
+        command = provider.send(:build_command, "hello", {})
+
+        expect(command).to include("--llm-history-file", "/tmp/test_history.jsonl")
+      ensure
+        provider.instance_variable_set(:@llm_history_path, nil)
+      end
+
+      it "does not include --llm-history-file when llm_history_path is nil" do
+        provider.instance_variable_set(:@llm_history_path, nil)
+        command = provider.send(:build_command, "hello", {})
+
+        expect(command).not_to include("--llm-history-file")
+      end
+    end
+
+    describe "#send_message" do
+      let(:mock_executor) do
+        instance_double(AgentHarness::CommandExecutor)
+      end
+      let(:provider) { described_class.new(executor: mock_executor) }
+      let(:result) do
+        AgentHarness::CommandExecutor::Result.new(
+          stdout: "response text",
+          stderr: "",
+          exit_code: 0
+        )
+      end
+
+      before do
+        allow(mock_executor).to receive(:execute).and_return(result)
+      end
+
+      it "creates an llm history file flag in the command" do
+        expect(mock_executor).to receive(:execute) do |cmd, **kwargs|
+          expect(cmd).to include("--llm-history-file")
+          result
+        end
+
+        provider.send_message(prompt: "hello")
+      end
+
+      it "cleans up the temp history file after execution" do
+        history_path = nil
+        allow(mock_executor).to receive(:execute) do |cmd, **kwargs|
+          history_path = cmd[cmd.index("--llm-history-file") + 1]
+          File.write(history_path, "")
+          result
+        end
+
+        provider.send_message(prompt: "hello")
+        expect(File.exist?(history_path)).to be false
+      end
+
+      it "cleans up the temp history file even when execution fails" do
+        history_path = nil
+        allow(mock_executor).to receive(:execute) do |cmd, **kwargs|
+          history_path = cmd[cmd.index("--llm-history-file") + 1]
+          File.write(history_path, "")
+          raise Timeout::Error, "timed out"
+        end
+
+        expect { provider.send_message(prompt: "hello") }.to raise_error(AgentHarness::TimeoutError)
+        expect(File.exist?(history_path)).to be false
+      end
+
+      it "extracts OpenAI-format tokens from the history file" do
+        allow(mock_executor).to receive(:execute) do |cmd, **kwargs|
+          history_path = cmd[cmd.index("--llm-history-file") + 1]
+          File.write(history_path, <<~JSONL)
+            {"role":"user","content":"hello"}
+            {"role":"assistant","content":"world","usage":{"prompt_tokens":10,"completion_tokens":20,"total_tokens":30}}
+          JSONL
+          result
+        end
+
+        response = provider.send_message(prompt: "hello")
+        expect(response.tokens).to eq({input: 10, output: 20, total: 30})
+      end
+
+      it "extracts Anthropic-format tokens from the history file" do
+        allow(mock_executor).to receive(:execute) do |cmd, **kwargs|
+          history_path = cmd[cmd.index("--llm-history-file") + 1]
+          File.write(history_path, <<~JSONL)
+            {"role":"user","content":"hello"}
+            {"role":"assistant","content":"world","usage":{"input_tokens":15,"output_tokens":25}}
+          JSONL
+          result
+        end
+
+        response = provider.send_message(prompt: "hello")
+        expect(response.tokens).to eq({input: 15, output: 25, total: 40})
+      end
+
+      it "aggregates tokens across multiple responses" do
+        allow(mock_executor).to receive(:execute) do |cmd, **kwargs|
+          history_path = cmd[cmd.index("--llm-history-file") + 1]
+          File.write(history_path, <<~JSONL)
+            {"role":"assistant","usage":{"prompt_tokens":10,"completion_tokens":5}}
+            {"role":"assistant","usage":{"prompt_tokens":20,"completion_tokens":10}}
+          JSONL
+          result
+        end
+
+        response = provider.send_message(prompt: "hello")
+        expect(response.tokens).to eq({input: 30, output: 15, total: 45})
+      end
+
+      it "returns nil tokens when history file is empty" do
+        allow(mock_executor).to receive(:execute) do |cmd, **kwargs|
+          history_path = cmd[cmd.index("--llm-history-file") + 1]
+          File.write(history_path, "")
+          result
+        end
+
+        response = provider.send_message(prompt: "hello")
+        expect(response.tokens).to be_nil
+      end
+
+      it "returns nil tokens when history file has no usage data" do
+        allow(mock_executor).to receive(:execute) do |cmd, **kwargs|
+          history_path = cmd[cmd.index("--llm-history-file") + 1]
+          File.write(history_path, <<~JSONL)
+            {"role":"user","content":"hello"}
+            {"role":"assistant","content":"world"}
+          JSONL
+          result
+        end
+
+        response = provider.send_message(prompt: "hello")
+        expect(response.tokens).to be_nil
+      end
+
+      it "returns nil tokens when history file does not exist" do
+        response = provider.send_message(prompt: "hello")
+        expect(response.tokens).to be_nil
+      end
+
+      it "handles malformed JSON lines gracefully" do
+        allow(mock_executor).to receive(:execute) do |cmd, **kwargs|
+          history_path = cmd[cmd.index("--llm-history-file") + 1]
+          File.write(history_path, <<~JSONL)
+            not-json
+            {"role":"assistant","usage":{"prompt_tokens":10,"completion_tokens":20}}
+            {broken
+          JSONL
+          result
+        end
+
+        response = provider.send_message(prompt: "hello")
+        expect(response.tokens).to eq({input: 10, output: 20, total: 30})
+      end
+
+      it "extracts usage from nested response objects" do
+        allow(mock_executor).to receive(:execute) do |cmd, **kwargs|
+          history_path = cmd[cmd.index("--llm-history-file") + 1]
+          File.write(history_path, <<~JSONL)
+            {"response":{"usage":{"input_tokens":5,"output_tokens":8}}}
+          JSONL
+          result
+        end
+
+        response = provider.send_message(prompt: "hello")
+        expect(response.tokens).to eq({input: 5, output: 8, total: 13})
+      end
+    end
+
+    describe "#parse_response with llm history" do
+      let(:result) do
+        AgentHarness::CommandExecutor::Result.new(
+          stdout: "response text",
+          stderr: "",
+          exit_code: 0
+        )
+      end
+
+      it "augments the base response with tokens from the history file" do
+        Dir.mktmpdir do |dir|
+          path = File.join(dir, "history.jsonl")
+          File.write(path, '{"usage":{"prompt_tokens":100,"completion_tokens":50}}')
+          provider.instance_variable_set(:@llm_history_path, path)
+
+          response = provider.send(:parse_response, result, duration: 1.0)
+          expect(response.output).to eq("response text")
+          expect(response.exit_code).to eq(0)
+          expect(response.tokens).to eq({input: 100, output: 50, total: 150})
+        end
+      ensure
+        provider.instance_variable_set(:@llm_history_path, nil)
+      end
+
+      it "returns the base response unchanged when no tokens are found" do
+        Dir.mktmpdir do |dir|
+          path = File.join(dir, "history.jsonl")
+          File.write(path, '{"role":"user","content":"hello"}')
+          provider.instance_variable_set(:@llm_history_path, path)
+
+          response = provider.send(:parse_response, result, duration: 1.0)
+          expect(response.output).to eq("response text")
+          expect(response.tokens).to be_nil
+        end
+      ensure
+        provider.instance_variable_set(:@llm_history_path, nil)
+      end
     end
   end
 end
