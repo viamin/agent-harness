@@ -310,7 +310,12 @@ module AgentHarness
         total = if explicit_total
           explicit_total
         elsif usage_extra_total
-          input + output + usage_extra_total
+          resolved_total = input + output + usage_extra_total
+          if (input_from_fallback || output_from_fallback) && fallback_total_remainder.positive?
+            [resolved_total, fallback_total].compact.max
+          else
+            resolved_total
+          end
         elsif input_from_fallback || output_from_fallback
           resolved_total = input + output + fallback_extra_total
           fallback_total_remainder.positive? ? [resolved_total, fallback_total].compact.max : resolved_total
