@@ -532,6 +532,27 @@ RSpec.describe AgentHarness::Providers::Codex do
           expect(response.output).to eq("turn result")
         end
 
+        it "treats empty item.completed text as the final output" do
+          jsonl_output = [
+            JSON.generate({"type" => "message.delta", "delta" => {"text" => "stale partial"}}),
+            JSON.generate({"type" => "item.completed", "item" => {"type" => "message", "role" => "assistant", "text" => ""}}),
+            JSON.generate({"type" => "turn.completed", "usage" => {"input_tokens" => 10, "output_tokens" => 5}})
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq("")
+          expect(response.tokens).to eq({input: 10, output: 5, total: 15})
+        end
+
         it "returns only the final completed assistant text across multiple turns" do
           jsonl_output = [
             JSON.generate({"type" => "item.completed", "item" => {"type" => "message", "role" => "assistant", "text" => "first answer"}}),
@@ -787,6 +808,38 @@ RSpec.describe AgentHarness::Providers::Codex do
 
           response = provider.send_message(prompt: "Hello")
           expect(response.output).to eq("final top-level answer")
+          expect(response.tokens).to eq({input: 4, output: 2, total: 6})
+        end
+
+        it "treats empty top-level agent_message text as the final output" do
+          jsonl_output = [
+            JSON.generate({"type" => "agent_message_delta", "message" => "stale partial"}),
+            JSON.generate({"type" => "agent_message", "message" => ""}),
+            JSON.generate({
+              "type" => "event_msg",
+              "payload" => {
+                "type" => "token_count",
+                "info" => {
+                  "last_token_usage" => {
+                    "input_tokens" => 4,
+                    "output_tokens" => 2
+                  }
+                }
+              }
+            })
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq("")
           expect(response.tokens).to eq({input: 4, output: 2, total: 6})
         end
 

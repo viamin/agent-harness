@@ -392,14 +392,14 @@ module AgentHarness
             next unless wrapped_assistant_payload?(event)
 
             completed_parts = extract_message_content_parts(event)
-            current_turn_parts = completed_parts
+            current_turn_parts = completed_parts unless completed_parts.nil?
           when "item.completed"
             item = event["item"]
             next unless item.is_a?(Hash)
             next unless assistant_message_item?(item)
 
             completed_parts = extract_message_content_parts(item)
-            current_turn_parts = completed_parts
+            current_turn_parts = completed_parts unless completed_parts.nil?
           when "turn.completed"
             usage = event["usage"]
             if usage.is_a?(Hash)
@@ -438,7 +438,7 @@ module AgentHarness
               next unless wrapped_assistant_payload?(payload)
 
               completed_parts = extract_message_content_parts(payload)
-              current_turn_parts = completed_parts
+              current_turn_parts = completed_parts unless completed_parts.nil?
             when "token_count"
               wrapped_token_usage = extract_wrapped_tokens(payload["info"])
               if wrapped_token_usage
@@ -461,7 +461,7 @@ module AgentHarness
             next unless payload.is_a?(Hash) && response_item_assistant_payload?(payload)
 
             completed_parts = extract_message_content_parts(payload)
-            current_turn_parts = completed_parts
+            current_turn_parts = completed_parts unless completed_parts.nil?
           end
         end
 
@@ -514,30 +514,30 @@ module AgentHarness
       end
 
       def extract_message_content_parts(item)
-        completed_parts = []
-
         item_text = item["text"]
-        if item_text.is_a?(String) && !item_text.empty?
-          completed_parts << item_text
-        else
-          item_message = item["message"]
-          if item_message.is_a?(String) && !item_message.empty?
-            completed_parts << item_message
-          else
-            item_content = item["content"]
-            if item_content.is_a?(Array)
-              item_content.each do |block|
-                next unless block.is_a?(Hash)
-                next unless output_text_block?(block)
+        return [item_text] if item_text.is_a?(String)
 
-                block_text = block["text"]
-                completed_parts << block_text if block_text.is_a?(String) && !block_text.empty?
-              end
-            end
-          end
+        item_message = item["message"]
+        return [item_message] if item_message.is_a?(String)
+
+        item_content = item["content"]
+        return nil unless item_content.is_a?(Array)
+
+        completed_parts = []
+        extracted_content = false
+
+        item_content.each do |block|
+          next unless block.is_a?(Hash)
+          next unless output_text_block?(block)
+
+          block_text = block["text"]
+          next unless block_text.is_a?(String)
+
+          extracted_content = true
+          completed_parts << block_text
         end
 
-        completed_parts
+        extracted_content ? completed_parts : nil
       end
 
       def output_text_block?(block)
