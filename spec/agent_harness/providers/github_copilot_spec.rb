@@ -404,7 +404,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         expect(response.tokens).to be_nil
       end
 
-      it "uses the last assistant reply token payload when multiple reply events include tokens" do
+      it "sums assistant reply token payloads when multiple reply events include tokens" do
         jsonl = <<~JSONL
           {"type":"assistant","data":{"content":"Hello","inputTokens":3,"outputTokens":2}}
           {"type":"assistant.message","data":{"content":" world","inputTokens":10,"outputTokens":5}}
@@ -413,7 +413,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         response = provider.send(:parse_response, result, duration: 1.0)
 
         expect(response.output).to eq("Hello world")
-        expect(response.tokens).to eq({input: 10, output: 5, total: 15})
+        expect(response.tokens).to eq({input: 13, output: 7, total: 20})
       end
 
       it "returns nil tokens when no usage data present" do
@@ -594,6 +594,24 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         provider = described_class.new(executor: executor)
 
         2.times { provider.send(:copilot_cli_supports_json_output?) }
+      end
+
+      it "caches unknown version support as false" do
+        executor = instance_double(AgentHarness::CommandExecutor)
+        allow(executor).to receive(:execute).once.with(
+          ["github-copilot-cli", "--version"],
+          timeout: 5
+        ).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "github-copilot-cli development build\n",
+            stderr: "",
+            exit_code: 0
+          )
+        )
+        provider = described_class.new(executor: executor)
+
+        expect(provider.send(:copilot_cli_supports_json_output?)).to be false
+        expect(provider.send(:copilot_cli_supports_json_output?)).to be false
       end
     end
   end

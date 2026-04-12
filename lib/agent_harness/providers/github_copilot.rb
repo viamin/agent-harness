@@ -247,8 +247,8 @@ module AgentHarness
             usage_output += token_usage[:output]
           else
             fallback_tokens_present = true
-            fallback_input = token_usage[:input]
-            fallback_output = token_usage[:output]
+            fallback_input += token_usage[:input]
+            fallback_output += token_usage[:output]
           end
         end
 
@@ -381,7 +381,7 @@ module AgentHarness
         return @copilot_cli_supports_json_output unless @copilot_cli_supports_json_output.nil?
 
         version = copilot_cli_version
-        @copilot_cli_supports_json_output = version && version >= MIN_JSON_OUTPUT_VERSION
+        @copilot_cli_supports_json_output = !version.nil? && version >= MIN_JSON_OUTPUT_VERSION
       rescue
         @copilot_cli_supports_json_output = false
       end
