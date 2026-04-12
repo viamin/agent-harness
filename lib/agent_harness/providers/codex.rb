@@ -481,6 +481,7 @@ module AgentHarness
 
             if turn_usage
               has_usage = true
+              turn_usage = merge_same_turn_usage(pending_turn_usage, turn_usage) if same_wrapped_turn
               pending_turn_usage = turn_usage
               pending_turn_usage_source = :turn_completed
             end
@@ -744,6 +745,48 @@ module AgentHarness
         }
       end
 
+      def merge_same_turn_usage(left, right)
+        return right unless left
+        return left unless right
+
+        merged_input_reported = left[:input_reported] || right[:input_reported]
+        merged_output_reported = left[:output_reported] || right[:output_reported]
+        merged_total_reported = left[:total_reported] || right[:total_reported]
+
+        input = if right[:input_reported]
+          right[:input]
+        elsif left[:input_reported]
+          left[:input]
+        else
+          0
+        end
+
+        output = if right[:output_reported]
+          right[:output]
+        elsif left[:output_reported]
+          left[:output]
+        else
+          0
+        end
+
+        total = if right[:total_reported]
+          right[:total]
+        elsif left[:total_reported]
+          left[:total]
+        else
+          input + output
+        end
+
+        {
+          input: input,
+          output: output,
+          total: total,
+          input_reported: merged_input_reported,
+          output_reported: merged_output_reported,
+          total_reported: merged_total_reported
+        }
+      end
+
       def same_turn_usage?(left, right)
         return false unless left && right
 
@@ -752,6 +795,17 @@ module AgentHarness
           left[:output_reported] &&
           right[:output_reported]
         return left[:input] == right[:input] && left[:output] == right[:output] if detailed_usage_matches
+
+        mixed_total_match = (
+          left[:input_reported] &&
+          left[:output_reported] &&
+          right[:total_reported]
+        ) || (
+          right[:input_reported] &&
+          right[:output_reported] &&
+          left[:total_reported]
+        )
+        return left[:total] == right[:total] if mixed_total_match
 
         left[:total_reported] && right[:total_reported] && left[:total] == right[:total]
       end
