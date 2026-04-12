@@ -232,12 +232,14 @@ module AgentHarness
         fallback_output = 0
         fallback_tokens_present = false
         aggregated_output = +""
+        plain_text_output = +""
         output.lines.each do |line|
-          line = line.strip
-          next if line.empty?
+          stripped_line = line.strip
+          next if stripped_line.empty?
           begin
-            obj = JSON.parse(line)
+            obj = JSON.parse(stripped_line)
           rescue JSON::ParserError
+            plain_text_output << line
             next
           end
 
@@ -276,7 +278,11 @@ module AgentHarness
           fallback_output: fallback_output
         )
         final_output = if aggregated_output.empty?
-          structured_json_seen ? "" : output
+          if structured_json_seen
+            plain_text_output
+          else
+            output
+          end
         else
           aggregated_output
         end

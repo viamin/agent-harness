@@ -361,6 +361,18 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         expect(response.output).to eq("ok")
       end
 
+      it "preserves plain-text stdout when mixed with structured control events" do
+        jsonl = <<~JSONL
+          {"type":"usage","data":{"inputTokens":3,"outputTokens":4}}
+          literal shell text
+        JSONL
+        result = make_result(stdout: jsonl)
+        response = provider.send(:parse_response, result, duration: 1.0)
+
+        expect(response.output).to eq("literal shell text\n")
+        expect(response.tokens).to eq({input: 3, output: 4, total: 7})
+      end
+
       it "ignores scalar JSON lines when extracting text" do
         jsonl = "true\n1\n{\"type\":\"assistant\",\"data\":{\"content\":\"ok\"}}\n"
         result = make_result(stdout: jsonl)
