@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "securerandom"
+require "shellwords"
 require "tmpdir"
 
 module AgentHarness
@@ -310,8 +311,11 @@ module AgentHarness
       OUTPUT_STATUS_PATTERN =
         /^\s*(?:Applied edit to|Commit\b|You can use \/undo\b|Added .+ to the chat\.|Removed .+ from the chat\.|Use \/help\b|Create new file\?|Allow edits to\b|Edit the files\?|Run shell command\?).*$/i
       OUTPUT_PATH_PATTERN = %r{^\s*[\w.-]*[/.][\w./-]*\s*$}
+      EXECUTOR_LLM_HISTORY_TIMEOUT = 10
 
       def generate_llm_history_path
+        return "/tmp/aider_llm_history_#{Process.pid}_#{SecureRandom.hex(8)}" if sandboxed_environment?
+
         File.join(Dir.tmpdir, "aider_llm_history_#{Process.pid}_#{SecureRandom.hex(8)}")
       end
 
@@ -329,6 +333,7 @@ module AgentHarness
       end
 
       def read_llm_history(path)
+        return read_executor_llm_history(path) if sandboxed_environment?
         return nil unless path && File.exist?(path) && !File.zero?(path)
 
         content = File.read(path)
@@ -457,6 +462,8 @@ module AgentHarness
       def cleanup_llm_history_file!(path)
         return unless path
 
+        return cleanup_executor_llm_history_file!(path) if sandboxed_environment?
+
         File.delete(path) if File.exist?(path)
       rescue => e
         log_debug("llm_history_cleanup_error", error: e.message)
@@ -486,6 +493,31 @@ module AgentHarness
 
       def reserved_runtime_flag?(flag)
         flag == "--llm-history-file" || flag.start_with?("--llm-history-file=")
+      end
+
+      def read_executor_llm_history(path)
+        return nil unless path
+
+        result = @executor.execute(
+          ["sh", "-lc", "if [ -s #{Shellwords.escape(path)} ]; then cat #{Shellwords.escape(path)}; fi"],
+          timeout: EXECUTOR_LLM_HISTORY_TIMEOUT
+        )
+        return nil unless result.success?
+
+        content = result.stdout
+        return nil if content.to_s.strip.empty?
+
+        content
+      end
+
+      def cleanup_executor_llm_history_file!(path)
+        @executor.execute(
+          ["sh", "-lc", "rm -f -- #{Shellwords.escape(path)}"],
+          timeout: EXECUTOR_LLM_HISTORY_TIMEOUT
+        )
+      rescue => e
+        log_debug("llm_history_cleanup_error", error: e.message)
+        nil
       end
     end
   end

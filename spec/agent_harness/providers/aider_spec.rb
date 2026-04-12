@@ -646,6 +646,64 @@ RSpec.describe AgentHarness::Providers::Aider do
           provider.send_message(prompt: "hello", provider_runtime: runtime)
         }.to raise_error(AgentHarness::ProviderError, /provider-managed flags: --llm-history-file \/tmp\/override\.log/)
       end
+
+      context "with DockerCommandExecutor" do
+        let(:docker_executor) { instance_double(AgentHarness::DockerCommandExecutor) }
+        let(:provider) { described_class.new(executor: docker_executor) }
+
+        before do
+          allow(docker_executor).to receive(:is_a?).with(AgentHarness::DockerCommandExecutor).and_return(true)
+        end
+
+        it "reads and cleans up the history file inside the container" do
+          history_path = nil
+          calls = []
+          allow(docker_executor).to receive(:execute) do |cmd, **kwargs|
+            calls << [cmd, kwargs]
+
+            if cmd.first == "aider"
+              history_path = cmd[cmd.index("--llm-history-file") + 1]
+              result
+            elsif cmd[2].start_with?("if [ -s ")
+              AgentHarness::CommandExecutor::Result.new(
+                stdout: "ASSISTANT world\n\nTokens: 10 sent, 20 received.\n",
+                stderr: "",
+                exit_code: 0
+              )
+            else
+              AgentHarness::CommandExecutor::Result.new(
+                stdout: "",
+                stderr: "",
+                exit_code: 0
+              )
+            end
+          end
+
+          response = provider.send_message(prompt: "hello")
+
+          expect(calls.size).to eq(3)
+          expect(calls[0]).to match(
+            [
+              array_including("aider", "--llm-history-file"),
+              hash_including(timeout: 600)
+            ]
+          )
+          expect(history_path).to start_with("/tmp/aider_llm_history_")
+          expect(calls[1]).to eq(
+            [
+              ["sh", "-lc", "if [ -s #{Shellwords.escape(history_path)} ]; then cat #{Shellwords.escape(history_path)}; fi"],
+              {timeout: 10}
+            ]
+          )
+          expect(calls[2]).to eq(
+            [
+              ["sh", "-lc", "rm -f -- #{Shellwords.escape(history_path)}"],
+              {timeout: 10}
+            ]
+          )
+          expect(response.tokens).to eq({input: 10, output: 20, total: 30})
+        end
+      end
     end
 
     describe "#parse_response with llm history" do
