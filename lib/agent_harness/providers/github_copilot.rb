@@ -185,10 +185,9 @@ module AgentHarness
 
         cmd += ["--output-format", "json"]
 
-        # -p mode is non-interactive; Copilot CLI requires --allow-all-tools
-        # to avoid blocking on tool permission prompts that cannot be answered
-        # programmatically.
-        cmd += dangerous_mode_flags
+        if options[:dangerous_mode] && supports_dangerous_mode?
+          cmd += dangerous_mode_flags
+        end
 
         if options[:session] && !options[:session].empty?
           cmd += session_flags(options[:session])
