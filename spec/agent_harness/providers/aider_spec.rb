@@ -962,6 +962,22 @@ RSpec.describe AgentHarness::Providers::Aider do
         expect(tokens).to be_nil
       end
 
+      it "ignores lowercase prose-like lines before a shell prompt" do
+        tokens = provider.send(
+          :parse_token_usage_text,
+          <<~TEXT
+            response text
+
+            Tokens: 42 sent, 8 received.
+
+            thanks
+            Run shell command?
+          TEXT
+        )
+
+        expect(tokens).to be_nil
+      end
+
       it "still ignores output token counters followed by arbitrary prose" do
         tokens = provider.send(
           :parse_token_usage_text,

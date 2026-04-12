@@ -453,7 +453,7 @@ module AgentHarness
         return false if tokens.empty?
         command = tokens.first
         return false unless command_invocation_token?(command)
-        return true if tokens.length == 1
+        return single_token_command_footer?(command) if tokens.length == 1
         return false unless command_line_token?(command, tokens[1..])
 
         tokens[1..].all? { |token| command_argument_token?(token) }
@@ -482,6 +482,10 @@ module AgentHarness
           (COMMON_SHELL_COMMAND_PATTERN.match?(token) ||
             executable_path_token?(token) ||
             command_footer_shell_like_arguments?(arguments))
+      end
+
+      def single_token_command_footer?(token)
+        COMMON_SHELL_COMMAND_PATTERN.match?(token) || executable_path_token?(token)
       end
 
       def command_footer_shell_like_arguments?(arguments)
