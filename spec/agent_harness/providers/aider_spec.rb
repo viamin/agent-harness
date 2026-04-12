@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "tmpdir"
+
 RSpec.describe AgentHarness::Providers::Aider do
   describe ".provider_name" do
     it "returns :aider" do
@@ -512,6 +514,12 @@ RSpec.describe AgentHarness::Providers::Aider do
         )
 
         expect(tokens).to eq({input: 2900, output: 31, total: 2931})
+      end
+
+      it "parses token counters without a trailing period" do
+        tokens = provider.send(:parse_token_usage_text, "Tokens: 42 sent, 8 received")
+
+        expect(tokens).to eq({input: 42, output: 8, total: 50})
       end
     end
   end
