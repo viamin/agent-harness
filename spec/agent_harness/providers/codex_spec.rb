@@ -532,6 +532,28 @@ RSpec.describe AgentHarness::Providers::Codex do
           expect(response.output).to eq("turn result")
         end
 
+        it "preserves completed assistant text across multiple turns" do
+          jsonl_output = [
+            JSON.generate({"type" => "item.completed", "item" => {"type" => "message", "role" => "assistant", "text" => "first answer"}}),
+            JSON.generate({"type" => "turn.completed", "usage" => {"input_tokens" => 10, "output_tokens" => 5}}),
+            JSON.generate({"type" => "item.completed", "item" => {"type" => "message", "role" => "assistant", "text" => "second answer"}}),
+            JSON.generate({"type" => "turn.completed", "usage" => {"input_tokens" => 8, "output_tokens" => 4}})
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq("first answersecond answer")
+          expect(response.tokens).to eq({input: 18, output: 9, total: 27})
+        end
+
         it "handles item.completed with only content array and no text field" do
           jsonl_output = [
             JSON.generate({

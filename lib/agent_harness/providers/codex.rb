@@ -368,6 +368,7 @@ module AgentHarness
         return nil if events.empty?
 
         text_parts = []
+        current_turn_parts = []
         total_input = 0
         total_output = 0
         has_usage = false
@@ -382,7 +383,7 @@ module AgentHarness
             delta = event["delta"]
             if delta.is_a?(Hash)
               content = delta["text"]
-              text_parts << content if content.is_a?(String)
+              current_turn_parts << content if content.is_a?(String)
             end
           when "item.completed"
             item = event["item"]
@@ -409,7 +410,7 @@ module AgentHarness
               end
             end
 
-            text_parts = completed_parts unless completed_parts.empty?
+            current_turn_parts = completed_parts unless completed_parts.empty?
           when "turn.completed"
             usage = event["usage"]
             if usage.is_a?(Hash)
@@ -425,11 +426,15 @@ module AgentHarness
 
             result = event["result"]
             if result.is_a?(String) && !result.empty?
-              text_parts = [result]
+              current_turn_parts = [result]
             end
+
+            text_parts.concat(current_turn_parts) unless current_turn_parts.empty?
+            current_turn_parts = []
           end
         end
 
+        text_parts.concat(current_turn_parts) unless current_turn_parts.empty?
         text = text_parts.empty? ? nil : text_parts.join
 
         {
