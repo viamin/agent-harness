@@ -186,8 +186,7 @@ module AgentHarness
           end
 
           if event["type"] == "result"
-            result_payload = event["result"]
-            result_text = result_payload if result_payload.is_a?(String)
+            result_text = extract_result_text(event["result"])
           end
 
           if event["type"] == "error"
@@ -425,6 +424,19 @@ module AgentHarness
         return message.strip if message
 
         JSON.generate(event)
+      end
+
+      def extract_result_text(payload)
+        return payload if payload.is_a?(String)
+        return unless payload.is_a?(Hash)
+
+        candidates = [
+          payload["text"],
+          payload["message"]
+        ]
+
+        result_text = candidates.find { |value| value.is_a?(String) && !value.strip.empty? }
+        result_text&.strip
       end
 
       def build_structured_error(result, structured_errors, unstructured_output:)
