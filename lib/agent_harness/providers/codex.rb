@@ -483,8 +483,12 @@ module AgentHarness
       def append_delta_text(parts, delta)
         return unless delta.is_a?(Hash)
 
-        content = delta["text"]
-        parts << content if content.is_a?(String)
+        delta_parts = extract_message_content_parts(delta)
+        return if delta_parts.nil?
+
+        delta_parts.each do |part|
+          parts << part unless part.empty?
+        end
       end
 
       def append_wrapped_delta_text(parts, payload)

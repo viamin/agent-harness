@@ -1328,6 +1328,34 @@ RSpec.describe AgentHarness::Providers::Codex do
           expect(response.total_tokens).to eq(125)
         end
 
+        it "extracts text from structured message.delta content blocks" do
+          jsonl_output = [
+            JSON.generate({
+              "type" => "message.delta",
+              "delta" => {
+                "content" => [
+                  {"type" => "reasoning", "text" => "internal"},
+                  {"type" => "output_text", "text" => "Hello from blocks"}
+                ]
+              }
+            }),
+            JSON.generate({"type" => "turn.completed", "usage" => {"input_tokens" => 100, "output_tokens" => 25}})
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq("Hello from blocks")
+          expect(response.tokens).to eq({input: 100, output: 25, total: 125})
+        end
+
         it "prefers explicit total_tokens from turn.completed usage" do
           jsonl_output = [
             JSON.generate({"type" => "message.delta", "delta" => {"text" => "Hello!"}}),
