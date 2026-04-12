@@ -346,7 +346,10 @@ module AgentHarness
         text_parts = parsed_lines.filter_map do |obj|
           next unless obj.is_a?(Hash)
 
-          extract_text_value(obj) || extract_text_value(obj["data"])
+          extract_text_value(obj) ||
+            extract_text_value(obj["data"]) ||
+            extract_text_value(obj["message"]) ||
+            extract_text_value(obj.dig("data", "message"))
         end
         text_parts.empty? ? nil : text_parts.join
       end
