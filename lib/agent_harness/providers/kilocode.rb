@@ -247,12 +247,14 @@ module AgentHarness
       end
 
       def extract_error_message(event)
+        error_payload = event["error"]
+        part = event["part"]
         candidates = [
           event["message"],
-          event["error"],
-          event.dig("error", "message"),
-          event.dig("part", "text"),
-          event.dig("part", "message")
+          error_payload,
+          error_payload.is_a?(Hash) ? error_payload["message"] : nil,
+          part.is_a?(Hash) ? part["text"] : nil,
+          part.is_a?(Hash) ? part["message"] : nil
         ]
 
         message = candidates.find { |value| value.is_a?(String) && !value.strip.empty? }
