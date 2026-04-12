@@ -432,6 +432,7 @@ RSpec.describe AgentHarness::Providers::Codex do
 
           response = provider.send_message(prompt: "Hello")
           expect(response.success?).to be false
+          expect(response.output).to eq("response")
           expect(response.tokens).to eq({input: 50, output: 25, total: 75})
         end
       end
