@@ -357,10 +357,12 @@ module AgentHarness
           usage = find_usage_in_entry(entry)
           next unless usage
 
-          input = usage["prompt_tokens"] || usage["input_tokens"] || 0
-          output_tok = usage["completion_tokens"] || usage["output_tokens"] || 0
-          total_input += input
-          total_output += output_tok
+          input = normalize_token_count(usage["prompt_tokens"]) || normalize_token_count(usage["input_tokens"])
+          output_tok = normalize_token_count(usage["completion_tokens"]) || normalize_token_count(usage["output_tokens"])
+          next if input.nil? && output_tok.nil?
+
+          total_input += input || 0
+          total_output += output_tok || 0
           found = true
         end
 
@@ -380,6 +382,15 @@ module AgentHarness
         return usage if usage.is_a?(Hash)
 
         nil
+      end
+
+      def normalize_token_count(value)
+        case value
+        when Integer
+          value
+        when String
+          Integer(value, exception: false)
+        end
       end
     end
   end

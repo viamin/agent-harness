@@ -407,6 +407,27 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
           expect(response.tokens).to eq({input: 30, output: 15, total: 45})
         end
 
+        it "skips malformed token counts while preserving valid JSONL usage lines" do
+          jsonl_output = [
+            {"text" => "response"},
+            {"usage" => {"input_tokens" => "not-a-number", "output_tokens" => {}}},
+            {"usage" => {"prompt_tokens" => "20", "completion_tokens" => 5}}
+          ].map { |o| JSON.generate(o) }.join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq("response")
+          expect(response.tokens).to eq({input: 20, output: 5, total: 25})
+        end
+
         it "handles non-JSON output gracefully" do
           allow(mock_executor).to receive(:execute).and_return(
             AgentHarness::CommandExecutor::Result.new(

@@ -460,6 +460,29 @@ RSpec.describe AgentHarness::Providers::Aider do
           expect(response.tokens).to eq({input: 60, output: 20, total: 80})
         end
 
+        it "skips malformed token counts while preserving valid history entries" do
+          allow(mock_executor).to receive(:execute) do |_cmd, _opts|
+            tempfile = provider.instance_variable_get(:@aider_history_tempfile)
+            path = tempfile.path if tempfile
+            if path
+              File.write(path, JSON.generate([
+                {"usage" => {"prompt_tokens" => "not-a-number", "completion_tokens" => []}},
+                {"usage" => {"prompt_tokens" => "40", "completion_tokens" => 10}}
+              ]))
+            end
+
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: "response text",
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          end
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.tokens).to eq({input: 40, output: 10, total: 50})
+        end
+
         it "records tokens with the global token tracker" do
           allow(mock_executor).to receive(:execute) do |_cmd, _opts|
             tempfile = provider.instance_variable_get(:@aider_history_tempfile)
