@@ -264,10 +264,25 @@ module AgentHarness
       end
 
       def coerce_token_count(value)
-        return value if value.is_a?(Integer)
-        return value.to_i if value.is_a?(Float) && value.finite?
+        if value.is_a?(Integer)
+          return value if value >= 0
+
+          return nil
+        end
+
+        if value.is_a?(Float) && value.finite?
+          coerced = value.to_i
+          return coerced if coerced >= 0
+
+          return nil
+        end
+
         return if value.nil?
-        return Integer(value, exception: false) if value.is_a?(String)
+
+        if value.is_a?(String)
+          coerced = Integer(value, exception: false)
+          return coerced if coerced && coerced >= 0
+        end
 
         nil
       end
