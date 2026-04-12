@@ -393,15 +393,6 @@ module AgentHarness
           usable_usage_token_field?("output_tokens", usage["output_tokens"])
       end
 
-      def usage_updates_extra_fields?(usage)
-        %w[
-          reasoning_tokens
-          cache_creation_input_tokens
-          cache_read_input_tokens
-          cache_write_input_tokens
-        ].any? { |key| usable_usage_token_field?(key, usage[key]) }
-      end
-
       def extract_error_message(event)
         error_payload = event["error"]
         part = event["part"]
