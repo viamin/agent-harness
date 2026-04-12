@@ -191,7 +191,7 @@ module AgentHarness
           rate_limited: COMMON_ERROR_PATTERNS[:rate_limited],
           timeout: [
             /your access token could not be refreshed.*(?:timeout|timed.?out)/i,
-            /failed to refresh token:.*(?:timeout|timed.?out)/i
+            /failed to refresh token\b.*(?:timeout|timed.?out)/i
           ],
           transient: COMMON_ERROR_PATTERNS[:transient] + [
             /connection.*reset/i
