@@ -755,6 +755,64 @@ RSpec.describe AgentHarness::Providers::Codex do
           expect(response.output).to eq("final wrapped answer")
         end
 
+        it "extracts final assistant text from roleless wrapped agent_message payloads" do
+          jsonl_output = [
+            JSON.generate({"type" => "event_msg", "payload" => {"type" => "agent_message_delta", "message" => "partial"}}),
+            JSON.generate({
+              "type" => "response_item",
+              "payload" => {
+                "type" => "agent_message",
+                "message" => "final wrapped agent message"
+              }
+            })
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq("final wrapped agent message")
+        end
+
+        it "ignores wrapped non-assistant agent_message events and deltas" do
+          jsonl_output = [
+            JSON.generate({"type" => "event_msg", "payload" => {"type" => "agent_message_delta", "role" => "user", "message" => "user partial"}}),
+            JSON.generate({"type" => "event_msg", "payload" => {"type" => "agent_message", "role" => "tool", "message" => "tool message"}}),
+            JSON.generate({"type" => "response_item", "payload" => {"type" => "message", "role" => "user", "content" => [{"type" => "output_text", "text" => "user final"}]}}),
+            JSON.generate({
+              "type" => "event_msg",
+              "payload" => {
+                "type" => "token_count",
+                "info" => {
+                  "total_token_usage" => {
+                    "input_tokens" => 4,
+                    "output_tokens" => 2
+                  }
+                }
+              }
+            })
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq("")
+          expect(response.tokens).to eq({input: 4, output: 2, total: 6})
+        end
+
         it "extracts token usage from wrapped token_count events" do
           jsonl_output = [
             JSON.generate({"type" => "event_msg", "payload" => {"type" => "token_count", "info" => nil}}),

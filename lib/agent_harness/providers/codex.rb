@@ -385,11 +385,7 @@ module AgentHarness
           when "item.completed"
             item = event["item"]
             next unless item.is_a?(Hash)
-
-            item_role = item["role"]
-            item_type = item["type"]
-            allowed_item = item_role == "assistant" || (item_role.nil? && item_type == "agent_message")
-            next unless allowed_item
+            next unless assistant_message_item?(item)
 
             completed_parts = extract_message_content_parts(item)
             current_turn_parts = completed_parts unless completed_parts.empty?
@@ -422,10 +418,14 @@ module AgentHarness
 
             case payload["type"]
             when "agent_message_delta"
+              next unless wrapped_assistant_payload?(payload)
+
               append_wrapped_delta_text(current_turn_parts, payload)
             when "agent_message"
-              message = payload["message"]
-              current_turn_parts = [message] if message.is_a?(String) && !message.empty?
+              next unless wrapped_assistant_payload?(payload)
+
+              completed_parts = extract_message_content_parts(payload)
+              current_turn_parts = completed_parts unless completed_parts.empty?
             when "token_count"
               wrapped_token_usage = extract_wrapped_tokens(payload["info"])
               if wrapped_token_usage
@@ -439,7 +439,7 @@ module AgentHarness
             end
           when "response_item"
             payload = event["payload"]
-            next unless payload.is_a?(Hash) && payload["type"] == "message" && payload["role"] == "assistant"
+            next unless payload.is_a?(Hash) && response_item_assistant_payload?(payload)
 
             completed_parts = extract_message_content_parts(payload)
             current_turn_parts = completed_parts unless completed_parts.empty?
@@ -469,6 +469,27 @@ module AgentHarness
         parts << message if message.is_a?(String) && !message.empty?
       end
 
+      def assistant_message_item?(item)
+        item_role = item["role"]
+        item_type = item["type"]
+
+        item_role == "assistant" || (item_role.nil? && item_type == "agent_message")
+      end
+
+      def wrapped_assistant_payload?(payload)
+        role = payload["role"]
+
+        role.nil? || role == "assistant"
+      end
+
+      def response_item_assistant_payload?(payload)
+        payload_type = payload["type"]
+        payload_role = payload["role"]
+
+        (payload_type == "message" && payload_role == "assistant") ||
+          (payload_type == "agent_message" && (payload_role.nil? || payload_role == "assistant"))
+      end
+
       def extract_message_content_parts(item)
         completed_parts = []
 
@@ -476,12 +497,17 @@ module AgentHarness
         if item_text.is_a?(String) && !item_text.empty?
           completed_parts << item_text
         else
-          item_content = item["content"]
-          if item_content.is_a?(Array)
-            item_content.each do |block|
-              next unless block.is_a?(Hash)
-              block_text = block["text"]
-              completed_parts << block_text if block_text.is_a?(String) && !block_text.empty?
+          item_message = item["message"]
+          if item_message.is_a?(String) && !item_message.empty?
+            completed_parts << item_message
+          else
+            item_content = item["content"]
+            if item_content.is_a?(Array)
+              item_content.each do |block|
+                next unless block.is_a?(Hash)
+                block_text = block["text"]
+                completed_parts << block_text if block_text.is_a?(String) && !block_text.empty?
+              end
             end
           end
         end
