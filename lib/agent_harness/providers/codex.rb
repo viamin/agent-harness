@@ -172,7 +172,14 @@ module AgentHarness
 
       def error_patterns
         COMMON_ERROR_PATTERNS.merge(
-          auth_expired: COMMON_ERROR_PATTERNS[:auth_expired] + [/\b401\b/, /incorrect.*api.*key/i],
+          auth_expired: COMMON_ERROR_PATTERNS[:auth_expired] + [
+            /\b401\b/,
+            /incorrect.*api.*key/i,
+            /refresh_token_reused/i,
+            /failed to refresh token/i,
+            /please log out and sign in again/i,
+            /your access token could not be refreshed/i
+          ],
           transient: COMMON_ERROR_PATTERNS[:transient] + [/connection.*reset/i],
           sandbox_failure: [
             /bwrap.*no permissions/i,

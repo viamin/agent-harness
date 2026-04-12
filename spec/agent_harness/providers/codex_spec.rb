@@ -319,6 +319,21 @@ RSpec.describe AgentHarness::Providers::Codex do
         expect(response.output).to eq("response output")
       end
 
+      it "raises AuthenticationError for OAuth refresh token reuse failures" do
+        allow(mock_executor).to receive(:execute).and_raise(
+          StandardError.new(<<~ERROR)
+            Failed to refresh token: 401 Unauthorized
+            "message": "Your refresh token has already been used to generate a new access token. Please try signing in again."
+            "code": "refresh_token_reused"
+            Failed to refresh token: Your access token could not be refreshed because your refresh token was already used. Please log out and sign in again.
+          ERROR
+        )
+
+        expect { provider.send_message(prompt: "Hello") }.to raise_error(AgentHarness::AuthenticationError) do |error|
+          expect(error.provider).to eq(:codex)
+        end
+      end
+
       context "with dangerous_mode option" do
         it "includes --full-auto flag" do
           expect(mock_executor).to receive(:execute).with(
@@ -457,6 +472,49 @@ RSpec.describe AgentHarness::Providers::Codex do
             patterns
           )
         ).to eq(:unknown)
+      end
+
+      it "classifies OAuth refresh failures as auth_expired" do
+        patterns = provider.error_patterns
+
+        expect(
+          AgentHarness::ErrorTaxonomy.classify(
+            StandardError.new('Failed to refresh token: "code": "refresh_token_reused"'),
+            patterns
+          )
+        ).to eq(:auth_expired)
+
+        expect(
+          AgentHarness::ErrorTaxonomy.classify(
+            StandardError.new("Your access token could not be refreshed. Please log out and sign in again."),
+            patterns
+          )
+        ).to eq(:auth_expired)
+      end
+    end
+
+    describe "#smoke_test" do
+      let(:mock_executor) { instance_double(AgentHarness::CommandExecutor) }
+      subject(:provider) { described_class.new(executor: mock_executor) }
+
+      it "normalizes OAuth refresh failures to auth_expired" do
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "",
+            stderr: <<~ERROR,
+              Failed to refresh token: 401 Unauthorized
+              "code": "refresh_token_reused"
+              Your access token could not be refreshed because your refresh token was already used. Please log out and sign in again.
+            ERROR
+            exit_code: 1,
+            duration: 1.0
+          )
+        )
+
+        result = provider.smoke_test
+
+        expect(result[:ok]).to be false
+        expect(result[:error_category]).to eq(:auth_expired)
       end
     end
 
