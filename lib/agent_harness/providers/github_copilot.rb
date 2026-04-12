@@ -285,6 +285,7 @@ module AgentHarness
       ASSISTANT_TOKEN_FALLBACK_EVENT_TYPES = %w[assistant assistant.message].freeze
       SESSION_SHUTDOWN_EVENT_TYPES = ["session.shutdown"].freeze
       USAGE_EVENT_TYPES = %w[usage assistant.usage].freeze
+      COPILOT_EVENT_TYPE_PREFIXES = %w[assistant. user. system. session.].freeze
 
       def extract_event_text(obj)
         return [nil, nil] unless obj.is_a?(Hash)
@@ -329,7 +330,7 @@ module AgentHarness
 
       def preserve_raw_json_line?(obj)
         return false unless obj.is_a?(Hash)
-        return false if obj.key?("type")
+        return false if obj.key?("type") && copilot_event_type?(obj["type"])
         return false if obj.key?("role") && !assistant_role?(obj["role"])
         return false if obj["message"].is_a?(Hash) && obj["message"].key?("role") &&
           !assistant_role?(obj["message"]["role"])
@@ -343,6 +344,16 @@ module AgentHarness
 
       def assistant_role?(role)
         role == "assistant"
+      end
+
+      def copilot_event_type?(event_type)
+        return true if ASSISTANT_OUTPUT_EVENT_TYPES.include?(event_type)
+        return true if ASSISTANT_TOKEN_FALLBACK_EVENT_TYPES.include?(event_type)
+        return true if SESSION_SHUTDOWN_EVENT_TYPES.include?(event_type)
+        return true if USAGE_EVENT_TYPES.include?(event_type)
+        return false unless event_type.is_a?(String)
+
+        COPILOT_EVENT_TYPE_PREFIXES.any? { |prefix| event_type.start_with?(prefix) }
       end
 
       def extract_token_usage(obj)
