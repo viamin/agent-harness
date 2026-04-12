@@ -411,6 +411,7 @@ module AgentHarness
         saw_assistant_output = false
         pending_turn_usage = nil
         pending_turn_usage_source = nil
+        pending_wrapped_output_parts = nil
         turn_completed = false
         current_turn_finalized_output = false
 
@@ -422,6 +423,7 @@ module AgentHarness
           total_tokens += pending_turn_usage[:total]
           pending_turn_usage = nil
           pending_turn_usage_source = nil
+          pending_wrapped_output_parts = nil
         end
 
         start_new_turn = lambda do
@@ -460,8 +462,9 @@ module AgentHarness
         finalize_pending_wrapped_turn = lambda do
           next unless pending_turn_usage_source == :wrapped && pending_turn_usage
 
-          latest_completed_parts = current_turn_parts.dup
-          current_turn_parts = []
+          wrapped_output_parts = pending_wrapped_output_parts || current_turn_parts
+          latest_completed_parts = wrapped_output_parts.dup
+          current_turn_parts = [] if current_turn_parts.equal?(wrapped_output_parts)
           commit_pending_turn.call
           turn_completed = false
           current_turn_finalized_output = false
@@ -556,6 +559,8 @@ module AgentHarness
                   pending_turn_usage_source,
                   wrapped_token_usage
                 )
+                pending_wrapped_output_parts =
+                  (pending_turn_usage_source == :wrapped) ? current_turn_parts : nil
               end
             end
           when "response_item"

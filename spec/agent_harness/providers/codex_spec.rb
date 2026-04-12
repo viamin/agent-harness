@@ -1627,6 +1627,39 @@ RSpec.describe AgentHarness::Providers::Codex do
           expect(response.tokens).to eq({input: 52, output: 12, total: 64})
         end
 
+        it "preserves a later top-level agent_message turn after wrapped token_count without a result field" do
+          jsonl_output = [
+            JSON.generate({"type" => "agent_message", "message" => "first top-level answer"}),
+            JSON.generate({
+              "type" => "event_msg",
+              "payload" => {
+                "type" => "token_count",
+                "info" => {
+                  "last_token_usage" => {
+                    "input_tokens" => 42,
+                    "output_tokens" => 7
+                  }
+                }
+              }
+            }),
+            JSON.generate({"type" => "agent_message", "message" => "second top-level answer"}),
+            JSON.generate({"type" => "turn.completed", "usage" => {"input_tokens" => 10, "output_tokens" => 5}})
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq("second top-level answer")
+          expect(response.tokens).to eq({input: 52, output: 12, total: 64})
+        end
+
         it "ignores malformed wrapped token counts without dropping parsed output" do
           jsonl_output = [
             JSON.generate({"type" => "event_msg", "payload" => {"type" => "agent_message", "message" => "wrapped output"}}),
