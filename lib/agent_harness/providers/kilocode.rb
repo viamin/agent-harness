@@ -12,6 +12,16 @@ module AgentHarness
       DEFAULT_VERSION = "7.1.3"
       SUPPORTED_VERSION_REQUIREMENT = "= #{DEFAULT_VERSION}"
       STRUCTURED_EVENT_TYPES = %w[text error step_finish result usage].freeze
+      TOKEN_USAGE_KEYS = %w[
+        input_tokens
+        output_tokens
+        total_tokens
+        total
+        reasoning_tokens
+        cache_creation_input_tokens
+        cache_read_input_tokens
+        cache_write_input_tokens
+      ].freeze
 
       class << self
         def provider_name
@@ -198,7 +208,7 @@ module AgentHarness
 
           usage = event["usage"]
           if usage.is_a?(Hash) && usage_has_token_data?(usage)
-            result_usage = usage
+            result_usage = merge_usage_data(result_usage, usage)
           end
         end
 
@@ -297,6 +307,46 @@ module AgentHarness
         synthesized_total = synthesize_usage_total_token_count(usage, input:, output:)
 
         input || output || explicit_total || synthesized_total
+      end
+
+      def merge_usage_data(previous_usage, current_usage)
+        return current_usage if previous_usage.nil?
+
+        merged_usage = previous_usage.slice(*TOKEN_USAGE_KEYS).merge(
+          current_usage.slice(*TOKEN_USAGE_KEYS).select { |key, value| usable_usage_token_field?(key, value) }
+        )
+
+        if usage_updates_non_total_fields?(current_usage) && !usage_updates_explicit_total?(current_usage)
+          merged_usage.delete("total_tokens")
+          merged_usage.delete("total")
+        end
+
+        merged_usage
+      end
+
+      def usable_usage_token_field?(key, value)
+        case key
+        when "input_tokens", "output_tokens", "total_tokens", "total", "reasoning_tokens",
+          "cache_creation_input_tokens", "cache_read_input_tokens", "cache_write_input_tokens"
+          !coerce_token_count(value).nil?
+        else
+          false
+        end
+      end
+
+      def usage_updates_non_total_fields?(usage)
+        %w[
+          input_tokens
+          output_tokens
+          reasoning_tokens
+          cache_creation_input_tokens
+          cache_read_input_tokens
+          cache_write_input_tokens
+        ].any? { |key| usable_usage_token_field?(key, usage[key]) }
+      end
+
+      def usage_updates_explicit_total?(usage)
+        %w[total_tokens total].any? { |key| usable_usage_token_field?(key, usage[key]) }
       end
 
       def extract_error_message(event)
