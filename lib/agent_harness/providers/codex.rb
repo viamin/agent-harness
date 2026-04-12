@@ -10,6 +10,29 @@ module AgentHarness
     class Codex < Base
       SUPPORTED_CLI_VERSION = "0.116.0"
       SUPPORTED_CLI_REQUIREMENT = Gem::Requirement.new(">= #{SUPPORTED_CLI_VERSION}", "< 0.117.0").freeze
+      OAUTH_REFRESH_FAILURE_PATTERNS = [
+        /refresh_token_reused/i,
+        /failed to refresh token\b.*\b401\b/im,
+        /failed to refresh token\b.*unauthorized/im,
+        /failed to refresh token\b.*\binvalid_client\b/im,
+        /failed to refresh token\b.*\binvalid_grant\b/im,
+        /failed to refresh token\b.*invalid.*refresh.*token/im,
+        /failed to refresh token\b.*refresh.*token.*invalid/im,
+        /your access token could not be refreshed because\b.*\b401\b/im,
+        /your access token could not be refreshed because\b.*unauthorized/im,
+        /your access token could not be refreshed because\b.*\binvalid_client\b/im,
+        /your access token could not be refreshed because\b.*\binvalid_grant\b/im,
+        /your access token could not be refreshed because\b.*invalid.*refresh.*token/im,
+        /your access token could not be refreshed because\b.*refresh.*token.*invalid/im,
+        /your access token could not be refreshed because\s+your refresh token .*already (?:been )?used/im,
+        /refresh token .*already (?:been )?used/im
+      ].freeze
+      OAUTH_REFRESH_TRANSIENT_PATTERNS = [
+        /your access token could not be refreshed because\s+(?:the\s+)?auth(?:entication)? service(?:\s+(?:is|was))?\s+(?:temporarily\s+)?unavailable/im,
+        /your access token could not be refreshed because .*connection.*error/im,
+        /failed to refresh token\b.*connection.*error/im,
+        /failed to refresh token\b.*service(?:\s+(?:is|was))?\s+(?:temporarily\s+)?unavailable/im
+      ].freeze
 
       class << self
         def provider_name
@@ -171,15 +194,26 @@ module AgentHarness
       end
 
       def error_patterns
-        COMMON_ERROR_PATTERNS.merge(
-          auth_expired: COMMON_ERROR_PATTERNS[:auth_expired] + [/\b401\b/, /incorrect.*api.*key/i],
-          transient: COMMON_ERROR_PATTERNS[:transient] + [/connection.*reset/i],
+        {
+          rate_limited: COMMON_ERROR_PATTERNS[:rate_limited],
+          timeout: [
+            /your access token could not be refreshed.*(?:timeout|timed.?out)/im,
+            /failed to refresh token\b.*(?:timeout|timed.?out)/im
+          ],
+          transient: COMMON_ERROR_PATTERNS[:transient] + [
+            /connection.*reset/i
+          ] + OAUTH_REFRESH_TRANSIENT_PATTERNS,
+          auth_expired: COMMON_ERROR_PATTERNS[:auth_expired] + [
+            /\b401\b/,
+            /incorrect.*api.*key/i
+          ] + OAUTH_REFRESH_FAILURE_PATTERNS,
+          quota_exceeded: COMMON_ERROR_PATTERNS[:quota_exceeded],
           sandbox_failure: [
             /bwrap.*no permissions/i,
             /no permissions to create a new namespace/i,
             /unprivileged.*namespace/i
           ]
-        )
+        }
       end
 
       def auth_status
