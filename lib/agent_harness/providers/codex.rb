@@ -359,6 +359,7 @@ module AgentHarness
         text_parts = []
         total_input = 0
         total_output = 0
+        has_usage = false
 
         events.each do |event|
           type = event["type"]
@@ -395,6 +396,7 @@ module AgentHarness
           when "turn.completed"
             usage = event["usage"]
             if usage.is_a?(Hash)
+              has_usage = true
               total_input += usage["input_tokens"].to_i
               total_output += usage["output_tokens"].to_i
             end
@@ -407,11 +409,10 @@ module AgentHarness
         end
 
         text = text_parts.empty? ? nil : text_parts.join
-        has_tokens = total_input > 0 || total_output > 0
 
         {
           text: text,
-          tokens: has_tokens ? {input: total_input, output: total_output, total: total_input + total_output} : nil
+          tokens: has_usage ? {input: total_input, output: total_output, total: total_input + total_output} : nil
         }
       rescue
         nil
