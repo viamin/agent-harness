@@ -177,7 +177,56 @@ module AgentHarness
       end
 
       def supports_token_counting?
-        true
+        supports_json_output_format?
+      end
+
+      def send_message(prompt:, **options)
+        log_debug("send_message_start", prompt_length: prompt.length, options: options.keys)
+
+        options = normalize_provider_runtime(options)
+        options = normalize_mcp_servers(options)
+        validate_mcp_servers!(options[:mcp_servers]) if options[:mcp_servers]&.any?
+
+        timeout = options[:timeout] || @config.timeout || default_timeout
+        options = options.merge(_version_probe_timeout: [timeout, 5].min)
+
+        start_time = Time.now
+        command = build_command(prompt, options)
+        preparation = build_execution_preparation(options)
+
+        result = execute_with_timeout(
+          command,
+          timeout: timeout,
+          env: build_env(options),
+          preparation: preparation,
+          **command_execution_options(options)
+        )
+        duration = Time.now - start_time
+
+        response = parse_response(result, duration: duration)
+        runtime = options[:provider_runtime]
+        if runtime&.model
+          response = Response.new(
+            output: response.output,
+            exit_code: response.exit_code,
+            duration: response.duration,
+            provider: response.provider,
+            model: runtime.model,
+            tokens: response.tokens,
+            metadata: response.metadata,
+            error: response.error
+          )
+        end
+
+        track_tokens(response) if response.tokens
+
+        log_debug("send_message_complete", duration: duration, tokens: response.tokens)
+
+        response
+      rescue McpConfigurationError, McpUnsupportedError, McpTransportUnsupportedError
+        raise
+      rescue => e
+        handle_error(e, prompt: prompt, options: options)
       end
 
       protected
@@ -185,7 +234,7 @@ module AgentHarness
       def build_command(prompt, options)
         cmd = [self.class.binary_name, "-p", prompt]
 
-        if supports_json_output_format?
+        if supports_json_output_format?(probe_timeout: options[:_version_probe_timeout])
           cmd += ["--output-format", "json"]
         else
           # Silent mode suppresses the model/stats decoration older CLIs print in
@@ -233,15 +282,15 @@ module AgentHarness
 
       private
 
-      def supports_json_output_format?
-        version = copilot_cli_version
+      def supports_json_output_format?(probe_timeout: nil)
+        version = copilot_cli_version(probe_timeout: probe_timeout)
         version && version >= JSON_OUTPUT_MIN_VERSION
       end
 
-      def copilot_cli_version
+      def copilot_cli_version(probe_timeout: nil)
         return @copilot_cli_version if instance_variable_defined?(:@copilot_cli_version)
 
-        result = @executor.execute([self.class.binary_name, "--version"], timeout: 5)
+        result = @executor.execute([self.class.binary_name, "--version"], timeout: probe_timeout || 5)
         version = extract_version(result)
         @copilot_cli_version = version if version
         version

@@ -154,6 +154,22 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
       it "returns true" do
         expect(provider.supports_token_counting?).to be true
       end
+
+      it "returns false when the installed CLI does not support JSON output" do
+        allow(mock_executor).to receive(:execute).with(
+          ["github-copilot-cli", "--version"],
+          timeout: 5
+        ).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "github-copilot-cli 0.0.421",
+            stderr: "",
+            exit_code: 0,
+            duration: 0.1
+          )
+        )
+
+        expect(provider.supports_token_counting?).to be false
+      end
     end
 
     describe "#error_patterns" do
@@ -326,17 +342,21 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
     end
 
     describe "#send_message" do
-      before do
-        allow(provider).to receive(:supports_json_output_format?).and_return(true)
-      end
-
       it "sends prompt in non-interactive mode with JSON output" do
         jsonl_output = [
           {"text" => "response"},
           {"usage" => {"input_tokens" => 10, "output_tokens" => 5}}
         ].map { |o| JSON.generate(o) }.join("\n")
 
-        allow(mock_executor).to receive(:execute).and_return(
+        allow(mock_executor).to receive(:execute).with(
+          ["github-copilot-cli", "--version"],
+          timeout: 5
+        ).and_return(version_result)
+
+        allow(mock_executor).to receive(:execute).with(
+          ["github-copilot-cli", "-p", "Hello", "--output-format", "json"],
+          anything
+        ).and_return(
           AgentHarness::CommandExecutor::Result.new(
             stdout: jsonl_output,
             stderr: "",
@@ -353,8 +373,47 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         provider.send_message(prompt: "Hello")
       end
 
+      it "uses the request timeout budget for the version probe and includes it in duration" do
+        allow(mock_executor).to receive(:execute).with(
+          ["github-copilot-cli", "--version"],
+          timeout: 2
+        ).and_return(version_result)
+
+        allow(mock_executor).to receive(:execute).with(
+          ["github-copilot-cli", "-p", "Hello", "--output-format", "json"],
+          hash_including(timeout: 2)
+        ).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "plain text response",
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        times = [
+          Time.utc(2026, 4, 12, 0, 0, 0),
+          Time.utc(2026, 4, 12, 0, 0, 1)
+        ]
+        allow(Time).to receive(:now).and_return(*times)
+
+        response = provider.send_message(prompt: "Hello", timeout: 2)
+
+        expect(response.duration).to eq(1.0)
+      end
+
       it "falls back to plain prompt mode when JSON output is unsupported" do
-        allow(provider).to receive(:supports_json_output_format?).and_return(false)
+        allow(mock_executor).to receive(:execute).with(
+          ["github-copilot-cli", "--version"],
+          timeout: 5
+        ).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "github-copilot-cli 0.0.421",
+            stderr: "",
+            exit_code: 0,
+            duration: 0.1
+          )
+        )
 
         allow(mock_executor).to receive(:execute).with(
           ["github-copilot-cli", "-p", "Hello", "-s"],
@@ -380,7 +439,15 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
             {"usage" => {"input_tokens" => 10, "output_tokens" => 5}}
           ].map { |o| JSON.generate(o) }.join("\n")
 
-          allow(mock_executor).to receive(:execute).and_return(
+          allow(mock_executor).to receive(:execute).with(
+            ["github-copilot-cli", "--version"],
+            timeout: 5
+          ).and_return(version_result)
+
+          allow(mock_executor).to receive(:execute).with(
+            ["github-copilot-cli", "-p", "Hello", "--output-format", "json", "--allow-all-tools"],
+            anything
+          ).and_return(
             AgentHarness::CommandExecutor::Result.new(
               stdout: jsonl_output,
               stderr: "",
@@ -428,7 +495,15 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
             {"usage" => {"input_tokens" => 10, "output_tokens" => 5}}
           ].map { |o| JSON.generate(o) }.join("\n")
 
-          allow(mock_executor).to receive(:execute).and_return(
+          allow(mock_executor).to receive(:execute).with(
+            ["github-copilot-cli", "--version"],
+            timeout: 5
+          ).and_return(version_result)
+
+          allow(mock_executor).to receive(:execute).with(
+            ["github-copilot-cli", "-p", "Hello", "--output-format", "json"],
+            anything
+          ).and_return(
             AgentHarness::CommandExecutor::Result.new(
               stdout: jsonl_output,
               stderr: "",
