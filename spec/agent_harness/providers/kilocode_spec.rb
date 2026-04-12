@@ -2121,6 +2121,36 @@ RSpec.describe AgentHarness::Providers::Kilocode do
         expect(response.tokens).to eq({input: 120, output: 0, total: 175})
       end
 
+      it "uses an explicit result total when partial usage falls back to a step token side" do
+        ndjson = [
+          {"type" => "text", "part" => {"text" => "Response"}},
+          {
+            "type" => "step_finish",
+            "part" => {
+              "tokens" => {
+                "input" => 100,
+                "output" => 50,
+                "reasoning" => 20,
+                "cache" => {"read" => 5}
+              }
+            }
+          },
+          {"type" => "result", "usage" => {"output_tokens" => 40, "total_tokens" => 170}}
+        ].map { |e| JSON.generate(e) }.join("\n")
+
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: ndjson,
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        response = provider.send_message(prompt: "Hello")
+        expect(response.tokens).to eq({input: 100, output: 40, total: 170})
+      end
+
       it "fills malformed usage token values from accumulated step_finish totals" do
         ndjson = [
           {"type" => "text", "part" => {"text" => "Response"}},
