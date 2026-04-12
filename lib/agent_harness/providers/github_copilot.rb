@@ -206,22 +206,18 @@ module AgentHarness
         300
       end
 
-      # Override parse_response to handle JSONL output and token extraction
       def parse_response(result, duration:)
         output = result.stdout
         error = nil
-        tokens = nil
 
-        # Collect error if command failed
         if result.failed?
           combined = [result.stdout, result.stderr].compact.join("\n")
           error = combined unless combined.empty?
         end
 
-        # Attempt to parse JSONL lines for output and token usage
         total_input = 0
         total_output = 0
-        aggregated_output = ""
+        aggregated_output = +""
         result.stdout.lines.each do |line|
           line = line.strip
           next if line.empty?
@@ -230,23 +226,14 @@ module AgentHarness
           rescue JSON::ParserError
             next
           end
-          # Extract textual output (common keys)
-          if obj["output"]
-            aggregated_output << obj["output"]
-          elsif obj["content"]
-            aggregated_output << obj["content"]
-          elsif obj["message"] && obj["message"]["content"]
-            aggregated_output << obj["message"]["content"]
-          end
-          # Extract token usage (common structures)
-          usage = obj["usage"] || obj["tokens"]
-          if usage
-            total_input += usage["input_tokens"].to_i if usage["input_tokens"]
-            total_output += usage["output_tokens"].to_i if usage["output_tokens"]
-            total_input += usage["input"].to_i if usage["input"]
-            total_output += usage["output"].to_i if usage["output"]
-          end
+
+          text = extract_event_text(obj)
+          aggregated_output << text if text
+
+          total_input, total_output = accumulate_token_usage(obj, total_input, total_output)
         end
+
+        tokens = nil
         if total_input > 0 || total_output > 0
           tokens = {input: total_input, output: total_output, total: total_input + total_output}
         end
@@ -261,6 +248,44 @@ module AgentHarness
           tokens: tokens,
           error: error
         )
+      end
+
+      def extract_event_text(obj)
+        if obj["type"] && obj["data"].is_a?(Hash)
+          data = obj["data"]
+          return data["content"] if data["content"]
+          return nil
+        end
+
+        return obj["output"] if obj["output"]
+        return obj["content"] if obj["content"]
+        if obj["message"].is_a?(Hash) && obj["message"]["content"]
+          return obj["message"]["content"]
+        end
+
+        nil
+      end
+
+      def accumulate_token_usage(obj, total_input, total_output)
+        if obj["type"] && obj["data"].is_a?(Hash)
+          data = obj["data"]
+          total_input += data["inputTokens"].to_i if data["inputTokens"]
+          total_output += data["outputTokens"].to_i if data["outputTokens"]
+          total_input += data["input_tokens"].to_i if data["input_tokens"]
+          total_output += data["output_tokens"].to_i if data["output_tokens"]
+        end
+
+        usage = obj["usage"] || obj["tokens"]
+        if usage
+          total_input += usage["input_tokens"].to_i if usage["input_tokens"]
+          total_output += usage["output_tokens"].to_i if usage["output_tokens"]
+          total_input += usage["inputTokens"].to_i if usage["inputTokens"]
+          total_output += usage["outputTokens"].to_i if usage["outputTokens"]
+          total_input += usage["input"].to_i if usage["input"]
+          total_output += usage["output"].to_i if usage["output"]
+        end
+
+        [total_input, total_output]
       end
     end
   end

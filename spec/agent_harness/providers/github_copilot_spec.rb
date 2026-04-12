@@ -144,13 +144,15 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
     end
 
     describe "#build_command" do
-      it "places the subcommand and prompt before optional flags" do
+      it "places the subcommand, prompt, and output-format flag before optional flags" do
         command = provider.send(:build_command, "Hello", {})
 
         expect(command).to eq([
           "github-copilot-cli",
           "what-the-shell",
-          "Hello"
+          "Hello",
+          "--output-format",
+          "json"
         ])
       end
 
@@ -161,6 +163,8 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
           "github-copilot-cli",
           "what-the-shell",
           "Hello",
+          "--output-format",
+          "json",
           "--allow-all-tools"
         ])
       end
@@ -172,6 +176,8 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
           "github-copilot-cli",
           "what-the-shell",
           "Hello",
+          "--output-format",
+          "json",
           "--resume",
           "session-123"
         ])
@@ -184,10 +190,107 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
           "github-copilot-cli",
           "what-the-shell",
           "Hello",
+          "--output-format",
+          "json",
           "--allow-all-tools",
           "--resume",
           "session-123"
         ])
+      end
+    end
+
+    describe "#parse_response" do
+      let(:provider) { described_class.new }
+
+      def make_result(stdout:, stderr: "", exit_code: 0)
+        AgentHarness::CommandExecutor::Result.new(
+          stdout: stdout, stderr: stderr, exit_code: exit_code
+        )
+      end
+
+      it "aggregates text from event envelope data.content" do
+        jsonl = <<~JSONL
+          {"type":"assistant","data":{"content":"Hello"}}
+          {"type":"assistant","data":{"content":" world"}}
+        JSONL
+        result = make_result(stdout: jsonl)
+        response = provider.send(:parse_response, result, duration: 1.0)
+
+        expect(response.output).to eq("Hello world")
+        expect(response.error).to be_nil
+      end
+
+      it "extracts tokens from event envelope camelCase fields" do
+        jsonl = <<~JSONL
+          {"type":"assistant","data":{"content":"hi"}}
+          {"type":"usage","data":{"inputTokens":10,"outputTokens":20}}
+        JSONL
+        result = make_result(stdout: jsonl)
+        response = provider.send(:parse_response, result, duration: 1.0)
+
+        expect(response.tokens).to eq({input: 10, output: 20, total: 30})
+      end
+
+      it "extracts tokens from top-level usage snake_case fields" do
+        jsonl = '{"usage":{"input_tokens":5,"output_tokens":8}}'
+        result = make_result(stdout: jsonl)
+        response = provider.send(:parse_response, result, duration: 1.0)
+
+        expect(response.tokens).to eq({input: 5, output: 8, total: 13})
+      end
+
+      it "extracts text from top-level output key" do
+        jsonl = '{"output":"plain output"}'
+        result = make_result(stdout: jsonl)
+        response = provider.send(:parse_response, result, duration: 1.0)
+
+        expect(response.output).to eq("plain output")
+      end
+
+      it "extracts text from top-level content key" do
+        jsonl = '{"content":"content output"}'
+        result = make_result(stdout: jsonl)
+        response = provider.send(:parse_response, result, duration: 1.0)
+
+        expect(response.output).to eq("content output")
+      end
+
+      it "extracts text from nested message.content" do
+        jsonl = '{"message":{"content":"nested output"}}'
+        result = make_result(stdout: jsonl)
+        response = provider.send(:parse_response, result, duration: 1.0)
+
+        expect(response.output).to eq("nested output")
+      end
+
+      it "falls back to raw stdout when no JSONL text is found" do
+        result = make_result(stdout: "raw output here")
+        response = provider.send(:parse_response, result, duration: 1.0)
+
+        expect(response.output).to eq("raw output here")
+      end
+
+      it "sets error when command fails" do
+        result = make_result(stdout: "out", stderr: "err text", exit_code: 1)
+        response = provider.send(:parse_response, result, duration: 1.0)
+
+        expect(response.error).to eq("out\nerr text")
+      end
+
+      it "skips unparseable lines" do
+        jsonl = "not json\n{\"type\":\"assistant\",\"data\":{\"content\":\"ok\"}}\n"
+        result = make_result(stdout: jsonl)
+        response = provider.send(:parse_response, result, duration: 1.0)
+
+        expect(response.output).to eq("ok")
+      end
+
+      it "returns nil tokens when no usage data present" do
+        jsonl = '{"type":"assistant","data":{"content":"hi"}}'
+        result = make_result(stdout: jsonl)
+        response = provider.send(:parse_response, result, duration: 1.0)
+
+        expect(response.tokens).to be_nil
       end
     end
   end
