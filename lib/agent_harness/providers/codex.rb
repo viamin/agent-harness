@@ -392,14 +392,14 @@ module AgentHarness
             next unless wrapped_assistant_payload?(event)
 
             completed_parts = extract_message_content_parts(event)
-            current_turn_parts = completed_parts unless completed_parts.empty?
+            current_turn_parts = completed_parts
           when "item.completed"
             item = event["item"]
             next unless item.is_a?(Hash)
             next unless assistant_message_item?(item)
 
             completed_parts = extract_message_content_parts(item)
-            current_turn_parts = completed_parts unless completed_parts.empty?
+            current_turn_parts = completed_parts
           when "turn.completed"
             usage = event["usage"]
             if usage.is_a?(Hash)
@@ -419,7 +419,7 @@ module AgentHarness
             end
 
             result = event["result"]
-            if result.is_a?(String) && !result.empty?
+            if result.is_a?(String)
               current_turn_parts = [result]
             end
 
@@ -438,7 +438,7 @@ module AgentHarness
               next unless wrapped_assistant_payload?(payload)
 
               completed_parts = extract_message_content_parts(payload)
-              current_turn_parts = completed_parts unless completed_parts.empty?
+              current_turn_parts = completed_parts
             when "token_count"
               wrapped_token_usage = extract_wrapped_tokens(payload["info"])
               if wrapped_token_usage
@@ -461,7 +461,7 @@ module AgentHarness
             next unless payload.is_a?(Hash) && response_item_assistant_payload?(payload)
 
             completed_parts = extract_message_content_parts(payload)
-            current_turn_parts = completed_parts unless completed_parts.empty?
+            current_turn_parts = completed_parts
           end
         end
 
