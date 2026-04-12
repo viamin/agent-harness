@@ -267,7 +267,10 @@ module AgentHarness
           cmd += session_flags(options[:session])
         end
 
-        cmd += runtime.flags if runtime&.flags&.any?
+        if runtime&.flags&.any?
+          validate_runtime_flags!(runtime.flags)
+          cmd += runtime.flags
+        end
 
         cmd += ["--message", prompt]
 
@@ -420,6 +423,31 @@ module AgentHarness
       rescue => e
         log_debug("llm_history_cleanup_error", error: e.message)
         nil
+      end
+
+      def validate_runtime_flags!(flags)
+        invalid_flags = reserved_runtime_flags(flags)
+        return if invalid_flags.empty?
+
+        raise ArgumentError,
+          "Aider provider_runtime.flags cannot override provider-managed flags: " \
+          "#{invalid_flags.join(", ")}"
+      end
+
+      def reserved_runtime_flags(flags)
+        flags.each_with_index.filter_map do |flag, index|
+          next unless reserved_runtime_flag?(flag)
+
+          if flag == "--llm-history-file" && flags[index + 1]
+            "#{flag} #{flags[index + 1]}"
+          else
+            flag
+          end
+        end.uniq
+      end
+
+      def reserved_runtime_flag?(flag)
+        flag == "--llm-history-file" || flag.start_with?("--llm-history-file=")
       end
     end
   end

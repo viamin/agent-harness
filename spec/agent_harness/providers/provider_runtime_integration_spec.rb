@@ -531,6 +531,19 @@ RSpec.describe "ProviderRuntime integration" do
       provider.send_message(prompt: "Hello", provider_runtime: runtime)
     end
 
+    it "rejects runtime flags that try to override llm history output" do
+      runtime = AgentHarness::ProviderRuntime.new(flags: ["--llm-history-file", "/tmp/override.log"])
+
+      expect(mock_executor).not_to receive(:execute)
+
+      expect {
+        provider.send_message(prompt: "Hello", provider_runtime: runtime)
+      }.to raise_error(
+        AgentHarness::ProviderError,
+        /provider-managed flags: --llm-history-file \/tmp\/override\.log/
+      )
+    end
+
     it "sets model on response from runtime when config model is nil" do
       runtime = AgentHarness::ProviderRuntime.new(model: "gpt-5-turbo")
 

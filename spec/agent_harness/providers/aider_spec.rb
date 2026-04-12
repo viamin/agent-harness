@@ -272,6 +272,22 @@ RSpec.describe AgentHarness::Providers::Aider do
 
         expect(command).to include("--map-tokens", "0")
       end
+
+      it "rejects runtime flags that override the provider-managed history path" do
+        runtime = AgentHarness::ProviderRuntime.new(flags: ["--llm-history-file", "/tmp/override.log"])
+
+        expect {
+          provider.send(:build_command, "hello", provider_runtime: runtime, llm_history_path: "/tmp/request.log")
+        }.to raise_error(ArgumentError, /provider-managed flags: --llm-history-file \/tmp\/override\.log/)
+      end
+
+      it "rejects runtime flags that use inline history-file assignment" do
+        runtime = AgentHarness::ProviderRuntime.new(flags: ["--llm-history-file=/tmp/override.log"])
+
+        expect {
+          provider.send(:build_command, "hello", provider_runtime: runtime, llm_history_path: "/tmp/request.log")
+        }.to raise_error(ArgumentError, /provider-managed flags: --llm-history-file=\/tmp\/override\.log/)
+      end
     end
 
     describe "#send_message" do
@@ -596,6 +612,16 @@ RSpec.describe AgentHarness::Providers::Aider do
           {input: 20, output: 2, total: 22}
         )
         expect(returned_paths).to all(satisfy { |path| !File.exist?(path) })
+      end
+
+      it "fails before execution when runtime flags try to override llm history output" do
+        runtime = AgentHarness::ProviderRuntime.new(flags: ["--llm-history-file", "/tmp/override.log"])
+
+        expect(mock_executor).not_to receive(:execute)
+
+        expect {
+          provider.send_message(prompt: "hello", provider_runtime: runtime)
+        }.to raise_error(AgentHarness::ProviderError, /provider-managed flags: --llm-history-file \/tmp\/override\.log/)
       end
     end
 
