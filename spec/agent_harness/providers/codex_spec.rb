@@ -354,6 +354,19 @@ RSpec.describe AgentHarness::Providers::Codex do
         end
       end
 
+      it "raises AuthenticationError for multiline failed-refresh OAuth invalid_client failures" do
+        allow(mock_executor).to receive(:execute).and_raise(
+          StandardError.new(<<~ERROR)
+            Failed to refresh token:
+            "code": "invalid_client"
+          ERROR
+        )
+
+        expect { provider.send_message(prompt: "Hello") }.to raise_error(AgentHarness::AuthenticationError) do |error|
+          expect(error.provider).to eq(:codex)
+        end
+      end
+
       it "does not raise AuthenticationError for transient OAuth refresh failures" do
         allow(mock_executor).to receive(:execute).and_raise(
           StandardError.new(
@@ -625,6 +638,16 @@ RSpec.describe AgentHarness::Providers::Codex do
             patterns
           )
         ).to eq(:auth_expired)
+
+        expect(
+          AgentHarness::ErrorTaxonomy.classify(
+            StandardError.new(<<~ERROR),
+              Failed to refresh token:
+              "code": "invalid_grant"
+            ERROR
+            patterns
+          )
+        ).to eq(:auth_expired)
       end
 
       it "does not classify transient refresh failures as auth_expired" do
@@ -762,6 +785,25 @@ RSpec.describe AgentHarness::Providers::Codex do
           AgentHarness::CommandExecutor::Result.new(
             stdout: "",
             stderr: "Failed to refresh token because invalid_grant",
+            exit_code: 1,
+            duration: 1.0
+          )
+        )
+
+        result = provider.smoke_test
+
+        expect(result[:ok]).to be false
+        expect(result[:error_category]).to eq(:auth_expired)
+      end
+
+      it "normalizes multiline failed-refresh OAuth invalid_client failures to auth_expired" do
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "",
+            stderr: <<~ERROR,
+              Failed to refresh token:
+              "code": "invalid_client"
+            ERROR
             exit_code: 1,
             duration: 1.0
           )
