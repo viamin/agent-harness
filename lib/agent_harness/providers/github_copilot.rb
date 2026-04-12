@@ -193,9 +193,11 @@ module AgentHarness
           cmd << "-s"
         end
 
-        # Prompt mode is non-interactive, so any tool approval has to be granted
-        # up front or Copilot cannot answer permission prompts during execution.
-        cmd += dangerous_mode_flags
+        # Keep safe mode as the default; callers must explicitly opt in to
+        # automatic tool approvals for headless prompt-mode runs.
+        if options[:dangerous_mode] && supports_dangerous_mode?
+          cmd += dangerous_mode_flags
+        end
 
         if options[:session] && !options[:session].empty?
           cmd += session_flags(options[:session])
