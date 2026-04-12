@@ -158,13 +158,15 @@ module AgentHarness
         result_usage = nil
 
         each_json_event(output) do |event|
+          part = event["part"]
+
           if event["type"] == "text"
-            text = event.dig("part", "text")
+            text = part["text"] if part.is_a?(Hash)
             text_parts << text if text
           end
 
           if event["type"] == "step_finish"
-            part_tokens = event.dig("part", "tokens")
+            part_tokens = part["tokens"] if part.is_a?(Hash)
             if part_tokens.is_a?(Hash)
               accumulated_input += part_tokens["input"].to_i
               accumulated_output += part_tokens["output"].to_i
@@ -172,7 +174,8 @@ module AgentHarness
             end
           end
 
-          result_usage = event["usage"] if event["usage"]
+          usage = event["usage"]
+          result_usage = usage if usage.is_a?(Hash)
         end
 
         output = text_parts.join unless text_parts.empty?

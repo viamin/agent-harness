@@ -576,6 +576,48 @@ RSpec.describe AgentHarness::Providers::Kilocode do
         expect(response.tokens).to eq({input: 10, output: 5, total: 15})
       end
 
+      it "skips events whose part payload is not a Hash" do
+        ndjson = [
+          {"type" => "text", "part" => "not-a-hash"},
+          {"type" => "step_finish", "part" => 42},
+          {"type" => "text", "part" => {"text" => "Done!"}},
+          {"type" => "result", "usage" => {"input_tokens" => 10, "output_tokens" => 5}}
+        ].map { |e| JSON.generate(e) }.join("\n")
+
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: ndjson,
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        response = provider.send_message(prompt: "Hello")
+        expect(response.output).to eq("Done!")
+        expect(response.tokens).to eq({input: 10, output: 5, total: 15})
+      end
+
+      it "skips usage payloads that are not Hashes" do
+        ndjson = [
+          {"type" => "text", "part" => {"text" => "Done!"}, "usage" => "invalid"},
+          {"type" => "result", "usage" => {"input_tokens" => 10, "output_tokens" => 5}}
+        ].map { |e| JSON.generate(e) }.join("\n")
+
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: ndjson,
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        response = provider.send_message(prompt: "Hello")
+        expect(response.output).to eq("Done!")
+        expect(response.tokens).to eq({input: 10, output: 5, total: 15})
+      end
+
       it "uses last usage event when multiple events contain usage" do
         ndjson = [
           {"type" => "text", "part" => {"text" => "Response"}, "usage" => {"input_tokens" => 10, "output_tokens" => 5}},
