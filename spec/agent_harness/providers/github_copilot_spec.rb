@@ -133,7 +133,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
       it "returns the full provider contract" do
         semantics = provider.execution_semantics
         expect(semantics[:prompt_delivery]).to eq(:arg)
-        expect(semantics[:output_format]).to eq(:text)
+        expect(semantics[:output_format]).to eq(:json)
         expect(semantics[:sandbox_aware]).to be false
         expect(semantics[:uses_subcommand]).to be true
         expect(semantics[:non_interactive_flag]).to be_nil
@@ -321,6 +321,38 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         response = provider.send(:parse_response, result, duration: 1.0)
 
         expect(response.tokens).to be_nil
+      end
+
+      it "extracts snake_case token fields from usage events" do
+        jsonl = '{"type":"usage","data":{"input_tokens":3,"output_tokens":4}}'
+        result = make_result(stdout: jsonl)
+        response = provider.send(:parse_response, result, duration: 1.0)
+
+        expect(response.tokens).to eq({input: 3, output: 4, total: 7})
+      end
+
+      it "extracts tokens from top-level tokens key" do
+        jsonl = '{"tokens":{"input_tokens":2,"output_tokens":6}}'
+        result = make_result(stdout: jsonl)
+        response = provider.send(:parse_response, result, duration: 1.0)
+
+        expect(response.tokens).to eq({input: 2, output: 6, total: 8})
+      end
+
+      it "extracts tokens from top-level camelCase usage fields" do
+        jsonl = '{"usage":{"inputTokens":9,"outputTokens":1}}'
+        result = make_result(stdout: jsonl)
+        response = provider.send(:parse_response, result, duration: 1.0)
+
+        expect(response.tokens).to eq({input: 9, output: 1, total: 10})
+      end
+
+      it "extracts tokens from top-level input/output shorthand fields" do
+        jsonl = '{"usage":{"input":4,"output":7}}'
+        result = make_result(stdout: jsonl)
+        response = provider.send(:parse_response, result, duration: 1.0)
+
+        expect(response.tokens).to eq({input: 4, output: 7, total: 11})
       end
     end
   end

@@ -149,7 +149,7 @@ module AgentHarness
       def execution_semantics
         {
           prompt_delivery: :arg,
-          output_format: :text,
+          output_format: :json,
           sandbox_aware: false,
           uses_subcommand: true,
           non_interactive_flag: nil,
