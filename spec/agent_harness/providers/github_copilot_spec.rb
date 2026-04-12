@@ -263,6 +263,30 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         expect(response.error).to be_nil
       end
 
+      it "aggregates text from assistant.message_delta deltaContent chunks" do
+        jsonl = <<~JSONL
+          {"type":"assistant.message_delta","data":{"deltaContent":"Hello"}}
+          {"type":"assistant.message_delta","data":{"deltaContent":" world"}}
+        JSONL
+        result = make_result(stdout: jsonl)
+        response = provider.send(:parse_response, result, duration: 1.0)
+
+        expect(response.output).to eq("Hello world")
+        expect(response.error).to be_nil
+      end
+
+      it "preserves assistant.message_delta output when no final assistant.message is emitted" do
+        jsonl = <<~JSONL
+          {"type":"assistant.message_delta","data":{"deltaContent":"partial"}}
+          {"type":"assistant.message_delta","data":{"deltaContent":" reply"}}
+        JSONL
+        result = make_result(stdout: jsonl, stderr: "interrupted", exit_code: 1)
+        response = provider.send(:parse_response, result, duration: 1.0)
+
+        expect(response.output).to eq("partial reply")
+        expect(response.error).to eq("interrupted\n#{jsonl.strip}")
+      end
+
       it "ignores envelope content from non-assistant reply events" do
         jsonl = <<~JSONL
           {"type":"assistant.reasoning","data":{"content":"scratchpad"}}

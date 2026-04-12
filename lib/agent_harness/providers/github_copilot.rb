@@ -277,7 +277,8 @@ module AgentHarness
         )
       end
 
-      ASSISTANT_OUTPUT_EVENT_TYPES = %w[assistant assistant.message].freeze
+      ASSISTANT_OUTPUT_EVENT_TYPES = %w[assistant assistant.message assistant.message_delta].freeze
+      ASSISTANT_TOKEN_FALLBACK_EVENT_TYPES = %w[assistant assistant.message].freeze
       SESSION_SHUTDOWN_EVENT_TYPES = ["session.shutdown"].freeze
       USAGE_EVENT_TYPES = %w[usage assistant.usage].freeze
 
@@ -289,6 +290,11 @@ module AgentHarness
           return nil unless ASSISTANT_OUTPUT_EVENT_TYPES.include?(obj["type"])
 
           data = obj["data"]
+          if obj["type"] == "assistant.message_delta"
+            delta_content = string_content(data["deltaContent"])
+            return delta_content if delta_content
+          end
+
           return string_content(data["content"])
         end
 
@@ -354,7 +360,7 @@ module AgentHarness
             )
           end
 
-          if ASSISTANT_OUTPUT_EVENT_TYPES.include?(obj["type"])
+          if ASSISTANT_TOKEN_FALLBACK_EVENT_TYPES.include?(obj["type"])
             return extract_payload_token_usage(
               data,
               source: :assistant,
