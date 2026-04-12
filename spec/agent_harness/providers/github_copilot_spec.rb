@@ -399,6 +399,50 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         expect(response.tokens).to eq({input: 7, output: 3, total: 10})
       end
 
+      it "extracts tokens from session.shutdown model metrics" do
+        jsonl = <<~JSONL
+          {"type":"session.shutdown","data":{"modelMetrics":{"gpt-4o":{"usage":{"inputTokens":7,"outputTokens":3}}}}}
+        JSONL
+        result = make_result(stdout: jsonl)
+        response = provider.send(:parse_response, result, duration: 1.0)
+
+        expect(response.tokens).to eq({input: 7, output: 3, total: 10})
+      end
+
+      it "sums session.shutdown token totals across model metrics" do
+        jsonl = <<~JSONL
+          {"type":"session.shutdown","data":{"modelMetrics":{"gpt-4o":{"usage":{"inputTokens":7,"outputTokens":3}},"gpt-4o-mini":{"usage":{"inputTokens":2,"outputTokens":5}}}}}
+        JSONL
+        result = make_result(stdout: jsonl)
+        response = provider.send(:parse_response, result, duration: 1.0)
+
+        expect(response.tokens).to eq({input: 9, output: 8, total: 17})
+      end
+
+      it "prefers session.shutdown totals over streamed usage events" do
+        jsonl = <<~JSONL
+          {"type":"usage","data":{"inputTokens":3,"outputTokens":2}}
+          {"type":"assistant.usage","data":{"inputTokens":4,"outputTokens":1}}
+          {"type":"session.shutdown","data":{"modelMetrics":{"gpt-4o":{"usage":{"inputTokens":9,"outputTokens":8}}}}}
+        JSONL
+        result = make_result(stdout: jsonl)
+        response = provider.send(:parse_response, result, duration: 1.0)
+
+        expect(response.tokens).to eq({input: 9, output: 8, total: 17})
+      end
+
+      it "ignores malformed session.shutdown model metrics" do
+        jsonl = <<~JSONL
+          {"type":"session.shutdown","data":{"modelMetrics":{"gpt-4o":{"usage":"bad"},"gpt-4o-mini":true}}}
+          {"type":"assistant.message","data":{"content":"ok"}}
+        JSONL
+        result = make_result(stdout: jsonl)
+        response = provider.send(:parse_response, result, duration: 1.0)
+
+        expect(response.output).to eq("ok")
+        expect(response.tokens).to be_nil
+      end
+
       it "ignores token fields on non-reply, non-usage envelope events" do
         jsonl = '{"type":"assistant.reasoning","data":{"content":"hi","inputTokens":10,"outputTokens":5}}'
         result = make_result(stdout: jsonl)

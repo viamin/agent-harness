@@ -221,6 +221,9 @@ module AgentHarness
           error = combined unless combined.empty?
         end
 
+        shutdown_input = 0
+        shutdown_output = 0
+        shutdown_tokens_present = false
         usage_input = 0
         usage_output = 0
         usage_tokens_present = false
@@ -243,7 +246,11 @@ module AgentHarness
           token_usage = extract_token_usage(obj)
           next unless token_usage
 
-          if token_usage[:source] == :usage
+          if token_usage[:source] == :shutdown
+            shutdown_tokens_present = true
+            shutdown_input += token_usage[:input]
+            shutdown_output += token_usage[:output]
+          elsif token_usage[:source] == :usage
             usage_tokens_present = true
             usage_input += token_usage[:input]
             usage_output += token_usage[:output]
@@ -255,6 +262,9 @@ module AgentHarness
         end
 
         tokens = build_tokens(
+          shutdown_tokens_present: shutdown_tokens_present,
+          shutdown_input: shutdown_input,
+          shutdown_output: shutdown_output,
           usage_tokens_present: usage_tokens_present,
           usage_input: usage_input,
           usage_output: usage_output,
@@ -279,6 +289,7 @@ module AgentHarness
       end
 
       ASSISTANT_OUTPUT_EVENT_TYPES = %w[assistant assistant.message].freeze
+      SESSION_SHUTDOWN_EVENT_TYPES = ["session.shutdown"].freeze
       USAGE_EVENT_TYPES = %w[usage assistant.usage].freeze
 
       def extract_event_text(obj)
@@ -316,28 +327,26 @@ module AgentHarness
         if obj["type"] && obj["data"].is_a?(Hash)
           data = obj["data"]
 
-          if USAGE_EVENT_TYPES.include?(obj["type"])
-            input, input_present = token_value(data, "inputTokens", "input_tokens")
-            output, output_present = token_value(data, "outputTokens", "output_tokens")
-            return nil unless input_present || output_present
+          if SESSION_SHUTDOWN_EVENT_TYPES.include?(obj["type"])
+            return extract_shutdown_token_usage(data)
+          end
 
-            return {
+          if USAGE_EVENT_TYPES.include?(obj["type"])
+            return extract_payload_token_usage(
+              data,
               source: :usage,
-              input: input,
-              output: output
-            }
+              input_keys: ["inputTokens", "input_tokens"],
+              output_keys: ["outputTokens", "output_tokens"]
+            )
           end
 
           if ASSISTANT_OUTPUT_EVENT_TYPES.include?(obj["type"])
-            input, input_present = token_value(data, "inputTokens", "input_tokens")
-            output, output_present = token_value(data, "outputTokens", "output_tokens")
-            return nil unless input_present || output_present
-
-            return {
+            return extract_payload_token_usage(
+              data,
               source: :assistant,
-              input: input,
-              output: output
-            }
+              input_keys: ["inputTokens", "input_tokens"],
+              output_keys: ["outputTokens", "output_tokens"]
+            )
           end
 
           return nil
@@ -345,15 +354,13 @@ module AgentHarness
 
         usage = extract_top_level_usage(obj)
         return nil unless usage
-        input, input_present = token_value(usage, "input_tokens", "inputTokens", "input")
-        output, output_present = token_value(usage, "output_tokens", "outputTokens", "output")
-        return nil unless input_present || output_present
 
-        {
+        extract_payload_token_usage(
+          usage,
           source: :usage,
-          input: input,
-          output: output
-        }
+          input_keys: ["input_tokens", "inputTokens", "input"],
+          output_keys: ["output_tokens", "outputTokens", "output"]
+        )
       end
 
       def extract_top_level_usage(obj)
@@ -363,6 +370,52 @@ module AgentHarness
         nil
       end
 
+      def extract_shutdown_token_usage(data)
+        model_metrics = data["modelMetrics"]
+        return nil unless model_metrics.is_a?(Hash)
+
+        input = 0
+        output = 0
+        tokens_present = false
+
+        model_metrics.each_value do |metric|
+          next unless metric.is_a?(Hash)
+
+          usage = metric["usage"]
+          next unless usage.is_a?(Hash)
+
+          metric_usage = extract_payload_token_usage(
+            usage,
+            source: :shutdown,
+            input_keys: ["inputTokens", "input_tokens", "input"],
+            output_keys: ["outputTokens", "output_tokens", "output"]
+          )
+          next unless metric_usage
+
+          tokens_present = true
+          input += metric_usage[:input]
+          output += metric_usage[:output]
+        end
+
+        return nil unless tokens_present
+
+        {source: :shutdown, input: input, output: output}
+      end
+
+      def extract_payload_token_usage(payload, source:, input_keys:, output_keys:)
+        return nil unless payload.is_a?(Hash)
+
+        input, input_present = token_value(payload, *input_keys)
+        output, output_present = token_value(payload, *output_keys)
+        return nil unless input_present || output_present
+
+        {
+          source: source,
+          input: input,
+          output: output
+        }
+      end
+
       def token_value(obj, *keys)
         key = keys.find { |candidate| obj.key?(candidate) }
         return [0, false] unless key
@@ -370,8 +423,12 @@ module AgentHarness
         coerce_token_value(obj[key])
       end
 
-      def build_tokens(usage_tokens_present:, usage_input:, usage_output:, fallback_tokens_present:, fallback_input:,
-        fallback_output:)
+      def build_tokens(shutdown_tokens_present:, shutdown_input:, shutdown_output:, usage_tokens_present:, usage_input:,
+        usage_output:, fallback_tokens_present:, fallback_input:, fallback_output:)
+        if shutdown_tokens_present
+          return {input: shutdown_input, output: shutdown_output, total: shutdown_input + shutdown_output}
+        end
+
         if usage_tokens_present
           return {input: usage_input, output: usage_output, total: usage_input + usage_output}
         end
