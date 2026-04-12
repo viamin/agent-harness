@@ -414,6 +414,26 @@ RSpec.describe AgentHarness::Providers::Codex do
           expect(response.exit_code).not_to eq(0)
           expect(response.error).to include("Sandbox failure detected")
         end
+
+        it "preserves parsed token data in sandbox failure response" do
+          jsonl_output = [
+            JSON.generate({"type" => "message.delta", "delta" => {"text" => "response"}}),
+            JSON.generate({"type" => "turn.completed", "usage" => {"input_tokens" => 50, "output_tokens" => 25}})
+          ].join("\n")
+
+          sandbox_failure_result = AgentHarness::CommandExecutor::Result.new(
+            stdout: jsonl_output,
+            stderr: "bwrap: No permissions to create a new namespace",
+            exit_code: 0,
+            duration: 1.0
+          )
+
+          allow(mock_executor).to receive(:execute).and_return(sandbox_failure_result)
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.success?).to be false
+          expect(response.tokens).to eq({input: 50, output: 25, total: 75})
+        end
       end
 
       context "with item.completed event parsing" do
@@ -807,6 +827,49 @@ RSpec.describe AgentHarness::Providers::Codex do
           response = provider.send_message(prompt: "Hello")
           expect(response.output).to eq("result")
           expect(response.tokens).to eq({input: 10, output: 5, total: 15})
+        end
+
+        it "skips non-Hash JSON values in JSONL lines" do
+          jsonl_output = [
+            "123",
+            "null",
+            "true",
+            JSON.generate({"type" => "message.delta", "delta" => {"text" => "after scalars"}}),
+            JSON.generate({"type" => "turn.completed", "usage" => {"input_tokens" => 5, "output_tokens" => 3}})
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq("after scalars")
+          expect(response.tokens).to eq({input: 5, output: 3, total: 8})
+        end
+
+        it "returns nil tokens when usage hash has no token fields" do
+          jsonl_output = [
+            JSON.generate({"type" => "message.delta", "delta" => {"text" => "Hello!"}}),
+            JSON.generate({"type" => "turn.completed", "usage" => {"cached_input_tokens" => 50}})
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq("Hello!")
+          expect(response.tokens).to be_nil
         end
 
         it "records tokens with the global token tracker" do

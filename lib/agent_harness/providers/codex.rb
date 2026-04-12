@@ -273,6 +273,7 @@ module AgentHarness
             duration: duration,
             provider: self.class.provider_name,
             model: @config.model,
+            tokens: tokens,
             error: "Sandbox failure detected: #{result.stderr.strip}"
           )
         end
@@ -362,6 +363,8 @@ module AgentHarness
         has_usage = false
 
         events.each do |event|
+          next unless event.is_a?(Hash)
+
           type = event["type"]
 
           case type
@@ -396,9 +399,13 @@ module AgentHarness
           when "turn.completed"
             usage = event["usage"]
             if usage.is_a?(Hash)
+              input_val = usage["input_tokens"]
+              output_val = usage["output_tokens"]
+              next unless input_val || output_val
+
               has_usage = true
-              total_input += usage["input_tokens"].to_i
-              total_output += usage["output_tokens"].to_i
+              total_input += input_val.to_i
+              total_output += output_val.to_i
             end
 
             result = event["result"]
