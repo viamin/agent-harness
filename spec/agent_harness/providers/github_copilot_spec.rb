@@ -171,6 +171,36 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
     end
 
     describe "#build_command" do
+      it "retries CLI version detection after transient failures" do
+        allow(mock_executor).to receive(:execute).with(
+          ["github-copilot-cli", "--version"],
+          timeout: 5
+        ).and_raise(StandardError, "temporary failure").once
+
+        first_command = provider.send(:build_command, "Hello", {})
+        expect(first_command).to eq([
+          "github-copilot-cli",
+          "-p",
+          "Hello",
+          "--allow-all-tools"
+        ])
+
+        allow(mock_executor).to receive(:execute).with(
+          ["github-copilot-cli", "--version"],
+          timeout: 5
+        ).and_return(version_result)
+
+        second_command = provider.send(:build_command, "Hello", {})
+        expect(second_command).to eq([
+          "github-copilot-cli",
+          "-p",
+          "Hello",
+          "--output-format",
+          "json",
+          "--allow-all-tools"
+        ])
+      end
+
       it "includes --output-format json and allow-all-tools by default" do
         command = provider.send(:build_command, "Hello", {})
 
@@ -205,6 +235,15 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
           "Hello",
           "--allow-all-tools"
         ])
+      end
+
+      it "memoizes parsed CLI versions after a successful probe" do
+        2.times { provider.send(:build_command, "Hello", {}) }
+
+        expect(mock_executor).to have_received(:execute).with(
+          ["github-copilot-cli", "--version"],
+          timeout: 5
+        ).once
       end
 
       it "keeps --allow-all-tools when dangerous_mode is enabled" do

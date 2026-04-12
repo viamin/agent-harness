@@ -232,13 +232,13 @@ module AgentHarness
       end
 
       def copilot_cli_version
-        return @copilot_cli_version if defined?(@copilot_cli_version)
+        return @copilot_cli_version if instance_variable_defined?(:@copilot_cli_version)
 
         result = @executor.execute([self.class.binary_name, "--version"], timeout: 5)
         @copilot_cli_version = extract_version(result)
       rescue => e
         log_debug("copilot_cli_version_check_failed", error: e.message)
-        @copilot_cli_version = nil
+        nil
       end
 
       def extract_version(result)
