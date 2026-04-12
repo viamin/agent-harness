@@ -370,11 +370,15 @@ module AgentHarness
       def extract_error_message(event)
         error_payload = event["error"]
         part = event["part"]
+        part_error_payload = part["error"] if part.is_a?(Hash)
         candidates = [
           event["message"],
           error_payload,
           error_payload.is_a?(Hash) ? error_payload["message"] : nil,
           (error_payload.is_a?(Hash) && error_payload["data"].is_a?(Hash)) ? error_payload["data"]["message"] : nil,
+          part_error_payload,
+          part_error_payload.is_a?(Hash) ? part_error_payload["message"] : nil,
+          (part_error_payload.is_a?(Hash) && part_error_payload["data"].is_a?(Hash)) ? part_error_payload["data"]["message"] : nil,
           part.is_a?(Hash) ? part["text"] : nil,
           part.is_a?(Hash) ? part["message"] : nil
         ]
