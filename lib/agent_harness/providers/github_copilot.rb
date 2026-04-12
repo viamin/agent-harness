@@ -193,9 +193,9 @@ module AgentHarness
           cmd << "-s"
         end
 
-        # Copilot CLI requires explicit tool pre-approval for programmatic `-p`
-        # runs because it cannot stop for interactive permission prompts.
-        cmd += dangerous_mode_flags if supports_dangerous_mode?
+        if options[:dangerous_mode] && supports_dangerous_mode?
+          cmd += dangerous_mode_flags
+        end
 
         if options[:session] && !options[:session].empty?
           cmd += session_flags(options[:session])
