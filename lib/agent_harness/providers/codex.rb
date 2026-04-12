@@ -371,8 +371,8 @@ module AgentHarness
         current_turn_parts = []
         total_input = 0
         total_output = 0
+        total_tokens = 0
         has_usage = false
-        wrapped_tokens = nil
 
         events.each do |event|
           next unless event.is_a?(Hash)
@@ -401,8 +401,11 @@ module AgentHarness
 
               if input_val || output_val
                 has_usage = true
-                total_input += input_val.to_i
-                total_output += output_val.to_i
+                input_tokens = input_val.to_i
+                output_tokens = output_val.to_i
+                total_input += input_tokens
+                total_output += output_tokens
+                total_tokens += input_tokens + output_tokens
               end
             end
 
@@ -424,7 +427,15 @@ module AgentHarness
               message = payload["message"]
               current_turn_parts = [message] if message.is_a?(String) && !message.empty?
             when "token_count"
-              wrapped_tokens = extract_wrapped_tokens(payload["info"]) || wrapped_tokens
+              wrapped_token_usage = extract_wrapped_tokens(payload["info"])
+              if wrapped_token_usage
+                has_usage = true
+                total_input += wrapped_token_usage[:input]
+                total_output += wrapped_token_usage[:output]
+                total_tokens += wrapped_token_usage[:total]
+                text_parts.concat(current_turn_parts) unless current_turn_parts.empty?
+                current_turn_parts = []
+              end
             end
           when "response_item"
             payload = event["payload"]
@@ -440,7 +451,7 @@ module AgentHarness
 
         {
           text: text,
-          tokens: wrapped_tokens || (has_usage ? {input: total_input, output: total_output, total: total_input + total_output} : nil)
+          tokens: has_usage ? {input: total_input, output: total_output, total: total_tokens} : nil
         }
       rescue
         nil

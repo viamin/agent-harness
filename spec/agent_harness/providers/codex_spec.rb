@@ -821,6 +821,61 @@ RSpec.describe AgentHarness::Providers::Codex do
           expect(response.tokens).to eq({input: 0, output: 0, total: 17})
           expect(response.total_tokens).to eq(17)
         end
+
+        it "aggregates wrapped token_count events across multiple turns" do
+          jsonl_output = [
+            JSON.generate({"type" => "event_msg", "payload" => {"type" => "agent_message", "message" => "first wrapped answer"}}),
+            JSON.generate({
+              "type" => "event_msg",
+              "payload" => {
+                "type" => "token_count",
+                "info" => {
+                  "total_token_usage" => {
+                    "input_tokens" => 2,
+                    "output_tokens" => 1
+                  }
+                }
+              }
+            }),
+            JSON.generate({"type" => "event_msg", "payload" => {"type" => "agent_message_delta", "message" => "ignored partial"}}),
+            JSON.generate({
+              "type" => "response_item",
+              "payload" => {
+                "type" => "message",
+                "role" => "assistant",
+                "content" => [{"type" => "output_text", "text" => "second wrapped answer"}]
+              }
+            }),
+            JSON.generate({
+              "type" => "event_msg",
+              "payload" => {
+                "type" => "token_count",
+                "info" => {
+                  "total_token_usage" => {
+                    "input_tokens" => 3,
+                    "output_tokens" => 4,
+                    "reasoning_output_tokens" => 6,
+                    "total_tokens" => 13
+                  }
+                }
+              }
+            })
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq("first wrapped answersecond wrapped answer")
+          expect(response.tokens).to eq({input: 5, output: 5, total: 16})
+          expect(response.total_tokens).to eq(16)
+        end
       end
 
       context "with token usage parsing" do
