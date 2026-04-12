@@ -443,6 +443,26 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
           expect(response.tokens).to be_nil
         end
 
+        it "falls back to plain text when output mixes raw text with JSON lines" do
+          mixed_output = [
+            "plain text response",
+            JSON.generate({"usage" => {"input_tokens" => 20, "output_tokens" => 5}})
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: mixed_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq(mixed_output)
+          expect(response.tokens).to be_nil
+        end
+
         it "handles JSONL without usage data" do
           jsonl_output = [
             {"text" => "Hello!"},

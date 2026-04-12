@@ -256,12 +256,14 @@ module AgentHarness
       def parse_jsonl_output(output)
         return nil if output.nil? || output.strip.empty?
 
-        lines = output.strip.split("\n")
-        parsed = lines.filter_map do |line|
+        parsed = output.each_line(chomp: true).filter_map do |line|
+          next if line.strip.empty?
+
           JSON.parse(line)
         rescue JSON::ParserError
-          nil
+          return nil
         end
+
         parsed.empty? ? nil : parsed
       end
 
