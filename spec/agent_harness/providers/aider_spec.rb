@@ -294,6 +294,7 @@ RSpec.describe AgentHarness::Providers::Aider do
 
         provider.send_message(prompt: "Hello")
         expect(provider.instance_variable_get(:@aider_history_tempfile)).to be_nil
+        expect(provider.instance_variable_get(:@aider_history_path)).to be_nil
       end
 
       it "cleans up the history tempfile even when execution fails" do
@@ -304,6 +305,7 @@ RSpec.describe AgentHarness::Providers::Aider do
         }.to raise_error(AgentHarness::ProviderError)
 
         expect(provider.instance_variable_get(:@aider_history_tempfile)).to be_nil
+        expect(provider.instance_variable_get(:@aider_history_path)).to be_nil
       end
 
       context "with token usage from history file" do
@@ -463,6 +465,122 @@ RSpec.describe AgentHarness::Providers::Aider do
           expect(summary[:total_output_tokens]).to eq(25)
           expect(summary[:total_tokens]).to eq(75)
         end
+      end
+    end
+  end
+
+  describe "instance with Docker executor" do
+    let(:docker_executor) do
+      instance_double(AgentHarness::CommandExecutor)
+    end
+
+    let(:config) do
+      AgentHarness::ProviderConfig.new(:aider).tap do |c|
+        c.model = "gpt-4o"
+      end
+    end
+
+    subject(:provider) { described_class.new(config: config, executor: docker_executor) }
+
+    before do
+      allow(provider).to receive(:sandboxed_environment?).and_return(true)
+    end
+
+    before do
+      allow(docker_executor).to receive(:execute) do |command, **_opts|
+        if command.include?("cat")
+          history_path = provider.instance_variable_get(:@aider_history_path)
+          if history_path && command.last == history_path
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: JSON.generate([
+                {"usage" => {"prompt_tokens" => 100, "completion_tokens" => 50}}
+              ]),
+              stderr: "",
+              exit_code: 0,
+              duration: 0.1
+            )
+          else
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: "",
+              stderr: "",
+              exit_code: 1,
+              duration: 0.1
+            )
+          end
+        elsif command.include?("rm")
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "",
+            stderr: "",
+            exit_code: 0,
+            duration: 0.1
+          )
+        else
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "response text",
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        end
+      end
+    end
+
+    describe "#send_message" do
+      it "uses a container-local path for --llm-history-file" do
+        aider_command = nil
+        allow(docker_executor).to receive(:execute) do |command, **_opts|
+          aider_command ||= command if command.is_a?(Array) && command.first == "aider"
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "response text",
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        end
+
+        provider.send_message(prompt: "Hello")
+
+        history_flag_idx = aider_command.index("--llm-history-file")
+        expect(history_flag_idx).not_to be_nil
+        history_path = aider_command[history_flag_idx + 1]
+        expect(history_path).to match(%r{/tmp/aider_llm_history_[a-f0-9]+\.json})
+      end
+
+      it "extracts tokens by reading history from the container" do
+        response = provider.send_message(prompt: "Hello")
+        expect(response.tokens).to eq({input: 100, output: 50, total: 150})
+      end
+
+      it "cleans up the container history file after execution" do
+        provider.send_message(prompt: "Hello")
+
+        expect(docker_executor).to have_received(:execute).with(
+          array_including("rm", "-f"),
+          anything
+        )
+        expect(provider.instance_variable_get(:@aider_history_path)).to be_nil
+      end
+
+      it "cleans up the container history file even when execution fails" do
+        main_execution = true
+        allow(docker_executor).to receive(:execute) do |command, **_opts|
+          if main_execution && !command.include?("cat") && !command.include?("rm")
+            main_execution = false
+            raise StandardError, "container error"
+          end
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "",
+            stderr: "",
+            exit_code: 0,
+            duration: 0.1
+          )
+        end
+
+        expect {
+          provider.send_message(prompt: "Hello")
+        }.to raise_error(AgentHarness::ProviderError)
+
+        expect(provider.instance_variable_get(:@aider_history_path)).to be_nil
       end
     end
   end

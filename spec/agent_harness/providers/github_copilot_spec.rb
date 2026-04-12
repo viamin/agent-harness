@@ -156,20 +156,8 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
     end
 
     describe "#build_command" do
-      it "uses prompt mode with JSON output format" do
+      it "includes --allow-all-tools for non-interactive tool permissions" do
         command = provider.send(:build_command, "Hello", {})
-
-        expect(command).to eq([
-          "github-copilot-cli",
-          "-p",
-          "Hello",
-          "--output-format",
-          "json"
-        ])
-      end
-
-      it "adds dangerous mode flags only when explicitly requested" do
-        command = provider.send(:build_command, "Hello", {dangerous_mode: true})
 
         expect(command).to eq([
           "github-copilot-cli",
@@ -181,22 +169,8 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         ])
       end
 
-      it "appends session resume flags after dangerous mode flags" do
+      it "appends session resume flags after tool permission flags" do
         command = provider.send(:build_command, "Hello", {session: "session-123"})
-
-        expect(command).to eq([
-          "github-copilot-cli",
-          "-p",
-          "Hello",
-          "--output-format",
-          "json",
-          "--resume",
-          "session-123"
-        ])
-      end
-
-      it "appends session resume flags after dangerous mode flags when both are provided" do
-        command = provider.send(:build_command, "Hello", {dangerous_mode: true, session: "session-123"})
 
         expect(command).to eq([
           "github-copilot-cli",
@@ -228,7 +202,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         )
 
         expect(mock_executor).to receive(:execute).with(
-          ["github-copilot-cli", "-p", "Hello", "--output-format", "json"],
+          ["github-copilot-cli", "-p", "Hello", "--output-format", "json", "--allow-all-tools"],
           anything
         )
 

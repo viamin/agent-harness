@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "json"
+require "securerandom"
 require "tempfile"
 
 module AgentHarness
@@ -197,12 +198,15 @@ module AgentHarness
       end
 
       def send_message(prompt:, **options)
-        @aider_history_tempfile = Tempfile.new(["aider_llm_history_", ".json"])
-        @aider_history_tempfile.close
-        options = options.merge(_aider_history_file: @aider_history_tempfile.path)
+        if sandboxed_environment?
+          @aider_history_path = "/tmp/aider_llm_history_#{SecureRandom.hex(8)}.json"
+        else
+          @aider_history_tempfile = Tempfile.new(["aider_llm_history_", ".json"])
+          @aider_history_tempfile.close
+        end
         super
       ensure
-        cleanup_history_tempfile
+        cleanup_history
       end
 
       protected
@@ -212,8 +216,8 @@ module AgentHarness
 
         cmd << "--yes"
 
-        if @aider_history_tempfile&.path
-          cmd += ["--llm-history-file", @aider_history_tempfile.path]
+        if history_file_path
+          cmd += ["--llm-history-file", history_file_path]
         end
 
         if @config.model && !@config.model.empty?
@@ -253,23 +257,23 @@ module AgentHarness
 
       private
 
-      def cleanup_history_tempfile
-        return unless @aider_history_tempfile
-
-        @aider_history_tempfile.close unless @aider_history_tempfile.closed?
-        @aider_history_tempfile.unlink
-      rescue => e
-        log_debug("cleanup_history_tempfile_failed", error: e.message)
-        nil
+      def cleanup_history
+        if sandboxed_environment?
+          cleanup_container_history
+        else
+          cleanup_local_tempfile
+        end
       ensure
         @aider_history_tempfile = nil
+        @aider_history_path = nil
+      end
+
+      def history_file_path
+        @aider_history_tempfile&.path || @aider_history_path
       end
 
       def extract_tokens_from_history
-        path = @aider_history_tempfile&.path
-        return nil unless path && File.exist?(path) && !File.zero?(path)
-
-        content = File.read(path)
+        content = retrieve_history_content
         return nil if content.nil? || content.strip.empty?
 
         entries = parse_history_entries(content)
@@ -278,6 +282,53 @@ module AgentHarness
         aggregate_token_counts(entries)
       rescue => e
         log_debug("extract_tokens_from_history_failed", error: e.message)
+        nil
+      end
+
+      def retrieve_history_content
+        if sandboxed_environment?
+          retrieve_container_history_content
+        else
+          retrieve_local_history_content
+        end
+      end
+
+      def retrieve_local_history_content
+        path = @aider_history_tempfile&.path
+        return nil unless path && File.exist?(path) && !File.zero?(path)
+
+        File.read(path)
+      end
+
+      def retrieve_container_history_content
+        path = @aider_history_path
+        return nil unless path
+
+        result = @executor.execute(["cat", path], timeout: 5)
+        return nil unless result.success?
+
+        result.stdout
+      rescue => e
+        log_debug("retrieve_container_history_failed", error: e.message)
+        nil
+      end
+
+      def cleanup_local_tempfile
+        return unless @aider_history_tempfile
+
+        @aider_history_tempfile.close unless @aider_history_tempfile.closed?
+        @aider_history_tempfile.unlink
+      rescue => e
+        log_debug("cleanup_history_tempfile_failed", error: e.message)
+        nil
+      end
+
+      def cleanup_container_history
+        return unless @aider_history_path
+
+        @executor.execute(["rm", "-f", @aider_history_path], timeout: 5)
+      rescue => e
+        log_debug("cleanup_container_history_failed", error: e.message)
         nil
       end
 
