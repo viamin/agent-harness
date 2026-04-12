@@ -432,6 +432,16 @@ module AgentHarness
           current_turn_finalized_output = false
         end
 
+        start_new_finalized_turn = lambda do
+          start_new_turn.call
+          next unless pending_turn_usage_source == :wrapped && pending_turn_usage && current_turn_finalized_output
+
+          latest_completed_parts = current_turn_parts.dup
+          commit_pending_turn.call
+          current_turn_parts = []
+          current_turn_finalized_output = false
+        end
+
         replace_current_turn_parts = lambda do |parts|
           next if parts.nil?
 
@@ -476,14 +486,14 @@ module AgentHarness
           when "agent_message"
             next unless wrapped_assistant_payload?(event)
 
-            start_new_turn.call
+            start_new_finalized_turn.call
             replace_current_turn_parts.call(extract_message_content_parts(event))
           when "item.completed"
             item = event["item"]
             next unless item.is_a?(Hash)
             next unless assistant_message_item?(item)
 
-            start_new_turn.call
+            start_new_finalized_turn.call
             replace_current_turn_parts.call(extract_message_content_parts(item))
           when "turn.completed"
             turn_usage = build_token_usage(event["usage"])
@@ -531,7 +541,7 @@ module AgentHarness
             when "agent_message"
               next unless wrapped_assistant_payload?(payload)
 
-              start_new_turn.call
+              start_new_finalized_turn.call
               replace_current_turn_parts.call(extract_message_content_parts(payload))
             when "token_count"
               wrapped_token_usage = extract_wrapped_tokens(payload["info"])
@@ -548,7 +558,7 @@ module AgentHarness
             payload = event["payload"]
             next unless payload.is_a?(Hash) && response_item_assistant_payload?(payload)
 
-            start_new_turn.call
+            start_new_finalized_turn.call
             replace_current_turn_parts.call(extract_message_content_parts(payload))
           end
         end
