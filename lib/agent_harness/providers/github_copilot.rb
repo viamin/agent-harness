@@ -226,20 +226,15 @@ module AgentHarness
         usage_tokens = empty_token_totals
         fallback_tokens = empty_token_totals
         output_segments = []
-        pending_delta_segment = nil
         output.lines.each do |line|
           stripped_line = line.strip
           if stripped_line.empty?
-            flush_pending_delta!(output_segments, pending_delta_segment)
-            pending_delta_segment = nil
             output_segments << {kind: :raw, content: line, terminated: line.end_with?("\n")}
             next
           end
           begin
             obj = JSON.parse(stripped_line)
           rescue JSON::ParserError
-            flush_pending_delta!(output_segments, pending_delta_segment)
-            pending_delta_segment = nil
             output_segments << {kind: :raw, content: line, terminated: line.end_with?("\n")}
             next
           end
@@ -249,16 +244,12 @@ module AgentHarness
           text, text_kind = extract_event_text(obj)
           if text
             if text_kind == :assistant_delta
-              pending_delta_segment ||= {kind: :assistant, content: +"", terminated: false}
-              pending_delta_segment[:content] << text
-              pending_delta_segment[:terminated] = line.end_with?("\n")
+              append_delta_segment!(output_segments, text, terminated: line.end_with?("\n"))
             else
-              pending_delta_segment = nil
+              drop_provisional_segments!(output_segments)
               output_segments << {kind: :assistant, content: text, terminated: line.end_with?("\n")}
             end
           elsif preserve_raw_json_line?(obj) || !obj.is_a?(Hash)
-            flush_pending_delta!(output_segments, pending_delta_segment)
-            pending_delta_segment = nil
             output_segments << {kind: :raw, content: line, terminated: line.end_with?("\n")}
           end
 
@@ -273,8 +264,6 @@ module AgentHarness
             accumulate_token_totals!(fallback_tokens, token_usage)
           end
         end
-        flush_pending_delta!(output_segments, pending_delta_segment)
-
         tokens = build_tokens(shutdown_tokens: shutdown_tokens, usage_tokens: usage_tokens, fallback_tokens: fallback_tokens)
         final_output = structured_json_seen ? render_output_segments(output_segments) : output
 
@@ -555,10 +544,24 @@ module AgentHarness
         rendered
       end
 
-      def flush_pending_delta!(segments, pending_delta_segment)
-        return unless pending_delta_segment
+      def append_delta_segment!(segments, text, terminated:)
+        previous_segment = segments.last
+        if previous_segment&.[](:provisional) && previous_segment[:kind] == :assistant
+          previous_segment[:content] << text
+          previous_segment[:terminated] = terminated
+          return
+        end
 
-        segments << pending_delta_segment
+        segments << {
+          kind: :assistant,
+          content: +text,
+          terminated: terminated,
+          provisional: true
+        }
+      end
+
+      def drop_provisional_segments!(segments)
+        segments.reject! { |segment| segment[:provisional] }
       end
 
       def copilot_cli_supports_json_output?
