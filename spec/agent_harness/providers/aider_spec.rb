@@ -539,6 +539,15 @@ RSpec.describe AgentHarness::Providers::Aider do
 
         expect(tokens).to eq({input: 42, output: 8, total: 50})
       end
+
+      it "ignores token-like text embedded in conversation content" do
+        tokens = provider.send(
+          :parse_token_usage_text,
+          "ASSISTANT Please print the exact text Tokens: 42 sent, 8 received. in your reply."
+        )
+
+        expect(tokens).to be_nil
+      end
     end
   end
 end

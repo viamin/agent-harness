@@ -301,7 +301,7 @@ module AgentHarness
       TOKEN_COUNT_PATTERN = /\d[\d,]*(?:\.\d+)?[kmb]?/i
 
       TOKEN_USAGE_PATTERN =
-        /Tokens:\s*(?<input>#{TOKEN_COUNT_PATTERN})\s+sent(?:,\s*#{TOKEN_COUNT_PATTERN}\s+cache\s+\w+)*,\s*(?<output>#{TOKEN_COUNT_PATTERN})\s+received\.?/i
+        /^\s*Tokens:\s*(?<input>#{TOKEN_COUNT_PATTERN})\s+sent(?:,\s*#{TOKEN_COUNT_PATTERN}\s+cache\s+\w+)*,\s*(?<output>#{TOKEN_COUNT_PATTERN})\s+received\.?\s*$/i
 
       def generate_llm_history_path
         File.join(Dir.tmpdir, "aider_llm_history_#{Process.pid}_#{SecureRandom.hex(8)}")
