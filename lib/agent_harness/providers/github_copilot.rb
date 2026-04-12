@@ -183,12 +183,12 @@ module AgentHarness
       protected
 
       def build_command(prompt, options)
-        cmd = [self.class.binary_name, "-p", prompt]
+        # Silent mode suppresses the model/stats decoration older CLIs print in
+        # prompt mode, which keeps smoke-test output stable on the non-JSON path.
+        cmd = [self.class.binary_name, "-p", prompt, "-s"]
 
         cmd += ["--output-format", "json"] if supports_json_output_format?
-
-        # Copilot prompt mode is non-interactive, so tool approvals must be pre-authorized.
-        cmd += dangerous_mode_flags if supports_dangerous_mode?
+        cmd += dangerous_mode_flags if options[:dangerous_mode] && supports_dangerous_mode?
 
         if options[:session] && !options[:session].empty?
           cmd += session_flags(options[:session])
