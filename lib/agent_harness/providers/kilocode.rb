@@ -140,9 +140,9 @@ module AgentHarness
 
       def parse_response(result, duration:)
         output = result.stdout
-        error = nil
         tokens = nil
         structured_errors = []
+        error = nil
 
         if result.failed?
           combined = [result.stdout, result.stderr]
@@ -193,6 +193,9 @@ module AgentHarness
 
         if saw_structured_event
           output = text_parts.empty? ? nil : text_parts.join
+          if result.failed? || structured_errors.any?
+            error = build_structured_error(result, structured_errors, fallback: error)
+          end
         end
         step_tokens = nil
         if has_step_tokens
@@ -203,7 +206,7 @@ module AgentHarness
         end
         tokens = resolve_token_counts(result_usage, fallback: step_tokens) if result_usage
         tokens ||= step_tokens
-        if structured_errors.any?
+        if structured_errors.any? && !saw_structured_event
           error_lines = [error, *structured_errors].compact.reject(&:empty?).uniq
           error = error_lines.join("\n")
         end
@@ -285,6 +288,16 @@ module AgentHarness
         return message.strip if message
 
         JSON.generate(event)
+      end
+
+      def build_structured_error(result, structured_errors, fallback:)
+        stderr = result.stderr.to_s.strip
+        error_lines = [stderr, *structured_errors].compact.reject(&:empty?).uniq
+        return error_lines.join("\n") if error_lines.any?
+
+        return "Kilocode exited with code #{result.exit_code}" if result.failed?
+
+        fallback
       end
 
       def coerce_token_count(value)

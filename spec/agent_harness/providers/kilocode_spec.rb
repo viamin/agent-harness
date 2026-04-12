@@ -380,7 +380,30 @@ RSpec.describe AgentHarness::Providers::Kilocode do
 
         response = provider.send_message(prompt: "Hello")
         expect(response.failed?).to be true
-        expect(response.error).to include("something went wrong")
+        expect(response.error).to eq("something went wrong")
+        expect(response.output).to eq("Partial response")
+        expect(response.tokens).to eq({input: 10, output: 5, total: 15})
+      end
+
+      it "uses a generic exit error when structured output fails without stderr" do
+        ndjson = [
+          {"type" => "text", "part" => {"text" => "Partial response"}},
+          {"type" => "result", "usage" => {"input_tokens" => 10, "output_tokens" => 5}}
+        ].map { |e| JSON.generate(e) }.join("\n")
+
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: ndjson,
+            stderr: "",
+            exit_code: 1,
+            duration: 1.0
+          )
+        )
+
+        response = provider.send_message(prompt: "Hello")
+        expect(response.failed?).to be true
+        expect(response.error).to eq("Kilocode exited with code 1")
+        expect(response.error).not_to include("\"type\":\"text\"")
         expect(response.output).to eq("Partial response")
         expect(response.tokens).to eq({input: 10, output: 5, total: 15})
       end
