@@ -238,10 +238,6 @@ module AgentHarness
           )
         end
         tokens ||= step_tokens
-        if structured_errors.any? && !saw_structured_event
-          error_lines = [error, *structured_errors].compact.reject(&:empty?).uniq
-          error = error_lines.join("\n")
-        end
 
         Response.new(
           output: output,
