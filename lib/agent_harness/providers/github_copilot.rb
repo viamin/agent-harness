@@ -245,7 +245,11 @@ module AgentHarness
           structured_json_seen ||= obj.is_a?(Hash)
 
           text = extract_event_text(obj)
-          rendered_output << text if text
+          if text
+            rendered_output << text
+          elsif preserve_raw_json_line?(obj)
+            rendered_output << line
+          end
 
           token_usage = extract_token_usage(obj)
           next unless token_usage
@@ -324,6 +328,15 @@ module AgentHarness
         return value if value.is_a?(String)
 
         nil
+      end
+
+      def preserve_raw_json_line?(obj)
+        return false unless obj.is_a?(Hash)
+        return false if obj.key?("type")
+        return false if obj.key?("usage") || obj.key?("tokens")
+        return false if obj.key?("output") || obj.key?("content") || obj.key?("message")
+
+        true
       end
 
       def extract_token_usage(obj)
