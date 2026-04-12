@@ -1064,6 +1064,40 @@ RSpec.describe AgentHarness::Providers::Kilocode do
         expect(response.tokens).to eq({input: 120, output: 40, total: 165})
       end
 
+      it "clears stale extra usage categories when a later usage event provides full counts and an explicit total alias" do
+        ndjson = [
+          {
+            "type" => "usage",
+            "usage" => {
+              "input_tokens" => 100,
+              "output_tokens" => 50,
+              "reasoning_tokens" => 20,
+              "cache_read_input_tokens" => 15
+            }
+          },
+          {
+            "type" => "result",
+            "usage" => {
+              "input_tokens" => 120,
+              "output_tokens" => 40,
+              "total" => 162
+            }
+          }
+        ].map { |e| JSON.generate(e) }.join("\n")
+
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: ndjson,
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        response = provider.send_message(prompt: "Hello")
+        expect(response.tokens).to eq({input: 120, output: 40, total: 162})
+      end
+
       it "clears an earlier total alias when a later usage event adds only extra token categories" do
         ndjson = [
           {"type" => "usage", "usage" => {"input_tokens" => 100, "output_tokens" => 50, "total" => 190}},
