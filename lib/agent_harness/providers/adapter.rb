@@ -257,6 +257,11 @@ module AgentHarness
                 :supported_mcp_transports,
                 default: default_supported_mcp_transports
               ),
+              supports_token_counting: provider_metadata_value(
+                provider,
+                :supports_token_counting?,
+                default: default_supports_token_counting
+              ),
               supports_sessions: provider_metadata_value(
                 provider,
                 :supports_sessions?,
@@ -598,6 +603,10 @@ module AgentHarness
         end
 
         def default_supports_sessions
+          false
+        end
+
+        def default_supports_token_counting
           false
         end
 

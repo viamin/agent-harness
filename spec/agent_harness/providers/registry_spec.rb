@@ -484,6 +484,7 @@ RSpec.describe AgentHarness::Providers::Registry do
         requires_cli: true,
         installable: true,
         supports_mcp: true,
+        supports_token_counting: true,
         supports_dangerous_mode: true
       )
       expect(metadata[:health_check]).to include(
@@ -1283,6 +1284,7 @@ RSpec.describe AgentHarness::Providers::Registry do
                 uses_subcommand: nil,
                 supports_mcp: false,
                 supported_mcp_transports: [],
+                supports_token_counting: false,
                 supports_sessions: false,
                 supports_dangerous_mode: false
               },

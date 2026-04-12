@@ -218,6 +218,10 @@ RSpec.describe AgentHarness::Providers::Adapter do
         [:stdio]
       end
 
+      def supports_token_counting?
+        true
+      end
+
       def supports_sessions?
         true
       end
@@ -849,6 +853,7 @@ RSpec.describe AgentHarness::Providers::Adapter do
           sandbox_aware: false,
           uses_subcommand: false,
           supports_mcp: false,
+          supports_token_counting: false,
           supports_sessions: false,
           supports_dangerous_mode: false
         )
@@ -896,6 +901,7 @@ RSpec.describe AgentHarness::Providers::Adapter do
           sandbox_aware: true,
           uses_subcommand: true,
           supports_mcp: true,
+          supports_token_counting: true,
           supports_sessions: true,
           supports_dangerous_mode: true
         )
