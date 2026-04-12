@@ -450,6 +450,30 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         expect(response.tokens).to be_nil
       end
 
+      it "preserves malformed top-level usage hashes when token extraction fails" do
+        jsonl = <<~JSONL
+          {"usage":{"input_tokens":{}}}
+          {"type":"assistant.message","data":{"content":"echo hello"}}
+        JSONL
+        result = make_result(stdout: jsonl)
+        response = provider.send(:parse_response, result, duration: 1.0)
+
+        expect(response.output).to eq("{\"usage\":{\"input_tokens\":{}}}\necho hello")
+        expect(response.tokens).to be_nil
+      end
+
+      it "preserves empty top-level tokens hashes as literal JSON output" do
+        jsonl = <<~JSONL
+          {"tokens":{}}
+          {"type":"assistant.message","data":{"content":"echo hello"}}
+        JSONL
+        result = make_result(stdout: jsonl)
+        response = provider.send(:parse_response, result, duration: 1.0)
+
+        expect(response.output).to eq("{\"tokens\":{}}\necho hello")
+        expect(response.tokens).to be_nil
+      end
+
       it "preserves line boundaries around literal JSON after assistant reply events" do
         jsonl = <<~JSONL
           {"type":"assistant.message","data":{"content":"echo hello"}}
@@ -708,7 +732,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         response = nil
 
         expect { response = provider.send(:parse_response, result, duration: 1.0) }.not_to raise_error
-        expect(response.output).to eq("ok")
+        expect(response.output).to eq("{\"usage\":{\"input_tokens\":{},\"output_tokens\":false}}\nok")
         expect(response.tokens).to be_nil
       end
 
@@ -721,7 +745,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         response = nil
 
         expect { response = provider.send(:parse_response, result, duration: 1.0) }.not_to raise_error
-        expect(response.output).to eq("ok")
+        expect(response.output).to eq("{\"usage\":{\"input_tokens\":1.5,\"output_tokens\":\"-2\"}}\nok")
         expect(response.tokens).to be_nil
       end
 
