@@ -302,6 +302,7 @@ module AgentHarness
 
       TOKEN_USAGE_PATTERN =
         /^\s*Tokens:\s*(?<input>#{TOKEN_COUNT_PATTERN})\s+sent(?:,\s*#{TOKEN_COUNT_PATTERN}\s+cache\s+\w+)*,\s*(?<output>#{TOKEN_COUNT_PATTERN})\s+received\.?(?:\s+Cost:\s+.+)?\s*$/i
+      FOOTER_COST_PATTERN = /^\s*Cost:\s+.+\s*$/i
 
       def generate_llm_history_path
         File.join(Dir.tmpdir, "aider_llm_history_#{Process.pid}_#{SecureRandom.hex(8)}")
@@ -376,7 +377,7 @@ module AgentHarness
       def footer_suffix?(lines, index)
         lines[(index + 1)..].to_a.all? do |line|
           stripped = line.strip
-          stripped.empty? || TOKEN_USAGE_PATTERN.match?(line)
+          stripped.empty? || TOKEN_USAGE_PATTERN.match?(line) || FOOTER_COST_PATTERN.match?(line)
         end
       end
 
