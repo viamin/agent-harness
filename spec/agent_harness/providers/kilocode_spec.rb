@@ -493,6 +493,49 @@ RSpec.describe AgentHarness::Providers::Kilocode do
         expect(response.output).to eq("Response")
         expect(response.tokens).to eq({input: 50, output: 25, total: 75})
       end
+
+      it "accumulates token counts across multiple step_finish events" do
+        ndjson = [
+          {"type" => "text", "part" => {"text" => "Step 1"}},
+          {"type" => "step_finish", "part" => {"tokens" => {"input" => 100, "output" => 50}}},
+          {"type" => "text", "part" => {"text" => "Step 2"}},
+          {"type" => "step_finish", "part" => {"tokens" => {"input" => 80, "output" => 40}}}
+        ].map { |e| JSON.generate(e) }.join("\n")
+
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: ndjson,
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        response = provider.send_message(prompt: "Hello")
+        expect(response.output).to eq("Step 1Step 2")
+        expect(response.tokens).to eq({input: 180, output: 90, total: 270})
+      end
+
+      it "prefers result usage over accumulated step_finish tokens" do
+        ndjson = [
+          {"type" => "text", "part" => {"text" => "Response"}},
+          {"type" => "step_finish", "part" => {"tokens" => {"input" => 100, "output" => 50}}},
+          {"type" => "step_finish", "part" => {"tokens" => {"input" => 80, "output" => 40}}},
+          {"type" => "result", "usage" => {"input_tokens" => 200, "output_tokens" => 100}}
+        ].map { |e| JSON.generate(e) }.join("\n")
+
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: ndjson,
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        response = provider.send_message(prompt: "Hello")
+        expect(response.tokens).to eq({input: 200, output: 100, total: 300})
+      end
     end
   end
 end

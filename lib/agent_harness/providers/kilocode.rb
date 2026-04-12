@@ -152,7 +152,10 @@ module AgentHarness
         end
 
         text_parts = []
-        usage_data = nil
+        accumulated_input = 0
+        accumulated_output = 0
+        has_step_tokens = false
+        result_usage = nil
 
         each_json_event(output) do |event|
           if event["type"] == "text"
@@ -163,17 +166,22 @@ module AgentHarness
           if event["type"] == "step_finish"
             part_tokens = event.dig("part", "tokens")
             if part_tokens
-              usage_data = {
-                "input_tokens" => part_tokens["input"],
-                "output_tokens" => part_tokens["output"]
-              }
+              accumulated_input += part_tokens["input"].to_i
+              accumulated_output += part_tokens["output"].to_i
+              has_step_tokens = true
             end
           end
 
-          usage_data = event["usage"] if event["usage"]
+          result_usage = event["usage"] if event["usage"]
         end
 
         output = text_parts.join unless text_parts.empty?
+        usage_data = result_usage
+        unless usage_data
+          if has_step_tokens
+            usage_data = {"input_tokens" => accumulated_input, "output_tokens" => accumulated_output}
+          end
+        end
         tokens = build_token_counts(usage_data) if usage_data
 
         Response.new(
