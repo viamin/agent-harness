@@ -161,7 +161,7 @@ module AgentHarness
         saw_structured_event = false
 
         each_json_event(output) do |event|
-          saw_structured_event = true
+          saw_structured_event ||= structured_event?(event)
           part = event["part"]
 
           if event["type"] == "text"
@@ -322,6 +322,10 @@ module AgentHarness
         return "Kilocode exited with code #{result.exit_code}" if result.failed?
 
         fallback
+      end
+
+      def structured_event?(event)
+        event["type"].is_a?(String)
       end
 
       def coerce_token_count(value)
