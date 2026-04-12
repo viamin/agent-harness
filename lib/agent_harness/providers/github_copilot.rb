@@ -384,6 +384,7 @@ module AgentHarness
         return obj["usage"] if obj["usage"].is_a?(Hash)
         return obj if usage_payload?(obj)
         return obj["data"] if usage_payload?(obj["data"])
+        return obj.dig("data", "usage") if obj.dig("data", "usage").is_a?(Hash)
         return obj.dig("message", "usage") if obj.dig("message", "usage").is_a?(Hash)
         return obj.dig("data", "message", "usage") if obj.dig("data", "message", "usage").is_a?(Hash)
         nil
