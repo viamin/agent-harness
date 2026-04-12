@@ -549,6 +549,29 @@ RSpec.describe AgentHarness::Providers::Aider do
         expect(response.tokens).to eq({input: 12, output: 34, total: 46})
       end
 
+      it "parses stdout token usage when aider prints edit status after the token footer" do
+        allow(mock_executor).to receive(:execute) do |cmd, **kwargs|
+          history_path = cmd[cmd.index("--llm-history-file") + 1]
+          File.write(history_path, "")
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: <<~TEXT,
+              response text
+
+              Tokens: 12 sent, 34 received.
+
+              lib/example.rb
+              Applied edit to lib/example.rb
+              Commit 123abc feat: update example
+            TEXT
+            stderr: "",
+            exit_code: 0
+          )
+        end
+
+        response = provider.send_message(prompt: "hello")
+        expect(response.tokens).to eq({input: 12, output: 34, total: 46})
+      end
+
       it "ignores standalone output token lines without a footer separator" do
         allow(mock_executor).to receive(:execute) do |cmd, **kwargs|
           history_path = cmd[cmd.index("--llm-history-file") + 1]
@@ -734,6 +757,37 @@ RSpec.describe AgentHarness::Providers::Aider do
         )
 
         expect(tokens).to eq({input: 42, output: 8, total: 50})
+      end
+
+      it "parses output footer token counters when aider status lines follow" do
+        tokens = provider.send(
+          :parse_token_usage_text,
+          <<~TEXT
+            response text
+
+            Tokens: 42 sent, 8 received.
+
+            lib/example.rb
+            Applied edit to lib/example.rb
+            Commit 123abc feat: update example
+          TEXT
+        )
+
+        expect(tokens).to eq({input: 42, output: 8, total: 50})
+      end
+
+      it "still ignores output token counters followed by arbitrary prose" do
+        tokens = provider.send(
+          :parse_token_usage_text,
+          <<~TEXT
+            response text
+
+            Tokens: 42 sent, 8 received.
+            Here is more assistant prose after the token line.
+          TEXT
+        )
+
+        expect(tokens).to be_nil
       end
 
       it "parses history footer token counters after a blank-line separator" do

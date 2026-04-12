@@ -306,6 +306,9 @@ module AgentHarness
       TOKEN_USAGE_PATTERN =
         /^\s*Tokens:\s*(?<input>#{TOKEN_COUNT_PATTERN})\s+sent(?:,\s*#{TOKEN_COUNT_PATTERN}\s+cache\s+\w+)*,\s*(?<output>#{TOKEN_COUNT_PATTERN})\s+received\.?(?:\s+Cost:\s+.+)?\s*$/i
       FOOTER_COST_PATTERN = /^\s*Cost:\s+.+\s*$/i
+      OUTPUT_STATUS_PATTERN =
+        /^\s*(?:Applied edit to|Commit\b|You can use \/undo\b|Added .+ to the chat\.|Removed .+ from the chat\.|Use \/help\b|Create new file\?|Allow edits to\b|Edit the files\?|Run shell command\?).*$/i
+      OUTPUT_PATH_PATTERN = %r{^\s*[\w./-]+\s*$}
 
       def generate_llm_history_path
         File.join(Dir.tmpdir, "aider_llm_history_#{Process.pid}_#{SecureRandom.hex(8)}")
@@ -382,7 +385,7 @@ module AgentHarness
       end
 
       def output_token_usage_footer_line?(lines, index)
-        footer_prefix?(lines, index) && footer_suffix?(lines, index)
+        footer_prefix?(lines, index) && output_footer_suffix?(lines, index)
       end
 
       def footer_prefix?(lines, index)
@@ -400,6 +403,17 @@ module AgentHarness
         lines[(index + 1)..].to_a.all? do |line|
           stripped = line.strip
           stripped.empty? || TOKEN_USAGE_PATTERN.match?(line) || FOOTER_COST_PATTERN.match?(line)
+        end
+      end
+
+      def output_footer_suffix?(lines, index)
+        lines[(index + 1)..].to_a.all? do |line|
+          stripped = line.strip
+          stripped.empty? ||
+            TOKEN_USAGE_PATTERN.match?(line) ||
+            FOOTER_COST_PATTERN.match?(line) ||
+            OUTPUT_STATUS_PATTERN.match?(line) ||
+            OUTPUT_PATH_PATTERN.match?(line)
         end
       end
 
