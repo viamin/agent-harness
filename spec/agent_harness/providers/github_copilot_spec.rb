@@ -285,6 +285,36 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         expect(response.output).to eq("ok")
       end
 
+      it "does not double-count tokens when message and usage events both carry token fields" do
+        jsonl = <<~JSONL
+          {"type":"assistant","data":{"content":"hi","inputTokens":10,"outputTokens":5}}
+          {"type":"usage","data":{"inputTokens":10,"outputTokens":5}}
+        JSONL
+        result = make_result(stdout: jsonl)
+        response = provider.send(:parse_response, result, duration: 1.0)
+
+        expect(response.tokens).to eq({input: 10, output: 5, total: 15})
+      end
+
+      it "counts tokens from assistant.usage events" do
+        jsonl = <<~JSONL
+          {"type":"assistant.usage","data":{"inputTokens":7,"outputTokens":3}}
+        JSONL
+        result = make_result(stdout: jsonl)
+        response = provider.send(:parse_response, result, duration: 1.0)
+
+        expect(response.tokens).to eq({input: 7, output: 3, total: 10})
+      end
+
+      it "ignores token fields on non-usage envelope events" do
+        jsonl = '{"type":"assistant","data":{"content":"hi","inputTokens":10,"outputTokens":5}}'
+        result = make_result(stdout: jsonl)
+        response = provider.send(:parse_response, result, duration: 1.0)
+
+        expect(response.output).to eq("hi")
+        expect(response.tokens).to be_nil
+      end
+
       it "returns nil tokens when no usage data present" do
         jsonl = '{"type":"assistant","data":{"content":"hi"}}'
         result = make_result(stdout: jsonl)

@@ -266,23 +266,27 @@ module AgentHarness
         nil
       end
 
+      USAGE_EVENT_TYPES = %w[usage assistant.usage].freeze
+
       def accumulate_token_usage(obj, total_input, total_output)
         if obj["type"] && obj["data"].is_a?(Hash)
-          data = obj["data"]
-          total_input += data["inputTokens"].to_i if data["inputTokens"]
-          total_output += data["outputTokens"].to_i if data["outputTokens"]
-          total_input += data["input_tokens"].to_i if data["input_tokens"]
-          total_output += data["output_tokens"].to_i if data["output_tokens"]
-        end
-
-        usage = obj["usage"] || obj["tokens"]
-        if usage
-          total_input += usage["input_tokens"].to_i if usage["input_tokens"]
-          total_output += usage["output_tokens"].to_i if usage["output_tokens"]
-          total_input += usage["inputTokens"].to_i if usage["inputTokens"]
-          total_output += usage["outputTokens"].to_i if usage["outputTokens"]
-          total_input += usage["input"].to_i if usage["input"]
-          total_output += usage["output"].to_i if usage["output"]
+          if USAGE_EVENT_TYPES.include?(obj["type"])
+            data = obj["data"]
+            total_input += data["inputTokens"].to_i if data["inputTokens"]
+            total_output += data["outputTokens"].to_i if data["outputTokens"]
+            total_input += data["input_tokens"].to_i if data["input_tokens"]
+            total_output += data["output_tokens"].to_i if data["output_tokens"]
+          end
+        else
+          usage = obj["usage"] || obj["tokens"]
+          if usage
+            total_input += usage["input_tokens"].to_i if usage["input_tokens"]
+            total_output += usage["output_tokens"].to_i if usage["output_tokens"]
+            total_input += usage["inputTokens"].to_i if usage["inputTokens"]
+            total_output += usage["outputTokens"].to_i if usage["outputTokens"]
+            total_input += usage["input"].to_i if usage["input"]
+            total_output += usage["output"].to_i if usage["output"]
+          end
         end
 
         [total_input, total_output]
