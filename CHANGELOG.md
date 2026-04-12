@@ -1,5 +1,12 @@
 ## [Unreleased]
 
+## [0.6.0](https://github.com/viamin/agent-harness/compare/agent-harness/v0.5.9...agent-harness/v0.6.0) (2026-04-12)
+
+
+### Features
+
+* **aider:** extract token usage via --llm-history-file ([0fff343](https://github.com/viamin/agent-harness/commit/0fff343f943d93899d0222b16ffa9832611289ff)), closes [#100](https://github.com/viamin/agent-harness/issues/100)
+
 ## [0.5.9](https://github.com/viamin/agent-harness/compare/agent-harness/v0.5.8...agent-harness/v0.5.9) (2026-04-12)
 
 
