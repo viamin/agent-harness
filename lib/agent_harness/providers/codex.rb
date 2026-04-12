@@ -443,18 +443,29 @@ module AgentHarness
           turn_completed = true
         end
 
+        finalize_pending_wrapped_turn = lambda do
+          next unless pending_turn_usage_source == :wrapped && pending_turn_usage
+
+          latest_completed_parts = current_turn_parts.dup
+          current_turn_parts = []
+          commit_pending_turn.call
+          turn_completed = false
+        end
+
         events.each do |event|
           type = event["type"]
 
           case type
           when "message.delta"
             start_new_turn.call
-            saw_assistant_output ||= append_delta_text(current_turn_parts, event["delta"])
+            appended = append_delta_text(current_turn_parts, event["delta"])
+            saw_assistant_output ||= appended
           when "agent_message_delta"
             next unless wrapped_assistant_payload?(event)
 
             start_new_turn.call
-            saw_assistant_output ||= append_wrapped_delta_text(current_turn_parts, event)
+            appended = append_wrapped_delta_text(current_turn_parts, event)
+            saw_assistant_output ||= appended
           when "agent_message"
             next unless wrapped_assistant_payload?(event)
 
@@ -473,6 +484,8 @@ module AgentHarness
             # Wrapped streams can emit token_count before the matching top-level
             # turn.completed for the same turn; treat matching usage as a replacement.
             same_wrapped_turn = pending_turn_usage_source == :wrapped && same_turn_usage?(pending_turn_usage, turn_usage)
+
+            finalize_pending_wrapped_turn.call unless same_wrapped_turn
 
             if turn_completed && !same_wrapped_turn
               commit_pending_turn.call
@@ -502,7 +515,8 @@ module AgentHarness
               next unless wrapped_assistant_payload?(payload)
 
               start_new_turn.call
-              saw_assistant_output ||= append_wrapped_delta_text(current_turn_parts, payload)
+              appended = append_wrapped_delta_text(current_turn_parts, payload)
+              saw_assistant_output ||= appended
             when "agent_message"
               next unless wrapped_assistant_payload?(payload)
 
@@ -517,7 +531,6 @@ module AgentHarness
                   pending_turn_usage_source,
                   wrapped_token_usage
                 )
-                finalize_current_turn.call if !turn_completed || !current_turn_parts.empty?
               end
             end
           when "response_item"

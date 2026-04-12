@@ -1518,6 +1518,38 @@ RSpec.describe AgentHarness::Providers::Codex do
           expect(response.tokens).to eq({input: 42, output: 7, total: 49})
         end
 
+        it "does not finalize a wrapped turn on token_count before later deltas" do
+          jsonl_output = [
+            JSON.generate({"type" => "event_msg", "payload" => {"type" => "agent_message_delta", "message" => "hel"}}),
+            JSON.generate({
+              "type" => "event_msg",
+              "payload" => {
+                "type" => "token_count",
+                "info" => {
+                  "last_token_usage" => {
+                    "input_tokens" => 42,
+                    "output_tokens" => 7
+                  }
+                }
+              }
+            }),
+            JSON.generate({"type" => "event_msg", "payload" => {"type" => "agent_message_delta", "message" => "lo"}})
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq("hello")
+          expect(response.tokens).to eq({input: 42, output: 7, total: 49})
+        end
+
         it "ignores malformed wrapped token counts without dropping parsed output" do
           jsonl_output = [
             JSON.generate({"type" => "event_msg", "payload" => {"type" => "agent_message", "message" => "wrapped output"}}),
@@ -1889,6 +1921,27 @@ RSpec.describe AgentHarness::Providers::Codex do
           expect(response.input_tokens).to eq(100)
           expect(response.output_tokens).to eq(25)
           expect(response.total_tokens).to eq(125)
+        end
+
+        it "appends text across multiple message.delta events" do
+          jsonl_output = [
+            JSON.generate({"type" => "message.delta", "delta" => {"text" => "Hel"}}),
+            JSON.generate({"type" => "message.delta", "delta" => {"text" => "lo"}}),
+            JSON.generate({"type" => "turn.completed", "usage" => {"input_tokens" => 100, "output_tokens" => 25}})
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq("Hello")
+          expect(response.tokens).to eq({input: 100, output: 25, total: 125})
         end
 
         it "extracts text from structured message.delta content blocks" do
