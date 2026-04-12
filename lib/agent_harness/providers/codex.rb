@@ -373,6 +373,9 @@ module AgentHarness
         total_output = 0
         total_tokens = 0
         has_usage = false
+        wrapped_input = 0
+        wrapped_output = 0
+        wrapped_total = 0
 
         events.each do |event|
           next unless event.is_a?(Hash)
@@ -430,9 +433,15 @@ module AgentHarness
               wrapped_token_usage = extract_wrapped_tokens(payload["info"])
               if wrapped_token_usage
                 has_usage = true
-                total_input += wrapped_token_usage[:input]
-                total_output += wrapped_token_usage[:output]
-                total_tokens += wrapped_token_usage[:total]
+                if wrapped_token_usage[:mode] == :snapshot
+                  wrapped_input = wrapped_token_usage[:input]
+                  wrapped_output = wrapped_token_usage[:output]
+                  wrapped_total = wrapped_token_usage[:total]
+                else
+                  wrapped_input += wrapped_token_usage[:input]
+                  wrapped_output += wrapped_token_usage[:output]
+                  wrapped_total += wrapped_token_usage[:total]
+                end
                 text_parts.concat(current_turn_parts) unless current_turn_parts.empty?
                 current_turn_parts = []
               end
@@ -451,7 +460,11 @@ module AgentHarness
 
         {
           text: text,
-          tokens: has_usage ? {input: total_input, output: total_output, total: total_tokens} : nil
+          tokens: has_usage ? {
+            input: total_input + wrapped_input,
+            output: total_output + wrapped_output,
+            total: total_tokens + wrapped_total
+          } : nil
         }
       rescue
         nil
@@ -518,19 +531,26 @@ module AgentHarness
       def extract_wrapped_tokens(info)
         return unless info.is_a?(Hash)
 
-        total_usage = info["total_token_usage"]
-        return unless total_usage.is_a?(Hash)
+        usage = info["last_token_usage"]
+        mode = :delta
 
-        input_present = total_usage.key?("input_tokens")
-        output_present = total_usage.key?("output_tokens")
-        total_present = total_usage.key?("total_tokens")
+        unless usage.is_a?(Hash)
+          usage = info["total_token_usage"]
+          mode = :snapshot
+        end
+
+        return unless usage.is_a?(Hash)
+
+        input_present = usage.key?("input_tokens")
+        output_present = usage.key?("output_tokens")
+        total_present = usage.key?("total_tokens")
         return unless input_present || output_present || total_present
 
-        input = total_usage["input_tokens"].to_i
-        output = total_usage["output_tokens"].to_i
-        total = total_present ? total_usage["total_tokens"].to_i : (input + output)
+        input = usage["input_tokens"].to_i
+        output = usage["output_tokens"].to_i
+        total = total_present ? usage["total_tokens"].to_i : (input + output)
 
-        {input: input, output: output, total: total}
+        {input: input, output: output, total: total, mode: mode}
       end
 
       def externally_sandboxed?(options)

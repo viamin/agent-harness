@@ -822,7 +822,7 @@ RSpec.describe AgentHarness::Providers::Codex do
               "payload" => {
                 "type" => "token_count",
                 "info" => {
-                  "total_token_usage" => {
+                  "last_token_usage" => {
                     "input_tokens" => 42,
                     "cached_input_tokens" => 30,
                     "output_tokens" => 7
@@ -854,7 +854,7 @@ RSpec.describe AgentHarness::Providers::Codex do
               "payload" => {
                 "type" => "token_count",
                 "info" => {
-                  "total_token_usage" => {
+                  "last_token_usage" => {
                     "input_tokens" => 0,
                     "output_tokens" => 0,
                     "reasoning_output_tokens" => 17,
@@ -888,7 +888,7 @@ RSpec.describe AgentHarness::Providers::Codex do
               "payload" => {
                 "type" => "token_count",
                 "info" => {
-                  "total_token_usage" => {
+                  "last_token_usage" => {
                     "input_tokens" => 2,
                     "output_tokens" => 1
                   }
@@ -909,7 +909,7 @@ RSpec.describe AgentHarness::Providers::Codex do
               "payload" => {
                 "type" => "token_count",
                 "info" => {
-                  "total_token_usage" => {
+                  "last_token_usage" => {
                     "input_tokens" => 3,
                     "output_tokens" => 4,
                     "reasoning_output_tokens" => 6,
@@ -933,6 +933,147 @@ RSpec.describe AgentHarness::Providers::Codex do
           expect(response.output).to eq("first wrapped answersecond wrapped answer")
           expect(response.tokens).to eq({input: 5, output: 5, total: 16})
           expect(response.total_tokens).to eq(16)
+        end
+
+        it "uses per-event wrapped token usage instead of summing cumulative snapshots" do
+          jsonl_output = [
+            JSON.generate({"type" => "event_msg", "payload" => {"type" => "agent_message", "message" => "wrapped output"}}),
+            JSON.generate({
+              "type" => "event_msg",
+              "payload" => {
+                "type" => "token_count",
+                "info" => {
+                  "last_token_usage" => {
+                    "input_tokens" => 2,
+                    "output_tokens" => 1
+                  },
+                  "total_token_usage" => {
+                    "input_tokens" => 2,
+                    "output_tokens" => 1
+                  }
+                }
+              }
+            }),
+            JSON.generate({
+              "type" => "event_msg",
+              "payload" => {
+                "type" => "token_count",
+                "info" => {
+                  "last_token_usage" => {
+                    "input_tokens" => 3,
+                    "output_tokens" => 4
+                  },
+                  "total_token_usage" => {
+                    "input_tokens" => 5,
+                    "output_tokens" => 5
+                  }
+                }
+              }
+            })
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq("wrapped output")
+          expect(response.tokens).to eq({input: 5, output: 5, total: 10})
+        end
+
+        it "falls back to the latest wrapped cumulative snapshot when per-event usage is unavailable" do
+          jsonl_output = [
+            JSON.generate({"type" => "event_msg", "payload" => {"type" => "agent_message", "message" => "wrapped output"}}),
+            JSON.generate({
+              "type" => "event_msg",
+              "payload" => {
+                "type" => "token_count",
+                "info" => {
+                  "total_token_usage" => {
+                    "input_tokens" => 2,
+                    "output_tokens" => 1
+                  }
+                }
+              }
+            }),
+            JSON.generate({
+              "type" => "event_msg",
+              "payload" => {
+                "type" => "token_count",
+                "info" => {
+                  "total_token_usage" => {
+                    "input_tokens" => 5,
+                    "output_tokens" => 5,
+                    "total_tokens" => 12
+                  }
+                }
+              }
+            })
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq("wrapped output")
+          expect(response.tokens).to eq({input: 5, output: 5, total: 12})
+          expect(response.total_tokens).to eq(12)
+        end
+
+        it "treats fallback wrapped cumulative snapshots as replacements after earlier deltas" do
+          jsonl_output = [
+            JSON.generate({"type" => "event_msg", "payload" => {"type" => "agent_message", "message" => "wrapped output"}}),
+            JSON.generate({
+              "type" => "event_msg",
+              "payload" => {
+                "type" => "token_count",
+                "info" => {
+                  "last_token_usage" => {
+                    "input_tokens" => 2,
+                    "output_tokens" => 1
+                  }
+                }
+              }
+            }),
+            JSON.generate({
+              "type" => "event_msg",
+              "payload" => {
+                "type" => "token_count",
+                "info" => {
+                  "total_token_usage" => {
+                    "input_tokens" => 5,
+                    "output_tokens" => 5,
+                    "total_tokens" => 12
+                  }
+                }
+              }
+            })
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq("wrapped output")
+          expect(response.tokens).to eq({input: 5, output: 5, total: 12})
+          expect(response.total_tokens).to eq(12)
         end
       end
 
