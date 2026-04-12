@@ -247,6 +247,23 @@ RSpec.describe AgentHarness::Providers::Gemini do
         patterns = provider.error_patterns
         expect(patterns[:auth_expired]).not_to be_empty
       end
+
+      it "does not misclassify embedded numeric substrings as HTTP status codes" do
+        patterns = provider.error_patterns
+        expect(
+          AgentHarness::ErrorTaxonomy.classify(
+            StandardError.new("request id 4294967295 failed"),
+            patterns
+          )
+        ).to eq(:unknown)
+
+        expect(
+          AgentHarness::ErrorTaxonomy.classify(
+            StandardError.new("build 50321 aborted"),
+            patterns
+          )
+        ).to eq(:unknown)
+      end
     end
 
     describe "#send_message" do

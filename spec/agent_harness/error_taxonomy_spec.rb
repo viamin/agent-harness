@@ -47,6 +47,8 @@ RSpec.describe AgentHarness::ErrorTaxonomy do
       expect(described_class.classify_message("build 50321 aborted")).to eq(:unknown)
       expect(described_class.classify_message("job 1502 failed")).to eq(:unknown)
       expect(described_class.classify_message("trace id 4000 emitted")).to eq(:unknown)
+      expect(described_class.classify_message("code 4035 processed")).to eq(:unknown)
+      expect(described_class.classify_message("build 5001 completed")).to eq(:unknown)
     end
 
     it "classifies quota errors" do

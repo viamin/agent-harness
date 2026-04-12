@@ -441,6 +441,23 @@ RSpec.describe AgentHarness::Providers::Codex do
         expect(patterns[:sandbox_failure]).not_to be_empty
         expect(patterns[:sandbox_failure].any? { |p| "bwrap: No permissions to create a new namespace" =~ p }).to be true
       end
+
+      it "does not misclassify embedded numeric substrings as HTTP status codes" do
+        patterns = provider.error_patterns
+        expect(
+          AgentHarness::ErrorTaxonomy.classify(
+            StandardError.new("request id 401234 failed"),
+            patterns
+          )
+        ).to eq(:unknown)
+
+        expect(
+          AgentHarness::ErrorTaxonomy.classify(
+            StandardError.new("request id 4294967295 failed"),
+            patterns
+          )
+        ).to eq(:unknown)
+      end
     end
 
     describe "#auth_status" do
