@@ -377,22 +377,20 @@ module AgentHarness
           return nil
         end
 
-        usage = extract_top_level_usage(obj)
-        return nil unless usage
-
-        extract_payload_token_usage(
-          usage,
+        usage = extract_payload_token_usage(
+          obj["usage"],
           source: :usage,
           input_keys: ["input_tokens", "inputTokens", "input"],
           output_keys: ["output_tokens", "outputTokens", "output"]
         )
-      end
+        return usage if usage
 
-      def extract_top_level_usage(obj)
-        return obj["usage"] if obj["usage"].is_a?(Hash) && !obj["usage"].empty?
-        return obj["tokens"] if obj["tokens"].is_a?(Hash)
-
-        nil
+        extract_payload_token_usage(
+          obj["tokens"],
+          source: :usage,
+          input_keys: ["input_tokens", "inputTokens", "input"],
+          output_keys: ["output_tokens", "outputTokens", "output"]
+        )
       end
 
       def extract_shutdown_token_usage(data)
