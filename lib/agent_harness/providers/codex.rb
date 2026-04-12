@@ -26,10 +26,10 @@ module AgentHarness
         /refresh token .*already (?:been )?used/im
       ].freeze
       OAUTH_REFRESH_TRANSIENT_PATTERNS = [
-        /your access token could not be refreshed because\s+(?:the\s+)?auth(?:entication)? service(?:\s+(?:is|was))?\s+unavailable/im,
+        /your access token could not be refreshed because\s+(?:the\s+)?auth(?:entication)? service(?:\s+(?:is|was))?\s+(?:temporarily\s+)?unavailable/im,
         /your access token could not be refreshed because .*connection.*error/im,
         /failed to refresh token\b.*connection.*error/im,
-        /failed to refresh token\b.*service(?:\s+(?:is|was))?\s+unavailable/im
+        /failed to refresh token\b.*service(?:\s+(?:is|was))?\s+(?:temporarily\s+)?unavailable/im
       ].freeze
 
       class << self
