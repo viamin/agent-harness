@@ -481,6 +481,17 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         expect(response.error).to eq("stderr error")
       end
 
+      it "preserves legitimate exit codes on the response metadata" do
+        allow(provider).to receive(:execution_semantics).and_return(
+          provider.execution_semantics.merge(legitimate_exit_codes: [0, 2])
+        )
+        result = make_result(stdout: "partial success", exit_code: 2)
+        response = provider.send(:parse_response, result, duration: 1.0)
+
+        expect(response.metadata[:legitimate_exit_codes]).to eq([0, 2])
+        expect(response).to be_success
+      end
+
       it "processes a full conversation with text and usage events" do
         jsonl = <<~JSONL
           {"type":"assistant","data":{"content":"Hello"}}
