@@ -252,7 +252,7 @@ module AgentHarness
 
         parsed = parse_jsonl_output(output)
         if parsed
-          output = parsed[:text] if parsed[:text]
+          output = parsed[:text].to_s
           tokens = parsed[:tokens]
         end
 

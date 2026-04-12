@@ -625,7 +625,7 @@ RSpec.describe AgentHarness::Providers::Codex do
           expect(response.output).to eq("content without role")
         end
 
-        it "ignores item.completed events for non-agent_message types without a role" do
+        it "returns empty normalized output for non-agent_message item.completed events without a role" do
           jsonl_output = [
             JSON.generate({
               "type" => "item.completed",
@@ -648,11 +648,11 @@ RSpec.describe AgentHarness::Providers::Codex do
           )
 
           response = provider.send_message(prompt: "Hello")
-          expect(response.output).to eq(jsonl_output)
+          expect(response.output).to eq("")
           expect(response.tokens).to eq({input: 10, output: 5, total: 15})
         end
 
-        it "still ignores item.completed events with explicit non-assistant role" do
+        it "returns empty normalized output for item.completed events with explicit non-assistant role" do
           jsonl_output = [
             JSON.generate({
               "type" => "item.completed",
@@ -671,7 +671,7 @@ RSpec.describe AgentHarness::Providers::Codex do
           )
 
           response = provider.send_message(prompt: "Hello")
-          expect(response.output).to eq(jsonl_output)
+          expect(response.output).to eq("")
           expect(response.tokens).to eq({input: 10, output: 5, total: 15})
         end
       end
@@ -796,6 +796,25 @@ RSpec.describe AgentHarness::Providers::Codex do
           response = provider.send_message(prompt: "Hello")
           expect(response.output).to eq("Hello!")
           expect(response.tokens).to be_nil
+        end
+
+        it "returns empty normalized output when JSONL contains only usage data" do
+          jsonl_output = [
+            JSON.generate({"type" => "turn.completed", "usage" => {"input_tokens" => 10, "output_tokens" => 5}})
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq("")
+          expect(response.tokens).to eq({input: 10, output: 5, total: 15})
         end
 
         it "handles non-JSON output gracefully with nil tokens" do
