@@ -683,7 +683,7 @@ RSpec.describe AgentHarness::Providers::Codex do
           expect(response.output).to eq("content without role")
         end
 
-        it "returns empty normalized output for non-agent_message item.completed events without a role" do
+        it "preserves raw output for non-agent_message item.completed events without assistant text" do
           jsonl_output = [
             JSON.generate({
               "type" => "item.completed",
@@ -706,11 +706,11 @@ RSpec.describe AgentHarness::Providers::Codex do
           )
 
           response = provider.send_message(prompt: "Hello")
-          expect(response.output).to eq("")
+          expect(response.output).to eq(jsonl_output)
           expect(response.tokens).to eq({input: 10, output: 5, total: 15})
         end
 
-        it "returns empty normalized output for item.completed events with explicit non-assistant role" do
+        it "preserves raw output for item.completed events with explicit non-assistant role" do
           jsonl_output = [
             JSON.generate({
               "type" => "item.completed",
@@ -729,7 +729,7 @@ RSpec.describe AgentHarness::Providers::Codex do
           )
 
           response = provider.send_message(prompt: "Hello")
-          expect(response.output).to eq("")
+          expect(response.output).to eq(jsonl_output)
           expect(response.tokens).to eq({input: 10, output: 5, total: 15})
         end
 
@@ -752,7 +752,7 @@ RSpec.describe AgentHarness::Providers::Codex do
           )
 
           response = provider.send_message(prompt: "Hello")
-          expect(response.output).to eq("")
+          expect(response.output).to eq(jsonl_output)
           expect(response.tokens).to eq({input: 10, output: 5, total: 15})
         end
       end
@@ -838,7 +838,7 @@ RSpec.describe AgentHarness::Providers::Codex do
           )
 
           response = provider.send_message(prompt: "Hello")
-          expect(response.output).to eq("")
+          expect(response.output).to eq(jsonl_output)
           expect(response.tokens).to eq({input: 4, output: 2, total: 6})
         end
 
@@ -1249,7 +1249,7 @@ RSpec.describe AgentHarness::Providers::Codex do
           expect(response.tokens).to be_nil
         end
 
-        it "returns empty normalized output when JSONL contains only usage data" do
+        it "preserves raw output when JSONL contains only usage data" do
           jsonl_output = [
             JSON.generate({"type" => "turn.completed", "usage" => {"input_tokens" => 10, "output_tokens" => 5}})
           ].join("\n")
@@ -1264,7 +1264,7 @@ RSpec.describe AgentHarness::Providers::Codex do
           )
 
           response = provider.send_message(prompt: "Hello")
-          expect(response.output).to eq("")
+          expect(response.output).to eq(jsonl_output)
           expect(response.tokens).to eq({input: 10, output: 5, total: 15})
         end
 
