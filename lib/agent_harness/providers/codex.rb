@@ -547,6 +547,10 @@ module AgentHarness
               wrapped_token_usage = extract_wrapped_tokens(payload["info"])
               if wrapped_token_usage
                 has_usage = true
+                if wrapped_token_usage_starts_new_turn?(pending_turn_usage, pending_turn_usage_source, turn_completed, wrapped_token_usage)
+                  commit_pending_turn.call
+                  turn_completed = false
+                end
                 pending_turn_usage, pending_turn_usage_source = merge_wrapped_turn_usage(
                   pending_turn_usage,
                   pending_turn_usage_source,
@@ -771,6 +775,20 @@ module AgentHarness
         end
 
         [merged_usage, :wrapped]
+      end
+
+      def wrapped_token_usage_starts_new_turn?(existing_usage, existing_source, turn_completed, wrapped_token_usage)
+        return false unless turn_completed && existing_source == :turn_completed && existing_usage
+
+        candidate_usage = wrapped_token_usage[:total] || wrapped_token_usage[:last]
+        return false unless candidate_usage
+
+        return false if same_turn_usage?(existing_usage, candidate_usage)
+
+        existing_detailed = existing_usage[:input_reported] && existing_usage[:output_reported]
+        candidate_detailed = candidate_usage[:input_reported] && candidate_usage[:output_reported]
+
+        existing_detailed && candidate_detailed
       end
 
       def add_token_usage(left, right)

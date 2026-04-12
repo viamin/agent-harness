@@ -2266,6 +2266,39 @@ RSpec.describe AgentHarness::Providers::Codex do
           expect(response.tokens).to eq({input: 50, output: 10, total: 80})
         end
 
+        it "treats detailed wrapped token_count after a completed turn as a new turn when usage differs" do
+          jsonl_output = [
+            JSON.generate({"type" => "turn.completed", "result" => "first answer", "usage" => {"input_tokens" => 50, "output_tokens" => 10}}),
+            JSON.generate({
+              "type" => "event_msg",
+              "payload" => {
+                "type" => "token_count",
+                "info" => {
+                  "last_token_usage" => {
+                    "input_tokens" => 60,
+                    "output_tokens" => 20
+                  }
+                }
+              }
+            }),
+            JSON.generate({"type" => "message.delta", "delta" => {"text" => "second"}}),
+            JSON.generate({"type" => "turn.completed", "result" => "second", "usage" => {"input_tokens" => 60, "output_tokens" => 20}})
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq("second")
+          expect(response.tokens).to eq({input: 110, output: 30, total: 140})
+        end
+
         it "does not double-count mixed wrapped detailed usage when turn.completed only reports total_tokens" do
           jsonl_output = [
             JSON.generate({"type" => "message.delta", "delta" => {"text" => "partial"}}),
