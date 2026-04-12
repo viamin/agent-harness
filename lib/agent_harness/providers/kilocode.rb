@@ -142,6 +142,7 @@ module AgentHarness
         output = result.stdout
         error = nil
         tokens = nil
+        structured_errors = []
 
         if result.failed?
           combined = [result.stdout, result.stderr]
@@ -163,6 +164,11 @@ module AgentHarness
           if event["type"] == "text"
             text = part["text"] if part.is_a?(Hash)
             text_parts << text if text
+          end
+
+          if event["type"] == "error"
+            structured_error = extract_error_message(event)
+            structured_errors << structured_error if structured_error
           end
 
           if event["type"] == "step_finish"
@@ -187,6 +193,10 @@ module AgentHarness
         tokens = build_token_counts(result_usage) if result_usage
         if tokens.nil? && has_step_tokens
           tokens = build_token_counts({"input_tokens" => accumulated_input, "output_tokens" => accumulated_output})
+        end
+        if structured_errors.any?
+          error_lines = [error, *structured_errors].compact.reject(&:empty?).uniq
+          error = error_lines.join("\n")
         end
 
         Response.new(
@@ -234,6 +244,21 @@ module AgentHarness
         output ||= 0
 
         {input: input, output: output, total: input + output}
+      end
+
+      def extract_error_message(event)
+        candidates = [
+          event["message"],
+          event["error"],
+          event.dig("error", "message"),
+          event.dig("part", "text"),
+          event.dig("part", "message")
+        ]
+
+        message = candidates.find { |value| value.is_a?(String) && !value.strip.empty? }
+        return message.strip if message
+
+        JSON.generate(event)
       end
 
       def coerce_token_count(value)

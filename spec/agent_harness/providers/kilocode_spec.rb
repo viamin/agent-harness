@@ -400,6 +400,48 @@ RSpec.describe AgentHarness::Providers::Kilocode do
         expect(response.error).to eq("rate limit exceeded")
       end
 
+      it "treats structured error events as failures even on zero exit" do
+        ndjson = [
+          {"type" => "text", "part" => {"text" => "Partial response"}},
+          {"type" => "error", "message" => "Provider request failed"}
+        ].map { |e| JSON.generate(e) }.join("\n")
+
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: ndjson,
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        response = provider.send_message(prompt: "Hello")
+        expect(response.failed?).to be true
+        expect(response.output).to eq("Partial response")
+        expect(response.error).to eq("Provider request failed")
+      end
+
+      it "captures structured error text from nested payloads" do
+        ndjson = [
+          {"type" => "error", "error" => {"message" => "Nested provider failure"}},
+          {"type" => "step_finish", "part" => {"tokens" => {"input" => 10, "output" => 5}}}
+        ].map { |e| JSON.generate(e) }.join("\n")
+
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: ndjson,
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        response = provider.send_message(prompt: "Hello")
+        expect(response.failed?).to be true
+        expect(response.error).to eq("Nested provider failure")
+        expect(response.tokens).to eq({input: 10, output: 5, total: 15})
+      end
+
       it "handles empty stdout" do
         allow(mock_executor).to receive(:execute).and_return(
           AgentHarness::CommandExecutor::Result.new(
