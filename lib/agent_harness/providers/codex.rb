@@ -408,23 +408,43 @@ module AgentHarness
         total_output = 0
         total_tokens = 0
         has_usage = false
-        wrapped_input = 0
-        wrapped_output = 0
-        wrapped_total = 0
+        pending_turn_usage = nil
+        pending_turn_usage_source = nil
+        turn_completed = false
+
+        commit_pending_turn = lambda do
+          next unless pending_turn_usage
+
+          total_input += pending_turn_usage[:input]
+          total_output += pending_turn_usage[:output]
+          total_tokens += pending_turn_usage[:total]
+          pending_turn_usage = nil
+          pending_turn_usage_source = nil
+        end
+
+        start_new_turn = lambda do
+          next unless turn_completed
+
+          commit_pending_turn.call
+          turn_completed = false
+        end
 
         events.each do |event|
           type = event["type"]
 
           case type
           when "message.delta"
+            start_new_turn.call
             append_delta_text(current_turn_parts, event["delta"])
           when "agent_message_delta"
             next unless wrapped_assistant_payload?(event)
 
+            start_new_turn.call
             append_wrapped_delta_text(current_turn_parts, event)
           when "agent_message"
             next unless wrapped_assistant_payload?(event)
 
+            start_new_turn.call
             completed_parts = extract_message_content_parts(event)
             current_turn_parts = completed_parts unless completed_parts.nil?
           when "item.completed"
@@ -432,6 +452,7 @@ module AgentHarness
             next unless item.is_a?(Hash)
             next unless assistant_message_item?(item)
 
+            start_new_turn.call
             completed_parts = extract_message_content_parts(item)
             current_turn_parts = completed_parts unless completed_parts.nil?
           when "turn.completed"
@@ -446,9 +467,12 @@ module AgentHarness
                 input_tokens ||= 0
                 output_tokens ||= 0
                 usage_total ||= (input_tokens + output_tokens)
-                total_input += input_tokens
-                total_output += output_tokens
-                total_tokens += usage_total
+                pending_turn_usage = {
+                  input: input_tokens,
+                  output: output_tokens,
+                  total: usage_total
+                }
+                pending_turn_usage_source = :turn_completed
               end
             end
 
@@ -459,6 +483,7 @@ module AgentHarness
 
             latest_completed_parts = current_turn_parts.dup unless current_turn_parts.empty?
             current_turn_parts = []
+            turn_completed = true
           when "event_msg"
             payload = event["payload"]
             next unless payload.is_a?(Hash)
@@ -467,47 +492,48 @@ module AgentHarness
             when "agent_message_delta"
               next unless wrapped_assistant_payload?(payload)
 
+              start_new_turn.call
               append_wrapped_delta_text(current_turn_parts, payload)
             when "agent_message"
               next unless wrapped_assistant_payload?(payload)
 
+              start_new_turn.call
               completed_parts = extract_message_content_parts(payload)
               current_turn_parts = completed_parts unless completed_parts.nil?
             when "token_count"
               wrapped_token_usage = extract_wrapped_tokens(payload["info"])
               if wrapped_token_usage
                 has_usage = true
-                if wrapped_token_usage[:mode] == :snapshot
-                  wrapped_input = wrapped_token_usage[:input]
-                  wrapped_output = wrapped_token_usage[:output]
-                  wrapped_total = wrapped_token_usage[:total]
-                else
-                  wrapped_input += wrapped_token_usage[:input]
-                  wrapped_output += wrapped_token_usage[:output]
-                  wrapped_total += wrapped_token_usage[:total]
-                end
+                pending_turn_usage, pending_turn_usage_source = merge_wrapped_turn_usage(
+                  pending_turn_usage,
+                  pending_turn_usage_source,
+                  wrapped_token_usage
+                )
                 latest_completed_parts = current_turn_parts.dup unless current_turn_parts.empty?
                 current_turn_parts = []
+                turn_completed = true
               end
             end
           when "response_item"
             payload = event["payload"]
             next unless payload.is_a?(Hash) && response_item_assistant_payload?(payload)
 
+            start_new_turn.call
             completed_parts = extract_message_content_parts(payload)
             current_turn_parts = completed_parts unless completed_parts.nil?
           end
         end
 
+        commit_pending_turn.call
         final_parts = current_turn_parts.empty? ? latest_completed_parts : current_turn_parts
         text = final_parts.empty? ? nil : final_parts.join
 
         {
           text: text,
           tokens: has_usage ? {
-            input: total_input + wrapped_input,
-            output: total_output + wrapped_output,
-            total: total_tokens + wrapped_total
+            input: total_input,
+            output: total_output,
+            total: total_tokens
           } : nil
         }
       rescue
@@ -632,22 +658,12 @@ module AgentHarness
       def extract_wrapped_tokens(info)
         return unless info.is_a?(Hash)
 
-        usage = info["last_token_usage"]
-        mode = :delta
+        last_usage = build_token_usage(info["last_token_usage"])
+        total_usage = build_token_usage(info["total_token_usage"])
 
-        unless token_usage_fields_present?(usage)
-          usage = info["total_token_usage"]
-          mode = :snapshot
-        end
+        return unless last_usage || total_usage
 
-        return unless token_usage_fields_present?(usage)
-
-        input = parse_token_count(usage["input_tokens"]) || 0
-        output = parse_token_count(usage["output_tokens"]) || 0
-        total = parse_token_count(usage["total_tokens"])
-        total ||= (input + output)
-
-        {input: input, output: output, total: total, mode: mode}
+        {last: last_usage, total: total_usage}
       end
 
       def token_usage_fields_present?(usage)
@@ -656,6 +672,50 @@ module AgentHarness
           !parse_token_count(usage["output_tokens"]).nil? ||
           !parse_token_count(usage["total_tokens"]).nil?
         )
+      end
+
+      def build_token_usage(usage)
+        return unless token_usage_fields_present?(usage)
+
+        input = parse_token_count(usage["input_tokens"]) || 0
+        output = parse_token_count(usage["output_tokens"]) || 0
+        total = parse_token_count(usage["total_tokens"])
+        total ||= (input + output)
+
+        {input: input, output: output, total: total}
+      end
+
+      def merge_wrapped_turn_usage(existing_usage, existing_source, wrapped_token_usage)
+        return [existing_usage, existing_source] if existing_source == :turn_completed
+
+        total_usage = wrapped_token_usage[:total]
+        last_usage = wrapped_token_usage[:last]
+
+        if total_usage
+          expected_total = if existing_source == :wrapped && existing_usage && last_usage
+            add_token_usage(existing_usage, last_usage)
+          else
+            last_usage
+          end
+
+          return [total_usage, :wrapped] unless expected_total == total_usage
+        end
+
+        merged_usage = if last_usage && existing_source == :wrapped && existing_usage
+          add_token_usage(existing_usage, last_usage)
+        else
+          last_usage || total_usage
+        end
+
+        [merged_usage, :wrapped]
+      end
+
+      def add_token_usage(left, right)
+        {
+          input: left[:input] + right[:input],
+          output: left[:output] + right[:output],
+          total: left[:total] + right[:total]
+        }
       end
 
       def parse_token_count(value)
