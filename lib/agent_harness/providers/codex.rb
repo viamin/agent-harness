@@ -437,15 +437,15 @@ module AgentHarness
           when "turn.completed"
             usage = event["usage"]
             if usage.is_a?(Hash)
-              input_val = usage["input_tokens"]
-              output_val = usage["output_tokens"]
-              total_val = usage["total_tokens"]
+              input_tokens = parse_token_count(usage["input_tokens"])
+              output_tokens = parse_token_count(usage["output_tokens"])
+              usage_total = parse_token_count(usage["total_tokens"])
 
-              if input_val || output_val || total_val
+              if input_tokens || output_tokens || usage_total
                 has_usage = true
-                input_tokens = input_val.to_i
-                output_tokens = output_val.to_i
-                usage_total = total_val.nil? ? (input_tokens + output_tokens) : total_val.to_i
+                input_tokens ||= 0
+                output_tokens ||= 0
+                usage_total ||= (input_tokens + output_tokens)
                 total_input += input_tokens
                 total_output += output_tokens
                 total_tokens += usage_total
@@ -642,19 +642,32 @@ module AgentHarness
 
         return unless token_usage_fields_present?(usage)
 
-        input = usage["input_tokens"].to_i
-        output = usage["output_tokens"].to_i
-        total = usage.key?("total_tokens") ? usage["total_tokens"].to_i : (input + output)
+        input = parse_token_count(usage["input_tokens"]) || 0
+        output = parse_token_count(usage["output_tokens"]) || 0
+        total = parse_token_count(usage["total_tokens"])
+        total ||= (input + output)
 
         {input: input, output: output, total: total, mode: mode}
       end
 
       def token_usage_fields_present?(usage)
         usage.is_a?(Hash) && (
-          usage.key?("input_tokens") ||
-          usage.key?("output_tokens") ||
-          usage.key?("total_tokens")
+          !parse_token_count(usage["input_tokens"]).nil? ||
+          !parse_token_count(usage["output_tokens"]).nil? ||
+          !parse_token_count(usage["total_tokens"]).nil?
         )
+      end
+
+      def parse_token_count(value)
+        case value
+        when Integer
+          value
+        when String
+          stripped = value.strip
+          return nil unless /\A\d+\z/.match?(stripped)
+
+          stripped.to_i
+        end
       end
 
       def externally_sandboxed?(options)
