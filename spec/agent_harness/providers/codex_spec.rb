@@ -1293,6 +1293,27 @@ RSpec.describe AgentHarness::Providers::Codex do
           expect(response.tokens).to eq({input: 5, output: 3, total: 8})
         end
 
+        it "falls back to raw output when JSONL contains no event objects" do
+          raw_output = [
+            "123",
+            "null",
+            "[1,2,3]"
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: raw_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq(raw_output)
+          expect(response.tokens).to be_nil
+        end
+
         it "returns nil tokens when usage hash has no token fields" do
           jsonl_output = [
             JSON.generate({"type" => "message.delta", "delta" => {"text" => "Hello!"}}),

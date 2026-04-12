@@ -365,6 +365,7 @@ module AgentHarness
           nil
         end
 
+        events.select! { |event| event.is_a?(Hash) }
         return nil if events.empty?
 
         text_parts = []
@@ -378,8 +379,6 @@ module AgentHarness
         wrapped_total = 0
 
         events.each do |event|
-          next unless event.is_a?(Hash)
-
           type = event["type"]
 
           case type
