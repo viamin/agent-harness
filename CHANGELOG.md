@@ -1,5 +1,16 @@
 ## [Unreleased]
 
+## [0.5.9](https://github.com/viamin/agent-harness/compare/agent-harness/v0.5.8...agent-harness/v0.5.9) (2026-04-12)
+
+
+### Bug Fixes
+
+* 91: audit and fix-forward defects from PRs merged before review completion ([ec0af12](https://github.com/viamin/agent-harness/commit/ec0af12728f6524b651ebc9b552c477059a2adac))
+* **providers:** close path traversal bypass in env-var-prefixed preparation paths ([493bf55](https://github.com/viamin/agent-harness/commit/493bf55be088a8bde39d143791f3f9b0c90d9c0c))
+* **providers:** harden preparation path validation against env value traversal and command substitution ([ed4b92b](https://github.com/viamin/agent-harness/commit/ed4b92b8760ec4dfa1f50d69b0736563140905b4))
+* **providers:** harden preparation path validation against injection and traversal ([9cb0faf](https://github.com/viamin/agent-harness/commit/9cb0fafbf63c908c7ef7b465bf541ceb5dbf58bb))
+* **providers:** preserve docker idle timeouts ([adde6b4](https://github.com/viamin/agent-harness/commit/adde6b4491023c8baf37249147770cddeff1b0ee))
+
 ## [0.5.8](https://github.com/viamin/agent-harness/compare/agent-harness/v0.5.7...agent-harness/v0.5.8) (2026-04-07)
 
 
