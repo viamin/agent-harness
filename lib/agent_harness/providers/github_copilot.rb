@@ -411,7 +411,10 @@ module AgentHarness
           parts = value.filter_map { |part| extract_text_value(part) }
           parts.empty? ? nil : parts.join
         when Hash
-          value["text"] || value["content"] || value["result"] || value["deltaContent"]
+          extract_text_value(value["text"]) ||
+            extract_text_value(value["content"]) ||
+            extract_text_value(value["result"]) ||
+            extract_text_value(value["deltaContent"])
         end
       end
 
