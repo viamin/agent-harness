@@ -2071,6 +2071,36 @@ RSpec.describe AgentHarness::Providers::Kilocode do
         expect(response.tokens).to eq({input: 120, output: 50, total: 180})
       end
 
+      it "uses result extra token categories when partial usage updates only output_tokens" do
+        ndjson = [
+          {"type" => "text", "part" => {"text" => "Response"}},
+          {
+            "type" => "step_finish",
+            "part" => {
+              "tokens" => {
+                "input" => 100,
+                "output" => 50,
+                "reasoning" => 20,
+                "cache" => {"read" => 5}
+              }
+            }
+          },
+          {"type" => "result", "usage" => {"output_tokens" => 40, "reasoning_tokens" => 10}}
+        ].map { |e| JSON.generate(e) }.join("\n")
+
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: ndjson,
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        response = provider.send_message(prompt: "Hello")
+        expect(response.tokens).to eq({input: 100, output: 40, total: 150})
+      end
+
       it "preserves unreconstructable step totals when partial usage adds extra categories" do
         ndjson = [
           {"type" => "text", "part" => {"text" => "Response"}},
