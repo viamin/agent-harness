@@ -181,7 +181,21 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         ])
       end
 
-      it "appends session resume flags after tool permission flags" do
+      it "appends session resume flags without dangerous mode" do
+        command = provider.send(:build_command, "Hello", {session: "session-123"})
+
+        expect(command).to eq([
+          "github-copilot-cli",
+          "-p",
+          "Hello",
+          "--output-format",
+          "json",
+          "--resume",
+          "session-123"
+        ])
+      end
+
+      it "appends session resume flags after dangerous mode flags when both are provided" do
         command = provider.send(:build_command, "Hello", {dangerous_mode: true, session: "session-123"})
 
         expect(command).to eq([
