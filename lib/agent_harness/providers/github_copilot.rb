@@ -9,6 +9,7 @@ module AgentHarness
     # Provides integration with the GitHub Copilot CLI tool.
     class GithubCopilot < Base
       MIN_JSON_OUTPUT_VERSION = Gem::Version.new("0.0.422").freeze
+      REQUEST_PROBE_ENV_STACK_KEY = :agent_harness_github_copilot_request_probe_env_stack
 
       # Model name pattern for GitHub Copilot (uses OpenAI models)
       MODEL_PATTERN = /^gpt-[\d.o-]+(?:-turbo)?(?:-mini)?$/i
@@ -601,26 +602,40 @@ module AgentHarness
       end
 
       def with_request_probe_env(env)
-        previous_env = @current_probe_env if instance_variable_defined?(:@current_probe_env)
-        had_previous_env = instance_variable_defined?(:@current_probe_env)
-        @current_probe_env = env
+        stack = writable_request_probe_env_stack
+        stack << env
         yield
       ensure
-        if had_previous_env
-          @current_probe_env = previous_env
-        elsif instance_variable_defined?(:@current_probe_env)
-          remove_instance_variable(:@current_probe_env)
-        end
+        stack&.pop
+        clear_request_probe_env_stack! if stack&.empty?
       end
 
       def current_probe_env
-        return @current_probe_env if instance_variable_defined?(:@current_probe_env)
-
-        {}
+        stacks = Thread.current.thread_variable_get(REQUEST_PROBE_ENV_STACK_KEY)
+        stack = stacks && stacks[object_id]
+        stack&.last || {}
       end
 
       def version_probe_env_cache_key(env)
         env.sort_by { |key, _value| key }
+      end
+
+      def writable_request_probe_env_stack
+        stacks = Thread.current.thread_variable_get(REQUEST_PROBE_ENV_STACK_KEY)
+        unless stacks
+          stacks = {}
+          Thread.current.thread_variable_set(REQUEST_PROBE_ENV_STACK_KEY, stacks)
+        end
+
+        stacks[object_id] ||= []
+      end
+
+      def clear_request_probe_env_stack!
+        stacks = Thread.current.thread_variable_get(REQUEST_PROBE_ENV_STACK_KEY)
+        return unless stacks
+
+        stacks.delete(object_id)
+        Thread.current.thread_variable_set(REQUEST_PROBE_ENV_STACK_KEY, nil) if stacks.empty?
       end
 
       def copilot_cli_supports_json_output?(env: current_probe_env)

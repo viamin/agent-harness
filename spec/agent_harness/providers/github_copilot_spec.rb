@@ -1232,5 +1232,44 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         2.times { expect(provider.send(:copilot_cli_supports_json_output?, env: env_b)).to be false }
       end
     end
+
+    describe "request probe env scoping" do
+      it "stores the probe env thread-locally per provider instance" do
+        provider = described_class.new
+        thread_envs = Queue.new
+        release_threads = Queue.new
+
+        threads = [
+          Thread.new do
+            provider.send(:with_request_probe_env, {"PATH" => "/tmp/thread-a"}) do
+              thread_envs << provider.send(:current_probe_env)
+              release_threads.pop
+            end
+            thread_envs << provider.send(:current_probe_env)
+          end,
+          Thread.new do
+            provider.send(:with_request_probe_env, {"PATH" => "/tmp/thread-b"}) do
+              thread_envs << provider.send(:current_probe_env)
+              release_threads.pop
+            end
+            thread_envs << provider.send(:current_probe_env)
+          end
+        ]
+
+        observed_envs = 2.times.map { thread_envs.pop }
+        expect(observed_envs).to contain_exactly(
+          {"PATH" => "/tmp/thread-a"},
+          {"PATH" => "/tmp/thread-b"}
+        )
+        expect(provider.send(:current_probe_env)).to eq({})
+
+        2.times { release_threads << true }
+        threads.each(&:join)
+
+        reset_envs = 2.times.map { thread_envs.pop }
+        expect(reset_envs).to all(eq({}))
+        expect(Thread.current.thread_variable_get(described_class::REQUEST_PROBE_ENV_STACK_KEY)).to be_nil
+      end
+    end
   end
 end
