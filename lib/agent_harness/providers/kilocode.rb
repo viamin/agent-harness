@@ -390,8 +390,7 @@ module AgentHarness
 
       def usage_replaces_extra_fields?(usage)
         usable_usage_token_field?("input_tokens", usage["input_tokens"]) &&
-          usable_usage_token_field?("output_tokens", usage["output_tokens"]) &&
-          !usage_updates_extra_fields?(usage)
+          usable_usage_token_field?("output_tokens", usage["output_tokens"])
       end
 
       def usage_updates_extra_fields?(usage)
