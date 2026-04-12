@@ -228,7 +228,15 @@ module AgentHarness
             "total_tokens" => accumulated_total
           })
         end
-        tokens = resolve_token_counts(result_usage, fallback: step_tokens, fallback_extra_total: accumulated_extra_total) if result_usage
+        fallback_total_remainder = [accumulated_total - accumulated_input - accumulated_output - accumulated_extra_total, 0].max
+        if result_usage
+          tokens = resolve_token_counts(
+            result_usage,
+            fallback: step_tokens,
+            fallback_extra_total: accumulated_extra_total,
+            fallback_total_remainder:
+          )
+        end
         tokens ||= step_tokens
         if structured_errors.any? && !saw_structured_event
           error_lines = [error, *structured_errors].compact.reject(&:empty?).uniq
@@ -283,7 +291,7 @@ module AgentHarness
         {input: input, output: output, total: total}
       end
 
-      def resolve_token_counts(usage, fallback: nil, fallback_extra_total: 0)
+      def resolve_token_counts(usage, fallback: nil, fallback_extra_total: 0, fallback_total_remainder: 0)
         input = coerce_token_count(usage["input_tokens"])
         output = coerce_token_count(usage["output_tokens"])
         explicit_total = extract_explicit_total_token_count(usage)
@@ -304,7 +312,8 @@ module AgentHarness
         elsif usage_extra_total
           input + output + usage_extra_total
         elsif input_from_fallback || output_from_fallback
-          input + output + fallback_extra_total
+          resolved_total = input + output + fallback_extra_total
+          fallback_total_remainder.positive? ? [resolved_total, fallback_total].compact.max : resolved_total
         else
           input + output
         end
