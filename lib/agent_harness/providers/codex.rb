@@ -20,6 +20,12 @@ module AgentHarness
         /your access token could not be refreshed because your refresh token .*already (?:been )?used/i,
         /refresh token .*already been used/i
       ].freeze
+      OAUTH_REFRESH_TRANSIENT_PATTERNS = [
+        /your access token could not be refreshed because the auth(?:entication)? service was unavailable/i,
+        /your access token could not be refreshed because .*connection.*error/i,
+        /failed to refresh token:.*connection.*error/i,
+        /failed to refresh token:.*service.*unavailable/i
+      ].freeze
 
       class << self
         def provider_name
@@ -187,18 +193,14 @@ module AgentHarness
             /your access token could not be refreshed.*(?:timeout|timed out)/i,
             /failed to refresh token:.*(?:timeout|timed out)/i
           ],
+          transient: COMMON_ERROR_PATTERNS[:transient] + [
+            /connection.*reset/i
+          ] + OAUTH_REFRESH_TRANSIENT_PATTERNS,
           auth_expired: COMMON_ERROR_PATTERNS[:auth_expired] + [
             /\b401\b/,
             /incorrect.*api.*key/i
           ] + OAUTH_REFRESH_FAILURE_PATTERNS,
           quota_exceeded: COMMON_ERROR_PATTERNS[:quota_exceeded],
-          transient: COMMON_ERROR_PATTERNS[:transient] + [
-            /connection.*reset/i,
-            /your access token could not be refreshed because .*connection.*error/i,
-            /your access token could not be refreshed because .*service.*unavailable/i,
-            /failed to refresh token:.*connection.*error/i,
-            /failed to refresh token:.*service.*unavailable/i
-          ],
           sandbox_failure: [
             /bwrap.*no permissions/i,
             /no permissions to create a new namespace/i,
