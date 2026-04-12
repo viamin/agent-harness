@@ -156,8 +156,20 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
     end
 
     describe "#build_command" do
-      it "includes --allow-all-tools for non-interactive tool permissions" do
+      it "omits --allow-all-tools when dangerous_mode is not set" do
         command = provider.send(:build_command, "Hello", {})
+
+        expect(command).to eq([
+          "github-copilot-cli",
+          "-p",
+          "Hello",
+          "--output-format",
+          "json"
+        ])
+      end
+
+      it "includes --allow-all-tools when dangerous_mode is set" do
+        command = provider.send(:build_command, "Hello", {dangerous_mode: true})
 
         expect(command).to eq([
           "github-copilot-cli",
@@ -170,7 +182,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
       end
 
       it "appends session resume flags after tool permission flags" do
-        command = provider.send(:build_command, "Hello", {session: "session-123"})
+        command = provider.send(:build_command, "Hello", {dangerous_mode: true, session: "session-123"})
 
         expect(command).to eq([
           "github-copilot-cli",
@@ -206,7 +218,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
           anything
         )
 
-        provider.send_message(prompt: "Hello")
+        provider.send_message(prompt: "Hello", dangerous_mode: true)
       end
 
       context "with token usage parsing" do

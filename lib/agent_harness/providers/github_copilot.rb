@@ -184,7 +184,10 @@ module AgentHarness
         cmd = [self.class.binary_name, "-p", prompt]
 
         cmd += ["--output-format", "json"]
-        cmd += dangerous_mode_flags
+
+        if options[:dangerous_mode] && supports_dangerous_mode?
+          cmd += dangerous_mode_flags
+        end
 
         if options[:session] && !options[:session].empty?
           cmd += session_flags(options[:session])
