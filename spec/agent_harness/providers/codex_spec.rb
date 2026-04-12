@@ -345,6 +345,17 @@ RSpec.describe AgentHarness::Providers::Codex do
           .to raise_error(AgentHarness::ProviderError, /auth service was unavailable/)
       end
 
+      it "raises TimeoutError for OAuth refresh timeout failures" do
+        allow(mock_executor).to receive(:execute).and_raise(
+          StandardError.new(
+            "Your access token could not be refreshed because the auth service timed out."
+          )
+        )
+
+        expect { provider.send_message(prompt: "Hello") }
+          .to raise_error(AgentHarness::TimeoutError, /auth service timed out/)
+      end
+
       context "with dangerous_mode option" do
         it "includes --full-auto flag" do
           expect(mock_executor).to receive(:execute).with(
@@ -593,6 +604,22 @@ RSpec.describe AgentHarness::Providers::Codex do
 
         expect(result[:ok]).to be false
         expect(result[:error_category]).to eq(:transient)
+      end
+
+      it "classifies OAuth refresh timeout failures as timeout" do
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "",
+            stderr: "Your access token could not be refreshed because the auth service timed out.",
+            exit_code: 1,
+            duration: 1.0
+          )
+        )
+
+        result = provider.smoke_test
+
+        expect(result[:ok]).to be false
+        expect(result[:error_category]).to eq(:timeout)
       end
     end
 
