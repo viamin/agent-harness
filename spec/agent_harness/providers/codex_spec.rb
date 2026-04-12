@@ -982,6 +982,47 @@ RSpec.describe AgentHarness::Providers::Codex do
           expect(response.tokens).to eq({input: 4, output: 2, total: 6})
         end
 
+        it "falls back to wrapped agent_message_delta content when message is empty" do
+          jsonl_output = [
+            JSON.generate({
+              "type" => "event_msg",
+              "payload" => {
+                "type" => "agent_message_delta",
+                "message" => "",
+                "content" => [
+                  {"type" => "reasoning", "text" => "internal"},
+                  {"type" => "output_text", "text" => "wrapped fallback partial"}
+                ]
+              }
+            }),
+            JSON.generate({
+              "type" => "event_msg",
+              "payload" => {
+                "type" => "token_count",
+                "info" => {
+                  "last_token_usage" => {
+                    "input_tokens" => 4,
+                    "output_tokens" => 2
+                  }
+                }
+              }
+            })
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq("wrapped fallback partial")
+          expect(response.tokens).to eq({input: 4, output: 2, total: 6})
+        end
+
         it "extracts final assistant text from roleless wrapped agent_message payloads" do
           jsonl_output = [
             JSON.generate({"type" => "event_msg", "payload" => {"type" => "agent_message_delta", "message" => "partial"}}),
@@ -1353,6 +1394,35 @@ RSpec.describe AgentHarness::Providers::Codex do
 
           response = provider.send_message(prompt: "Hello")
           expect(response.output).to eq("Hello from blocks")
+          expect(response.tokens).to eq({input: 100, output: 25, total: 125})
+        end
+
+        it "falls back to structured message.delta content when text is empty" do
+          jsonl_output = [
+            JSON.generate({
+              "type" => "message.delta",
+              "delta" => {
+                "text" => "",
+                "content" => [
+                  {"type" => "reasoning", "text" => "internal"},
+                  {"type" => "output_text", "text" => "Hello from fallback blocks"}
+                ]
+              }
+            }),
+            JSON.generate({"type" => "turn.completed", "usage" => {"input_tokens" => 100, "output_tokens" => 25}})
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq("Hello from fallback blocks")
           expect(response.tokens).to eq({input: 100, output: 25, total: 125})
         end
 

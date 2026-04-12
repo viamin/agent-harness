@@ -483,7 +483,7 @@ module AgentHarness
       def append_delta_text(parts, delta)
         return unless delta.is_a?(Hash)
 
-        delta_parts = extract_message_content_parts(delta)
+        delta_parts = extract_delta_content_parts(delta)
         return if delta_parts.nil?
 
         delta_parts.each do |part|
@@ -531,6 +531,37 @@ module AgentHarness
         item_content = item["content"]
         return nil unless item_content.is_a?(Array)
 
+        extract_content_parts(item_content)
+      end
+
+      def extract_wrapped_delta_parts(payload)
+        delta = payload["delta"]
+        if delta.is_a?(Hash)
+          delta_parts = extract_delta_content_parts(delta)
+          return delta_parts unless delta_parts.nil?
+        end
+
+        extract_delta_content_parts(payload)
+      end
+
+      def extract_delta_content_parts(item)
+        direct_parts = extract_message_content_parts(item)
+        return direct_parts unless direct_parts == [""]
+
+        item_content = item["content"]
+        return direct_parts unless item_content.is_a?(Array)
+
+        content_parts = extract_content_parts(item_content)
+        content_parts.nil? ? direct_parts : content_parts
+      end
+
+      def output_text_block?(block)
+        block_type = block["type"]
+
+        block_type.nil? || block_type == "output_text"
+      end
+
+      def extract_content_parts(item_content)
         completed_parts = []
         extracted_content = false
 
@@ -546,22 +577,6 @@ module AgentHarness
         end
 
         extracted_content ? completed_parts : nil
-      end
-
-      def extract_wrapped_delta_parts(payload)
-        delta = payload["delta"]
-        if delta.is_a?(Hash)
-          delta_parts = extract_message_content_parts(delta)
-          return delta_parts unless delta_parts.nil?
-        end
-
-        extract_message_content_parts(payload)
-      end
-
-      def output_text_block?(block)
-        block_type = block["type"]
-
-        block_type.nil? || block_type == "output_text"
       end
 
       def extract_wrapped_tokens(info)
