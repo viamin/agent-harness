@@ -187,8 +187,9 @@ module AgentHarness
 
         cmd += ["--output-format", "json"] if supports_json_output_format?
 
-        # Prompt mode is non-interactive, so tool approval prompts cannot be answered.
-        cmd += dangerous_mode_flags
+        if options[:dangerous_mode] && supports_dangerous_mode?
+          cmd += dangerous_mode_flags
+        end
 
         if options[:session] && !options[:session].empty?
           cmd += session_flags(options[:session])
@@ -235,7 +236,9 @@ module AgentHarness
         return @copilot_cli_version if instance_variable_defined?(:@copilot_cli_version)
 
         result = @executor.execute([self.class.binary_name, "--version"], timeout: 5)
-        @copilot_cli_version = extract_version(result)
+        version = extract_version(result)
+        @copilot_cli_version = version if version
+        version
       rescue => e
         log_debug("copilot_cli_version_check_failed", error: e.message)
         nil
