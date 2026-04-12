@@ -258,7 +258,9 @@ module AgentHarness
         output = response.output
         tokens = nil
 
-        parsed_lines = json_output_requested ? parse_jsonl_output(output) : nil
+        parsed_lines = if json_output_requested && response.error.nil?
+          parse_jsonl_output(output)
+        end
         if parsed_lines
           output = extract_text_from_jsonl(parsed_lines) || output
           tokens = extract_tokens_from_jsonl(parsed_lines)

@@ -828,6 +828,35 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
           expect(response.error).to include("not authorized")
         end
 
+        it "preserves raw JSON-mode output and skips token extraction on failure" do
+          jsonl_output = [
+            {"text" => "response"},
+            {"usage" => {"input_tokens" => 10, "output_tokens" => 5}}
+          ].map { |o| JSON.generate(o) }.join("\n")
+
+          allow(mock_executor).to receive(:execute).with(
+            ["github-copilot-cli", "--version"],
+            timeout: 5
+          ).and_return(version_result)
+
+          allow(mock_executor).to receive(:execute).with(
+            ["github-copilot-cli", "-p", "Hello", "--output-format", "json", "--allow-all-tools"],
+            anything
+          ).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "not authorized",
+              exit_code: 1,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq(jsonl_output)
+          expect(response.tokens).to be_nil
+          expect(response.error).to include("not authorized")
+        end
+
         it "preserves base response metadata" do
           allow(mock_executor).to receive(:execute).and_return(
             AgentHarness::CommandExecutor::Result.new(
