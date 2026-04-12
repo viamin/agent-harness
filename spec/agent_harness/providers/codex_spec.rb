@@ -504,26 +504,6 @@ RSpec.describe AgentHarness::Providers::Codex do
           expect(response.output).to eq("turn result")
         end
 
-        it "ignores item.completed events for non-assistant roles" do
-          jsonl_output = [
-            JSON.generate({"type" => "item.completed", "item" => {"type" => "message", "role" => "user", "text" => "user text"}}),
-            JSON.generate({"type" => "turn.completed", "usage" => {"input_tokens" => 10, "output_tokens" => 5}})
-          ].join("\n")
-
-          allow(mock_executor).to receive(:execute).and_return(
-            AgentHarness::CommandExecutor::Result.new(
-              stdout: jsonl_output,
-              stderr: "",
-              exit_code: 0,
-              duration: 1.0
-            )
-          )
-
-          response = provider.send_message(prompt: "Hello")
-          expect(response.output).to eq(jsonl_output)
-          expect(response.tokens).to eq({input: 10, output: 5, total: 15})
-        end
-
         it "handles item.completed with only content array and no text field" do
           jsonl_output = [
             JSON.generate({
@@ -548,6 +528,76 @@ RSpec.describe AgentHarness::Providers::Codex do
 
           response = provider.send_message(prompt: "Hello")
           expect(response.output).to eq("from content array")
+        end
+
+        it "extracts text from item.completed when role field is absent" do
+          jsonl_output = [
+            JSON.generate({
+              "type" => "item.completed",
+              "item" => {"type" => "agent_message", "text" => "response without role"}
+            }),
+            JSON.generate({"type" => "turn.completed", "usage" => {"input_tokens" => 10, "output_tokens" => 5}})
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq("response without role")
+        end
+
+        it "extracts text from item.completed content array when role field is nil" do
+          jsonl_output = [
+            JSON.generate({
+              "type" => "item.completed",
+              "item" => {
+                "type" => "agent_message",
+                "content" => [{"type" => "output_text", "text" => "content without role"}]
+              }
+            }),
+            JSON.generate({"type" => "turn.completed", "usage" => {"input_tokens" => 10, "output_tokens" => 5}})
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq("content without role")
+        end
+
+        it "still ignores item.completed events with explicit non-assistant role" do
+          jsonl_output = [
+            JSON.generate({
+              "type" => "item.completed",
+              "item" => {"type" => "message", "role" => "user", "text" => "user text"}
+            }),
+            JSON.generate({"type" => "turn.completed", "usage" => {"input_tokens" => 10, "output_tokens" => 5}})
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq(jsonl_output)
+          expect(response.tokens).to eq({input: 10, output: 5, total: 15})
         end
       end
 
