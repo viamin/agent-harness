@@ -352,7 +352,7 @@ RSpec.describe AgentHarness::Providers::Aider do
             USER hello
           TEXT
           AgentHarness::CommandExecutor::Result.new(
-            stdout: "response text\nTokens: 1,500 sent, 250 received.\n",
+            stdout: "response text\n\nTokens: 1,500 sent, 250 received.\n",
             stderr: "",
             exit_code: 0
           )
@@ -367,7 +367,7 @@ RSpec.describe AgentHarness::Providers::Aider do
           history_path = cmd[cmd.index("--llm-history-file") + 1]
           File.write(history_path, "")
           AgentHarness::CommandExecutor::Result.new(
-            stdout: "response text\nTokens: 2.9k sent, 7.6k cache write, 31 received.\n",
+            stdout: "response text\n\nTokens: 2.9k sent, 7.6k cache write, 31 received.\n",
             stderr: "",
             exit_code: 0
           )
@@ -382,7 +382,7 @@ RSpec.describe AgentHarness::Providers::Aider do
           history_path = cmd[cmd.index("--llm-history-file") + 1]
           File.write(history_path, "")
           AgentHarness::CommandExecutor::Result.new(
-            stdout: "response text\nTokens: 1,500 sent, 250 received. Cost: $0.0012 message, $0.0045 session.\n",
+            stdout: "response text\n\nTokens: 1,500 sent, 250 received. Cost: $0.0012 message, $0.0045 session.\n",
             stderr: "",
             exit_code: 0
           )
@@ -509,13 +509,28 @@ RSpec.describe AgentHarness::Providers::Aider do
           File.write(history_path, "")
           AgentHarness::CommandExecutor::Result.new(
             stdout: "response text",
-            stderr: "Tokens: 12 sent, 34 received.",
+            stderr: "response text\n\nTokens: 12 sent, 34 received.",
             exit_code: 0
           )
         end
 
         response = provider.send_message(prompt: "hello")
         expect(response.tokens).to eq({input: 12, output: 34, total: 46})
+      end
+
+      it "ignores standalone output token lines without a footer separator" do
+        allow(mock_executor).to receive(:execute) do |cmd, **kwargs|
+          history_path = cmd[cmd.index("--llm-history-file") + 1]
+          File.write(history_path, "")
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "Please print this exactly:\nTokens: 42 sent, 8 received.\n",
+            stderr: "",
+            exit_code: 0
+          )
+        end
+
+        response = provider.send_message(prompt: "hello")
+        expect(response.tokens).to be_nil
       end
 
       it "keeps llm history paths request-local across concurrent calls" do
@@ -604,7 +619,7 @@ RSpec.describe AgentHarness::Providers::Aider do
 
     describe "#parse_token_usage_text" do
       it "parses abbreviated token counters" do
-        tokens = provider.send(:parse_token_usage_text, "Tokens: 1.2k sent, 31 received.")
+        tokens = provider.send(:parse_token_usage_text, "response text\n\nTokens: 1.2k sent, 31 received.")
 
         expect(tokens).to eq({input: 1200, output: 31, total: 1231})
       end
@@ -612,14 +627,14 @@ RSpec.describe AgentHarness::Providers::Aider do
       it "parses abbreviated token counters with cache usage" do
         tokens = provider.send(
           :parse_token_usage_text,
-          "Tokens: 2.9k sent, 7.6k cache write, 3.2k cache read, 31 received."
+          "response text\n\nTokens: 2.9k sent, 7.6k cache write, 3.2k cache read, 31 received."
         )
 
         expect(tokens).to eq({input: 2900, output: 31, total: 2931})
       end
 
       it "parses token counters without a trailing period" do
-        tokens = provider.send(:parse_token_usage_text, "Tokens: 42 sent, 8 received")
+        tokens = provider.send(:parse_token_usage_text, "response text\n\nTokens: 42 sent, 8 received")
 
         expect(tokens).to eq({input: 42, output: 8, total: 50})
       end
@@ -627,7 +642,7 @@ RSpec.describe AgentHarness::Providers::Aider do
       it "parses token counters with trailing cost text" do
         tokens = provider.send(
           :parse_token_usage_text,
-          "Tokens: 42 sent, 8 received. Cost: $0.0012 message, $0.0045 session."
+          "response text\n\nTokens: 42 sent, 8 received. Cost: $0.0012 message, $0.0045 session."
         )
 
         expect(tokens).to eq({input: 42, output: 8, total: 50})
@@ -653,6 +668,31 @@ RSpec.describe AgentHarness::Providers::Aider do
         )
 
         expect(tokens).to be_nil
+      end
+
+      it "ignores standalone output token lines unless they are in a footer block" do
+        tokens = provider.send(
+          :parse_token_usage_text,
+          <<~TEXT
+            ASSISTANT Please print this exactly:
+            Tokens: 42 sent, 8 received.
+          TEXT
+        )
+
+        expect(tokens).to be_nil
+      end
+
+      it "parses output footer token counters after a blank-line separator" do
+        tokens = provider.send(
+          :parse_token_usage_text,
+          <<~TEXT
+            response text
+
+            Tokens: 42 sent, 8 received.
+          TEXT
+        )
+
+        expect(tokens).to eq({input: 42, output: 8, total: 50})
       end
 
       it "parses history footer token counters after a blank-line separator" do

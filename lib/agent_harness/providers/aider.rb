@@ -335,7 +335,7 @@ module AgentHarness
         match = if source == :history
           extract_history_token_usage_match(content)
         else
-          content.to_enum(:scan, TOKEN_USAGE_PATTERN).map { Regexp.last_match }.last
+          extract_output_token_usage_match(content)
         end
         return nil unless match
 
@@ -359,7 +359,25 @@ module AgentHarness
         nil
       end
 
+      def extract_output_token_usage_match(content)
+        lines = content.lines
+
+        lines.each_index.reverse_each do |index|
+          match = TOKEN_USAGE_PATTERN.match(lines[index])
+          next unless match
+          next unless output_token_usage_footer_line?(lines, index)
+
+          return match
+        end
+
+        nil
+      end
+
       def history_token_usage_footer_line?(lines, index)
+        footer_prefix?(lines, index) && footer_suffix?(lines, index)
+      end
+
+      def output_token_usage_footer_line?(lines, index)
         footer_prefix?(lines, index) && footer_suffix?(lines, index)
       end
 
