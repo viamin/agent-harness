@@ -519,6 +519,27 @@ RSpec.describe AgentHarness::Providers::Kilocode do
         expect(response.tokens).to eq({input: 10, output: 5, total: 15})
       end
 
+      it "deduplicates identical stderr and structured error messages" do
+        ndjson = [
+          {"type" => "error", "message" => "Provider request failed"},
+          {"type" => "step_finish", "part" => {"tokens" => {"input" => 10, "output" => 5}}}
+        ].map { |e| JSON.generate(e) }.join("\n")
+
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: ndjson,
+            stderr: "Provider request failed",
+            exit_code: 1,
+            duration: 1.0
+          )
+        )
+
+        response = provider.send_message(prompt: "Hello")
+        expect(response.failed?).to be true
+        expect(response.error).to eq("Provider request failed")
+        expect(response.tokens).to eq({input: 10, output: 5, total: 15})
+      end
+
       it "captures structured error text from nested error data payloads" do
         ndjson = [
           {"type" => "error", "error" => {"data" => {"message" => "Nested data failure"}}},
