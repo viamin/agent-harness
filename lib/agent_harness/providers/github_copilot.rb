@@ -285,7 +285,18 @@ module AgentHarness
       ASSISTANT_TOKEN_FALLBACK_EVENT_TYPES = %w[assistant assistant.message].freeze
       SESSION_SHUTDOWN_EVENT_TYPES = ["session.shutdown"].freeze
       USAGE_EVENT_TYPES = %w[usage assistant.usage].freeze
-      COPILOT_EVENT_TYPE_PREFIXES = %w[assistant. user. system. session.].freeze
+      COPILOT_EVENT_TYPE_PREFIXES = %w[
+        assistant.
+        user.
+        system.
+        session.
+        tool.
+        permission.
+        subagent.
+        external_tool.
+        command.
+      ].freeze
+      COPILOT_EVENT_TYPES = ["abort"].freeze
 
       def extract_event_text(obj)
         return [nil, nil] unless obj.is_a?(Hash)
@@ -352,6 +363,7 @@ module AgentHarness
         return true if SESSION_SHUTDOWN_EVENT_TYPES.include?(event_type)
         return true if USAGE_EVENT_TYPES.include?(event_type)
         return false unless event_type.is_a?(String)
+        return true if COPILOT_EVENT_TYPES.include?(event_type)
 
         COPILOT_EVENT_TYPE_PREFIXES.any? { |prefix| event_type.start_with?(prefix) }
       end

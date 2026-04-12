@@ -326,6 +326,22 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         expect(response.output).to eq("final answer")
       end
 
+      it "suppresses Copilot control-event namespaces from rendered output" do
+        jsonl = <<~JSONL
+          {"type":"tool.execution_start","data":{"tool":"bash"}}
+          {"type":"permission.requested","data":{"scope":"tools"}}
+          {"type":"subagent.started","data":{"name":"planner"}}
+          {"type":"external_tool.finished","data":{"name":"shell"}}
+          {"type":"command.completed","data":{"argv":["ls"]}}
+          {"type":"abort","data":{"reason":"interrupted"}}
+          {"type":"assistant.message","data":{"content":"final answer"}}
+        JSONL
+        result = make_result(stdout: jsonl)
+        response = provider.send(:parse_response, result, duration: 1.0)
+
+        expect(response.output).to eq("final answer")
+      end
+
       it "ignores typed top-level content on malformed control events" do
         jsonl = <<~JSONL
           {"type":"assistant.reasoning","content":"scratchpad"}
