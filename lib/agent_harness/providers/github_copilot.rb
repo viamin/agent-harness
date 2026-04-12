@@ -193,9 +193,9 @@ module AgentHarness
           cmd << "-s"
         end
 
-        if options[:dangerous_mode] && supports_dangerous_mode?
-          cmd += dangerous_mode_flags
-        end
+        # Copilot prompt mode is non-interactive, so tool approval prompts cannot
+        # be answered once the command is running.
+        cmd += dangerous_mode_flags
 
         if options[:session] && !options[:session].empty?
           cmd += session_flags(options[:session])
