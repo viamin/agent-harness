@@ -1751,6 +1751,36 @@ RSpec.describe AgentHarness::Providers::Kilocode do
         expect(response.tokens).to eq({input: 100, output: 50, total: 175})
       end
 
+      it "honors plain decimal string step total aliases over synthesized totals" do
+        ndjson = [
+          {"type" => "text", "part" => {"text" => "Response"}},
+          {
+            "type" => "step_finish",
+            "part" => {
+              "tokens" => {
+                "input" => "100",
+                "output" => "50",
+                "reasoning" => "20",
+                "cache" => {"read" => "15", "write" => "10"},
+                "total" => "175"
+              }
+            }
+          }
+        ].map { |e| JSON.generate(e) }.join("\n")
+
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: ndjson,
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        response = provider.send_message(prompt: "Hello")
+        expect(response.tokens).to eq({input: 100, output: 50, total: 175})
+      end
+
       it "includes reasoning and cache tokens in step totals when total is omitted" do
         ndjson = [
           {"type" => "text", "part" => {"text" => "Response"}},
