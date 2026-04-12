@@ -343,15 +343,33 @@ module AgentHarness
       end
 
       def extract_text_from_jsonl(parsed_lines)
-        text_parts = parsed_lines.filter_map do |obj|
+        output = +""
+        saw_text = false
+        saw_delta = false
+
+        parsed_lines.each do |obj|
           next unless obj.is_a?(Hash)
 
-          extract_text_value(obj) ||
-            extract_text_value(obj["data"]) ||
-            extract_text_value(obj["message"]) ||
-            extract_text_value(obj.dig("data", "message"))
+          full_text = extract_non_delta_text(obj)
+          if full_text
+            output = if saw_delta
+              full_text.dup
+            else
+              output + full_text
+            end
+            saw_text = true
+            saw_delta = false
+          end
+
+          delta_text = extract_delta_text(obj)
+          next unless delta_text
+
+          output << delta_text
+          saw_text = true
+          saw_delta = true
         end
-        text_parts.empty? ? nil : text_parts.join
+
+        saw_text ? output : nil
       end
 
       def extract_tokens_from_jsonl(parsed_lines)
@@ -424,6 +442,36 @@ module AgentHarness
             extract_text_value(value["message"]) ||
             extract_text_value(value["data"])
         end
+      end
+
+      def extract_non_delta_text(obj)
+        extract_text_value(obj["text"]) ||
+          extract_text_value(obj["content"]) ||
+          extract_text_value(obj["parts"]) ||
+          extract_text_value(obj["result"]) ||
+          extract_text_value(obj.dig("message", "text")) ||
+          extract_text_value(obj.dig("message", "content")) ||
+          extract_text_value(obj.dig("message", "parts")) ||
+          extract_text_value(obj.dig("message", "result")) ||
+          extract_text_value(obj.dig("data", "text")) ||
+          extract_text_value(obj.dig("data", "content")) ||
+          extract_text_value(obj.dig("data", "parts")) ||
+          extract_text_value(obj.dig("data", "result")) ||
+          extract_text_value(obj.dig("data", "message", "text")) ||
+          extract_text_value(obj.dig("data", "message", "content")) ||
+          extract_text_value(obj.dig("data", "message", "parts")) ||
+          extract_text_value(obj.dig("data", "message", "result"))
+      end
+
+      def extract_delta_text(obj)
+        extract_text_value(obj["deltaContent"]) ||
+          extract_text_value(obj["delta"]) ||
+          extract_text_value(obj.dig("data", "deltaContent")) ||
+          extract_text_value(obj.dig("data", "delta")) ||
+          extract_text_value(obj.dig("message", "deltaContent")) ||
+          extract_text_value(obj.dig("message", "delta")) ||
+          extract_text_value(obj.dig("data", "message", "deltaContent")) ||
+          extract_text_value(obj.dig("data", "message", "delta"))
       end
 
       def usage_payload?(value)
