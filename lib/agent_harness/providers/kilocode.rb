@@ -157,8 +157,10 @@ module AgentHarness
         accumulated_output = 0
         has_step_tokens = false
         result_usage = nil
+        saw_structured_event = false
 
         each_json_event(output) do |event|
+          saw_structured_event = true
           part = event["part"]
 
           if event["type"] == "text"
@@ -189,7 +191,9 @@ module AgentHarness
           result_usage = usage if usage.is_a?(Hash)
         end
 
-        output = text_parts.join unless text_parts.empty?
+        if saw_structured_event
+          output = text_parts.empty? ? nil : text_parts.join
+        end
         step_tokens = nil
         if has_step_tokens
           step_tokens = build_token_counts({
