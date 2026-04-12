@@ -247,6 +247,10 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         )
       end
 
+      before do
+        allow(provider).to receive(:copilot_cli_supports_json_output?).and_return(true)
+      end
+
       it "aggregates text from event envelope data.content" do
         jsonl = <<~JSONL
           {"type":"assistant","data":{"content":"Hello"}}
