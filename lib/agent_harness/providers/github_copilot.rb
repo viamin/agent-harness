@@ -317,22 +317,26 @@ module AgentHarness
           data = obj["data"]
 
           if USAGE_EVENT_TYPES.include?(obj["type"])
-            return nil unless token_fields_present?(data, "inputTokens", "input_tokens", "outputTokens", "output_tokens")
+            input, input_present = token_value(data, "inputTokens", "input_tokens")
+            output, output_present = token_value(data, "outputTokens", "output_tokens")
+            return nil unless input_present || output_present
 
             return {
               source: :usage,
-              input: token_value(data, "inputTokens", "input_tokens"),
-              output: token_value(data, "outputTokens", "output_tokens")
+              input: input,
+              output: output
             }
           end
 
           if ASSISTANT_OUTPUT_EVENT_TYPES.include?(obj["type"])
-            return nil unless token_fields_present?(data, "inputTokens", "input_tokens", "outputTokens", "output_tokens")
+            input, input_present = token_value(data, "inputTokens", "input_tokens")
+            output, output_present = token_value(data, "outputTokens", "output_tokens")
+            return nil unless input_present || output_present
 
             return {
               source: :assistant,
-              input: token_value(data, "inputTokens", "input_tokens"),
-              output: token_value(data, "outputTokens", "output_tokens")
+              input: input,
+              output: output
             }
           end
 
@@ -341,12 +345,14 @@ module AgentHarness
 
         usage = extract_top_level_usage(obj)
         return nil unless usage
-        return nil unless token_fields_present?(usage, "input_tokens", "inputTokens", "input", "output_tokens", "outputTokens", "output")
+        input, input_present = token_value(usage, "input_tokens", "inputTokens", "input")
+        output, output_present = token_value(usage, "output_tokens", "outputTokens", "output")
+        return nil unless input_present || output_present
 
         {
           source: :usage,
-          input: token_value(usage, "input_tokens", "inputTokens", "input"),
-          output: token_value(usage, "output_tokens", "outputTokens", "output")
+          input: input,
+          output: output
         }
       end
 
@@ -359,13 +365,9 @@ module AgentHarness
 
       def token_value(obj, *keys)
         key = keys.find { |candidate| obj.key?(candidate) }
-        return 0 unless key
+        return [0, false] unless key
 
-        obj[key].to_i
-      end
-
-      def token_fields_present?(obj, *keys)
-        keys.any? { |candidate| obj.key?(candidate) }
+        coerce_token_value(obj[key])
       end
 
       def build_tokens(usage_tokens_present:, usage_input:, usage_output:, fallback_tokens_present:, fallback_input:,
@@ -404,6 +406,21 @@ module AgentHarness
         Gem::Version.new(match[1])
       rescue ArgumentError
         nil
+      end
+
+      def coerce_token_value(value)
+        case value
+        when Integer
+          [value, true]
+        when Float
+          [value.to_i, true]
+        when String
+          return [value.to_i, true] if /\A[+-]?\d+\z/.match?(value)
+
+          [0, false]
+        else
+          [0, false]
+        end
       end
     end
   end

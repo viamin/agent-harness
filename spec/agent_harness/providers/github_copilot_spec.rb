@@ -452,6 +452,19 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         expect(response.tokens).to eq({input: 0, output: 4, total: 4})
       end
 
+      it "ignores malformed token values on usage events" do
+        jsonl = <<~JSONL
+          {"type":"usage","data":{"inputTokens":true,"outputTokens":[]}}
+          {"type":"assistant.message","data":{"content":"ok"}}
+        JSONL
+        result = make_result(stdout: jsonl)
+        response = nil
+
+        expect { response = provider.send(:parse_response, result, duration: 1.0) }.not_to raise_error
+        expect(response.output).to eq("ok")
+        expect(response.tokens).to be_nil
+      end
+
       it "extracts tokens from top-level tokens key" do
         jsonl = '{"tokens":{"input_tokens":2,"output_tokens":6}}'
         result = make_result(stdout: jsonl)
@@ -498,6 +511,19 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         response = provider.send(:parse_response, result, duration: 1.0)
 
         expect(response.tokens).to eq({input: 0, output: 7, total: 7})
+      end
+
+      it "ignores malformed token values in top-level usage payloads" do
+        jsonl = <<~JSONL
+          {"usage":{"input_tokens":{},"output_tokens":false}}
+          {"output":"ok"}
+        JSONL
+        result = make_result(stdout: jsonl)
+        response = nil
+
+        expect { response = provider.send(:parse_response, result, duration: 1.0) }.not_to raise_error
+        expect(response.output).to eq("ok")
+        expect(response.tokens).to be_nil
       end
 
       it "handles nil stdout gracefully" do
