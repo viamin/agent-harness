@@ -416,8 +416,12 @@ module AgentHarness
         when Hash
           extract_text_value(value["text"]) ||
             extract_text_value(value["content"]) ||
+            extract_text_value(value["parts"]) ||
             extract_text_value(value["result"]) ||
-            extract_text_value(value["deltaContent"])
+            extract_text_value(value["deltaContent"]) ||
+            extract_text_value(value["delta"]) ||
+            extract_text_value(value["message"]) ||
+            extract_text_value(value["data"])
         end
       end
 
