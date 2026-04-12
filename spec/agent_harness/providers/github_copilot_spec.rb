@@ -164,6 +164,31 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
 
         expect(provider.supports_token_counting?).to be false
       end
+
+      it "returns false when the version probe fails" do
+        allow(mock_executor).to receive(:execute).with(
+          ["github-copilot-cli", "--version"],
+          timeout: 5
+        ).and_raise(StandardError, "temporary failure")
+
+        expect(provider.supports_token_counting?).to be false
+      end
+
+      it "returns false when the version probe output is unparsable" do
+        allow(mock_executor).to receive(:execute).with(
+          ["github-copilot-cli", "--version"],
+          timeout: 5
+        ).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "github-copilot-cli version unknown",
+            stderr: "",
+            exit_code: 0,
+            duration: 0.1
+          )
+        )
+
+        expect(provider.supports_token_counting?).to be false
+      end
     end
 
     describe "#error_patterns" do

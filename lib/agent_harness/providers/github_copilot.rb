@@ -284,7 +284,7 @@ module AgentHarness
 
       def supports_json_output_format?(probe_timeout: nil)
         version = copilot_cli_version(probe_timeout: probe_timeout)
-        version && version >= JSON_OUTPUT_MIN_VERSION
+        !version.nil? && version >= JSON_OUTPUT_MIN_VERSION
       end
 
       def copilot_cli_version(probe_timeout: nil)
