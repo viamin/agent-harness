@@ -156,20 +156,8 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
     end
 
     describe "#build_command" do
-      it "omits --allow-all-tools when dangerous_mode is not set" do
+      it "always includes --allow-all-tools for programmatic mode" do
         command = provider.send(:build_command, "Hello", {})
-
-        expect(command).to eq([
-          "github-copilot-cli",
-          "-p",
-          "Hello",
-          "--output-format",
-          "json"
-        ])
-      end
-
-      it "includes --allow-all-tools when dangerous_mode is set" do
-        command = provider.send(:build_command, "Hello", {dangerous_mode: true})
 
         expect(command).to eq([
           "github-copilot-cli",
@@ -181,22 +169,8 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         ])
       end
 
-      it "omits --allow-all-tools when only session is provided" do
+      it "includes session flags alongside --allow-all-tools" do
         command = provider.send(:build_command, "Hello", {session: "session-123"})
-
-        expect(command).to eq([
-          "github-copilot-cli",
-          "-p",
-          "Hello",
-          "--output-format",
-          "json",
-          "--resume",
-          "session-123"
-        ])
-      end
-
-      it "includes --allow-all-tools and session flags when both are set" do
-        command = provider.send(:build_command, "Hello", {dangerous_mode: true, session: "session-123"})
 
         expect(command).to eq([
           "github-copilot-cli",
@@ -228,34 +202,36 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         )
 
         expect(mock_executor).to receive(:execute).with(
-          ["github-copilot-cli", "-p", "Hello", "--output-format", "json"],
+          ["github-copilot-cli", "-p", "Hello", "--output-format", "json", "--allow-all-tools"],
           anything
         )
 
         provider.send_message(prompt: "Hello")
       end
 
-      it "includes --allow-all-tools when dangerous_mode is true" do
-        jsonl_output = [
-          {"text" => "response"},
-          {"usage" => {"input_tokens" => 10, "output_tokens" => 5}}
-        ].map { |o| JSON.generate(o) }.join("\n")
+      context "with dangerous_mode" do
+        it "includes --allow-all-tools in the command" do
+          jsonl_output = [
+            {"text" => "response"},
+            {"usage" => {"input_tokens" => 10, "output_tokens" => 5}}
+          ].map { |o| JSON.generate(o) }.join("\n")
 
-        allow(mock_executor).to receive(:execute).and_return(
-          AgentHarness::CommandExecutor::Result.new(
-            stdout: jsonl_output,
-            stderr: "",
-            exit_code: 0,
-            duration: 1.0
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
           )
-        )
 
-        expect(mock_executor).to receive(:execute).with(
-          ["github-copilot-cli", "-p", "Hello", "--output-format", "json", "--allow-all-tools"],
-          anything
-        )
+          expect(mock_executor).to receive(:execute).with(
+            ["github-copilot-cli", "-p", "Hello", "--output-format", "json", "--allow-all-tools"],
+            anything
+          )
 
-        provider.send_message(prompt: "Hello", dangerous_mode: true)
+          provider.send_message(prompt: "Hello", dangerous_mode: true)
+        end
       end
 
       context "with token usage parsing" do

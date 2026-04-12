@@ -185,9 +185,10 @@ module AgentHarness
 
         cmd += ["--output-format", "json"]
 
-        if options[:dangerous_mode] && supports_dangerous_mode?
-          cmd += dangerous_mode_flags
-        end
+        # Always include --allow-all-tools because -p (programmatic mode) cannot
+        # present interactive tool-permission prompts; omitting the flag would
+        # cause any task that needs shell/file/MCP tools to hang or fail.
+        cmd += dangerous_mode_flags
 
         if options[:session] && !options[:session].empty?
           cmd += session_flags(options[:session])
