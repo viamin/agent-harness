@@ -290,6 +290,8 @@ module AgentHarness
         end
 
         if value.is_a?(Float) && value.finite?
+          return nil unless value == value.to_i
+
           coerced = value.to_i
           return coerced if coerced >= 0
 

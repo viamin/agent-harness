@@ -661,6 +661,27 @@ RSpec.describe AgentHarness::Providers::Kilocode do
         expect(response.tokens).to eq({input: 10, output: 5, total: 15})
       end
 
+      it "ignores non-integral float token values in step_finish payloads" do
+        ndjson = [
+          {"type" => "text", "part" => {"text" => "Done!"}},
+          {"type" => "step_finish", "part" => {"tokens" => {"input" => 12.5, "output" => 3.75}}},
+          {"type" => "result", "usage" => {"input_tokens" => 10, "output_tokens" => 5}}
+        ].map { |e| JSON.generate(e) }.join("\n")
+
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: ndjson,
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        response = provider.send_message(prompt: "Hello")
+        expect(response.output).to eq("Done!")
+        expect(response.tokens).to eq({input: 10, output: 5, total: 15})
+      end
+
       it "ignores negative token values in step_finish payloads" do
         ndjson = [
           {"type" => "text", "part" => {"text" => "Done!"}},
@@ -749,6 +770,27 @@ RSpec.describe AgentHarness::Providers::Kilocode do
           {"type" => "text", "part" => {"text" => "Response"}},
           {"type" => "step_finish", "part" => {"tokens" => {"input" => 100, "output" => 50}}},
           {"type" => "result", "usage" => {"input_tokens" => {"bad" => true}, "output_tokens" => [1, 2]}}
+        ].map { |e| JSON.generate(e) }.join("\n")
+
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: ndjson,
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        response = provider.send_message(prompt: "Hello")
+        expect(response.output).to eq("Response")
+        expect(response.tokens).to eq({input: 100, output: 50, total: 150})
+      end
+
+      it "falls back to accumulated step_finish tokens when usage token values are non-integral floats" do
+        ndjson = [
+          {"type" => "text", "part" => {"text" => "Response"}},
+          {"type" => "step_finish", "part" => {"tokens" => {"input" => 100, "output" => 50}}},
+          {"type" => "result", "usage" => {"input_tokens" => 120.5, "output_tokens" => 40.25}}
         ].map { |e| JSON.generate(e) }.join("\n")
 
         allow(mock_executor).to receive(:execute).and_return(
