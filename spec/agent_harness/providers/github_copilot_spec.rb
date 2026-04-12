@@ -411,6 +411,14 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         expect(response.tokens).to eq({input: 3, output: 4, total: 7})
       end
 
+      it "does not double-count mixed token aliases on usage events" do
+        jsonl = '{"type":"usage","data":{"inputTokens":3,"input_tokens":9,"outputTokens":4,"output_tokens":8}}'
+        result = make_result(stdout: jsonl)
+        response = provider.send(:parse_response, result, duration: 1.0)
+
+        expect(response.tokens).to eq({input: 3, output: 4, total: 7})
+      end
+
       it "extracts tokens from top-level tokens key" do
         jsonl = '{"tokens":{"input_tokens":2,"output_tokens":6}}'
         result = make_result(stdout: jsonl)
@@ -429,6 +437,14 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
 
       it "extracts tokens from top-level input/output shorthand fields" do
         jsonl = '{"usage":{"input":4,"output":7}}'
+        result = make_result(stdout: jsonl)
+        response = provider.send(:parse_response, result, duration: 1.0)
+
+        expect(response.tokens).to eq({input: 4, output: 7, total: 11})
+      end
+
+      it "does not double-count mixed token aliases in top-level usage payloads" do
+        jsonl = '{"usage":{"input_tokens":4,"inputTokens":9,"input":12,"output_tokens":7,"outputTokens":10,"output":15}}'
         result = make_result(stdout: jsonl)
         response = provider.send(:parse_response, result, duration: 1.0)
 

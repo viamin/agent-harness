@@ -291,25 +291,26 @@ module AgentHarness
         if obj["type"] && obj["data"].is_a?(Hash)
           if USAGE_EVENT_TYPES.include?(obj["type"])
             data = obj["data"]
-            total_input += data["inputTokens"].to_i if data["inputTokens"]
-            total_output += data["outputTokens"].to_i if data["outputTokens"]
-            total_input += data["input_tokens"].to_i if data["input_tokens"]
-            total_output += data["output_tokens"].to_i if data["output_tokens"]
+            total_input += token_value(data, "inputTokens", "input_tokens")
+            total_output += token_value(data, "outputTokens", "output_tokens")
           end
           return [total_input, total_output]
         end
 
         usage = obj["usage"] || obj["tokens"]
         if usage.is_a?(Hash)
-          total_input += usage["input_tokens"].to_i if usage["input_tokens"]
-          total_output += usage["output_tokens"].to_i if usage["output_tokens"]
-          total_input += usage["inputTokens"].to_i if usage["inputTokens"]
-          total_output += usage["outputTokens"].to_i if usage["outputTokens"]
-          total_input += usage["input"].to_i if usage["input"]
-          total_output += usage["output"].to_i if usage["output"]
+          total_input += token_value(usage, "input_tokens", "inputTokens", "input")
+          total_output += token_value(usage, "output_tokens", "outputTokens", "output")
         end
 
         [total_input, total_output]
+      end
+
+      def token_value(obj, *keys)
+        key = keys.find { |candidate| obj[candidate] }
+        return 0 unless key
+
+        obj[key].to_i
       end
 
       def copilot_cli_supports_json_output?
