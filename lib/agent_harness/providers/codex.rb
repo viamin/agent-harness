@@ -17,6 +17,11 @@ module AgentHarness
         /failed to refresh token\b.*\binvalid_client\b/im,
         /failed to refresh token\b.*\binvalid_grant\b/im,
         /failed to refresh token\b.*invalid.*refresh.*token/im,
+        /your access token could not be refreshed because\b.*\b401\b/im,
+        /your access token could not be refreshed because\b.*unauthorized/im,
+        /your access token could not be refreshed because\b.*\binvalid_client\b/im,
+        /your access token could not be refreshed because\b.*\binvalid_grant\b/im,
+        /your access token could not be refreshed because\b.*invalid.*refresh.*token/im,
         /your access token could not be refreshed because\s+your refresh token .*already (?:been )?used/im,
         /refresh token .*already (?:been )?used/im
       ].freeze

@@ -380,6 +380,19 @@ RSpec.describe AgentHarness::Providers::Codex do
         end
       end
 
+      it "raises AuthenticationError for multiline access-token OAuth invalid_grant failures" do
+        allow(mock_executor).to receive(:execute).and_raise(
+          StandardError.new(<<~ERROR)
+            Your access token could not be refreshed because
+            invalid_grant
+          ERROR
+        )
+
+        expect { provider.send_message(prompt: "Hello") }.to raise_error(AgentHarness::AuthenticationError) do |error|
+          expect(error.provider).to eq(:codex)
+        end
+      end
+
       it "does not raise AuthenticationError for transient OAuth refresh failures" do
         allow(mock_executor).to receive(:execute).and_raise(
           StandardError.new(
@@ -719,6 +732,16 @@ RSpec.describe AgentHarness::Providers::Codex do
             patterns
           )
         ).to eq(:auth_expired)
+
+        expect(
+          AgentHarness::ErrorTaxonomy.classify(
+            StandardError.new(<<~ERROR),
+              Your access token could not be refreshed because
+              invalid_client
+            ERROR
+            patterns
+          )
+        ).to eq(:auth_expired)
       end
 
       it "does not classify transient refresh failures as auth_expired" do
@@ -933,6 +956,25 @@ RSpec.describe AgentHarness::Providers::Codex do
             stderr: <<~ERROR,
               Your access token could not be refreshed because
               your refresh token was already used. Please log out and sign in again.
+            ERROR
+            exit_code: 1,
+            duration: 1.0
+          )
+        )
+
+        result = provider.smoke_test
+
+        expect(result[:ok]).to be false
+        expect(result[:error_category]).to eq(:auth_expired)
+      end
+
+      it "normalizes multiline access-token OAuth invalid_client failures to auth_expired" do
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "",
+            stderr: <<~ERROR,
+              Your access token could not be refreshed because
+              invalid_client
             ERROR
             exit_code: 1,
             duration: 1.0
