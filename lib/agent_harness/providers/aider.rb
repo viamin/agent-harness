@@ -441,13 +441,17 @@ module AgentHarness
         tokens = stripped.sub(/\A[$>#]\s*/, "").split(/\s+/)
         return false if tokens.empty?
         return false unless tokens.first.match?(/\A[\w.\/~:-]+\z/)
-        return true if tokens.length == 1
+        return command_token?(tokens.first) if tokens.length == 1
 
         tokens[1..].all? do |token|
           token.match?(%r{\A(?:&&|\|\|?|[<>]|>>|&>|2>|[~-]|["'$`(])}) ||
             token.match?(%r{[/.=:]}) ||
             (tokens.length == 2 && token.match?(/\A[\w-]+\z/))
         end
+      end
+
+      def command_token?(token)
+        token.match?(/\A[a-z0-9_][\w.\/~:-]*\z/) && token.match?(/[a-z]/)
       end
 
       def parse_token_count(value)
