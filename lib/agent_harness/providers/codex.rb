@@ -151,7 +151,7 @@ module AgentHarness
       def execution_semantics
         {
           prompt_delivery: :arg,
-          output_format: :text,
+          output_format: :json,
           sandbox_aware: true,
           uses_subcommand: true,
           non_interactive_flag: nil,
@@ -241,7 +241,30 @@ module AgentHarness
       protected
 
       def parse_response(result, duration:)
-        response = super
+        output = result.stdout
+        error = nil
+        tokens = nil
+
+        if result.failed?
+          combined = [result.stdout, result.stderr].compact.join("\n")
+          error = combined unless combined.to_s.strip.empty?
+        end
+
+        parsed = parse_jsonl_output(output)
+        if parsed
+          output = parsed[:text] if parsed[:text]
+          tokens = parsed[:tokens]
+        end
+
+        response = Response.new(
+          output: output,
+          exit_code: result.exit_code,
+          duration: duration,
+          provider: self.class.provider_name,
+          model: @config.model,
+          tokens: tokens,
+          error: error
+        )
 
         if response.success? && sandbox_failure_detected?(result.stderr)
           return Response.new(
@@ -258,7 +281,7 @@ module AgentHarness
       end
 
       def build_command(prompt, options)
-        cmd = [self.class.binary_name, "exec"]
+        cmd = [self.class.binary_name, "exec", "--json"]
         externally_sandboxed = externally_sandboxed?(options)
 
         # When externally_sandboxed is set, use --dangerously-bypass-approvals-and-sandbox
@@ -319,6 +342,57 @@ module AgentHarness
       end
 
       private
+
+      def parse_jsonl_output(raw_output)
+        return nil if raw_output.nil? || raw_output.strip.empty?
+
+        events = raw_output.lines.filter_map do |line|
+          line = line.strip
+          next if line.empty?
+          JSON.parse(line)
+        rescue JSON::ParserError
+          nil
+        end
+
+        return nil if events.empty?
+
+        text_parts = []
+        total_input = 0
+        total_output = 0
+
+        events.each do |event|
+          type = event["type"]
+
+          if type == "message.delta"
+            delta = event["delta"]
+            if delta.is_a?(Hash)
+              content = delta["text"]
+              text_parts << content if content.is_a?(String)
+            end
+          elsif type == "turn.completed"
+            usage = event["usage"]
+            if usage.is_a?(Hash)
+              total_input += usage["input_tokens"].to_i
+              total_output += usage["output_tokens"].to_i
+            end
+
+            result = event["result"]
+            if result.is_a?(String) && !result.empty?
+              text_parts = [result]
+            end
+          end
+        end
+
+        text = text_parts.empty? ? nil : text_parts.join
+        has_tokens = total_input > 0 || total_output > 0
+
+        {
+          text: text,
+          tokens: has_tokens ? {input: total_input, output: total_output, total: total_input + total_output} : nil
+        }
+      rescue
+        nil
+      end
 
       def externally_sandboxed?(options)
         if options.key?(:externally_sandboxed)

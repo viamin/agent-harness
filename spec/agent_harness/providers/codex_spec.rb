@@ -184,6 +184,10 @@ RSpec.describe AgentHarness::Providers::Codex do
       it "reports uses_subcommand as true" do
         expect(provider.execution_semantics[:uses_subcommand]).to be true
       end
+
+      it "reports output_format as json" do
+        expect(provider.execution_semantics[:output_format]).to eq(:json)
+      end
     end
 
     describe "#send_message" do
@@ -198,9 +202,9 @@ RSpec.describe AgentHarness::Providers::Codex do
         )
       end
 
-      it "builds command with exec subcommand and positional prompt" do
+      it "builds command with exec subcommand, --json flag, and positional prompt" do
         expect(mock_executor).to receive(:execute).with(
-          ["codex", "exec", "Hello"],
+          ["codex", "exec", "--json", "Hello"],
           anything
         ).and_return(success_result)
 
@@ -209,7 +213,7 @@ RSpec.describe AgentHarness::Providers::Codex do
 
       it "includes session flags when session is provided" do
         expect(mock_executor).to receive(:execute).with(
-          ["codex", "exec", "--session", "session-123", "Hello"],
+          ["codex", "exec", "--json", "--session", "session-123", "Hello"],
           anything
         ).and_return(success_result)
 
@@ -223,7 +227,7 @@ RSpec.describe AgentHarness::Providers::Codex do
         it "includes --full-auto to skip nested sandboxing" do
           allow(docker_executor).to receive(:is_a?).with(AgentHarness::DockerCommandExecutor).and_return(true)
           expect(docker_executor).to receive(:execute).with(
-            ["codex", "exec", "--full-auto", "Hello"],
+            ["codex", "exec", "--json", "--full-auto", "Hello"],
             anything
           ).and_return(success_result)
 
@@ -233,7 +237,7 @@ RSpec.describe AgentHarness::Providers::Codex do
         it "uses only the bypass flag when externally sandboxed, skipping --full-auto" do
           allow(docker_executor).to receive(:is_a?).with(AgentHarness::DockerCommandExecutor).and_return(true)
           expect(docker_executor).to receive(:execute).with(
-            ["codex", "exec", "--dangerously-bypass-approvals-and-sandbox", "Hello"],
+            ["codex", "exec", "--json", "--dangerously-bypass-approvals-and-sandbox", "Hello"],
             anything
           ).and_return(success_result)
 
@@ -244,7 +248,7 @@ RSpec.describe AgentHarness::Providers::Codex do
       context "when dangerous_mode is requested" do
         it "includes --full-auto" do
           expect(mock_executor).to receive(:execute).with(
-            ["codex", "exec", "--full-auto", "Hello"],
+            ["codex", "exec", "--json", "--full-auto", "Hello"],
             anything
           ).and_return(success_result)
 
@@ -277,7 +281,7 @@ RSpec.describe AgentHarness::Providers::Codex do
 
         it "includes default_flags in the command" do
           expect(mock_executor).to receive(:execute).with(
-            ["codex", "exec", "--quiet", "--no-color", "Hello"],
+            ["codex", "exec", "--json", "--quiet", "--no-color", "Hello"],
             anything
           ).and_return(success_result)
 
@@ -296,7 +300,7 @@ RSpec.describe AgentHarness::Providers::Codex do
 
         it "strips --full-auto from default_flags to avoid sandbox mode conflict" do
           expect(mock_executor).to receive(:execute).with(
-            ["codex", "exec", "--quiet", "--dangerously-bypass-approvals-and-sandbox", "Hello"],
+            ["codex", "exec", "--json", "--quiet", "--dangerously-bypass-approvals-and-sandbox", "Hello"],
             anything
           ).and_return(success_result)
 
@@ -305,9 +309,14 @@ RSpec.describe AgentHarness::Providers::Codex do
       end
 
       it "returns a Response object" do
+        jsonl_output = [
+          JSON.generate({"type" => "message.delta", "delta" => {"text" => "response output"}}),
+          JSON.generate({"type" => "turn.completed", "usage" => {"input_tokens" => 10, "output_tokens" => 5}})
+        ].join("\n")
+
         allow(mock_executor).to receive(:execute).and_return(
           AgentHarness::CommandExecutor::Result.new(
-            stdout: "response output",
+            stdout: jsonl_output,
             stderr: "",
             exit_code: 0,
             duration: 1.5
@@ -322,7 +331,7 @@ RSpec.describe AgentHarness::Providers::Codex do
       context "with dangerous_mode option" do
         it "includes --full-auto flag" do
           expect(mock_executor).to receive(:execute).with(
-            ["codex", "exec", "--full-auto", "Hello"],
+            ["codex", "exec", "--json", "--full-auto", "Hello"],
             anything
           ).and_return(success_result)
 
@@ -333,7 +342,7 @@ RSpec.describe AgentHarness::Providers::Codex do
       context "with externally_sandboxed option" do
         it "includes bypass flag compatible with current codex cli" do
           expect(mock_executor).to receive(:execute).with(
-            ["codex", "exec", "--dangerously-bypass-approvals-and-sandbox", "Hello"],
+            ["codex", "exec", "--json", "--dangerously-bypass-approvals-and-sandbox", "Hello"],
             anything
           ).and_return(success_result)
 
@@ -351,7 +360,7 @@ RSpec.describe AgentHarness::Providers::Codex do
 
         it "includes bypass flag from config" do
           expect(mock_executor).to receive(:execute).with(
-            ["codex", "exec", "--dangerously-bypass-approvals-and-sandbox", "Hello"],
+            ["codex", "exec", "--json", "--dangerously-bypass-approvals-and-sandbox", "Hello"],
             anything
           ).and_return(success_result)
 
@@ -362,7 +371,7 @@ RSpec.describe AgentHarness::Providers::Codex do
       context "with both dangerous_mode and externally_sandboxed" do
         it "uses only the bypass flag, skipping --full-auto to avoid sandbox mode conflict" do
           expect(mock_executor).to receive(:execute).with(
-            ["codex", "exec", "--dangerously-bypass-approvals-and-sandbox", "Hello"],
+            ["codex", "exec", "--json", "--dangerously-bypass-approvals-and-sandbox", "Hello"],
             anything
           ).and_return(success_result)
 
@@ -380,7 +389,7 @@ RSpec.describe AgentHarness::Providers::Codex do
 
         it "does not include bypass flag when per-call option is false" do
           expect(mock_executor).to receive(:execute).with(
-            ["codex", "exec", "Hello"],
+            ["codex", "exec", "--json", "Hello"],
             anything
           ).and_return(success_result)
 
@@ -404,6 +413,169 @@ RSpec.describe AgentHarness::Providers::Codex do
           expect(response.success?).to be false
           expect(response.exit_code).not_to eq(0)
           expect(response.error).to include("Sandbox failure detected")
+        end
+      end
+
+      context "with token usage parsing" do
+        it "extracts token usage from JSONL turn.completed events" do
+          jsonl_output = [
+            JSON.generate({"type" => "message.delta", "delta" => {"text" => "Hello!"}}),
+            JSON.generate({"type" => "turn.completed", "usage" => {"input_tokens" => 100, "cached_input_tokens" => 50, "output_tokens" => 25}})
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq("Hello!")
+          expect(response.tokens).to eq({input: 100, output: 25, total: 125})
+          expect(response.input_tokens).to eq(100)
+          expect(response.output_tokens).to eq(25)
+          expect(response.total_tokens).to eq(125)
+        end
+
+        it "aggregates token usage across multiple turns" do
+          jsonl_output = [
+            JSON.generate({"type" => "message.delta", "delta" => {"text" => "Part 1"}}),
+            JSON.generate({"type" => "turn.completed", "usage" => {"input_tokens" => 50, "output_tokens" => 10}}),
+            JSON.generate({"type" => "message.delta", "delta" => {"text" => "Part 2"}}),
+            JSON.generate({"type" => "turn.completed", "usage" => {"input_tokens" => 60, "output_tokens" => 20}})
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 2.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.tokens).to eq({input: 110, output: 30, total: 140})
+        end
+
+        it "extracts text from turn.completed result field" do
+          jsonl_output = [
+            JSON.generate({"type" => "message.delta", "delta" => {"text" => "partial"}}),
+            JSON.generate({"type" => "turn.completed", "usage" => {"input_tokens" => 10, "output_tokens" => 5}, "result" => "final answer"})
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq("final answer")
+        end
+
+        it "handles JSONL output without usage data" do
+          jsonl_output = [
+            JSON.generate({"type" => "message.delta", "delta" => {"text" => "Hello!"}}),
+            JSON.generate({"type" => "turn.completed"})
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq("Hello!")
+          expect(response.tokens).to be_nil
+        end
+
+        it "handles non-JSON output gracefully with nil tokens" do
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: "plain text response",
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq("plain text response")
+          expect(response.tokens).to be_nil
+        end
+
+        it "handles empty output gracefully" do
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: "",
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq("")
+          expect(response.tokens).to be_nil
+        end
+
+        it "handles mixed JSONL and non-JSON lines" do
+          jsonl_output = [
+            "some debug line",
+            JSON.generate({"type" => "message.delta", "delta" => {"text" => "result"}}),
+            JSON.generate({"type" => "turn.completed", "usage" => {"input_tokens" => 10, "output_tokens" => 5}}),
+            "another non-json line"
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq("result")
+          expect(response.tokens).to eq({input: 10, output: 5, total: 15})
+        end
+
+        it "records tokens with the global token tracker" do
+          jsonl_output = [
+            JSON.generate({"type" => "message.delta", "delta" => {"text" => "Tracked"}}),
+            JSON.generate({"type" => "turn.completed", "usage" => {"input_tokens" => 50, "output_tokens" => 25}})
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          tracker = AgentHarness.token_tracker
+          tracker.clear!
+
+          provider.send_message(prompt: "Hello")
+
+          summary = tracker.summary
+          expect(summary[:total_input_tokens]).to eq(50)
+          expect(summary[:total_output_tokens]).to eq(25)
+          expect(summary[:total_tokens]).to eq(75)
         end
       end
     end
