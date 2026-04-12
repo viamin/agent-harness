@@ -405,7 +405,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         result = make_result(stdout: jsonl)
         response = provider.send(:parse_response, result, duration: 1.0)
 
-        expect(response.output).to eq("preface\necho helloepilogue\n")
+        expect(response.output).to eq("preface\necho hello\nepilogue\n")
       end
 
       it "preserves literal JSON object stdout alongside assistant reply events" do
@@ -417,6 +417,17 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         response = provider.send(:parse_response, result, duration: 1.0)
 
         expect(response.output).to eq("{\"argv\":[\"echo\",\"hello\"]}\necho hello")
+      end
+
+      it "preserves line boundaries around literal JSON after assistant reply events" do
+        jsonl = <<~JSONL
+          {"type":"assistant.message","data":{"content":"echo hello"}}
+          {"argv":["echo","hello"]}
+        JSONL
+        result = make_result(stdout: jsonl)
+        response = provider.send(:parse_response, result, duration: 1.0)
+
+        expect(response.output).to eq("echo hello\n{\"argv\":[\"echo\",\"hello\"]}\n")
       end
 
       it "ignores scalar JSON lines when extracting text" do

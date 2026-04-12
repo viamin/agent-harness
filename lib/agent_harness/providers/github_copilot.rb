@@ -231,14 +231,14 @@ module AgentHarness
         fallback_input = 0
         fallback_output = 0
         fallback_tokens_present = false
-        rendered_output = +""
+        output_segments = []
         output.lines.each do |line|
           stripped_line = line.strip
           next if stripped_line.empty?
           begin
             obj = JSON.parse(stripped_line)
           rescue JSON::ParserError
-            rendered_output << line
+            output_segments << {kind: :raw, content: line, terminated: line.end_with?("\n")}
             next
           end
 
@@ -246,9 +246,9 @@ module AgentHarness
 
           text = extract_event_text(obj)
           if text
-            rendered_output << text
+            output_segments << {kind: :assistant, content: text, terminated: line.end_with?("\n")}
           elsif preserve_raw_json_line?(obj)
-            rendered_output << line
+            output_segments << {kind: :raw, content: line, terminated: line.end_with?("\n")}
           end
 
           token_usage = extract_token_usage(obj)
@@ -280,7 +280,7 @@ module AgentHarness
           fallback_input: fallback_input,
           fallback_output: fallback_output
         )
-        final_output = structured_json_seen ? rendered_output : output
+        final_output = structured_json_seen ? render_output_segments(output_segments) : output
 
         Response.new(
           output: final_output,
@@ -456,6 +456,24 @@ module AgentHarness
         return nil unless fallback_tokens_present
 
         {input: fallback_input, output: fallback_output, total: fallback_input + fallback_output}
+      end
+
+      def render_output_segments(segments)
+        rendered = +""
+        previous_kind = nil
+        previous_terminated = false
+
+        segments.each do |segment|
+          if previous_terminated && previous_kind == :assistant && segment[:kind] != :assistant && !rendered.end_with?("\n")
+            rendered << "\n"
+          end
+
+          rendered << segment[:content]
+          previous_kind = segment[:kind]
+          previous_terminated = segment[:terminated]
+        end
+
+        rendered
       end
 
       def copilot_cli_supports_json_output?
