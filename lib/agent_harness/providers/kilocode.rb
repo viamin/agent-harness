@@ -191,7 +191,10 @@ module AgentHarness
           provider: self.class.provider_name,
           model: @config.model,
           tokens: tokens,
-          error: error
+          error: error,
+          metadata: {
+            legitimate_exit_codes: execution_semantics[:legitimate_exit_codes]
+          }
         )
       end
 

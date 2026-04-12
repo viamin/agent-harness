@@ -363,6 +363,28 @@ RSpec.describe AgentHarness::Providers::Kilocode do
         expect(summary[:total_tokens]).to eq(75)
       end
 
+      it "sets error and output when failed but stdout contains valid NDJSON" do
+        ndjson = [
+          {"type" => "text", "part" => {"text" => "Partial response"}},
+          {"type" => "result", "usage" => {"input_tokens" => 10, "output_tokens" => 5}}
+        ].map { |e| JSON.generate(e) }.join("\n")
+
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: ndjson,
+            stderr: "something went wrong",
+            exit_code: 1,
+            duration: 1.0
+          )
+        )
+
+        response = provider.send_message(prompt: "Hello")
+        expect(response.failed?).to be true
+        expect(response.error).to include("something went wrong")
+        expect(response.output).to eq("Partial response")
+        expect(response.tokens).to eq({input: 10, output: 5, total: 15})
+      end
+
       it "classifies errors on non-zero exit code" do
         allow(mock_executor).to receive(:execute).and_return(
           AgentHarness::CommandExecutor::Result.new(
