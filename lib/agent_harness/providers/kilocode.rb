@@ -194,7 +194,9 @@ module AgentHarness
           end
 
           usage = event["usage"]
-          result_usage = usage if usage.is_a?(Hash)
+          if usage.is_a?(Hash) && usage_has_token_data?(usage)
+            result_usage = usage
+          end
         end
 
         if saw_structured_event
@@ -283,6 +285,15 @@ module AgentHarness
         total = explicit_total || [synthesized_total, input + output, fallback_total].compact.max
 
         {input: input, output: output, total: total}
+      end
+
+      def usage_has_token_data?(usage)
+        input = coerce_token_count(usage["input_tokens"])
+        output = coerce_token_count(usage["output_tokens"])
+        explicit_total = extract_explicit_total_token_count(usage)
+        synthesized_total = synthesize_usage_total_token_count(usage, input:, output:)
+
+        input || output || explicit_total || synthesized_total
       end
 
       def extract_error_message(event)

@@ -871,6 +871,44 @@ RSpec.describe AgentHarness::Providers::Kilocode do
         expect(response.tokens).to eq({input: 50, output: 25, total: 75})
       end
 
+      it "preserves earlier valid usage when a later usage hash is empty" do
+        ndjson = [
+          {"type" => "result", "usage" => {"input_tokens" => 50, "output_tokens" => 25}},
+          {"type" => "usage", "usage" => {}}
+        ].map { |e| JSON.generate(e) }.join("\n")
+
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: ndjson,
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        response = provider.send_message(prompt: "Hello")
+        expect(response.tokens).to eq({input: 50, output: 25, total: 75})
+      end
+
+      it "preserves earlier valid usage when a later usage hash has no usable token counts" do
+        ndjson = [
+          {"type" => "result", "usage" => {"input_tokens" => 50, "output_tokens" => 25}},
+          {"type" => "usage", "usage" => {"input_tokens" => {"bad" => true}, "output_tokens" => -1}}
+        ].map { |e| JSON.generate(e) }.join("\n")
+
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: ndjson,
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        response = provider.send_message(prompt: "Hello")
+        expect(response.tokens).to eq({input: 50, output: 25, total: 75})
+      end
+
       it "falls back to accumulated step_finish tokens when usage token values are invalid" do
         ndjson = [
           {"type" => "text", "part" => {"text" => "Response"}},
