@@ -211,7 +211,10 @@ module AgentHarness
           line = line.strip
           next if line.empty?
 
-          yield JSON.parse(line)
+          event = JSON.parse(line)
+          next unless event.is_a?(Hash)
+
+          yield event
         rescue JSON::ParserError
           next
         end

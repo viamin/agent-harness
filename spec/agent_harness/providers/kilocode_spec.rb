@@ -415,6 +415,31 @@ RSpec.describe AgentHarness::Providers::Kilocode do
         expect(response.tokens).to be_nil
       end
 
+      it "skips scalar JSON values (true, false, null, numbers, strings) in the event stream" do
+        ndjson = [
+          "true",
+          "false",
+          "null",
+          "42",
+          "\"ok\"",
+          JSON.generate({"type" => "text", "part" => {"text" => "valid text"}}),
+          JSON.generate({"type" => "result", "usage" => {"input_tokens" => 5, "output_tokens" => 3}})
+        ].join("\n")
+
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: ndjson,
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        response = provider.send_message(prompt: "Hello")
+        expect(response.output).to eq("valid text")
+        expect(response.tokens).to eq({input: 5, output: 3, total: 8})
+      end
+
       it "skips malformed JSON lines in the event stream" do
         ndjson = [
           "not-json",
