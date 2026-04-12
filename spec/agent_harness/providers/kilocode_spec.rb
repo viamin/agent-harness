@@ -296,6 +296,27 @@ RSpec.describe AgentHarness::Providers::Kilocode do
         expect(response.tokens).to be_nil
       end
 
+      it "preserves raw output for JSON objects with unknown type values" do
+        raw_json = JSON.generate({
+          "type" => "object",
+          "message" => "plain json response",
+          "usage" => {"input_tokens" => 100, "output_tokens" => 50}
+        })
+
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: raw_json,
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        response = provider.send_message(prompt: "Hello")
+        expect(response.output).to eq(raw_json)
+        expect(response.tokens).to be_nil
+      end
+
       it "handles usage containing only input tokens" do
         ndjson = [
           {"type" => "text", "part" => {"text" => "Response text"}},

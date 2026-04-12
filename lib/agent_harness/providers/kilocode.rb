@@ -11,6 +11,7 @@ module AgentHarness
       PACKAGE_NAME = "@kilocode/cli"
       DEFAULT_VERSION = "7.1.3"
       SUPPORTED_VERSION_REQUIREMENT = "= #{DEFAULT_VERSION}"
+      STRUCTURED_EVENT_TYPES = %w[text error step_finish result usage].freeze
 
       class << self
         def provider_name
@@ -161,7 +162,9 @@ module AgentHarness
         saw_structured_event = false
 
         each_json_event(output) do |event|
-          saw_structured_event ||= structured_event?(event)
+          next unless structured_event?(event)
+
+          saw_structured_event = true
           part = event["part"]
 
           if event["type"] == "text"
@@ -325,7 +328,7 @@ module AgentHarness
       end
 
       def structured_event?(event)
-        event["type"].is_a?(String)
+        STRUCTURED_EVENT_TYPES.include?(event["type"])
       end
 
       def coerce_token_count(value)
