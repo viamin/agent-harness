@@ -199,14 +199,9 @@ module AgentHarness
       end
 
       def parse_response(result, duration:)
-        output = result.stdout
-        error = nil
+        response = super
+        output = response.output
         tokens = nil
-
-        if result.failed?
-          combined = [result.stdout, result.stderr].compact.join("\n")
-          error = combined unless combined.strip.empty?
-        end
 
         parsed_lines = parse_jsonl_output(output)
         if parsed_lines
@@ -221,7 +216,8 @@ module AgentHarness
           provider: self.class.provider_name,
           model: @config.model,
           tokens: tokens,
-          error: error
+          metadata: response.metadata,
+          error: response.error
         )
       end
 

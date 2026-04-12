@@ -483,6 +483,20 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
           response = provider.send_message(prompt: "Hello")
           expect(response.error).to include("not authorized")
         end
+
+        it "preserves base response metadata" do
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: "plain text response",
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.metadata).to eq({legitimate_exit_codes: [0]})
+        end
       end
     end
   end
