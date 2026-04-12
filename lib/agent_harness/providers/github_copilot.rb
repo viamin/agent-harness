@@ -346,7 +346,7 @@ module AgentHarness
         text_parts = parsed_lines.filter_map do |obj|
           next unless obj.is_a?(Hash)
 
-          obj["text"] || obj["content"] || obj["result"]
+          extract_text_value(obj) || extract_text_value(obj["data"])
         end
         text_parts.empty? ? nil : text_parts.join
       end
@@ -360,8 +360,8 @@ module AgentHarness
           usage = find_usage(obj)
           next unless usage
 
-          input = normalize_token_count(usage["input_tokens"]) || normalize_token_count(usage["prompt_tokens"])
-          output_tok = normalize_token_count(usage["output_tokens"]) || normalize_token_count(usage["completion_tokens"])
+          input = token_count_for(usage, "input_tokens", "prompt_tokens", "inputTokens", "promptTokens")
+          output_tok = token_count_for(usage, "output_tokens", "completion_tokens", "outputTokens", "completionTokens")
           next if input.nil? && output_tok.nil?
 
           total_input += input || 0
@@ -379,7 +379,10 @@ module AgentHarness
         return nil unless obj.is_a?(Hash)
 
         return obj["usage"] if obj["usage"].is_a?(Hash)
+        return obj if usage_payload?(obj)
+        return obj["data"] if usage_payload?(obj["data"])
         return obj.dig("message", "usage") if obj.dig("message", "usage").is_a?(Hash)
+        return obj.dig("data", "message", "usage") if obj.dig("data", "message", "usage").is_a?(Hash)
         nil
       end
 
@@ -390,6 +393,43 @@ module AgentHarness
         when String
           Integer(value, exception: false)
         end
+      end
+
+      def token_count_for(usage, *keys)
+        keys.each do |key|
+          value = normalize_token_count(usage[key])
+          return value unless value.nil?
+        end
+        nil
+      end
+
+      def extract_text_value(value)
+        case value
+        when String
+          value
+        when Array
+          parts = value.filter_map { |part| extract_text_value(part) }
+          parts.empty? ? nil : parts.join
+        when Hash
+          value["text"] || value["content"] || value["result"] || value["deltaContent"]
+        end
+      end
+
+      def usage_payload?(value)
+        value.is_a?(Hash) && token_count_keys.any? { |key| value.key?(key) }
+      end
+
+      def token_count_keys
+        %w[
+          input_tokens
+          prompt_tokens
+          output_tokens
+          completion_tokens
+          inputTokens
+          promptTokens
+          outputTokens
+          completionTokens
+        ]
       end
     end
   end

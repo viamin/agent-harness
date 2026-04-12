@@ -814,6 +814,66 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
           expect(response.tokens).to eq({input: 30, output: 15, total: 45})
         end
 
+        it "extracts assistant text from event payload content and delta content" do
+          jsonl_output = [
+            {"type" => "assistant.message", "data" => {"content" => "Hello"}},
+            {"type" => "assistant.delta", "data" => {"deltaContent" => " world"}},
+            {"type" => "assistant.delta", "data" => {"deltaContent" => "!"}}
+          ].map { |o| JSON.generate(o) }.join("\n")
+
+          allow(mock_executor).to receive(:execute).with(
+            ["github-copilot-cli", "--version"],
+            timeout: 5,
+            env: {}
+          ).and_return(version_result)
+
+          allow(mock_executor).to receive(:execute).with(
+            ["github-copilot-cli", "-p", "Hello", "--output-format", "json"],
+            anything
+          ).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq("Hello world!")
+          expect(response.tokens).to be_nil
+        end
+
+        it "extracts token usage from usage event payload camelCase fields" do
+          jsonl_output = [
+            {"type" => "assistant.message", "data" => {"content" => "response"}},
+            {"type" => "usage", "data" => {"inputTokens" => 44, "outputTokens" => 11}},
+            {"type" => "usage", "data" => {"promptTokens" => "6", "completionTokens" => 4}}
+          ].map { |o| JSON.generate(o) }.join("\n")
+
+          allow(mock_executor).to receive(:execute).with(
+            ["github-copilot-cli", "--version"],
+            timeout: 5,
+            env: {}
+          ).and_return(version_result)
+
+          allow(mock_executor).to receive(:execute).with(
+            ["github-copilot-cli", "-p", "Hello", "--output-format", "json"],
+            anything
+          ).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq("response")
+          expect(response.tokens).to eq({input: 50, output: 15, total: 65})
+        end
+
         it "ignores non-hash JSONL entries while preserving valid token usage" do
           jsonl_output = [
             {"text" => "response"},
@@ -1040,6 +1100,36 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         jsonl_output = [
           {"text" => "OK"},
           {"usage" => {"input_tokens" => 1, "output_tokens" => 1}}
+        ].map { |o| JSON.generate(o) }.join("\n")
+
+        allow(mock_executor).to receive(:execute).with(
+          ["github-copilot-cli", "-p", "Reply with exactly OK.", "--output-format", "json"],
+          anything
+        ).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: jsonl_output,
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        result = provider.smoke_test
+
+        expect(result).to include(
+          ok: true,
+          status: "ok",
+          message: "Smoke test passed",
+          output: "OK",
+          exit_code: 0
+        )
+      end
+
+      it "passes on JSON-capable CLIs when Copilot returns event envelopes" do
+        jsonl_output = [
+          {"type" => "assistant.message", "data" => {"content" => "O"}},
+          {"type" => "assistant.delta", "data" => {"deltaContent" => "K"}},
+          {"type" => "usage", "data" => {"inputTokens" => 1, "outputTokens" => 1}}
         ].map { |o| JSON.generate(o) }.join("\n")
 
         allow(mock_executor).to receive(:execute).with(
