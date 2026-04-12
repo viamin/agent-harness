@@ -344,6 +344,13 @@ module AgentHarness
           merged_usage.delete("total")
         end
 
+        if usage_replaces_extra_fields?(current_usage)
+          merged_usage.delete("reasoning_tokens")
+          merged_usage.delete("cache_creation_input_tokens")
+          merged_usage.delete("cache_read_input_tokens")
+          merged_usage.delete("cache_write_input_tokens")
+        end
+
         merged_usage.merge!(
           current_usage.slice(*TOKEN_USAGE_KEYS).select { |key, value| usable_usage_token_field?(key, value) }
         )
@@ -379,6 +386,21 @@ module AgentHarness
 
       def usage_updates_explicit_total?(usage)
         %w[total_tokens total].any? { |key| usable_usage_token_field?(key, usage[key]) }
+      end
+
+      def usage_replaces_extra_fields?(usage)
+        usable_usage_token_field?("input_tokens", usage["input_tokens"]) &&
+          usable_usage_token_field?("output_tokens", usage["output_tokens"]) &&
+          !usage_updates_extra_fields?(usage)
+      end
+
+      def usage_updates_extra_fields?(usage)
+        %w[
+          reasoning_tokens
+          cache_creation_input_tokens
+          cache_read_input_tokens
+          cache_write_input_tokens
+        ].any? { |key| usable_usage_token_field?(key, usage[key]) }
       end
 
       def extract_error_message(event)
