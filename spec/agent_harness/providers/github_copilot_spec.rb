@@ -317,6 +317,23 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         expect(response.output).to eq("ok")
       end
 
+      it "ignores scalar JSON lines when extracting text" do
+        jsonl = "true\n1\n{\"type\":\"assistant\",\"data\":{\"content\":\"ok\"}}\n"
+        result = make_result(stdout: jsonl)
+        response = nil
+
+        expect { response = provider.send(:parse_response, result, duration: 1.0) }.not_to raise_error
+        expect(response.output).to eq("ok")
+      end
+
+      it "ignores scalar JSON lines when no structured events are present" do
+        result = make_result(stdout: "true\n")
+        response = provider.send(:parse_response, result, duration: 1.0)
+
+        expect(response.output).to eq("true\n")
+        expect(response.tokens).to be_nil
+      end
+
       it "does not double-count tokens when message and usage events both carry token fields" do
         jsonl = <<~JSONL
           {"type":"assistant","data":{"content":"hi","inputTokens":10,"outputTokens":5}}

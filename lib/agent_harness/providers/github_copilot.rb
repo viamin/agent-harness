@@ -254,6 +254,8 @@ module AgentHarness
       end
 
       def extract_event_text(obj)
+        return nil unless obj.is_a?(Hash)
+
         if obj["type"] && obj["data"].is_a?(Hash)
           data = obj["data"]
           return data["content"] if data["content"]
@@ -272,6 +274,8 @@ module AgentHarness
       USAGE_EVENT_TYPES = %w[usage assistant.usage].freeze
 
       def accumulate_token_usage(obj, total_input, total_output)
+        return [total_input, total_output] unless obj.is_a?(Hash)
+
         if obj["type"] && obj["data"].is_a?(Hash)
           if USAGE_EVENT_TYPES.include?(obj["type"])
             data = obj["data"]
