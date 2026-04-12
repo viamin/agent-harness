@@ -341,6 +341,21 @@ RSpec.describe AgentHarness::Providers::Aider do
         expect(response.tokens).to eq({input: 1500, output: 250, total: 1750})
       end
 
+      it "parses abbreviated token counts with cache segments from command output" do
+        allow(mock_executor).to receive(:execute) do |cmd, **kwargs|
+          history_path = cmd[cmd.index("--llm-history-file") + 1]
+          File.write(history_path, "")
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "response text\nTokens: 2.9k sent, 7.6k cache write, 31 received.\n",
+            stderr: "",
+            exit_code: 0
+          )
+        end
+
+        response = provider.send_message(prompt: "hello")
+        expect(response.tokens).to eq({input: 2900, output: 31, total: 2931})
+      end
+
       it "uses the last token report when multiple usage lines are present" do
         allow(mock_executor).to receive(:execute) do |cmd, **kwargs|
           history_path = cmd[cmd.index("--llm-history-file") + 1]
@@ -480,6 +495,23 @@ RSpec.describe AgentHarness::Providers::Aider do
           expect(response.output).to eq("response text")
           expect(response.tokens).to be_nil
         end
+      end
+    end
+
+    describe "#parse_token_usage_text" do
+      it "parses abbreviated token counters" do
+        tokens = provider.send(:parse_token_usage_text, "Tokens: 1.2k sent, 31 received.")
+
+        expect(tokens).to eq({input: 1200, output: 31, total: 1231})
+      end
+
+      it "parses abbreviated token counters with cache usage" do
+        tokens = provider.send(
+          :parse_token_usage_text,
+          "Tokens: 2.9k sent, 7.6k cache write, 3.2k cache read, 31 received."
+        )
+
+        expect(tokens).to eq({input: 2900, output: 31, total: 2931})
       end
     end
   end

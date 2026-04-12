@@ -293,8 +293,10 @@ module AgentHarness
 
       private
 
+      TOKEN_COUNT_PATTERN = /\d[\d,]*(?:\.\d+)?[kmb]?/i
+
       TOKEN_USAGE_PATTERN =
-        /Tokens:\s*(?<input>[\d,]+)\s+sent(?:,\s*[\d,]+\s+cache\s+\w+)*,\s*(?<output>[\d,]+)\s+received\./i
+        /Tokens:\s*(?<input>#{TOKEN_COUNT_PATTERN})\s+sent(?:,\s*#{TOKEN_COUNT_PATTERN}\s+cache\s+\w+)*,\s*(?<output>#{TOKEN_COUNT_PATTERN})\s+received\./i
 
       def generate_llm_history_path
         File.join(Dir.tmpdir, "aider_llm_history_#{Process.pid}_#{SecureRandom.hex(8)}")
@@ -327,10 +329,23 @@ module AgentHarness
         match = content.to_enum(:scan, TOKEN_USAGE_PATTERN).map { Regexp.last_match }.last
         return nil unless match
 
-        input = match[:input].delete(",").to_i
-        output = match[:output].delete(",").to_i
+        input = parse_token_count(match[:input])
+        output = parse_token_count(match[:output])
 
         {input: input, output: output, total: input + output}
+      end
+
+      def parse_token_count(value)
+        normalized = value.delete(",").downcase
+        multiplier = case normalized[-1]
+        when "k" then 1_000
+        when "m" then 1_000_000
+        when "b" then 1_000_000_000
+        else 1
+        end
+        normalized = normalized[0...-1] if multiplier > 1
+
+        (normalized.to_f * multiplier).round
       end
 
       def cleanup_llm_history_file!(path)
