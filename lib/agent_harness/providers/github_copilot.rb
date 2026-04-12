@@ -148,6 +148,15 @@ module AgentHarness
         :oauth
       end
 
+      def send_message(prompt:, **options)
+        options = normalize_provider_runtime(options)
+        request_env = build_env(options)
+
+        with_request_probe_env(request_env) do
+          super(prompt: prompt, **options)
+        end
+      end
+
       def execution_semantics
         {
           prompt_delivery: :arg,
@@ -587,22 +596,49 @@ module AgentHarness
         segments.reject! { |segment| segment[:provisional] }
       end
 
-      def copilot_cli_supports_json_output?
-        return @copilot_cli_supports_json_output unless @copilot_cli_supports_json_output.nil?
-
-        version = copilot_cli_version
-        @copilot_cli_supports_json_output = !version.nil? && version >= MIN_JSON_OUTPUT_VERSION
-      rescue
-        @copilot_cli_supports_json_output = false
+      def with_request_probe_env(env)
+        previous_env = @current_probe_env if instance_variable_defined?(:@current_probe_env)
+        had_previous_env = instance_variable_defined?(:@current_probe_env)
+        @current_probe_env = env
+        yield
+      ensure
+        if had_previous_env
+          @current_probe_env = previous_env
+        elsif instance_variable_defined?(:@current_probe_env)
+          remove_instance_variable(:@current_probe_env)
+        end
       end
 
-      def copilot_cli_version
-        return @copilot_cli_version if defined?(@copilot_cli_version)
+      def current_probe_env
+        return @current_probe_env if instance_variable_defined?(:@current_probe_env)
 
-        result = @executor.execute([self.class.binary_name, "--version"], timeout: 5)
-        @copilot_cli_version = parse_copilot_cli_version(result.stdout) || parse_copilot_cli_version(result.stderr)
+        {}
+      end
+
+      def version_probe_env_cache_key(env)
+        env.sort_by { |key, _value| key }
+      end
+
+      def copilot_cli_supports_json_output?(env: current_probe_env)
+        @copilot_cli_supports_json_output ||= {}
+        cache_key = version_probe_env_cache_key(env)
+        return @copilot_cli_supports_json_output[cache_key] if @copilot_cli_supports_json_output.key?(cache_key)
+
+        version = copilot_cli_version(env: env)
+        @copilot_cli_supports_json_output[cache_key] = !version.nil? && version >= MIN_JSON_OUTPUT_VERSION
       rescue
-        @copilot_cli_version = nil
+        @copilot_cli_supports_json_output[cache_key] = false
+      end
+
+      def copilot_cli_version(env: current_probe_env)
+        @copilot_cli_version ||= {}
+        cache_key = version_probe_env_cache_key(env)
+        return @copilot_cli_version[cache_key] if @copilot_cli_version.key?(cache_key)
+
+        result = @executor.execute([self.class.binary_name, "--version"], timeout: 5, env: env)
+        @copilot_cli_version[cache_key] = parse_copilot_cli_version(result.stdout) || parse_copilot_cli_version(result.stderr)
+      rescue
+        @copilot_cli_version[cache_key] = nil
       end
 
       def parse_copilot_cli_version(output)

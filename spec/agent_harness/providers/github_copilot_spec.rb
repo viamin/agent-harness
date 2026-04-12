@@ -224,7 +224,8 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         executor = instance_double(AgentHarness::CommandExecutor)
         allow(executor).to receive(:execute).with(
           ["github-copilot-cli", "--version"],
-          timeout: 5
+          timeout: 5,
+          env: {}
         ).and_raise(StandardError, "version probe failed")
         provider = described_class.new(executor: executor)
 
@@ -235,6 +236,58 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
           "what-the-shell",
           "Hello"
         ])
+      end
+    end
+
+    describe "#send_message" do
+      it "re-probes JSON support with the request runtime env before building the command" do
+        executor = instance_double(AgentHarness::CommandExecutor)
+        provider = described_class.new(executor: executor)
+        legacy_runtime = AgentHarness::ProviderRuntime.new(env: {"PATH" => "/tmp/legacy-copilot/bin"})
+
+        allow(executor).to receive(:execute).with(
+          ["github-copilot-cli", "--version"],
+          timeout: 5,
+          env: {}
+        ).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "github-copilot-cli 0.0.422\n",
+            stderr: "",
+            exit_code: 0
+          )
+        )
+        allow(executor).to receive(:execute).with(
+          ["github-copilot-cli", "--version"],
+          timeout: 5,
+          env: {"PATH" => "/tmp/legacy-copilot/bin"}
+        ).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "github-copilot-cli 0.0.421\n",
+            stderr: "",
+            exit_code: 0
+          )
+        )
+        allow(executor).to receive(:execute).with(
+          ["github-copilot-cli", "what-the-shell", "Hello"],
+          timeout: 300,
+          env: {"PATH" => "/tmp/legacy-copilot/bin"}
+        ).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "echo legacy\n",
+            stderr: "",
+            exit_code: 0
+          )
+        )
+
+        expect(provider.send(:copilot_cli_supports_json_output?)).to be true
+
+        response = provider.send(
+          :send_message,
+          prompt: "Hello",
+          provider_runtime: legacy_runtime
+        )
+
+        expect(response.output).to eq("echo legacy\n")
       end
     end
 
@@ -1051,7 +1104,8 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         executor = instance_double(AgentHarness::CommandExecutor)
         allow(executor).to receive(:execute).with(
           ["github-copilot-cli", "--version"],
-          timeout: 5
+          timeout: 5,
+          env: {}
         ).and_return(
           AgentHarness::CommandExecutor::Result.new(
             stdout: "github-copilot-cli 0.0.422\n",
@@ -1068,7 +1122,8 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         executor = instance_double(AgentHarness::CommandExecutor)
         allow(executor).to receive(:execute).with(
           ["github-copilot-cli", "--version"],
-          timeout: 5
+          timeout: 5,
+          env: {}
         ).and_return(
           AgentHarness::CommandExecutor::Result.new(
             stdout: "github-copilot-cli 0.0.421\n",
@@ -1085,7 +1140,8 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         executor = instance_double(AgentHarness::CommandExecutor)
         allow(executor).to receive(:execute).once.with(
           ["github-copilot-cli", "--version"],
-          timeout: 5
+          timeout: 5,
+          env: {}
         ).and_return(
           AgentHarness::CommandExecutor::Result.new(
             stdout: "github-copilot-cli 0.0.422\n",
@@ -1102,7 +1158,8 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         executor = instance_double(AgentHarness::CommandExecutor)
         allow(executor).to receive(:execute).once.with(
           ["github-copilot-cli", "--version"],
-          timeout: 5
+          timeout: 5,
+          env: {}
         ).and_return(
           AgentHarness::CommandExecutor::Result.new(
             stdout: "github-copilot-cli development build\n",
@@ -1114,6 +1171,39 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
 
         expect(provider.send(:copilot_cli_supports_json_output?)).to be false
         expect(provider.send(:copilot_cli_supports_json_output?)).to be false
+      end
+
+      it "caches capability independently for each probe environment" do
+        executor = instance_double(AgentHarness::CommandExecutor)
+        allow(executor).to receive(:execute).with(
+          ["github-copilot-cli", "--version"],
+          timeout: 5,
+          env: {"PATH" => "/tmp/new-copilot/bin"}
+        ).once.and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "github-copilot-cli 0.0.422\n",
+            stderr: "",
+            exit_code: 0
+          )
+        )
+        allow(executor).to receive(:execute).with(
+          ["github-copilot-cli", "--version"],
+          timeout: 5,
+          env: {"PATH" => "/tmp/old-copilot/bin"}
+        ).once.and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "github-copilot-cli 0.0.421\n",
+            stderr: "",
+            exit_code: 0
+          )
+        )
+        provider = described_class.new(executor: executor)
+
+        env_a = {"PATH" => "/tmp/new-copilot/bin"}
+        env_b = {"PATH" => "/tmp/old-copilot/bin"}
+
+        2.times { expect(provider.send(:copilot_cli_supports_json_output?, env: env_a)).to be true }
+        2.times { expect(provider.send(:copilot_cli_supports_json_output?, env: env_b)).to be false }
       end
     end
   end
