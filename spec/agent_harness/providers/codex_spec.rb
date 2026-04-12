@@ -482,7 +482,7 @@ RSpec.describe AgentHarness::Providers::Codex do
           )
 
           response = provider.send_message(prompt: "Hello")
-          expect(response.output).to eq("streaming partialcomplete answer")
+          expect(response.output).to eq("complete answer")
         end
 
         it "prefers turn.completed result over item.completed text" do

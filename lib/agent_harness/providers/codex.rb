@@ -375,17 +375,21 @@ module AgentHarness
             next unless item.is_a?(Hash)
             next unless item["role"] == "assistant" || item["type"] == "agent_message"
 
+            completed_parts = []
+
             item_text = item["text"]
-            text_parts << item_text if item_text.is_a?(String) && !item_text.empty?
+            completed_parts << item_text if item_text.is_a?(String) && !item_text.empty?
 
             item_content = item["content"]
             if item_content.is_a?(Array)
               item_content.each do |block|
                 next unless block.is_a?(Hash)
                 block_text = block["text"]
-                text_parts << block_text if block_text.is_a?(String) && !block_text.empty?
+                completed_parts << block_text if block_text.is_a?(String) && !block_text.empty?
               end
             end
+
+            text_parts = completed_parts unless completed_parts.empty?
           when "turn.completed"
             usage = event["usage"]
             if usage.is_a?(Hash)
