@@ -145,6 +145,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
 
     describe "#build_command" do
       it "places the subcommand, prompt, and output-format flag before optional flags" do
+        allow(provider).to receive(:copilot_cli_supports_json_output?).and_return(true)
         command = provider.send(:build_command, "Hello", {})
 
         expect(command).to eq([
@@ -157,6 +158,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
       end
 
       it "adds dangerous mode flags only when explicitly requested" do
+        allow(provider).to receive(:copilot_cli_supports_json_output?).and_return(true)
         command = provider.send(:build_command, "Hello", {dangerous_mode: true})
 
         expect(command).to eq([
@@ -170,6 +172,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
       end
 
       it "appends session resume flags after the prompt and any dangerous mode flags" do
+        allow(provider).to receive(:copilot_cli_supports_json_output?).and_return(true)
         command = provider.send(:build_command, "Hello", {session: "session-123"})
 
         expect(command).to eq([
@@ -184,6 +187,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
       end
 
       it "appends session resume flags after dangerous mode flags when both are provided" do
+        allow(provider).to receive(:copilot_cli_supports_json_output?).and_return(true)
         command = provider.send(:build_command, "Hello", {dangerous_mode: true, session: "session-123"})
 
         expect(command).to eq([
@@ -195,6 +199,34 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
           "--allow-all-tools",
           "--resume",
           "session-123"
+        ])
+      end
+
+      it "omits the output-format flag when the installed CLI is too old" do
+        allow(provider).to receive(:copilot_cli_supports_json_output?).and_return(false)
+        command = provider.send(:build_command, "Hello", {})
+
+        expect(command).to eq([
+          "github-copilot-cli",
+          "what-the-shell",
+          "Hello"
+        ])
+      end
+
+      it "falls back to legacy text output when version detection fails" do
+        executor = instance_double(AgentHarness::CommandExecutor)
+        allow(executor).to receive(:execute).with(
+          ["github-copilot-cli", "--version"],
+          timeout: 5
+        ).and_raise(StandardError, "version probe failed")
+        provider = described_class.new(executor: executor)
+
+        command = provider.send(:build_command, "Hello", {})
+
+        expect(command).to eq([
+          "github-copilot-cli",
+          "what-the-shell",
+          "Hello"
         ])
       end
     end
@@ -389,6 +421,59 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         expect(response.output).to eq("Hello world!")
         expect(response.tokens).to eq({input: 50, output: 25, total: 75})
         expect(response.error).to be_nil
+      end
+    end
+
+    describe "#copilot_cli_supports_json_output?" do
+      it "returns true for CLI versions that support JSON output" do
+        executor = instance_double(AgentHarness::CommandExecutor)
+        allow(executor).to receive(:execute).with(
+          ["github-copilot-cli", "--version"],
+          timeout: 5
+        ).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "github-copilot-cli 0.0.422\n",
+            stderr: "",
+            exit_code: 0
+          )
+        )
+        provider = described_class.new(executor: executor)
+
+        expect(provider.send(:copilot_cli_supports_json_output?)).to be true
+      end
+
+      it "returns false for CLI versions older than JSON output support" do
+        executor = instance_double(AgentHarness::CommandExecutor)
+        allow(executor).to receive(:execute).with(
+          ["github-copilot-cli", "--version"],
+          timeout: 5
+        ).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "github-copilot-cli 0.0.421\n",
+            stderr: "",
+            exit_code: 0
+          )
+        )
+        provider = described_class.new(executor: executor)
+
+        expect(provider.send(:copilot_cli_supports_json_output?)).to be false
+      end
+
+      it "caches the detected version capability" do
+        executor = instance_double(AgentHarness::CommandExecutor)
+        allow(executor).to receive(:execute).once.with(
+          ["github-copilot-cli", "--version"],
+          timeout: 5
+        ).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "github-copilot-cli 0.0.422\n",
+            stderr: "",
+            exit_code: 0
+          )
+        )
+        provider = described_class.new(executor: executor)
+
+        2.times { provider.send(:copilot_cli_supports_json_output?) }
       end
     end
   end

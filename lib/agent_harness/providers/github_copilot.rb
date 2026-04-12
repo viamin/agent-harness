@@ -8,6 +8,8 @@ module AgentHarness
     #
     # Provides integration with the GitHub Copilot CLI tool.
     class GithubCopilot < Base
+      MIN_JSON_OUTPUT_VERSION = Gem::Version.new("0.0.422").freeze
+
       # Model name pattern for GitHub Copilot (uses OpenAI models)
       MODEL_PATTERN = /^gpt-[\d.o-]+(?:-turbo)?(?:-mini)?$/i
 
@@ -187,7 +189,8 @@ module AgentHarness
       protected
 
       def build_command(prompt, options)
-        cmd = [self.class.binary_name, "what-the-shell", prompt, "--output-format", "json"]
+        cmd = [self.class.binary_name, "what-the-shell", prompt]
+        cmd += ["--output-format", "json"] if copilot_cli_supports_json_output?
 
         # Opt in to unrestricted tool access explicitly to preserve a safe default.
         if supports_dangerous_mode? && options[:dangerous_mode]
@@ -290,6 +293,33 @@ module AgentHarness
         end
 
         [total_input, total_output]
+      end
+
+      def copilot_cli_supports_json_output?
+        return @copilot_cli_supports_json_output unless @copilot_cli_supports_json_output.nil?
+
+        version = copilot_cli_version
+        @copilot_cli_supports_json_output = version && version >= MIN_JSON_OUTPUT_VERSION
+      rescue
+        @copilot_cli_supports_json_output = false
+      end
+
+      def copilot_cli_version
+        return @copilot_cli_version if defined?(@copilot_cli_version)
+
+        result = @executor.execute([self.class.binary_name, "--version"], timeout: 5)
+        @copilot_cli_version = parse_copilot_cli_version(result.stdout) || parse_copilot_cli_version(result.stderr)
+      rescue
+        @copilot_cli_version = nil
+      end
+
+      def parse_copilot_cli_version(output)
+        match = output.to_s.match(/(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)/)
+        return nil unless match
+
+        Gem::Version.new(match[1])
+      rescue ArgumentError
+        nil
       end
     end
   end
