@@ -728,6 +728,67 @@ RSpec.describe AgentHarness::Providers::Codex do
         end
       end
 
+      context "with wrapped JSONL event parsing" do
+        it "extracts final assistant text from response_item events" do
+          jsonl_output = [
+            JSON.generate({"type" => "event_msg", "payload" => {"type" => "agent_message_delta", "message" => "partial"}}),
+            JSON.generate({
+              "type" => "response_item",
+              "payload" => {
+                "type" => "message",
+                "role" => "assistant",
+                "content" => [{"type" => "output_text", "text" => "final wrapped answer"}]
+              }
+            })
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq("final wrapped answer")
+        end
+
+        it "extracts token usage from wrapped token_count events" do
+          jsonl_output = [
+            JSON.generate({"type" => "event_msg", "payload" => {"type" => "token_count", "info" => nil}}),
+            JSON.generate({"type" => "event_msg", "payload" => {"type" => "agent_message", "message" => "wrapped output"}}),
+            JSON.generate({
+              "type" => "event_msg",
+              "payload" => {
+                "type" => "token_count",
+                "info" => {
+                  "total_token_usage" => {
+                    "input_tokens" => 42,
+                    "cached_input_tokens" => 30,
+                    "output_tokens" => 7
+                  }
+                }
+              }
+            })
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq("wrapped output")
+          expect(response.tokens).to eq({input: 42, output: 7, total: 49})
+        end
+      end
+
       context "with token usage parsing" do
         it "extracts token usage from JSONL turn.completed events" do
           jsonl_output = [

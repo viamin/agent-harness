@@ -372,6 +372,7 @@ module AgentHarness
         total_input = 0
         total_output = 0
         has_usage = false
+        wrapped_tokens = nil
 
         events.each do |event|
           next unless event.is_a?(Hash)
@@ -380,11 +381,7 @@ module AgentHarness
 
           case type
           when "message.delta"
-            delta = event["delta"]
-            if delta.is_a?(Hash)
-              content = delta["text"]
-              current_turn_parts << content if content.is_a?(String)
-            end
+            append_delta_text(current_turn_parts, event["delta"])
           when "item.completed"
             item = event["item"]
             next unless item.is_a?(Hash)
@@ -394,22 +391,7 @@ module AgentHarness
             allowed_item = item_role == "assistant" || (item_role.nil? && item_type == "agent_message")
             next unless allowed_item
 
-            completed_parts = []
-
-            item_text = item["text"]
-            if item_text.is_a?(String) && !item_text.empty?
-              completed_parts << item_text
-            else
-              item_content = item["content"]
-              if item_content.is_a?(Array)
-                item_content.each do |block|
-                  next unless block.is_a?(Hash)
-                  block_text = block["text"]
-                  completed_parts << block_text if block_text.is_a?(String) && !block_text.empty?
-                end
-              end
-            end
-
+            completed_parts = extract_message_content_parts(item)
             current_turn_parts = completed_parts unless completed_parts.empty?
           when "turn.completed"
             usage = event["usage"]
@@ -431,6 +413,25 @@ module AgentHarness
 
             text_parts.concat(current_turn_parts) unless current_turn_parts.empty?
             current_turn_parts = []
+          when "event_msg"
+            payload = event["payload"]
+            next unless payload.is_a?(Hash)
+
+            case payload["type"]
+            when "agent_message_delta"
+              append_wrapped_delta_text(current_turn_parts, payload)
+            when "agent_message"
+              message = payload["message"]
+              current_turn_parts = [message] if message.is_a?(String) && !message.empty?
+            when "token_count"
+              wrapped_tokens = extract_wrapped_tokens(payload["info"]) || wrapped_tokens
+            end
+          when "response_item"
+            payload = event["payload"]
+            next unless payload.is_a?(Hash) && payload["type"] == "message" && payload["role"] == "assistant"
+
+            completed_parts = extract_message_content_parts(payload)
+            current_turn_parts = completed_parts unless completed_parts.empty?
           end
         end
 
@@ -439,10 +440,57 @@ module AgentHarness
 
         {
           text: text,
-          tokens: has_usage ? {input: total_input, output: total_output, total: total_input + total_output} : nil
+          tokens: wrapped_tokens || (has_usage ? {input: total_input, output: total_output, total: total_input + total_output} : nil)
         }
       rescue
         nil
+      end
+
+      def append_delta_text(parts, delta)
+        return unless delta.is_a?(Hash)
+
+        content = delta["text"]
+        parts << content if content.is_a?(String)
+      end
+
+      def append_wrapped_delta_text(parts, payload)
+        message = payload["message"] || payload["text"] || payload["content"]
+        parts << message if message.is_a?(String) && !message.empty?
+      end
+
+      def extract_message_content_parts(item)
+        completed_parts = []
+
+        item_text = item["text"]
+        if item_text.is_a?(String) && !item_text.empty?
+          completed_parts << item_text
+        else
+          item_content = item["content"]
+          if item_content.is_a?(Array)
+            item_content.each do |block|
+              next unless block.is_a?(Hash)
+              block_text = block["text"]
+              completed_parts << block_text if block_text.is_a?(String) && !block_text.empty?
+            end
+          end
+        end
+
+        completed_parts
+      end
+
+      def extract_wrapped_tokens(info)
+        return unless info.is_a?(Hash)
+
+        total_usage = info["total_token_usage"]
+        return unless total_usage.is_a?(Hash)
+
+        input_val = total_usage["input_tokens"]
+        output_val = total_usage["output_tokens"]
+        return unless input_val || output_val
+
+        input = input_val.to_i
+        output = output_val.to_i
+        {input: input, output: output, total: input + output}
       end
 
       def externally_sandboxed?(options)
