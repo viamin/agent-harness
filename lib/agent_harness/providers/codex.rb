@@ -384,6 +384,15 @@ module AgentHarness
           case type
           when "message.delta"
             append_delta_text(current_turn_parts, event["delta"])
+          when "agent_message_delta"
+            next unless wrapped_assistant_payload?(event)
+
+            append_wrapped_delta_text(current_turn_parts, event)
+          when "agent_message"
+            next unless wrapped_assistant_payload?(event)
+
+            completed_parts = extract_message_content_parts(event)
+            current_turn_parts = completed_parts unless completed_parts.empty?
           when "item.completed"
             item = event["item"]
             next unless item.is_a?(Hash)

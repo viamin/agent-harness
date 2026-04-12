@@ -758,6 +758,70 @@ RSpec.describe AgentHarness::Providers::Codex do
       end
 
       context "with wrapped JSONL event parsing" do
+        it "extracts final assistant text from top-level agent_message events" do
+          jsonl_output = [
+            JSON.generate({"type" => "agent_message_delta", "message" => "partial"}),
+            JSON.generate({"type" => "agent_message", "message" => "final top-level answer"}),
+            JSON.generate({
+              "type" => "event_msg",
+              "payload" => {
+                "type" => "token_count",
+                "info" => {
+                  "last_token_usage" => {
+                    "input_tokens" => 4,
+                    "output_tokens" => 2
+                  }
+                }
+              }
+            })
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq("final top-level answer")
+          expect(response.tokens).to eq({input: 4, output: 2, total: 6})
+        end
+
+        it "ignores top-level non-assistant agent_message events" do
+          jsonl_output = [
+            JSON.generate({"type" => "agent_message_delta", "role" => "user", "message" => "user partial"}),
+            JSON.generate({"type" => "agent_message", "role" => "tool", "message" => "tool message"}),
+            JSON.generate({
+              "type" => "event_msg",
+              "payload" => {
+                "type" => "token_count",
+                "info" => {
+                  "last_token_usage" => {
+                    "input_tokens" => 4,
+                    "output_tokens" => 2
+                  }
+                }
+              }
+            })
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq(jsonl_output)
+          expect(response.tokens).to eq({input: 4, output: 2, total: 6})
+        end
+
         it "extracts final assistant text from response_item events" do
           jsonl_output = [
             JSON.generate({"type" => "event_msg", "payload" => {"type" => "agent_message_delta", "message" => "partial"}}),
