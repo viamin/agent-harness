@@ -254,6 +254,24 @@ RSpec.describe AgentHarness::Providers::Aider do
 
         expect(command).not_to include("--llm-history-file")
       end
+
+      it "prefers the runtime model over the configured model" do
+        provider.configure(model: "configured-model")
+        runtime = AgentHarness::ProviderRuntime.new(model: "runtime-model")
+
+        command = provider.send(:build_command, "hello", provider_runtime: runtime)
+
+        expect(command).to include("--model", "runtime-model")
+        expect(command).not_to include("configured-model")
+      end
+
+      it "appends runtime flags after provider flags" do
+        runtime = AgentHarness::ProviderRuntime.new(flags: ["--map-tokens", "0"])
+
+        command = provider.send(:build_command, "hello", provider_runtime: runtime)
+
+        expect(command).to include("--map-tokens", "0")
+      end
     end
 
     describe "#send_message" do

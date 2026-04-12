@@ -250,6 +250,7 @@ module AgentHarness
 
       def build_command(prompt, options)
         cmd = [self.class.binary_name]
+        runtime = options[:provider_runtime]
 
         cmd << "--yes"
 
@@ -257,13 +258,16 @@ module AgentHarness
           cmd += ["--llm-history-file", options[:llm_history_path]]
         end
 
-        if @config.model && !@config.model.empty?
-          cmd += ["--model", @config.model]
+        model = runtime&.model || @config.model
+        if model && !model.empty?
+          cmd += ["--model", model]
         end
 
         if options[:session]
           cmd += session_flags(options[:session])
         end
+
+        cmd += runtime.flags if runtime&.flags&.any?
 
         cmd += ["--message", prompt]
 
