@@ -294,6 +294,15 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         expect(response.tokens).to eq({input: 10, output: 20, total: 30})
       end
 
+      it "falls back to assistant.message token fields when usage events are absent" do
+        jsonl = '{"type":"assistant.message","data":{"content":"hi","inputTokens":10,"outputTokens":5}}'
+        result = make_result(stdout: jsonl)
+        response = provider.send(:parse_response, result, duration: 1.0)
+
+        expect(response.output).to eq("hi")
+        expect(response.tokens).to eq({input: 10, output: 5, total: 15})
+      end
+
       it "extracts tokens from top-level usage snake_case fields" do
         jsonl = '{"usage":{"input_tokens":5,"output_tokens":8}}'
         result = make_result(stdout: jsonl)
@@ -365,9 +374,9 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         expect(response.tokens).to be_nil
       end
 
-      it "does not double-count tokens when message and usage events both carry token fields" do
+      it "prefers usage events over assistant reply token fields when both are present" do
         jsonl = <<~JSONL
-          {"type":"assistant","data":{"content":"hi","inputTokens":10,"outputTokens":5}}
+          {"type":"assistant.message","data":{"content":"hi","inputTokens":10,"outputTokens":5}}
           {"type":"usage","data":{"inputTokens":10,"outputTokens":5}}
         JSONL
         result = make_result(stdout: jsonl)
@@ -386,13 +395,25 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         expect(response.tokens).to eq({input: 7, output: 3, total: 10})
       end
 
-      it "ignores token fields on non-usage envelope events" do
-        jsonl = '{"type":"assistant","data":{"content":"hi","inputTokens":10,"outputTokens":5}}'
+      it "ignores token fields on non-reply, non-usage envelope events" do
+        jsonl = '{"type":"assistant.reasoning","data":{"content":"hi","inputTokens":10,"outputTokens":5}}'
         result = make_result(stdout: jsonl)
         response = provider.send(:parse_response, result, duration: 1.0)
 
-        expect(response.output).to eq("hi")
+        expect(response.output).to eq(jsonl)
         expect(response.tokens).to be_nil
+      end
+
+      it "uses the last assistant reply token payload when multiple reply events include tokens" do
+        jsonl = <<~JSONL
+          {"type":"assistant","data":{"content":"Hello","inputTokens":3,"outputTokens":2}}
+          {"type":"assistant.message","data":{"content":" world","inputTokens":10,"outputTokens":5}}
+        JSONL
+        result = make_result(stdout: jsonl)
+        response = provider.send(:parse_response, result, duration: 1.0)
+
+        expect(response.output).to eq("Hello world")
+        expect(response.tokens).to eq({input: 10, output: 5, total: 15})
       end
 
       it "returns nil tokens when no usage data present" do

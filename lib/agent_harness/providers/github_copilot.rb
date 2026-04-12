@@ -219,8 +219,12 @@ module AgentHarness
           error = combined unless combined.empty?
         end
 
-        total_input = 0
-        total_output = 0
+        usage_input = 0
+        usage_output = 0
+        usage_tokens_present = false
+        fallback_input = 0
+        fallback_output = 0
+        fallback_tokens_present = false
         aggregated_output = +""
         output.lines.each do |line|
           line = line.strip
@@ -234,13 +238,28 @@ module AgentHarness
           text = extract_event_text(obj)
           aggregated_output << text if text
 
-          total_input, total_output = accumulate_token_usage(obj, total_input, total_output)
+          token_usage = extract_token_usage(obj)
+          next unless token_usage
+
+          if token_usage[:source] == :usage
+            usage_tokens_present = true
+            usage_input += token_usage[:input]
+            usage_output += token_usage[:output]
+          else
+            fallback_tokens_present = true
+            fallback_input = token_usage[:input]
+            fallback_output = token_usage[:output]
+          end
         end
 
-        tokens = nil
-        if total_input > 0 || total_output > 0
-          tokens = {input: total_input, output: total_output, total: total_input + total_output}
-        end
+        tokens = build_tokens(
+          usage_tokens_present: usage_tokens_present,
+          usage_input: usage_input,
+          usage_output: usage_output,
+          fallback_tokens_present: fallback_tokens_present,
+          fallback_input: fallback_input,
+          fallback_output: fallback_output
+        )
         final_output = aggregated_output.empty? ? output : aggregated_output
 
         Response.new(
@@ -289,25 +308,44 @@ module AgentHarness
         nil
       end
 
-      def accumulate_token_usage(obj, total_input, total_output)
-        return [total_input, total_output] unless obj.is_a?(Hash)
+      def extract_token_usage(obj)
+        return nil unless obj.is_a?(Hash)
 
         if obj["type"] && obj["data"].is_a?(Hash)
+          data = obj["data"]
+
           if USAGE_EVENT_TYPES.include?(obj["type"])
-            data = obj["data"]
-            total_input += token_value(data, "inputTokens", "input_tokens")
-            total_output += token_value(data, "outputTokens", "output_tokens")
+            return nil unless token_fields_present?(data, "inputTokens", "input_tokens", "outputTokens", "output_tokens")
+
+            return {
+              source: :usage,
+              input: token_value(data, "inputTokens", "input_tokens"),
+              output: token_value(data, "outputTokens", "output_tokens")
+            }
           end
-          return [total_input, total_output]
+
+          if ASSISTANT_OUTPUT_EVENT_TYPES.include?(obj["type"])
+            return nil unless token_fields_present?(data, "inputTokens", "input_tokens", "outputTokens", "output_tokens")
+
+            return {
+              source: :assistant,
+              input: token_value(data, "inputTokens", "input_tokens"),
+              output: token_value(data, "outputTokens", "output_tokens")
+            }
+          end
+
+          return nil
         end
 
         usage = extract_top_level_usage(obj)
-        if usage
-          total_input += token_value(usage, "input_tokens", "inputTokens", "input")
-          total_output += token_value(usage, "output_tokens", "outputTokens", "output")
-        end
+        return nil unless usage
+        return nil unless token_fields_present?(usage, "input_tokens", "inputTokens", "input", "output_tokens", "outputTokens", "output")
 
-        [total_input, total_output]
+        {
+          source: :usage,
+          input: token_value(usage, "input_tokens", "inputTokens", "input"),
+          output: token_value(usage, "output_tokens", "outputTokens", "output")
+        }
       end
 
       def extract_top_level_usage(obj)
@@ -322,6 +360,21 @@ module AgentHarness
         return 0 unless key
 
         obj[key].to_i
+      end
+
+      def token_fields_present?(obj, *keys)
+        keys.any? { |candidate| obj.key?(candidate) }
+      end
+
+      def build_tokens(usage_tokens_present:, usage_input:, usage_output:, fallback_tokens_present:, fallback_input:,
+        fallback_output:)
+        if usage_tokens_present
+          return {input: usage_input, output: usage_output, total: usage_input + usage_output}
+        end
+
+        return nil unless fallback_tokens_present
+
+        {input: fallback_input, output: fallback_output, total: fallback_input + fallback_output}
       end
 
       def copilot_cli_supports_json_output?
