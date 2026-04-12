@@ -312,8 +312,8 @@ module AgentHarness
         # Prefer the request-local history file when it includes a token report,
         # but fall back to captured command output because the usage summary is
         # printed there during normal runs.
-        parse_token_usage_text(read_llm_history(llm_history_path)) ||
-          parse_token_usage_text([result.stdout, result.stderr].compact.join("\n"))
+        parse_token_usage_text(read_llm_history(llm_history_path), source: :history) ||
+          parse_token_usage_text([result.stdout, result.stderr].compact.join("\n"), source: :output)
       rescue => e
         log_debug("llm_history_parse_error", error: e.message)
         nil
@@ -328,16 +328,42 @@ module AgentHarness
         content
       end
 
-      def parse_token_usage_text(content)
+      def parse_token_usage_text(content, source: :output)
         return nil if content.nil? || content.strip.empty?
 
-        match = content.to_enum(:scan, TOKEN_USAGE_PATTERN).map { Regexp.last_match }.last
+        match = if source == :history
+          extract_history_token_usage_match(content)
+        else
+          content.to_enum(:scan, TOKEN_USAGE_PATTERN).map { Regexp.last_match }.last
+        end
         return nil unless match
 
         input = parse_token_count(match[:input])
         output = parse_token_count(match[:output])
 
         {input: input, output: output, total: input + output}
+      end
+
+      def extract_history_token_usage_match(content)
+        lines = content.lines
+
+        lines.each_index.reverse_each do |index|
+          match = TOKEN_USAGE_PATTERN.match(lines[index])
+          next unless match
+          next unless history_token_usage_footer_line?(lines, index)
+
+          return match
+        end
+
+        nil
+      end
+
+      def history_token_usage_footer_line?(lines, index)
+        previous_index = index - 1
+        return true if previous_index.negative?
+
+        previous_line = lines[previous_index]
+        previous_line.strip.empty? || TOKEN_USAGE_PATTERN.match?(previous_line)
       end
 
       def parse_token_count(value)

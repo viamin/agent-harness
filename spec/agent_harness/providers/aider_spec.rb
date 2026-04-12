@@ -333,6 +333,7 @@ RSpec.describe AgentHarness::Providers::Aider do
             USER hello
             LLM RESPONSE 2026-04-12T00:00:01
             ASSISTANT world
+
             Tokens: 10 sent, 20 received.
           TEXT
           result
@@ -433,6 +434,22 @@ RSpec.describe AgentHarness::Providers::Aider do
         expect(response.tokens).to be_nil
       end
 
+      it "ignores usage-shaped transcript lines in history content" do
+        allow(mock_executor).to receive(:execute) do |cmd, **kwargs|
+          history_path = cmd[cmd.index("--llm-history-file") + 1]
+          File.write(history_path, <<~TEXT)
+            TO LLM 2026-04-12T00:00:00
+            -------
+            USER Please repeat this exactly:
+            Tokens: 42 sent, 8 received.
+          TEXT
+          result
+        end
+
+        response = provider.send_message(prompt: "hello")
+        expect(response.tokens).to be_nil
+      end
+
       it "returns nil tokens when history file does not exist" do
         response = provider.send_message(prompt: "hello")
         expect(response.tokens).to be_nil
@@ -512,7 +529,7 @@ RSpec.describe AgentHarness::Providers::Aider do
       it "augments the base response with tokens from the history file" do
         Dir.mktmpdir do |dir|
           path = File.join(dir, "history.log")
-          File.write(path, "Tokens: 100 sent, 50 received.")
+          File.write(path, "ASSISTANT world\n\nTokens: 100 sent, 50 received.")
 
           response = provider.send(:parse_response, result, duration: 1.0, llm_history_path: path)
           expect(response.output).to eq("response text")
@@ -571,6 +588,33 @@ RSpec.describe AgentHarness::Providers::Aider do
         )
 
         expect(tokens).to be_nil
+      end
+
+      it "ignores standalone transcript lines unless they are in a footer block" do
+        tokens = provider.send(
+          :parse_token_usage_text,
+          <<~TEXT,
+            USER Please repeat this exactly:
+            Tokens: 42 sent, 8 received.
+          TEXT
+          source: :history
+        )
+
+        expect(tokens).to be_nil
+      end
+
+      it "parses history footer token counters after a blank-line separator" do
+        tokens = provider.send(
+          :parse_token_usage_text,
+          <<~TEXT,
+            ASSISTANT world
+
+            Tokens: 42 sent, 8 received. Cost: $0.0012 message, $0.0045 session.
+          TEXT
+          source: :history
+        )
+
+        expect(tokens).to eq({input: 42, output: 8, total: 50})
       end
     end
   end
