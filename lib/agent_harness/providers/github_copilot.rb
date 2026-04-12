@@ -1,11 +1,13 @@
 # frozen_string_literal: true
 
 require "json"
+require "rubygems"
 
 module AgentHarness
   module Providers
     class GithubCopilot < Base
       MODEL_PATTERN = /^gpt-[\d.o-]+(?:-turbo)?(?:-mini)?$/i
+      JSON_OUTPUT_MIN_VERSION = Gem::Version.new("0.0.422").freeze
 
       SMOKE_TEST_CONTRACT = {
         prompt: "Reply with exactly OK.",
@@ -183,7 +185,7 @@ module AgentHarness
       def build_command(prompt, options)
         cmd = [self.class.binary_name, "-p", prompt]
 
-        cmd += ["--output-format", "json"]
+        cmd += ["--output-format", "json"] if supports_json_output_format?
 
         # Programmatic mode is non-interactive, so permission prompts for tool use
         # cannot be answered during execution.
@@ -228,6 +230,32 @@ module AgentHarness
       end
 
       private
+
+      def supports_json_output_format?
+        version = copilot_cli_version
+        version && version >= JSON_OUTPUT_MIN_VERSION
+      end
+
+      def copilot_cli_version
+        return @copilot_cli_version if defined?(@copilot_cli_version)
+
+        result = @executor.execute([self.class.binary_name, "--version"], timeout: 5)
+        @copilot_cli_version = extract_version(result)
+      rescue => e
+        log_debug("copilot_cli_version_check_failed", error: e.message)
+        @copilot_cli_version = nil
+      end
+
+      def extract_version(result)
+        return nil unless result.success?
+
+        version_string = [result.stdout, result.stderr].compact.join("\n")[/\d+\.\d+\.\d+(?:[-+][A-Za-z0-9.-]+)?/]
+        return nil if version_string.nil? || version_string.empty?
+
+        Gem::Version.new(version_string)
+      rescue ArgumentError
+        nil
+      end
 
       def parse_jsonl_output(output)
         return nil if output.nil? || output.strip.empty?

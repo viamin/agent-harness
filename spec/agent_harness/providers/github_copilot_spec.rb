@@ -63,8 +63,23 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
     end
 
     let(:config) { AgentHarness::ProviderConfig.new(:github_copilot) }
+    let(:version_result) do
+      AgentHarness::CommandExecutor::Result.new(
+        stdout: "github-copilot-cli 0.0.422",
+        stderr: "",
+        exit_code: 0,
+        duration: 0.1
+      )
+    end
 
     subject(:provider) { described_class.new(config: config, executor: mock_executor) }
+
+    before do
+      allow(mock_executor).to receive(:execute).with(
+        ["github-copilot-cli", "--version"],
+        timeout: 5
+      ).and_return(version_result)
+    end
 
     describe "#name" do
       it "returns github_copilot" do
@@ -156,7 +171,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
     end
 
     describe "#build_command" do
-      it "includes --allow-all-tools by default" do
+      it "includes --output-format json when the CLI supports it" do
         command = provider.send(:build_command, "Hello", {})
 
         expect(command).to eq([
@@ -165,6 +180,29 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
           "Hello",
           "--output-format",
           "json",
+          "--allow-all-tools"
+        ])
+      end
+
+      it "omits --output-format json on older CLI versions" do
+        allow(mock_executor).to receive(:execute).with(
+          ["github-copilot-cli", "--version"],
+          timeout: 5
+        ).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "github-copilot-cli 0.0.421",
+            stderr: "",
+            exit_code: 0,
+            duration: 0.1
+          )
+        )
+
+        command = provider.send(:build_command, "Hello", {})
+
+        expect(command).to eq([
+          "github-copilot-cli",
+          "-p",
+          "Hello",
           "--allow-all-tools"
         ])
       end
@@ -214,6 +252,10 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
     end
 
     describe "#send_message" do
+      before do
+        allow(provider).to receive(:supports_json_output_format?).and_return(true)
+      end
+
       it "sends prompt in non-interactive mode with JSON output" do
         jsonl_output = [
           {"text" => "response"},
@@ -235,6 +277,26 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         )
 
         provider.send_message(prompt: "Hello")
+      end
+
+      it "falls back to plain prompt mode when JSON output is unsupported" do
+        allow(provider).to receive(:supports_json_output_format?).and_return(false)
+
+        allow(mock_executor).to receive(:execute).with(
+          ["github-copilot-cli", "-p", "Hello", "--allow-all-tools"],
+          anything
+        ).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "plain text response",
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        response = provider.send_message(prompt: "Hello")
+        expect(response.output).to eq("plain text response")
+        expect(response.tokens).to be_nil
       end
 
       context "with dangerous_mode" do
