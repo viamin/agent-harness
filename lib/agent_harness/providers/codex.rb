@@ -396,14 +396,16 @@ module AgentHarness
             if usage.is_a?(Hash)
               input_val = usage["input_tokens"]
               output_val = usage["output_tokens"]
+              total_val = usage["total_tokens"]
 
-              if input_val || output_val
+              if input_val || output_val || total_val
                 has_usage = true
                 input_tokens = input_val.to_i
                 output_tokens = output_val.to_i
+                usage_total = total_val.nil? ? (input_tokens + output_tokens) : total_val.to_i
                 total_input += input_tokens
                 total_output += output_tokens
-                total_tokens += input_tokens + output_tokens
+                total_tokens += usage_total
               end
             end
 

@@ -1101,6 +1101,27 @@ RSpec.describe AgentHarness::Providers::Codex do
           expect(response.total_tokens).to eq(125)
         end
 
+        it "prefers explicit total_tokens from turn.completed usage" do
+          jsonl_output = [
+            JSON.generate({"type" => "message.delta", "delta" => {"text" => "Hello!"}}),
+            JSON.generate({"type" => "turn.completed", "usage" => {"input_tokens" => 100, "output_tokens" => 25, "total_tokens" => 140}})
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq("Hello!")
+          expect(response.tokens).to eq({input: 100, output: 25, total: 140})
+          expect(response.total_tokens).to eq(140)
+        end
+
         it "aggregates token usage across multiple turns" do
           jsonl_output = [
             JSON.generate({"type" => "message.delta", "delta" => {"text" => "Part 1"}}),
