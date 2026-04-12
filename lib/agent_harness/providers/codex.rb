@@ -557,15 +557,31 @@ module AgentHarness
 
       def extract_message_content_parts(item)
         item_text = item["text"]
-        return [item_text] if item_text.is_a?(String)
+        if item_text.is_a?(String)
+          return extract_fallback_content_parts(item, item_text) if item_text.empty?
+
+          return [item_text]
+        end
 
         item_message = item["message"]
-        return [item_message] if item_message.is_a?(String)
+        if item_message.is_a?(String)
+          return extract_fallback_content_parts(item, item_message) if item_message.empty?
+
+          return [item_message]
+        end
 
         item_content = item["content"]
         return nil unless item_content.is_a?(Array)
 
         extract_content_parts(item_content)
+      end
+
+      def extract_fallback_content_parts(item, empty_value)
+        item_content = item["content"]
+        return [empty_value] unless item_content.is_a?(Array)
+
+        content_parts = extract_content_parts(item_content)
+        content_parts.nil? ? [empty_value] : content_parts
       end
 
       def extract_wrapped_delta_parts(payload)
