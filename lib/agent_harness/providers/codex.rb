@@ -368,7 +368,7 @@ module AgentHarness
         events.select! { |event| event.is_a?(Hash) }
         return nil if events.empty?
 
-        text_parts = []
+        latest_completed_parts = []
         current_turn_parts = []
         total_input = 0
         total_output = 0
@@ -414,7 +414,7 @@ module AgentHarness
               current_turn_parts = [result]
             end
 
-            text_parts.concat(current_turn_parts) unless current_turn_parts.empty?
+            latest_completed_parts = current_turn_parts.dup unless current_turn_parts.empty?
             current_turn_parts = []
           when "event_msg"
             payload = event["payload"]
@@ -443,7 +443,7 @@ module AgentHarness
                   wrapped_output += wrapped_token_usage[:output]
                   wrapped_total += wrapped_token_usage[:total]
                 end
-                text_parts.concat(current_turn_parts) unless current_turn_parts.empty?
+                latest_completed_parts = current_turn_parts.dup unless current_turn_parts.empty?
                 current_turn_parts = []
               end
             end
@@ -456,8 +456,8 @@ module AgentHarness
           end
         end
 
-        text_parts.concat(current_turn_parts) unless current_turn_parts.empty?
-        text = text_parts.empty? ? nil : text_parts.join
+        final_parts = current_turn_parts.empty? ? latest_completed_parts : current_turn_parts
+        text = final_parts.empty? ? nil : final_parts.join
 
         {
           text: text,

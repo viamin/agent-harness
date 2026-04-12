@@ -532,7 +532,7 @@ RSpec.describe AgentHarness::Providers::Codex do
           expect(response.output).to eq("turn result")
         end
 
-        it "preserves completed assistant text across multiple turns" do
+        it "returns only the final completed assistant text across multiple turns" do
           jsonl_output = [
             JSON.generate({"type" => "item.completed", "item" => {"type" => "message", "role" => "assistant", "text" => "first answer"}}),
             JSON.generate({"type" => "turn.completed", "usage" => {"input_tokens" => 10, "output_tokens" => 5}}),
@@ -550,7 +550,7 @@ RSpec.describe AgentHarness::Providers::Codex do
           )
 
           response = provider.send_message(prompt: "Hello")
-          expect(response.output).to eq("first answersecond answer")
+          expect(response.output).to eq("second answer")
           expect(response.tokens).to eq({input: 18, output: 9, total: 27})
         end
 
@@ -909,7 +909,7 @@ RSpec.describe AgentHarness::Providers::Codex do
           expect(response.total_tokens).to eq(17)
         end
 
-        it "aggregates wrapped token_count events across multiple turns" do
+        it "returns only the final wrapped assistant text across multiple turns" do
           jsonl_output = [
             JSON.generate({"type" => "event_msg", "payload" => {"type" => "agent_message", "message" => "first wrapped answer"}}),
             JSON.generate({
@@ -959,7 +959,7 @@ RSpec.describe AgentHarness::Providers::Codex do
           )
 
           response = provider.send_message(prompt: "Hello")
-          expect(response.output).to eq("first wrapped answersecond wrapped answer")
+          expect(response.output).to eq("second wrapped answer")
           expect(response.tokens).to eq({input: 5, output: 5, total: 16})
           expect(response.total_tokens).to eq(16)
         end
