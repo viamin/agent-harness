@@ -448,8 +448,9 @@ module AgentHarness
         return if value.nil?
 
         if value.is_a?(String)
-          coerced = Integer(value, exception: false)
-          return coerced if coerced && coerced >= 0
+          return nil unless value.match?(/\A\d+\z/)
+
+          return value.to_i
         end
 
         nil

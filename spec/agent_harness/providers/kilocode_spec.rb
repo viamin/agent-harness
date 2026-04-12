@@ -841,6 +841,47 @@ RSpec.describe AgentHarness::Providers::Kilocode do
         expect(response.tokens).to eq({input: 10, output: 5, total: 15})
       end
 
+      it "accepts plain decimal string token values" do
+        ndjson = [
+          {"type" => "text", "part" => {"text" => "Done!"}},
+          {"type" => "result", "usage" => {"input_tokens" => "120", "output_tokens" => "40", "total_tokens" => "160"}}
+        ].map { |e| JSON.generate(e) }.join("\n")
+
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: ndjson,
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        response = provider.send_message(prompt: "Hello")
+        expect(response.output).to eq("Done!")
+        expect(response.tokens).to eq({input: 120, output: 40, total: 160})
+      end
+
+      it "ignores malformed numeric string token values" do
+        ndjson = [
+          {"type" => "text", "part" => {"text" => "Done!"}},
+          {"type" => "step_finish", "part" => {"tokens" => {"input" => 100, "output" => 50}}},
+          {"type" => "result", "usage" => {"input_tokens" => "0x10", "output_tokens" => "1_000", "total_tokens" => "+20"}}
+        ].map { |e| JSON.generate(e) }.join("\n")
+
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: ndjson,
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        response = provider.send_message(prompt: "Hello")
+        expect(response.output).to eq("Done!")
+        expect(response.tokens).to eq({input: 100, output: 50, total: 150})
+      end
+
       it "ignores non-integral float token values in step_finish payloads" do
         ndjson = [
           {"type" => "text", "part" => {"text" => "Done!"}},
