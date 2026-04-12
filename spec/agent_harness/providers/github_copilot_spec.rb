@@ -376,12 +376,12 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         expect(response.error).to eq("err text\nout")
       end
 
-      it "skips unparseable lines" do
+      it "preserves unparseable plain-text lines alongside assistant replies" do
         jsonl = "not json\n{\"type\":\"assistant\",\"data\":{\"content\":\"ok\"}}\n"
         result = make_result(stdout: jsonl)
         response = provider.send(:parse_response, result, duration: 1.0)
 
-        expect(response.output).to eq("ok")
+        expect(response.output).to eq("not json\nok")
       end
 
       it "preserves plain-text stdout when mixed with structured control events" do
@@ -394,6 +394,18 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
 
         expect(response.output).to eq("literal shell text\n")
         expect(response.tokens).to eq({input: 3, output: 4, total: 7})
+      end
+
+      it "preserves plain-text stdout alongside assistant reply events" do
+        jsonl = <<~JSONL
+          preface
+          {"type":"assistant.message","data":{"content":"echo hello"}}
+          epilogue
+        JSONL
+        result = make_result(stdout: jsonl)
+        response = provider.send(:parse_response, result, duration: 1.0)
+
+        expect(response.output).to eq("preface\necho helloepilogue\n")
       end
 
       it "ignores scalar JSON lines when extracting text" do

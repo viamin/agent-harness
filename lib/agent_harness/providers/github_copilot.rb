@@ -231,22 +231,21 @@ module AgentHarness
         fallback_input = 0
         fallback_output = 0
         fallback_tokens_present = false
-        aggregated_output = +""
-        plain_text_output = +""
+        rendered_output = +""
         output.lines.each do |line|
           stripped_line = line.strip
           next if stripped_line.empty?
           begin
             obj = JSON.parse(stripped_line)
           rescue JSON::ParserError
-            plain_text_output << line
+            rendered_output << line
             next
           end
 
           structured_json_seen ||= obj.is_a?(Hash)
 
           text = extract_event_text(obj)
-          aggregated_output << text if text
+          rendered_output << text if text
 
           token_usage = extract_token_usage(obj)
           next unless token_usage
@@ -277,15 +276,7 @@ module AgentHarness
           fallback_input: fallback_input,
           fallback_output: fallback_output
         )
-        final_output = if aggregated_output.empty?
-          if structured_json_seen
-            plain_text_output
-          else
-            output
-          end
-        else
-          aggregated_output
-        end
+        final_output = structured_json_seen ? rendered_output : output
 
         Response.new(
           output: final_output,
