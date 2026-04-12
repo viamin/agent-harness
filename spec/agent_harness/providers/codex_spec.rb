@@ -334,6 +334,16 @@ RSpec.describe AgentHarness::Providers::Codex do
         end
       end
 
+      it "raises AuthenticationError for shorter OAuth refresh token reuse wording" do
+        allow(mock_executor).to receive(:execute).and_raise(
+          StandardError.new("Failed to refresh token: refresh token already used")
+        )
+
+        expect { provider.send_message(prompt: "Hello") }.to raise_error(AgentHarness::AuthenticationError) do |error|
+          expect(error.provider).to eq(:codex)
+        end
+      end
+
       it "does not raise AuthenticationError for transient OAuth refresh failures" do
         allow(mock_executor).to receive(:execute).and_raise(
           StandardError.new(

@@ -18,7 +18,7 @@ module AgentHarness
         /failed to refresh token:.*invalid_grant/i,
         /failed to refresh token:.*invalid.*refresh.*token/i,
         /your access token could not be refreshed because your refresh token .*already (?:been )?used/i,
-        /refresh token .*already been used/i
+        /refresh token .*already (?:been )?used/i
       ].freeze
       OAUTH_REFRESH_TRANSIENT_PATTERNS = [
         /your access token could not be refreshed because (?:the )?auth(?:entication)? service(?:\s+(?:is|was))?\s+unavailable/i,
