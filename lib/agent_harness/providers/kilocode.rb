@@ -156,7 +156,7 @@ module AgentHarness
         error = nil
 
         if result.failed?
-          combined = [result.stdout, result.stderr]
+          combined = [result.stderr, result.stdout]
             .map { |s| s.to_s.strip }
             .reject(&:empty?)
             .join("\n")

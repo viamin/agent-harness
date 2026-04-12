@@ -461,6 +461,22 @@ RSpec.describe AgentHarness::Providers::Kilocode do
         expect(response.error).to eq("rate limit exceeded")
       end
 
+      it "combines stderr before stdout for non-structured failures" do
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "stdout error detail",
+            stderr: "stderr error detail",
+            exit_code: 1,
+            duration: 1.0
+          )
+        )
+
+        response = provider.send_message(prompt: "Hello")
+        expect(response.failed?).to be true
+        expect(response.output).to eq("stdout error detail")
+        expect(response.error).to eq("stderr error detail\nstdout error detail")
+      end
+
       it "treats structured error events as failures even on zero exit" do
         ndjson = [
           {"type" => "text", "part" => {"text" => "Partial response"}},
