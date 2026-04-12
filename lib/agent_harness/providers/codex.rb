@@ -17,12 +17,12 @@ module AgentHarness
         /failed to refresh token\b.*\binvalid_client\b/im,
         /failed to refresh token\b.*\binvalid_grant\b/im,
         /failed to refresh token\b.*invalid.*refresh.*token/im,
-        /your access token could not be refreshed because your refresh token .*already (?:been )?used/i,
-        /refresh token .*already (?:been )?used/i
+        /your access token could not be refreshed because\s+your refresh token .*already (?:been )?used/im,
+        /refresh token .*already (?:been )?used/im
       ].freeze
       OAUTH_REFRESH_TRANSIENT_PATTERNS = [
-        /your access token could not be refreshed because (?:the )?auth(?:entication)? service(?:\s+(?:is|was))?\s+unavailable/i,
-        /your access token could not be refreshed because .*connection.*error/i,
+        /your access token could not be refreshed because\s+(?:the\s+)?auth(?:entication)? service(?:\s+(?:is|was))?\s+unavailable/im,
+        /your access token could not be refreshed because .*connection.*error/im,
         /failed to refresh token:.*connection.*error/im,
         /failed to refresh token\b.*service(?:\s+(?:is|was))?\s+unavailable/im
       ].freeze
@@ -190,7 +190,7 @@ module AgentHarness
         {
           rate_limited: COMMON_ERROR_PATTERNS[:rate_limited],
           timeout: [
-            /your access token could not be refreshed.*(?:timeout|timed.?out)/i,
+            /your access token could not be refreshed.*(?:timeout|timed.?out)/im,
             /failed to refresh token\b.*(?:timeout|timed.?out)/im
           ],
           transient: COMMON_ERROR_PATTERNS[:transient] + [
