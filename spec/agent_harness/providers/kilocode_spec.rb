@@ -201,6 +201,13 @@ RSpec.describe AgentHarness::Providers::Kilocode do
     end
 
     context "with token usage parsing" do
+      around do |example|
+        tracker = AgentHarness.token_tracker
+        tracker.clear!
+        example.run
+        tracker.clear!
+      end
+
       it "extracts token usage from a multi-event NDJSON stream" do
         ndjson = [
           {"type" => "text", "part" => {"text" => "Hello! How can I help?"}},
@@ -390,12 +397,9 @@ RSpec.describe AgentHarness::Providers::Kilocode do
           )
         )
 
-        tracker = AgentHarness.token_tracker
-        tracker.clear!
-
         provider.send_message(prompt: "Hello")
 
-        summary = tracker.summary
+        summary = AgentHarness.token_tracker.summary
         expect(summary[:total_input_tokens]).to eq(50)
         expect(summary[:total_output_tokens]).to eq(25)
         expect(summary[:total_tokens]).to eq(75)
