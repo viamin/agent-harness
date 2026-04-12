@@ -619,23 +619,26 @@ module AgentHarness
         usage = info["last_token_usage"]
         mode = :delta
 
-        unless usage.is_a?(Hash)
+        unless token_usage_fields_present?(usage)
           usage = info["total_token_usage"]
           mode = :snapshot
         end
 
-        return unless usage.is_a?(Hash)
-
-        input_present = usage.key?("input_tokens")
-        output_present = usage.key?("output_tokens")
-        total_present = usage.key?("total_tokens")
-        return unless input_present || output_present || total_present
+        return unless token_usage_fields_present?(usage)
 
         input = usage["input_tokens"].to_i
         output = usage["output_tokens"].to_i
-        total = total_present ? usage["total_tokens"].to_i : (input + output)
+        total = usage.key?("total_tokens") ? usage["total_tokens"].to_i : (input + output)
 
         {input: input, output: output, total: total, mode: mode}
+      end
+
+      def token_usage_fields_present?(usage)
+        usage.is_a?(Hash) && (
+          usage.key?("input_tokens") ||
+          usage.key?("output_tokens") ||
+          usage.key?("total_tokens")
+        )
       end
 
       def externally_sandboxed?(options)

@@ -1575,6 +1575,42 @@ RSpec.describe AgentHarness::Providers::Codex do
           expect(response.total_tokens).to eq(12)
         end
 
+        it "falls back to wrapped cumulative snapshots when last_token_usage has no token fields" do
+          jsonl_output = [
+            JSON.generate({"type" => "event_msg", "payload" => {"type" => "agent_message", "message" => "wrapped output"}}),
+            JSON.generate({
+              "type" => "event_msg",
+              "payload" => {
+                "type" => "token_count",
+                "info" => {
+                  "last_token_usage" => {
+                    "cached_input_tokens" => 9
+                  },
+                  "total_token_usage" => {
+                    "input_tokens" => 5,
+                    "output_tokens" => 5,
+                    "total_tokens" => 12
+                  }
+                }
+              }
+            })
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq("wrapped output")
+          expect(response.tokens).to eq({input: 5, output: 5, total: 12})
+          expect(response.total_tokens).to eq(12)
+        end
+
         it "treats fallback wrapped cumulative snapshots as replacements after earlier deltas" do
           jsonl_output = [
             JSON.generate({"type" => "event_msg", "payload" => {"type" => "agent_message", "message" => "wrapped output"}}),
