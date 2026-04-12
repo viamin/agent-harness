@@ -270,16 +270,17 @@ module AgentHarness
         input = coerce_token_count(usage["input_tokens"])
         output = coerce_token_count(usage["output_tokens"])
         explicit_total = extract_explicit_total_token_count(usage)
+        synthesized_total = synthesize_usage_total_token_count(usage, input:, output:)
 
         input = fallback[:input] if input.nil? && fallback
         output = fallback[:output] if output.nil? && fallback
         fallback_total = fallback[:total] if fallback
-        return nil unless input || output || explicit_total || fallback_total
+        return nil unless input || output || explicit_total || synthesized_total || fallback_total
 
         input ||= 0
         output ||= 0
 
-        total = explicit_total || [input + output, fallback_total].compact.max
+        total = explicit_total || [synthesized_total, input + output, fallback_total].compact.max
 
         {input: input, output: output, total: total}
       end
@@ -370,6 +371,21 @@ module AgentHarness
 
       def extract_explicit_total_token_count(usage)
         coerce_token_count(usage["total_tokens"]) || coerce_token_count(usage["total"])
+      end
+
+      def synthesize_usage_total_token_count(usage, input:, output:)
+        return nil if input.nil? && output.nil?
+
+        counts = [
+          input,
+          output,
+          coerce_token_count(usage["reasoning_tokens"]),
+          coerce_token_count(usage["cache_creation_input_tokens"]),
+          coerce_token_count(usage["cache_read_input_tokens"]),
+          coerce_token_count(usage["cache_write_input_tokens"])
+        ]
+
+        counts.compact.sum
       end
     end
   end

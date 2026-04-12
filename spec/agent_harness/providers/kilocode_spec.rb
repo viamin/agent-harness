@@ -1104,6 +1104,64 @@ RSpec.describe AgentHarness::Providers::Kilocode do
         expect(response.tokens).to eq({input: 100, output: 50, total: 175})
       end
 
+      it "counts known extra result usage token categories when total is omitted" do
+        ndjson = [
+          {"type" => "text", "part" => {"text" => "Response"}},
+          {
+            "type" => "result",
+            "usage" => {
+              "input_tokens" => 100,
+              "output_tokens" => 50,
+              "reasoning_tokens" => 20,
+              "cache_creation_input_tokens" => 10,
+              "cache_read_input_tokens" => 15,
+              "cache_write_input_tokens" => 5
+            }
+          }
+        ].map { |e| JSON.generate(e) }.join("\n")
+
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: ndjson,
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        response = provider.send_message(prompt: "Hello")
+        expect(response.tokens).to eq({input: 100, output: 50, total: 200})
+      end
+
+      it "ignores malformed extra result usage token categories when synthesizing totals" do
+        ndjson = [
+          {"type" => "text", "part" => {"text" => "Response"}},
+          {
+            "type" => "result",
+            "usage" => {
+              "input_tokens" => 100,
+              "output_tokens" => 50,
+              "reasoning_tokens" => 20.5,
+              "cache_creation_input_tokens" => -1,
+              "cache_read_input_tokens" => {"bad" => true},
+              "cache_write_input_tokens" => 5
+            }
+          }
+        ].map { |e| JSON.generate(e) }.join("\n")
+
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: ndjson,
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        response = provider.send_message(prompt: "Hello")
+        expect(response.tokens).to eq({input: 100, output: 50, total: 155})
+      end
+
       it "falls back to total when usage total_tokens is malformed" do
         ndjson = [
           {"type" => "text", "part" => {"text" => "Response"}},
