@@ -367,6 +367,17 @@ RSpec.describe AgentHarness::Providers::Codex do
           .to raise_error(AgentHarness::TimeoutError, /auth service timed out/)
       end
 
+      it "raises TimeoutError for authentication service refresh timeout failures" do
+        allow(mock_executor).to receive(:execute).and_raise(
+          StandardError.new(
+            "Your access token could not be refreshed because the authentication service timed out."
+          )
+        )
+
+        expect { provider.send_message(prompt: "Hello") }
+          .to raise_error(AgentHarness::TimeoutError, /authentication service timed out/)
+      end
+
       context "with dangerous_mode option" do
         it "includes --full-auto flag" do
           expect(mock_executor).to receive(:execute).with(
@@ -583,6 +594,15 @@ RSpec.describe AgentHarness::Providers::Codex do
             patterns
           )
         ).to eq(:timeout)
+
+        expect(
+          AgentHarness::ErrorTaxonomy.classify(
+            StandardError.new(
+              "Your access token could not be refreshed because the authentication service timed out."
+            ),
+            patterns
+          )
+        ).to eq(:timeout)
       end
     end
 
@@ -647,6 +667,22 @@ RSpec.describe AgentHarness::Providers::Codex do
           AgentHarness::CommandExecutor::Result.new(
             stdout: "",
             stderr: "Your access token could not be refreshed because the auth service timed out.",
+            exit_code: 1,
+            duration: 1.0
+          )
+        )
+
+        result = provider.smoke_test
+
+        expect(result[:ok]).to be false
+        expect(result[:error_category]).to eq(:timeout)
+      end
+
+      it "classifies authentication service refresh timeout failures as timeout" do
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "",
+            stderr: "Your access token could not be refreshed because the authentication service timed out.",
             exit_code: 1,
             duration: 1.0
           )
