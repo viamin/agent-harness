@@ -168,9 +168,14 @@ module AgentHarness
           if event["type"] == "step_finish"
             part_tokens = part["tokens"] if part.is_a?(Hash)
             if part_tokens.is_a?(Hash)
-              accumulated_input += part_tokens["input"].to_i
-              accumulated_output += part_tokens["output"].to_i
-              has_step_tokens = true
+              step_input = coerce_token_count(part_tokens["input"])
+              step_output = coerce_token_count(part_tokens["output"])
+
+              if step_input || step_output
+                accumulated_input += step_input || 0
+                accumulated_output += step_output || 0
+                has_step_tokens = true
+              end
             end
           end
 
@@ -221,14 +226,23 @@ module AgentHarness
       end
 
       def build_token_counts(usage)
-        input = usage["input_tokens"]
-        output = usage["output_tokens"]
+        input = coerce_token_count(usage["input_tokens"])
+        output = coerce_token_count(usage["output_tokens"])
         return nil unless input || output
 
         input ||= 0
         output ||= 0
 
         {input: input, output: output, total: input + output}
+      end
+
+      def coerce_token_count(value)
+        return value if value.is_a?(Integer)
+        return value.to_i if value.is_a?(Float) && value.finite?
+        return if value.nil?
+        return Integer(value, exception: false) if value.is_a?(String)
+
+        nil
       end
     end
   end
