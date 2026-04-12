@@ -744,10 +744,15 @@ module AgentHarness
       end
 
       def merge_wrapped_turn_usage(existing_usage, existing_source, wrapped_token_usage)
-        return [existing_usage, existing_source] if existing_source == :turn_completed
-
         total_usage = wrapped_token_usage[:total]
         last_usage = wrapped_token_usage[:last]
+
+        if existing_source == :turn_completed
+          replacement_usage = total_usage || last_usage
+          return [existing_usage, existing_source] unless replacement_usage
+
+          return [merge_same_turn_usage(existing_usage, replacement_usage), :turn_completed]
+        end
 
         if total_usage
           expected_total = if existing_source == :wrapped && existing_usage && last_usage
