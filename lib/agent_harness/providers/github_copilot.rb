@@ -247,7 +247,7 @@ module AgentHarness
           text = extract_event_text(obj)
           if text
             output_segments << {kind: :assistant, content: text, terminated: line.end_with?("\n")}
-          elsif preserve_raw_json_line?(obj)
+          elsif preserve_raw_json_line?(obj) || !obj.is_a?(Hash)
             output_segments << {kind: :raw, content: line, terminated: line.end_with?("\n")}
           end
 

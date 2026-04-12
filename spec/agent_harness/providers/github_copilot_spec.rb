@@ -436,7 +436,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         response = nil
 
         expect { response = provider.send(:parse_response, result, duration: 1.0) }.not_to raise_error
-        expect(response.output).to eq("ok")
+        expect(response.output).to eq("true\n1\nok")
       end
 
       it "ignores scalar JSON lines when no structured events are present" do
@@ -445,6 +445,18 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
 
         expect(response.output).to eq("true\n")
         expect(response.tokens).to be_nil
+      end
+
+      it "preserves scalar JSON stdout alongside structured control events" do
+        jsonl = <<~JSONL
+          {"type":"usage","data":{"inputTokens":3,"outputTokens":4}}
+          true
+        JSONL
+        result = make_result(stdout: jsonl)
+        response = provider.send(:parse_response, result, duration: 1.0)
+
+        expect(response.output).to eq("true\n")
+        expect(response.tokens).to eq({input: 3, output: 4, total: 7})
       end
 
       it "prefers usage events over assistant reply token fields when both are present" do
