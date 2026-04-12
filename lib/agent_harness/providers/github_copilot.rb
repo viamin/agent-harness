@@ -213,8 +213,9 @@ module AgentHarness
         output = result.stdout.to_s
         error = nil
 
-        if result.failed?
-          combined = [output, result.stderr.to_s].map(&:strip).reject(&:empty?).join("\n")
+        legitimate = execution_semantics[:legitimate_exit_codes] || [0]
+        unless legitimate.include?(result.exit_code)
+          combined = [result.stderr.to_s, output].map(&:strip).reject(&:empty?).join("\n")
           error = combined unless combined.empty?
         end
 

@@ -337,7 +337,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         result = make_result(stdout: "out", stderr: "err text", exit_code: 1)
         response = provider.send(:parse_response, result, duration: 1.0)
 
-        expect(response.error).to eq("out\nerr text")
+        expect(response.error).to eq("err text\nout")
       end
 
       it "skips unparseable lines" do
