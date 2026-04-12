@@ -190,10 +190,15 @@ module AgentHarness
         end
 
         output = text_parts.join unless text_parts.empty?
-        tokens = build_token_counts(result_usage) if result_usage
-        if tokens.nil? && has_step_tokens
-          tokens = build_token_counts({"input_tokens" => accumulated_input, "output_tokens" => accumulated_output})
+        step_tokens = nil
+        if has_step_tokens
+          step_tokens = build_token_counts({
+            "input_tokens" => accumulated_input,
+            "output_tokens" => accumulated_output
+          })
         end
+        tokens = resolve_token_counts(result_usage, fallback: step_tokens) if result_usage
+        tokens ||= step_tokens
         if structured_errors.any?
           error_lines = [error, *structured_errors].compact.reject(&:empty?).uniq
           error = error_lines.join("\n")
@@ -238,6 +243,20 @@ module AgentHarness
       def build_token_counts(usage)
         input = coerce_token_count(usage["input_tokens"])
         output = coerce_token_count(usage["output_tokens"])
+        return nil unless input || output
+
+        input ||= 0
+        output ||= 0
+
+        {input: input, output: output, total: input + output}
+      end
+
+      def resolve_token_counts(usage, fallback: nil)
+        input = coerce_token_count(usage["input_tokens"])
+        output = coerce_token_count(usage["output_tokens"])
+
+        input = fallback[:input] if input.nil? && fallback
+        output = fallback[:output] if output.nil? && fallback
         return nil unless input || output
 
         input ||= 0
