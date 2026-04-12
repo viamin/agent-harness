@@ -269,7 +269,7 @@ module AgentHarness
       def resolve_token_counts(usage, fallback: nil)
         input = coerce_token_count(usage["input_tokens"])
         output = coerce_token_count(usage["output_tokens"])
-        explicit_total = coerce_total_token_count(usage, input:, output:)
+        explicit_total = extract_explicit_total_token_count(usage)
 
         input = fallback[:input] if input.nil? && fallback
         output = fallback[:output] if output.nil? && fallback
@@ -279,7 +279,7 @@ module AgentHarness
         input ||= 0
         output ||= 0
 
-        total = [input + output, explicit_total, fallback_total].compact.max
+        total = explicit_total || [input + output, fallback_total].compact.max
 
         {input: input, output: output, total: total}
       end
@@ -339,7 +339,7 @@ module AgentHarness
       end
 
       def coerce_total_token_count(usage, input:, output:)
-        explicit_total = coerce_token_count(usage["total_tokens"] || usage["total"])
+        explicit_total = extract_explicit_total_token_count(usage)
         return explicit_total if explicit_total
         return nil if input.nil? && output.nil?
 
@@ -347,7 +347,7 @@ module AgentHarness
       end
 
       def coerce_step_total_token_count(tokens)
-        explicit_total = coerce_token_count(tokens["total_tokens"] || tokens["total"])
+        explicit_total = extract_explicit_total_token_count(tokens)
         return explicit_total if explicit_total
 
         counts = [
@@ -366,6 +366,10 @@ module AgentHarness
         return nil if counts.empty?
 
         counts.sum
+      end
+
+      def extract_explicit_total_token_count(usage)
+        coerce_token_count(usage["total_tokens"] || usage["total"])
       end
     end
   end

@@ -1085,6 +1085,36 @@ RSpec.describe AgentHarness::Providers::Kilocode do
         expect(response.tokens).to eq({input: 100, output: 50, total: 175})
       end
 
+      it "keeps explicit result totals over larger accumulated step totals" do
+        ndjson = [
+          {"type" => "text", "part" => {"text" => "Response"}},
+          {
+            "type" => "step_finish",
+            "part" => {
+              "tokens" => {
+                "input" => 100,
+                "output" => 50,
+                "reasoning" => 20,
+                "cache" => {"read" => 15, "write" => 10}
+              }
+            }
+          },
+          {"type" => "result", "usage" => {"input_tokens" => 100, "output_tokens" => 50, "total_tokens" => 150}}
+        ].map { |e| JSON.generate(e) }.join("\n")
+
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: ndjson,
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        response = provider.send_message(prompt: "Hello")
+        expect(response.tokens).to eq({input: 100, output: 50, total: 150})
+      end
+
       it "preserves total-only usage payloads" do
         ndjson = [
           {"type" => "text", "part" => {"text" => "Response"}},
