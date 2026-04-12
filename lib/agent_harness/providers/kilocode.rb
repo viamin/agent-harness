@@ -287,17 +287,23 @@ module AgentHarness
         input = coerce_token_count(usage["input_tokens"])
         output = coerce_token_count(usage["output_tokens"])
         explicit_total = extract_explicit_total_token_count(usage)
-        synthesized_total = synthesize_usage_total_token_count(usage, input:, output:)
+        usage_extra_total = usage_extra_token_total(usage)
 
         input = fallback[:input] if input.nil? && fallback
         output = fallback[:output] if output.nil? && fallback
         fallback_total = fallback[:total] if fallback
-        return nil unless input || output || explicit_total || synthesized_total || fallback_total
+        return nil unless input || output || explicit_total || usage_extra_total || fallback_total
 
         input ||= 0
         output ||= 0
 
-        total = explicit_total || [synthesized_total, input + output + fallback_extra_total, fallback_total].compact.max
+        total = if explicit_total
+          explicit_total
+        elsif usage_extra_total
+          input + output + usage_extra_total
+        else
+          [input + output + fallback_extra_total, fallback_total].compact.max
+        end
 
         {input: input, output: output, total: total}
       end
@@ -306,9 +312,9 @@ module AgentHarness
         input = coerce_token_count(usage["input_tokens"])
         output = coerce_token_count(usage["output_tokens"])
         explicit_total = extract_explicit_total_token_count(usage)
-        synthesized_total = synthesize_usage_total_token_count(usage, input:, output:)
+        usage_extra_total = usage_extra_token_total(usage)
 
-        input || output || explicit_total || synthesized_total
+        input || output || explicit_total || usage_extra_total
       end
 
       def merge_usage_data(previous_usage, current_usage)
@@ -468,10 +474,8 @@ module AgentHarness
         coerce_token_count(usage["total_tokens"]) || coerce_token_count(usage["total"])
       end
 
-      def synthesize_usage_total_token_count(usage, input:, output:)
+      def usage_extra_token_total(usage)
         counts = [
-          input,
-          output,
           coerce_token_count(usage["reasoning_tokens"]),
           coerce_token_count(usage["cache_creation_input_tokens"]),
           coerce_token_count(usage["cache_read_input_tokens"]),
