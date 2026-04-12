@@ -330,6 +330,8 @@ module AgentHarness
         end
 
         return [nil, nil] if obj.key?("role") && !assistant_role?(obj["role"])
+        return [nil, nil] if obj["message"].is_a?(Hash) && obj["message"].key?("role") &&
+          !assistant_role?(obj["message"]["role"])
 
         output = string_content(obj["output"])
         return [output, :assistant] if output
@@ -338,8 +340,6 @@ module AgentHarness
         return [content, :assistant] if content
 
         if obj["message"].is_a?(Hash)
-          return [nil, nil] if obj["message"].key?("role") && !assistant_role?(obj["message"]["role"])
-
           return [string_content(obj["message"]["content"]), :assistant] if obj["message"].key?("content")
         end
 

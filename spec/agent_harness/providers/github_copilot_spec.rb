@@ -542,6 +542,28 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         expect(response.output).to eq("assistant reply")
       end
 
+      it "ignores sibling top-level content on non-assistant nested message objects" do
+        jsonl = <<~JSONL
+          {"content":"user prompt","message":{"role":"system"}}
+          {"content":"assistant reply","message":{"role":"assistant"}}
+        JSONL
+        result = make_result(stdout: jsonl)
+        response = provider.send(:parse_response, result, duration: 1.0)
+
+        expect(response.output).to eq("assistant reply")
+      end
+
+      it "ignores sibling top-level output on non-assistant nested message objects" do
+        jsonl = <<~JSONL
+          {"output":"user prompt","message":{"role":"user"}}
+          {"output":"assistant reply","message":{"role":"assistant"}}
+        JSONL
+        result = make_result(stdout: jsonl)
+        response = provider.send(:parse_response, result, duration: 1.0)
+
+        expect(response.output).to eq("assistant reply")
+      end
+
       it "falls back to raw stdout when no JSONL text is found" do
         result = make_result(stdout: "raw output here")
         response = provider.send(:parse_response, result, duration: 1.0)
