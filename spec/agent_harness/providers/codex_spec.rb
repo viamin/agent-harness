@@ -1011,6 +1011,29 @@ RSpec.describe AgentHarness::Providers::Codex do
           expect(response.output).to eq("response without role")
         end
 
+        it "extracts text from item.completed when item_type is assistant_message" do
+          jsonl_output = [
+            JSON.generate({
+              "type" => "item.completed",
+              "item" => {"item_type" => "assistant_message", "text" => "response from item_type"}
+            }),
+            JSON.generate({"type" => "turn.completed", "usage" => {"input_tokens" => 10, "output_tokens" => 5}})
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq("response from item_type")
+          expect(response.tokens).to eq({input: 10, output: 5, total: 15})
+        end
+
         it "extracts text from item.completed content array when role field is nil" do
           jsonl_output = [
             JSON.generate({

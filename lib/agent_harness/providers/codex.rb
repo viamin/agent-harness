@@ -659,8 +659,14 @@ module AgentHarness
       def assistant_message_item?(item)
         item_role = item["role"]
         item_type = item["type"]
+        item_item_type = item["item_type"]
 
-        item_role == "assistant" || (item_role.nil? && item_type == "agent_message")
+        item_role == "assistant" || (
+          item_role.nil? && (
+            item_type == "agent_message" ||
+            item_item_type == "assistant_message"
+          )
+        )
       end
 
       def wrapped_assistant_payload?(payload)
