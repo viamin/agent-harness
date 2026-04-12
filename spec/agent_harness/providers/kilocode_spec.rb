@@ -680,6 +680,46 @@ RSpec.describe AgentHarness::Providers::Kilocode do
         response = provider.send_message(prompt: "Hello")
         expect(response.tokens).to eq({input: 200, output: 100, total: 300})
       end
+
+      it "falls back to accumulated step_finish tokens when usage is empty" do
+        ndjson = [
+          {"type" => "text", "part" => {"text" => "Response"}},
+          {"type" => "step_finish", "part" => {"tokens" => {"input" => 100, "output" => 50}}},
+          {"type" => "result", "usage" => {}}
+        ].map { |e| JSON.generate(e) }.join("\n")
+
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: ndjson,
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        response = provider.send_message(prompt: "Hello")
+        expect(response.tokens).to eq({input: 100, output: 50, total: 150})
+      end
+
+      it "falls back to accumulated step_finish tokens when usage has no token keys" do
+        ndjson = [
+          {"type" => "text", "part" => {"text" => "Response"}},
+          {"type" => "step_finish", "part" => {"tokens" => {"input" => 100, "output" => 50}}},
+          {"type" => "result", "usage" => {"cache_creation_input_tokens" => 25}}
+        ].map { |e| JSON.generate(e) }.join("\n")
+
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: ndjson,
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        response = provider.send_message(prompt: "Hello")
+        expect(response.tokens).to eq({input: 100, output: 50, total: 150})
+      end
     end
   end
 end

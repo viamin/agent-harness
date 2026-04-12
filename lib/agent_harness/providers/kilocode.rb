@@ -179,13 +179,10 @@ module AgentHarness
         end
 
         output = text_parts.join unless text_parts.empty?
-        usage_data = result_usage
-        unless usage_data
-          if has_step_tokens
-            usage_data = {"input_tokens" => accumulated_input, "output_tokens" => accumulated_output}
-          end
+        tokens = build_token_counts(result_usage) if result_usage
+        if tokens.nil? && has_step_tokens
+          tokens = build_token_counts({"input_tokens" => accumulated_input, "output_tokens" => accumulated_output})
         end
-        tokens = build_token_counts(usage_data) if usage_data
 
         Response.new(
           output: output,
