@@ -392,8 +392,6 @@ module AgentHarness
       end
 
       def synthesize_usage_total_token_count(usage, input:, output:)
-        return nil if input.nil? && output.nil?
-
         counts = [
           input,
           output,
@@ -403,7 +401,10 @@ module AgentHarness
           coerce_token_count(usage["cache_write_input_tokens"])
         ]
 
-        counts.compact.sum
+        counts.compact!
+        return nil if counts.empty?
+
+        counts.sum
       end
     end
   end

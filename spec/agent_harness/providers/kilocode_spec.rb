@@ -1209,6 +1209,33 @@ RSpec.describe AgentHarness::Providers::Kilocode do
         expect(response.tokens).to eq({input: 100, output: 50, total: 200})
       end
 
+      it "counts extra result usage token categories when input and output tokens are absent" do
+        ndjson = [
+          {"type" => "text", "part" => {"text" => "Response"}},
+          {
+            "type" => "result",
+            "usage" => {
+              "reasoning_tokens" => 20,
+              "cache_creation_input_tokens" => 10,
+              "cache_read_input_tokens" => 15,
+              "cache_write_input_tokens" => 5
+            }
+          }
+        ].map { |e| JSON.generate(e) }.join("\n")
+
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: ndjson,
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        response = provider.send_message(prompt: "Hello")
+        expect(response.tokens).to eq({input: 0, output: 0, total: 50})
+      end
+
       it "ignores malformed extra result usage token categories when synthesizing totals" do
         ndjson = [
           {"type" => "text", "part" => {"text" => "Response"}},
@@ -1365,10 +1392,29 @@ RSpec.describe AgentHarness::Providers::Kilocode do
         expect(response.tokens).to be_nil
       end
 
-      it "returns nil tokens when usage has no token keys and no fallback totals exist" do
+      it "counts known result usage token categories without input or output totals" do
         ndjson = [
           {"type" => "text", "part" => {"text" => "Response"}},
           {"type" => "result", "usage" => {"cache_creation_input_tokens" => 25}}
+        ].map { |e| JSON.generate(e) }.join("\n")
+
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: ndjson,
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        response = provider.send_message(prompt: "Hello")
+        expect(response.tokens).to eq({input: 0, output: 0, total: 25})
+      end
+
+      it "returns nil tokens when usage has no known token keys and no fallback totals exist" do
+        ndjson = [
+          {"type" => "text", "part" => {"text" => "Response"}},
+          {"type" => "result", "usage" => {"cost_usd" => "0.12"}}
         ].map { |e| JSON.generate(e) }.join("\n")
 
         allow(mock_executor).to receive(:execute).and_return(
