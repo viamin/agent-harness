@@ -488,8 +488,12 @@ module AgentHarness
       end
 
       def append_wrapped_delta_text(parts, payload)
-        message = payload["message"] || payload["text"] || payload["content"]
-        parts << message if message.is_a?(String) && !message.empty?
+        delta_parts = extract_wrapped_delta_parts(payload)
+        return if delta_parts.nil?
+
+        delta_parts.each do |part|
+          parts << part unless part.empty?
+        end
       end
 
       def assistant_message_item?(item)
@@ -538,6 +542,16 @@ module AgentHarness
         end
 
         extracted_content ? completed_parts : nil
+      end
+
+      def extract_wrapped_delta_parts(payload)
+        delta = payload["delta"]
+        if delta.is_a?(Hash)
+          delta_parts = extract_message_content_parts(delta)
+          return delta_parts unless delta_parts.nil?
+        end
+
+        extract_message_content_parts(payload)
       end
 
       def output_text_block?(block)

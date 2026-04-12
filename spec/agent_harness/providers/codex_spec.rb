@@ -811,6 +811,45 @@ RSpec.describe AgentHarness::Providers::Codex do
           expect(response.tokens).to eq({input: 4, output: 2, total: 6})
         end
 
+        it "extracts text from top-level agent_message_delta content blocks" do
+          jsonl_output = [
+            JSON.generate({
+              "type" => "agent_message_delta",
+              "delta" => {
+                "content" => [
+                  {"type" => "reasoning", "text" => "internal"},
+                  {"type" => "output_text", "text" => "top-level partial"}
+                ]
+              }
+            }),
+            JSON.generate({
+              "type" => "event_msg",
+              "payload" => {
+                "type" => "token_count",
+                "info" => {
+                  "last_token_usage" => {
+                    "input_tokens" => 4,
+                    "output_tokens" => 2
+                  }
+                }
+              }
+            })
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq("top-level partial")
+          expect(response.tokens).to eq({input: 4, output: 2, total: 6})
+        end
+
         it "treats empty top-level agent_message text as the final output" do
           jsonl_output = [
             JSON.generate({"type" => "agent_message_delta", "message" => "stale partial"}),
@@ -899,6 +938,48 @@ RSpec.describe AgentHarness::Providers::Codex do
 
           response = provider.send_message(prompt: "Hello")
           expect(response.output).to eq("final wrapped answer")
+        end
+
+        it "extracts wrapped agent_message_delta content blocks" do
+          jsonl_output = [
+            JSON.generate({
+              "type" => "event_msg",
+              "payload" => {
+                "type" => "agent_message_delta",
+                "delta" => {
+                  "content" => [
+                    {"type" => "reasoning", "text" => "internal"},
+                    {"type" => "output_text", "text" => "wrapped partial"}
+                  ]
+                }
+              }
+            }),
+            JSON.generate({
+              "type" => "event_msg",
+              "payload" => {
+                "type" => "token_count",
+                "info" => {
+                  "last_token_usage" => {
+                    "input_tokens" => 4,
+                    "output_tokens" => 2
+                  }
+                }
+              }
+            })
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq("wrapped partial")
+          expect(response.tokens).to eq({input: 4, output: 2, total: 6})
         end
 
         it "extracts final assistant text from roleless wrapped agent_message payloads" do
