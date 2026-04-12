@@ -882,6 +882,54 @@ RSpec.describe AgentHarness::Providers::Aider do
         expect(tokens).to eq({input: 42, output: 8, total: 50})
       end
 
+      it "parses output footer token counters for quoted shell commands" do
+        tokens = provider.send(
+          :parse_token_usage_text,
+          <<~TEXT
+            response text
+
+            Tokens: 42 sent, 8 received.
+
+            git commit -m "fix bug"
+            Run shell command?
+          TEXT
+        )
+
+        expect(tokens).to eq({input: 42, output: 8, total: 50})
+      end
+
+      it "parses output footer token counters for non-whitelisted shell commands with shell-like arguments" do
+        tokens = provider.send(
+          :parse_token_usage_text,
+          <<~TEXT
+            response text
+
+            Tokens: 42 sent, 8 received.
+
+            pytest -q
+            Run shell command?
+          TEXT
+        )
+
+        expect(tokens).to eq({input: 42, output: 8, total: 50})
+      end
+
+      it "parses output footer token counters for script-path shell commands" do
+        tokens = provider.send(
+          :parse_token_usage_text,
+          <<~TEXT
+            response text
+
+            Tokens: 42 sent, 8 received.
+
+            ./scripts/test.sh --help
+            Run shell command?
+          TEXT
+        )
+
+        expect(tokens).to eq({input: 42, output: 8, total: 50})
+      end
+
       it "parses output footer token counters when aider prints a committing status line" do
         tokens = provider.send(
           :parse_token_usage_text,
