@@ -415,6 +415,21 @@ RSpec.describe AgentHarness::Providers::Kilocode do
         expect(response.tokens).to be_nil
       end
 
+      it "handles nil stdout" do
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: nil,
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        response = provider.send_message(prompt: "Hello")
+        expect(response.output).to be_nil
+        expect(response.tokens).to be_nil
+      end
+
       it "skips scalar JSON values (true, false, null, numbers, strings) in the event stream" do
         ndjson = [
           "true",
@@ -519,6 +534,25 @@ RSpec.describe AgentHarness::Providers::Kilocode do
 
         response = provider.send_message(prompt: "Hello")
         expect(response.tokens).to eq({input: 42, output: 0, total: 42})
+      end
+
+      it "handles step_finish with only output token count" do
+        ndjson = [
+          {"type" => "text", "part" => {"text" => "Partial"}},
+          {"type" => "step_finish", "part" => {"tokens" => {"output" => 37}}}
+        ].map { |e| JSON.generate(e) }.join("\n")
+
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: ndjson,
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        response = provider.send_message(prompt: "Hello")
+        expect(response.tokens).to eq({input: 0, output: 37, total: 37})
       end
 
       it "uses last usage event when multiple events contain usage" do
