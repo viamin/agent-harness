@@ -187,9 +187,9 @@ module AgentHarness
 
         cmd += ["--output-format", "json"] if supports_json_output_format?
 
-        # Programmatic mode is non-interactive, so permission prompts for tool use
-        # cannot be answered during execution.
-        cmd += dangerous_mode_flags
+        if options[:dangerous_mode] && supports_dangerous_mode?
+          cmd += dangerous_mode_flags
+        end
 
         if options[:session] && !options[:session].empty?
           cmd += session_flags(options[:session])
