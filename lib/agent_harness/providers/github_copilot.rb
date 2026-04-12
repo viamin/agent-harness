@@ -234,7 +234,10 @@ module AgentHarness
         output_segments = []
         output.lines.each do |line|
           stripped_line = line.strip
-          next if stripped_line.empty?
+          if stripped_line.empty?
+            output_segments << {kind: :raw, content: line, terminated: line.end_with?("\n")}
+            next
+          end
           begin
             obj = JSON.parse(stripped_line)
           rescue JSON::ParserError

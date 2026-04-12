@@ -408,6 +408,14 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         expect(response.output).to eq("preface\necho hello\nepilogue\n")
       end
 
+      it "preserves blank stdout lines alongside assistant reply events" do
+        jsonl = "preface\n\n{\"type\":\"assistant.message\",\"data\":{\"content\":\"echo hello\"}}\n\n"
+        result = make_result(stdout: jsonl)
+        response = provider.send(:parse_response, result, duration: 1.0)
+
+        expect(response.output).to eq("preface\n\necho hello\n\n")
+      end
+
       it "preserves literal JSON object stdout alongside assistant reply events" do
         jsonl = <<~JSONL
           {"argv":["echo","hello"]}
