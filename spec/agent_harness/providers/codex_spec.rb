@@ -738,6 +738,26 @@ RSpec.describe AgentHarness::Providers::Codex do
           expect(response.tokens).to eq({input: 0, output: 0, total: 0})
         end
 
+        it "extracts result from turn.completed when usage lacks token fields" do
+          jsonl_output = [
+            JSON.generate({"type" => "message.delta", "delta" => {"text" => "partial"}}),
+            JSON.generate({"type" => "turn.completed", "usage" => {"cached_input_tokens" => 100}, "result" => "final answer"})
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq("final answer")
+          expect(response.tokens).to be_nil
+        end
+
         it "extracts text from turn.completed result field" do
           jsonl_output = [
             JSON.generate({"type" => "message.delta", "delta" => {"text" => "partial"}}),

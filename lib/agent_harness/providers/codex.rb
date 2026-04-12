@@ -401,11 +401,12 @@ module AgentHarness
             if usage.is_a?(Hash)
               input_val = usage["input_tokens"]
               output_val = usage["output_tokens"]
-              next unless input_val || output_val
 
-              has_usage = true
-              total_input += input_val.to_i
-              total_output += output_val.to_i
+              if input_val || output_val
+                has_usage = true
+                total_input += input_val.to_i
+                total_output += output_val.to_i
+              end
             end
 
             result = event["result"]
