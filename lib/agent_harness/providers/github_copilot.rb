@@ -318,7 +318,7 @@ module AgentHarness
       end
 
       def token_value(obj, *keys)
-        key = keys.find { |candidate| obj[candidate] }
+        key = keys.find { |candidate| obj.key?(candidate) }
         return 0 unless key
 
         obj[key].to_i

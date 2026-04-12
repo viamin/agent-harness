@@ -419,6 +419,14 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         expect(response.tokens).to eq({input: 3, output: 4, total: 7})
       end
 
+      it "prefers present zero-valued camelCase aliases on usage events" do
+        jsonl = '{"type":"usage","data":{"inputTokens":0,"input_tokens":9,"outputTokens":4,"output_tokens":8}}'
+        result = make_result(stdout: jsonl)
+        response = provider.send(:parse_response, result, duration: 1.0)
+
+        expect(response.tokens).to eq({input: 0, output: 4, total: 4})
+      end
+
       it "extracts tokens from top-level tokens key" do
         jsonl = '{"tokens":{"input_tokens":2,"output_tokens":6}}'
         result = make_result(stdout: jsonl)
@@ -457,6 +465,14 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         response = provider.send(:parse_response, result, duration: 1.0)
 
         expect(response.tokens).to eq({input: 4, output: 7, total: 11})
+      end
+
+      it "prefers present zero-valued canonical aliases in top-level usage payloads" do
+        jsonl = '{"usage":{"input_tokens":0,"inputTokens":9,"input":12,"output_tokens":7,"outputTokens":10,"output":15}}'
+        result = make_result(stdout: jsonl)
+        response = provider.send(:parse_response, result, duration: 1.0)
+
+        expect(response.tokens).to eq({input: 0, output: 7, total: 7})
       end
 
       it "handles nil stdout gracefully" do
