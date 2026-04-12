@@ -336,8 +336,10 @@ module AgentHarness
       def preserve_raw_json_line?(obj)
         return false unless obj.is_a?(Hash)
         return false if obj.key?("type")
-        return false if obj.key?("usage") || obj.key?("tokens")
-        return false if obj.key?("output") || obj.key?("content") || obj.key?("message")
+        return false if extract_top_level_usage(obj)
+        return false if string_content(obj["output"])
+        return false if string_content(obj["content"])
+        return false if obj["message"].is_a?(Hash) && string_content(obj["message"]["content"])
 
         true
       end

@@ -427,6 +427,29 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         expect(response.output).to eq("{\"argv\":[\"echo\",\"hello\"]}\necho hello")
       end
 
+      it "preserves literal JSON objects with non-string content fields" do
+        jsonl = <<~JSONL
+          {"content":["echo","hello"]}
+          {"type":"assistant.message","data":{"content":"echo hello"}}
+        JSONL
+        result = make_result(stdout: jsonl)
+        response = provider.send(:parse_response, result, duration: 1.0)
+
+        expect(response.output).to eq("{\"content\":[\"echo\",\"hello\"]}\necho hello")
+      end
+
+      it "preserves literal JSON objects with malformed top-level usage payloads" do
+        jsonl = <<~JSONL
+          {"usage":"invalid"}
+          {"type":"assistant.message","data":{"content":"echo hello"}}
+        JSONL
+        result = make_result(stdout: jsonl)
+        response = provider.send(:parse_response, result, duration: 1.0)
+
+        expect(response.output).to eq("{\"usage\":\"invalid\"}\necho hello")
+        expect(response.tokens).to be_nil
+      end
+
       it "preserves line boundaries around literal JSON after assistant reply events" do
         jsonl = <<~JSONL
           {"type":"assistant.message","data":{"content":"echo hello"}}
