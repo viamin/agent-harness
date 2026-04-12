@@ -416,6 +416,141 @@ RSpec.describe AgentHarness::Providers::Codex do
         end
       end
 
+      context "with item.completed event parsing" do
+        it "extracts text from item.completed.item.text" do
+          jsonl_output = [
+            JSON.generate({"type" => "item.completed", "item" => {"type" => "message", "role" => "assistant", "text" => "final response"}}),
+            JSON.generate({"type" => "turn.completed", "usage" => {"input_tokens" => 10, "output_tokens" => 5}})
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq("final response")
+        end
+
+        it "extracts text from item.completed item content array" do
+          jsonl_output = [
+            JSON.generate({
+              "type" => "item.completed",
+              "item" => {
+                "type" => "message",
+                "role" => "assistant",
+                "content" => [
+                  {"type" => "output_text", "text" => "part one "},
+                  {"type" => "output_text", "text" => "part two"}
+                ]
+              }
+            }),
+            JSON.generate({"type" => "turn.completed", "usage" => {"input_tokens" => 10, "output_tokens" => 5}})
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq("part one part two")
+        end
+
+        it "prefers item.completed text over message.delta when both present" do
+          jsonl_output = [
+            JSON.generate({"type" => "message.delta", "delta" => {"text" => "streaming partial"}}),
+            JSON.generate({"type" => "item.completed", "item" => {"type" => "message", "role" => "assistant", "text" => "complete answer"}}),
+            JSON.generate({"type" => "turn.completed", "usage" => {"input_tokens" => 10, "output_tokens" => 5}})
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq("streaming partialcomplete answer")
+        end
+
+        it "prefers turn.completed result over item.completed text" do
+          jsonl_output = [
+            JSON.generate({"type" => "item.completed", "item" => {"type" => "message", "role" => "assistant", "text" => "item text"}}),
+            JSON.generate({"type" => "turn.completed", "result" => "turn result", "usage" => {"input_tokens" => 10, "output_tokens" => 5}})
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq("turn result")
+        end
+
+        it "ignores item.completed events for non-assistant roles" do
+          jsonl_output = [
+            JSON.generate({"type" => "item.completed", "item" => {"type" => "message", "role" => "user", "text" => "user text"}}),
+            JSON.generate({"type" => "turn.completed", "usage" => {"input_tokens" => 10, "output_tokens" => 5}})
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq(jsonl_output)
+          expect(response.tokens).to eq({input: 10, output: 5, total: 15})
+        end
+
+        it "handles item.completed with only content array and no text field" do
+          jsonl_output = [
+            JSON.generate({
+              "type" => "item.completed",
+              "item" => {
+                "type" => "message",
+                "role" => "assistant",
+                "content" => [{"type" => "output_text", "text" => "from content array"}]
+              }
+            }),
+            JSON.generate({"type" => "turn.completed", "usage" => {"input_tokens" => 10, "output_tokens" => 5}})
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq("from content array")
+        end
+      end
+
       context "with token usage parsing" do
         it "extracts token usage from JSONL turn.completed events" do
           jsonl_output = [

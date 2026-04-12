@@ -363,13 +363,29 @@ module AgentHarness
         events.each do |event|
           type = event["type"]
 
-          if type == "message.delta"
+          case type
+          when "message.delta"
             delta = event["delta"]
             if delta.is_a?(Hash)
               content = delta["text"]
               text_parts << content if content.is_a?(String)
             end
-          elsif type == "turn.completed"
+          when "item.completed"
+            item = event["item"]
+            next unless item.is_a?(Hash) && item["role"] == "assistant"
+
+            item_text = item["text"]
+            text_parts << item_text if item_text.is_a?(String) && !item_text.empty?
+
+            item_content = item["content"]
+            if item_content.is_a?(Array)
+              item_content.each do |block|
+                next unless block.is_a?(Hash)
+                block_text = block["text"]
+                text_parts << block_text if block_text.is_a?(String) && !block_text.empty?
+              end
+            end
+          when "turn.completed"
             usage = event["usage"]
             if usage.is_a?(Hash)
               total_input += usage["input_tokens"].to_i
