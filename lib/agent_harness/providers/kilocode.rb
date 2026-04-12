@@ -320,7 +320,13 @@ module AgentHarness
       def merge_usage_data(previous_usage, current_usage)
         return current_usage if previous_usage.nil?
 
-        merged_usage = previous_usage.slice(*TOKEN_USAGE_KEYS).merge(
+        merged_usage = previous_usage.slice(*TOKEN_USAGE_KEYS)
+        if usage_updates_explicit_total?(current_usage)
+          merged_usage.delete("total_tokens")
+          merged_usage.delete("total")
+        end
+
+        merged_usage.merge!(
           current_usage.slice(*TOKEN_USAGE_KEYS).select { |key, value| usable_usage_token_field?(key, value) }
         )
 
