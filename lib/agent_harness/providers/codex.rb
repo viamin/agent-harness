@@ -519,6 +519,8 @@ module AgentHarness
             if item_content.is_a?(Array)
               item_content.each do |block|
                 next unless block.is_a?(Hash)
+                next unless output_text_block?(block)
+
                 block_text = block["text"]
                 completed_parts << block_text if block_text.is_a?(String) && !block_text.empty?
               end
@@ -527,6 +529,12 @@ module AgentHarness
         end
 
         completed_parts
+      end
+
+      def output_text_block?(block)
+        block_type = block["type"]
+
+        block_type.nil? || block_type == "output_text"
       end
 
       def extract_wrapped_tokens(info)

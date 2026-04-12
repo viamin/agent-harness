@@ -580,6 +580,35 @@ RSpec.describe AgentHarness::Providers::Codex do
           expect(response.output).to eq("from content array")
         end
 
+        it "ignores non-output content blocks when extracting completed message text" do
+          jsonl_output = [
+            JSON.generate({
+              "type" => "item.completed",
+              "item" => {
+                "type" => "message",
+                "role" => "assistant",
+                "content" => [
+                  {"type" => "reasoning", "text" => "internal reasoning"},
+                  {"type" => "output_text", "text" => "visible answer"}
+                ]
+              }
+            }),
+            JSON.generate({"type" => "turn.completed", "usage" => {"input_tokens" => 10, "output_tokens" => 5}})
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq("visible answer")
+        end
+
         it "prefers item text over content array when both are present" do
           jsonl_output = [
             JSON.generate({
