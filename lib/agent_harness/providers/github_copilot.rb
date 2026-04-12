@@ -187,9 +187,8 @@ module AgentHarness
 
         cmd += ["--output-format", "json"] if supports_json_output_format?
 
-        if options[:dangerous_mode] && supports_dangerous_mode?
-          cmd += dangerous_mode_flags
-        end
+        # Prompt mode is non-interactive, so tool approval prompts cannot be answered.
+        cmd += dangerous_mode_flags
 
         if options[:session] && !options[:session].empty?
           cmd += session_flags(options[:session])

@@ -171,7 +171,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
     end
 
     describe "#build_command" do
-      it "includes --output-format json without allow-all-tools by default" do
+      it "includes --output-format json and allow-all-tools by default" do
         command = provider.send(:build_command, "Hello", {})
 
         expect(command).to eq([
@@ -179,11 +179,12 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
           "-p",
           "Hello",
           "--output-format",
-          "json"
+          "json",
+          "--allow-all-tools"
         ])
       end
 
-      it "omits --output-format json and allow-all-tools on older CLI versions by default" do
+      it "omits --output-format json on older CLI versions but still allows tools by default" do
         allow(mock_executor).to receive(:execute).with(
           ["github-copilot-cli", "--version"],
           timeout: 5
@@ -201,11 +202,12 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         expect(command).to eq([
           "github-copilot-cli",
           "-p",
-          "Hello"
+          "Hello",
+          "--allow-all-tools"
         ])
       end
 
-      it "includes --allow-all-tools when dangerous_mode is enabled" do
+      it "keeps --allow-all-tools when dangerous_mode is enabled" do
         command = provider.send(:build_command, "Hello", {dangerous_mode: true})
 
         expect(command).to eq([
@@ -218,7 +220,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         ])
       end
 
-      it "includes session flags without allow-all-tools by default" do
+      it "includes session flags alongside allow-all-tools by default" do
         command = provider.send(:build_command, "Hello", {session: "session-123"})
 
         expect(command).to eq([
@@ -227,6 +229,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
           "Hello",
           "--output-format",
           "json",
+          "--allow-all-tools",
           "--resume",
           "session-123"
         ])
@@ -269,7 +272,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         )
 
         expect(mock_executor).to receive(:execute).with(
-          ["github-copilot-cli", "-p", "Hello", "--output-format", "json"],
+          ["github-copilot-cli", "-p", "Hello", "--output-format", "json", "--allow-all-tools"],
           anything
         )
 
@@ -280,7 +283,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         allow(provider).to receive(:supports_json_output_format?).and_return(false)
 
         allow(mock_executor).to receive(:execute).with(
-          ["github-copilot-cli", "-p", "Hello"],
+          ["github-copilot-cli", "-p", "Hello", "--allow-all-tools"],
           anything
         ).and_return(
           AgentHarness::CommandExecutor::Result.new(
