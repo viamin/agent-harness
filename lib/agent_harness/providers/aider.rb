@@ -308,7 +308,7 @@ module AgentHarness
       FOOTER_COST_PATTERN = /^\s*Cost:\s+.+\s*$/i
       OUTPUT_STATUS_PATTERN =
         /^\s*(?:Applied edit to|Commit\b|You can use \/undo\b|Added .+ to the chat\.|Removed .+ from the chat\.|Use \/help\b|Create new file\?|Allow edits to\b|Edit the files\?|Run shell command\?).*$/i
-      OUTPUT_PATH_PATTERN = %r{^\s*[\w./-]+\s*$}
+      OUTPUT_PATH_PATTERN = %r{^\s*[\w.-]*[/.][\w./-]*\s*$}
 
       def generate_llm_history_path
         File.join(Dir.tmpdir, "aider_llm_history_#{Process.pid}_#{SecureRandom.hex(8)}")
