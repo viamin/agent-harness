@@ -354,6 +354,16 @@ RSpec.describe AgentHarness::Providers::Codex do
         end
       end
 
+      it "raises AuthenticationError for failed-refresh invalid refresh token wording" do
+        allow(mock_executor).to receive(:execute).and_raise(
+          StandardError.new("Failed to refresh token because refresh token is invalid.")
+        )
+
+        expect { provider.send_message(prompt: "Hello") }.to raise_error(AgentHarness::AuthenticationError) do |error|
+          expect(error.provider).to eq(:codex)
+        end
+      end
+
       it "raises AuthenticationError for multiline failed-refresh OAuth invalid_client failures" do
         allow(mock_executor).to receive(:execute).and_raise(
           StandardError.new(<<~ERROR)
@@ -386,6 +396,18 @@ RSpec.describe AgentHarness::Providers::Codex do
             Your access token could not be refreshed because
             invalid_grant
           ERROR
+        )
+
+        expect { provider.send_message(prompt: "Hello") }.to raise_error(AgentHarness::AuthenticationError) do |error|
+          expect(error.provider).to eq(:codex)
+        end
+      end
+
+      it "raises AuthenticationError for access-token invalid refresh token wording" do
+        allow(mock_executor).to receive(:execute).and_raise(
+          StandardError.new(
+            "Your access token could not be refreshed because your refresh token is invalid."
+          )
         )
 
         expect { provider.send_message(prompt: "Hello") }.to raise_error(AgentHarness::AuthenticationError) do |error|
@@ -748,6 +770,13 @@ RSpec.describe AgentHarness::Providers::Codex do
 
         expect(
           AgentHarness::ErrorTaxonomy.classify(
+            StandardError.new("Failed to refresh token because refresh token is invalid."),
+            patterns
+          )
+        ).to eq(:auth_expired)
+
+        expect(
+          AgentHarness::ErrorTaxonomy.classify(
             StandardError.new(<<~ERROR),
               Failed to refresh token:
               "code": "invalid_grant"
@@ -772,6 +801,15 @@ RSpec.describe AgentHarness::Providers::Codex do
               Your access token could not be refreshed because
               invalid_client
             ERROR
+            patterns
+          )
+        ).to eq(:auth_expired)
+
+        expect(
+          AgentHarness::ErrorTaxonomy.classify(
+            StandardError.new(
+              "Your access token could not be refreshed because your refresh token is invalid."
+            ),
             patterns
           )
         ).to eq(:auth_expired)
@@ -990,6 +1028,22 @@ RSpec.describe AgentHarness::Providers::Codex do
         expect(result[:error_category]).to eq(:auth_expired)
       end
 
+      it "normalizes failed-refresh invalid refresh token wording to auth_expired" do
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "",
+            stderr: "Failed to refresh token because refresh token is invalid.",
+            exit_code: 1,
+            duration: 1.0
+          )
+        )
+
+        result = provider.smoke_test
+
+        expect(result[:ok]).to be false
+        expect(result[:error_category]).to eq(:auth_expired)
+      end
+
       it "normalizes multiline failed-refresh OAuth invalid_client failures to auth_expired" do
         allow(mock_executor).to receive(:execute).and_return(
           AgentHarness::CommandExecutor::Result.new(
@@ -1036,6 +1090,22 @@ RSpec.describe AgentHarness::Providers::Codex do
               Your access token could not be refreshed because
               invalid_client
             ERROR
+            exit_code: 1,
+            duration: 1.0
+          )
+        )
+
+        result = provider.smoke_test
+
+        expect(result[:ok]).to be false
+        expect(result[:error_category]).to eq(:auth_expired)
+      end
+
+      it "normalizes access-token invalid refresh token wording to auth_expired" do
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "",
+            stderr: "Your access token could not be refreshed because your refresh token is invalid.",
             exit_code: 1,
             duration: 1.0
           )
