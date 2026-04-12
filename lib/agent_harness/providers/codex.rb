@@ -444,6 +444,16 @@ module AgentHarness
           current_turn_finalized_output = false
         end
 
+        start_new_streaming_turn = lambda do
+          start_new_turn.call
+          next unless pending_turn_usage_source == :wrapped && pending_turn_usage && current_turn_finalized_output
+
+          latest_completed_parts = current_turn_parts.dup
+          commit_pending_turn.call
+          current_turn_parts = []
+          current_turn_finalized_output = false
+        end
+
         replace_current_turn_parts = lambda do |parts|
           next if parts.nil?
 
@@ -475,14 +485,14 @@ module AgentHarness
 
           case type
           when "message.delta"
-            start_new_turn.call
+            start_new_streaming_turn.call
             appended = append_delta_text(current_turn_parts, event["delta"])
             current_turn_finalized_output = false if appended
             saw_assistant_output ||= appended
           when "agent_message_delta"
             next unless wrapped_assistant_payload?(event)
 
-            start_new_turn.call
+            start_new_streaming_turn.call
             appended = append_wrapped_delta_text(current_turn_parts, event)
             current_turn_finalized_output = false if appended
             saw_assistant_output ||= appended
@@ -519,9 +529,16 @@ module AgentHarness
 
             # Wrapped streams can emit token_count before the matching top-level
             # turn.completed for the same turn; treat matching usage as a replacement.
+            same_streaming_wrapped_turn =
+              pending_turn_usage_source == :wrapped &&
+              pending_wrapped_output_parts&.equal?(current_turn_parts) &&
+              !current_turn_finalized_output
             same_wrapped_turn = pending_turn_usage_source == :wrapped &&
               same_turn_usage?(pending_turn_usage, turn_usage) &&
-              same_turn_output?(current_turn_parts, current_turn_finalized_output, result)
+              (
+                same_turn_output?(current_turn_parts, current_turn_finalized_output, result) ||
+                same_streaming_wrapped_turn
+              )
 
             finalize_pending_wrapped_turn.call unless same_wrapped_turn
 
@@ -552,7 +569,7 @@ module AgentHarness
             when "agent_message_delta"
               next unless wrapped_assistant_payload?(payload)
 
-              start_new_turn.call
+              start_new_streaming_turn.call
               appended = append_wrapped_delta_text(current_turn_parts, payload)
               current_turn_finalized_output = false if appended
               saw_assistant_output ||= appended
@@ -911,9 +928,9 @@ module AgentHarness
       end
 
       def same_turn_output?(current_turn_parts, current_turn_finalized_output, result)
-        return true unless result.is_a?(String)
         return true if current_turn_parts.empty?
-        return true unless current_turn_finalized_output
+        return false unless current_turn_finalized_output
+        return true unless result.is_a?(String)
 
         current_turn_parts.join == result
       end
