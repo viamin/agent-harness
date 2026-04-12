@@ -371,6 +371,8 @@ module AgentHarness
       end
 
       def find_usage_in_entry(entry)
+        return nil unless entry.is_a?(Hash)
+
         usage = entry["usage"]
         return usage if usage.is_a?(Hash)
 

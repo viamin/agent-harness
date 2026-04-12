@@ -437,6 +437,29 @@ RSpec.describe AgentHarness::Providers::Aider do
           expect(response.tokens).to be_nil
         end
 
+        it "ignores non-hash history entries while aggregating valid usage data" do
+          allow(mock_executor).to receive(:execute) do |_cmd, _opts|
+            tempfile = provider.instance_variable_get(:@aider_history_tempfile)
+            path = tempfile.path if tempfile
+            if path
+              File.write(path, JSON.generate([
+                "unexpected entry",
+                {"usage" => {"prompt_tokens" => 60, "completion_tokens" => 20}}
+              ]))
+            end
+
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: "response text",
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          end
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.tokens).to eq({input: 60, output: 20, total: 80})
+        end
+
         it "records tokens with the global token tracker" do
           allow(mock_executor).to receive(:execute) do |_cmd, _opts|
             tempfile = provider.instance_variable_get(:@aider_history_tempfile)

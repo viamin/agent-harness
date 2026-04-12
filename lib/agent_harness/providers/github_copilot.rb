@@ -243,6 +243,8 @@ module AgentHarness
 
       def extract_text_from_jsonl(parsed_lines)
         text_parts = parsed_lines.filter_map do |obj|
+          next unless obj.is_a?(Hash)
+
           obj["text"] || obj["content"] || obj["result"]
         end
         text_parts.empty? ? nil : text_parts.join
@@ -271,6 +273,8 @@ module AgentHarness
       end
 
       def find_usage(obj)
+        return nil unless obj.is_a?(Hash)
+
         return obj["usage"] if obj["usage"].is_a?(Hash)
         return obj.dig("message", "usage") if obj.dig("message", "usage").is_a?(Hash)
         nil

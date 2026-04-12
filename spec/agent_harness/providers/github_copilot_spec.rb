@@ -324,6 +324,27 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
           expect(response.tokens).to eq({input: 30, output: 15, total: 45})
         end
 
+        it "ignores non-hash JSONL entries while preserving valid token usage" do
+          jsonl_output = [
+            {"text" => "response"},
+            ["unexpected entry"],
+            {"usage" => {"input_tokens" => 30, "output_tokens" => 15}}
+          ].map { |o| JSON.generate(o) }.join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq("response")
+          expect(response.tokens).to eq({input: 30, output: 15, total: 45})
+        end
+
         it "handles non-JSON output gracefully" do
           allow(mock_executor).to receive(:execute).and_return(
             AgentHarness::CommandExecutor::Result.new(
