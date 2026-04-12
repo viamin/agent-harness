@@ -12,6 +12,7 @@ module AgentHarness
       DEFAULT_VERSION = "7.1.3"
       SUPPORTED_VERSION_REQUIREMENT = "= #{DEFAULT_VERSION}"
       STRUCTURED_EVENT_TYPES = %w[text error step_finish result usage].freeze
+      USAGE_EVENT_TYPES = %w[result usage].freeze
       TOKEN_USAGE_KEYS = %w[
         input_tokens
         output_tokens
@@ -209,7 +210,7 @@ module AgentHarness
           end
 
           usage = event["usage"]
-          if usage.is_a?(Hash) && usage_has_token_data?(usage)
+          if USAGE_EVENT_TYPES.include?(event["type"]) && usage.is_a?(Hash) && usage_has_token_data?(usage)
             result_usage = merge_usage_data(result_usage, usage)
           end
         end

@@ -382,6 +382,28 @@ RSpec.describe AgentHarness::Providers::Kilocode do
         expect(response.tokens).to eq({input: 10, output: 5, total: 15})
       end
 
+      it "ignores usage hashes on non-usage event types" do
+        ndjson = [
+          {"type" => "text", "part" => {"text" => "Response"}, "usage" => {"input_tokens" => 999, "output_tokens" => 999}},
+          {"type" => "error", "message" => "boom", "usage" => {"input_tokens" => 888, "output_tokens" => 888}}
+        ].map { |e| JSON.generate(e) }.join("\n")
+
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: ndjson,
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        response = provider.send_message(prompt: "Hello")
+        expect(response.output).to eq("Response")
+        expect(response.tokens).to be_nil
+        expect(response.error).to eq("boom")
+        expect(response.failed?).to be true
+      end
+
       it "records tokens with the global token tracker" do
         ndjson = [
           {"type" => "text", "part" => {"text" => "Tracked response"}},
