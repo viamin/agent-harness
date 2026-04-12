@@ -356,6 +356,17 @@ RSpec.describe AgentHarness::Providers::Codex do
           .to raise_error(AgentHarness::ProviderError, /authentication service was unavailable/)
       end
 
+      it "does not raise AuthenticationError for no-article authentication service refresh failures" do
+        allow(mock_executor).to receive(:execute).and_raise(
+          StandardError.new(
+            "Your access token could not be refreshed because authentication service was unavailable."
+          )
+        )
+
+        expect { provider.send_message(prompt: "Hello") }
+          .to raise_error(AgentHarness::ProviderError, /authentication service was unavailable/)
+      end
+
       it "does not raise AuthenticationError for authentication service is-unavailable refresh failures" do
         allow(mock_executor).to receive(:execute).and_raise(
           StandardError.new(
@@ -587,6 +598,15 @@ RSpec.describe AgentHarness::Providers::Codex do
         expect(
           AgentHarness::ErrorTaxonomy.classify(
             StandardError.new(
+              "Your access token could not be refreshed because authentication service was unavailable."
+            ),
+            patterns
+          )
+        ).to eq(:transient)
+
+        expect(
+          AgentHarness::ErrorTaxonomy.classify(
+            StandardError.new(
               "Your access token could not be refreshed because the authentication service is unavailable."
             ),
             patterns
@@ -671,6 +691,22 @@ RSpec.describe AgentHarness::Providers::Codex do
           AgentHarness::CommandExecutor::Result.new(
             stdout: "",
             stderr: "Your access token could not be refreshed because the authentication service was unavailable.",
+            exit_code: 1,
+            duration: 1.0
+          )
+        )
+
+        result = provider.smoke_test
+
+        expect(result[:ok]).to be false
+        expect(result[:error_category]).to eq(:transient)
+      end
+
+      it "keeps no-article authentication service refresh failures retryable" do
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "",
+            stderr: "Your access token could not be refreshed because authentication service was unavailable.",
             exit_code: 1,
             duration: 1.0
           )

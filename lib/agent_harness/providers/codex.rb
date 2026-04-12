@@ -21,7 +21,7 @@ module AgentHarness
         /refresh token .*already been used/i
       ].freeze
       OAUTH_REFRESH_TRANSIENT_PATTERNS = [
-        /your access token could not be refreshed because the auth(?:entication)? service(?:\s+(?:is|was))?\s+unavailable/i,
+        /your access token could not be refreshed because (?:the )?auth(?:entication)? service(?:\s+(?:is|was))?\s+unavailable/i,
         /your access token could not be refreshed because .*connection.*error/i,
         /failed to refresh token:.*connection.*error/i,
         /failed to refresh token:.*service(?:\s+(?:is|was))?\s+unavailable/i
