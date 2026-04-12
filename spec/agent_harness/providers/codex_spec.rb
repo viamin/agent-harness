@@ -490,6 +490,13 @@ RSpec.describe AgentHarness::Providers::Codex do
             patterns
           )
         ).to eq(:auth_expired)
+
+        expect(
+          AgentHarness::ErrorTaxonomy.classify(
+            StandardError.new("Failed to refresh token: invalid_client"),
+            patterns
+          )
+        ).to eq(:auth_expired)
       end
 
       it "does not classify transient refresh failures as auth_expired" do
@@ -501,6 +508,17 @@ RSpec.describe AgentHarness::Providers::Codex do
             patterns
           )
         ).to eq(:transient)
+      end
+
+      it "does not classify generic re-login prompts as refresh auth failures" do
+        patterns = provider.error_patterns
+
+        expect(
+          AgentHarness::ErrorTaxonomy.classify(
+            StandardError.new("Please log out and sign in again."),
+            patterns
+          )
+        ).to eq(:unknown)
       end
     end
 

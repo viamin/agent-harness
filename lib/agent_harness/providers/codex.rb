@@ -14,11 +14,11 @@ module AgentHarness
         /refresh_token_reused/i,
         /failed to refresh token:.*\b401\b/i,
         /failed to refresh token:.*unauthorized/i,
+        /failed to refresh token:.*invalid_client/i,
         /failed to refresh token:.*invalid_grant/i,
         /failed to refresh token:.*invalid.*refresh.*token/i,
         /your access token could not be refreshed/i,
-        /refresh token .*already been used/i,
-        /please log out and sign in again/i
+        /refresh token .*already been used/i
       ].freeze
 
       class << self
