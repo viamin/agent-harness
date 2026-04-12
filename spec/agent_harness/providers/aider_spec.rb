@@ -450,6 +450,22 @@ RSpec.describe AgentHarness::Providers::Aider do
         expect(response.tokens).to be_nil
       end
 
+      it "ignores history token lines that are followed by more transcript content" do
+        allow(mock_executor).to receive(:execute) do |cmd, **kwargs|
+          history_path = cmd[cmd.index("--llm-history-file") + 1]
+          File.write(history_path, <<~TEXT)
+            ASSISTANT world
+
+            Tokens: 42 sent, 8 received.
+            ASSISTANT This is transcript content, not the footer.
+          TEXT
+          result
+        end
+
+        response = provider.send_message(prompt: "hello")
+        expect(response.tokens).to be_nil
+      end
+
       it "returns nil tokens when history file does not exist" do
         response = provider.send_message(prompt: "hello")
         expect(response.tokens).to be_nil
@@ -615,6 +631,21 @@ RSpec.describe AgentHarness::Providers::Aider do
         )
 
         expect(tokens).to eq({input: 42, output: 8, total: 50})
+      end
+
+      it "ignores history token counters when later transcript lines follow" do
+        tokens = provider.send(
+          :parse_token_usage_text,
+          <<~TEXT,
+            ASSISTANT world
+
+            Tokens: 42 sent, 8 received.
+            ASSISTANT This is transcript content, not the footer.
+          TEXT
+          source: :history
+        )
+
+        expect(tokens).to be_nil
       end
     end
   end

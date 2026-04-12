@@ -359,11 +359,22 @@ module AgentHarness
       end
 
       def history_token_usage_footer_line?(lines, index)
+        footer_prefix?(lines, index) && footer_suffix?(lines, index)
+      end
+
+      def footer_prefix?(lines, index)
         previous_index = index - 1
         return true if previous_index.negative?
 
         previous_line = lines[previous_index]
         previous_line.strip.empty? || TOKEN_USAGE_PATTERN.match?(previous_line)
+      end
+
+      def footer_suffix?(lines, index)
+        lines[(index + 1)..].to_a.all? do |line|
+          stripped = line.strip
+          stripped.empty? || TOKEN_USAGE_PATTERN.match?(line)
+        end
       end
 
       def parse_token_count(value)
