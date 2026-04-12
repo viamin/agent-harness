@@ -997,6 +997,25 @@ RSpec.describe AgentHarness::Providers::Kilocode do
         expect(response.tokens).to eq({input: 180, output: 90, total: 325})
       end
 
+      it "falls back to total when step total_tokens is malformed" do
+        ndjson = [
+          {"type" => "text", "part" => {"text" => "Response"}},
+          {"type" => "step_finish", "part" => {"tokens" => {"input" => 100, "output" => 50, "total_tokens" => "bad", "total" => 175}}}
+        ].map { |e| JSON.generate(e) }.join("\n")
+
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: ndjson,
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        response = provider.send_message(prompt: "Hello")
+        expect(response.tokens).to eq({input: 100, output: 50, total: 175})
+      end
+
       it "includes reasoning and cache tokens in step totals when total is omitted" do
         ndjson = [
           {"type" => "text", "part" => {"text" => "Response"}},
@@ -1070,6 +1089,25 @@ RSpec.describe AgentHarness::Providers::Kilocode do
         ndjson = [
           {"type" => "text", "part" => {"text" => "Response"}},
           {"type" => "result", "usage" => {"input_tokens" => 100, "output_tokens" => 50, "total_tokens" => 175}}
+        ].map { |e| JSON.generate(e) }.join("\n")
+
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: ndjson,
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        response = provider.send_message(prompt: "Hello")
+        expect(response.tokens).to eq({input: 100, output: 50, total: 175})
+      end
+
+      it "falls back to total when usage total_tokens is malformed" do
+        ndjson = [
+          {"type" => "text", "part" => {"text" => "Response"}},
+          {"type" => "result", "usage" => {"input_tokens" => 100, "output_tokens" => 50, "total_tokens" => "bad", "total" => 175}}
         ].map { |e| JSON.generate(e) }.join("\n")
 
         allow(mock_executor).to receive(:execute).and_return(

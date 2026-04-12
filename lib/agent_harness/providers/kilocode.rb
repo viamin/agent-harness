@@ -369,7 +369,7 @@ module AgentHarness
       end
 
       def extract_explicit_total_token_count(usage)
-        coerce_token_count(usage["total_tokens"] || usage["total"])
+        coerce_token_count(usage["total_tokens"]) || coerce_token_count(usage["total"])
       end
     end
   end
