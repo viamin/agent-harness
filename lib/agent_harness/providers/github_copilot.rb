@@ -222,15 +222,9 @@ module AgentHarness
         end
 
         structured_json_seen = false
-        shutdown_input = 0
-        shutdown_output = 0
-        shutdown_tokens_present = false
-        usage_input = 0
-        usage_output = 0
-        usage_tokens_present = false
-        fallback_input = 0
-        fallback_output = 0
-        fallback_tokens_present = false
+        shutdown_tokens = empty_token_totals
+        usage_tokens = empty_token_totals
+        fallback_tokens = empty_token_totals
         output_segments = []
         output.lines.each do |line|
           stripped_line = line.strip
@@ -258,31 +252,15 @@ module AgentHarness
           next unless token_usage
 
           if token_usage[:source] == :shutdown
-            shutdown_tokens_present = true
-            shutdown_input += token_usage[:input]
-            shutdown_output += token_usage[:output]
+            accumulate_token_totals!(shutdown_tokens, token_usage)
           elsif token_usage[:source] == :usage
-            usage_tokens_present = true
-            usage_input += token_usage[:input]
-            usage_output += token_usage[:output]
+            accumulate_token_totals!(usage_tokens, token_usage)
           else
-            fallback_tokens_present = true
-            fallback_input += token_usage[:input]
-            fallback_output += token_usage[:output]
+            accumulate_token_totals!(fallback_tokens, token_usage)
           end
         end
 
-        tokens = build_tokens(
-          shutdown_tokens_present: shutdown_tokens_present,
-          shutdown_input: shutdown_input,
-          shutdown_output: shutdown_output,
-          usage_tokens_present: usage_tokens_present,
-          usage_input: usage_input,
-          usage_output: usage_output,
-          fallback_tokens_present: fallback_tokens_present,
-          fallback_input: fallback_input,
-          fallback_output: fallback_output
-        )
+        tokens = build_tokens(shutdown_tokens: shutdown_tokens, usage_tokens: usage_tokens, fallback_tokens: fallback_tokens)
         final_output = structured_json_seen ? render_output_segments(output_segments) : output
 
         Response.new(
@@ -395,9 +373,7 @@ module AgentHarness
         model_metrics = data["modelMetrics"]
         return nil unless model_metrics.is_a?(Hash)
 
-        input = 0
-        output = 0
-        tokens_present = false
+        totals = empty_token_totals
 
         model_metrics.each_value do |metric|
           next unless metric.is_a?(Hash)
@@ -413,14 +389,18 @@ module AgentHarness
           )
           next unless metric_usage
 
-          tokens_present = true
-          input += metric_usage[:input]
-          output += metric_usage[:output]
+          accumulate_token_totals!(totals, metric_usage)
         end
 
-        return nil unless tokens_present
+        return nil unless totals[:input_present] || totals[:output_present]
 
-        {source: :shutdown, input: input, output: output}
+        {
+          source: :shutdown,
+          input: totals[:input],
+          output: totals[:output],
+          input_present: totals[:input_present],
+          output_present: totals[:output_present]
+        }
       end
 
       def extract_payload_token_usage(payload, source:, input_keys:, output_keys:)
@@ -458,7 +438,13 @@ module AgentHarness
         output, output_present = merged_token_metric(usage, tokens, :output)
         return nil unless input_present || output_present
 
-        {source: :usage, input: input, output: output}
+        {
+          source: :usage,
+          input: input,
+          output: output,
+          input_present: input_present,
+          output_present: output_present
+        }
       end
 
       def merged_token_metric(primary, fallback, metric)
@@ -467,6 +453,27 @@ module AgentHarness
         return [fallback[metric], true] if fallback&.[](present_key)
 
         [0, false]
+      end
+
+      def empty_token_totals
+        {
+          input: 0,
+          output: 0,
+          input_present: false,
+          output_present: false
+        }
+      end
+
+      def accumulate_token_totals!(totals, token_usage)
+        if token_usage[:input_present]
+          totals[:input_present] = true
+          totals[:input] += token_usage[:input]
+        end
+
+        return unless token_usage[:output_present]
+
+        totals[:output_present] = true
+        totals[:output] += token_usage[:output]
       end
 
       def token_value(obj, *keys)
@@ -480,19 +487,24 @@ module AgentHarness
         [0, false]
       end
 
-      def build_tokens(shutdown_tokens_present:, shutdown_input:, shutdown_output:, usage_tokens_present:, usage_input:,
-        usage_output:, fallback_tokens_present:, fallback_input:, fallback_output:)
-        if shutdown_tokens_present
-          return {input: shutdown_input, output: shutdown_output, total: shutdown_input + shutdown_output}
+      def build_tokens(shutdown_tokens:, usage_tokens:, fallback_tokens:)
+        input, input_present = first_present_token_metric(shutdown_tokens, usage_tokens, fallback_tokens, :input)
+        output, output_present = first_present_token_metric(shutdown_tokens, usage_tokens, fallback_tokens, :output)
+        return nil unless input_present || output_present
+
+        {input: input, output: output, total: input + output}
+      end
+
+      def first_present_token_metric(*sources, metric)
+        present_key = :"#{metric}_present"
+
+        sources.each do |source|
+          next unless source[present_key]
+
+          return [source[metric], true]
         end
 
-        if usage_tokens_present
-          return {input: usage_input, output: usage_output, total: usage_input + usage_output}
-        end
-
-        return nil unless fallback_tokens_present
-
-        {input: fallback_input, output: fallback_output, total: fallback_input + fallback_output}
+        [0, false]
       end
 
       def render_output_segments(segments)

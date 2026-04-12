@@ -589,6 +589,28 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         expect(response.tokens).to eq({input: 9, output: 8, total: 17})
       end
 
+      it "falls back per metric when session.shutdown omits values present in streamed usage" do
+        jsonl = <<~JSONL
+          {"type":"usage","data":{"inputTokens":3,"outputTokens":2}}
+          {"type":"session.shutdown","data":{"modelMetrics":{"gpt-4o":{"usage":{"inputTokens":9}}}}}
+        JSONL
+        result = make_result(stdout: jsonl)
+        response = provider.send(:parse_response, result, duration: 1.0)
+
+        expect(response.tokens).to eq({input: 9, output: 2, total: 11})
+      end
+
+      it "falls back per metric when session.shutdown values are malformed" do
+        jsonl = <<~JSONL
+          {"type":"usage","data":{"inputTokens":3,"outputTokens":2}}
+          {"type":"session.shutdown","data":{"modelMetrics":{"gpt-4o":{"usage":{"inputTokens":[],"outputTokens":8}}}}}
+        JSONL
+        result = make_result(stdout: jsonl)
+        response = provider.send(:parse_response, result, duration: 1.0)
+
+        expect(response.tokens).to eq({input: 3, output: 8, total: 11})
+      end
+
       it "ignores malformed session.shutdown model metrics" do
         jsonl = <<~JSONL
           {"type":"session.shutdown","data":{"modelMetrics":{"gpt-4o":{"usage":"bad"},"gpt-4o-mini":true}}}
