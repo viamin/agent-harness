@@ -319,6 +319,282 @@ RSpec.describe AgentHarness::Providers::Codex do
         expect(response.output).to eq("response output")
       end
 
+      it "raises AuthenticationError for OAuth refresh token reuse failures" do
+        allow(mock_executor).to receive(:execute).and_raise(
+          StandardError.new(<<~ERROR)
+            Failed to refresh token: 401 Unauthorized
+            "message": "Your refresh token has already been used to generate a new access token. Please try signing in again."
+            "code": "refresh_token_reused"
+            Failed to refresh token: Your access token could not be refreshed because your refresh token was already used. Please log out and sign in again.
+          ERROR
+        )
+
+        expect { provider.send_message(prompt: "Hello") }.to raise_error(AgentHarness::AuthenticationError) do |error|
+          expect(error.provider).to eq(:codex)
+        end
+      end
+
+      it "raises AuthenticationError for shorter OAuth refresh token reuse wording" do
+        allow(mock_executor).to receive(:execute).and_raise(
+          StandardError.new("Failed to refresh token: refresh token already used")
+        )
+
+        expect { provider.send_message(prompt: "Hello") }.to raise_error(AgentHarness::AuthenticationError) do |error|
+          expect(error.provider).to eq(:codex)
+        end
+      end
+
+      it "raises AuthenticationError for failed-refresh OAuth invalid_grant failures" do
+        allow(mock_executor).to receive(:execute).and_raise(
+          StandardError.new("Failed to refresh token because invalid_grant")
+        )
+
+        expect { provider.send_message(prompt: "Hello") }.to raise_error(AgentHarness::AuthenticationError) do |error|
+          expect(error.provider).to eq(:codex)
+        end
+      end
+
+      it "raises AuthenticationError for failed-refresh invalid refresh token wording" do
+        allow(mock_executor).to receive(:execute).and_raise(
+          StandardError.new("Failed to refresh token because refresh token is invalid.")
+        )
+
+        expect { provider.send_message(prompt: "Hello") }.to raise_error(AgentHarness::AuthenticationError) do |error|
+          expect(error.provider).to eq(:codex)
+        end
+      end
+
+      it "raises AuthenticationError for multiline failed-refresh OAuth invalid_client failures" do
+        allow(mock_executor).to receive(:execute).and_raise(
+          StandardError.new(<<~ERROR)
+            Failed to refresh token:
+            "code": "invalid_client"
+          ERROR
+        )
+
+        expect { provider.send_message(prompt: "Hello") }.to raise_error(AgentHarness::AuthenticationError) do |error|
+          expect(error.provider).to eq(:codex)
+        end
+      end
+
+      it "raises AuthenticationError for multiline access-token refresh reuse failures" do
+        allow(mock_executor).to receive(:execute).and_raise(
+          StandardError.new(<<~ERROR)
+            Your access token could not be refreshed because
+            your refresh token was already used. Please log out and sign in again.
+          ERROR
+        )
+
+        expect { provider.send_message(prompt: "Hello") }.to raise_error(AgentHarness::AuthenticationError) do |error|
+          expect(error.provider).to eq(:codex)
+        end
+      end
+
+      it "raises AuthenticationError for multiline access-token OAuth invalid_grant failures" do
+        allow(mock_executor).to receive(:execute).and_raise(
+          StandardError.new(<<~ERROR)
+            Your access token could not be refreshed because
+            invalid_grant
+          ERROR
+        )
+
+        expect { provider.send_message(prompt: "Hello") }.to raise_error(AgentHarness::AuthenticationError) do |error|
+          expect(error.provider).to eq(:codex)
+        end
+      end
+
+      it "raises AuthenticationError for access-token invalid refresh token wording" do
+        allow(mock_executor).to receive(:execute).and_raise(
+          StandardError.new(
+            "Your access token could not be refreshed because your refresh token is invalid."
+          )
+        )
+
+        expect { provider.send_message(prompt: "Hello") }.to raise_error(AgentHarness::AuthenticationError) do |error|
+          expect(error.provider).to eq(:codex)
+        end
+      end
+
+      it "does not raise AuthenticationError for transient OAuth refresh failures" do
+        allow(mock_executor).to receive(:execute).and_raise(
+          StandardError.new(
+            "Your access token could not be refreshed because the auth service was unavailable."
+          )
+        )
+
+        expect { provider.send_message(prompt: "Hello") }
+          .to raise_error(AgentHarness::ProviderError, /auth service was unavailable/)
+      end
+
+      it "does not raise AuthenticationError for authentication service refresh failures" do
+        allow(mock_executor).to receive(:execute).and_raise(
+          StandardError.new(
+            "Your access token could not be refreshed because the authentication service was unavailable."
+          )
+        )
+
+        expect { provider.send_message(prompt: "Hello") }
+          .to raise_error(AgentHarness::ProviderError, /authentication service was unavailable/)
+      end
+
+      it "does not raise AuthenticationError for no-article authentication service refresh failures" do
+        allow(mock_executor).to receive(:execute).and_raise(
+          StandardError.new(
+            "Your access token could not be refreshed because authentication service was unavailable."
+          )
+        )
+
+        expect { provider.send_message(prompt: "Hello") }
+          .to raise_error(AgentHarness::ProviderError, /authentication service was unavailable/)
+      end
+
+      it "does not raise AuthenticationError for authentication service is-unavailable refresh failures" do
+        allow(mock_executor).to receive(:execute).and_raise(
+          StandardError.new(
+            "Your access token could not be refreshed because the authentication service is unavailable."
+          )
+        )
+
+        expect { provider.send_message(prompt: "Hello") }
+          .to raise_error(AgentHarness::ProviderError, /authentication service is unavailable/)
+      end
+
+      it "does not raise AuthenticationError for temporarily unavailable authentication service refresh failures" do
+        allow(mock_executor).to receive(:execute).and_raise(
+          StandardError.new(
+            "Your access token could not be refreshed because the authentication service was temporarily unavailable."
+          )
+        )
+
+        expect { provider.send_message(prompt: "Hello") }
+          .to raise_error(AgentHarness::ProviderError, /authentication service was temporarily unavailable/)
+      end
+
+      it "does not raise AuthenticationError for multiline access-token authentication service refresh failures" do
+        allow(mock_executor).to receive(:execute).and_raise(
+          StandardError.new(<<~ERROR)
+            Your access token could not be refreshed because
+            the authentication service was unavailable.
+          ERROR
+        )
+
+        expect { provider.send_message(prompt: "Hello") }
+          .to raise_error(AgentHarness::ProviderError, /authentication service was unavailable/)
+      end
+
+      it "does not raise AuthenticationError for failed-refresh authentication service unavailable failures" do
+        allow(mock_executor).to receive(:execute).and_raise(
+          StandardError.new(
+            "Failed to refresh token because the authentication service was unavailable."
+          )
+        )
+
+        expect { provider.send_message(prompt: "Hello") }
+          .to raise_error(AgentHarness::ProviderError, /authentication service was unavailable/)
+      end
+
+      it "does not raise AuthenticationError for multiline failed-refresh authentication service unavailable failures" do
+        allow(mock_executor).to receive(:execute).and_raise(
+          StandardError.new(<<~ERROR)
+            Failed to refresh token:
+            the authentication service was unavailable.
+          ERROR
+        )
+
+        expect { provider.send_message(prompt: "Hello") }
+          .to raise_error(AgentHarness::ProviderError, /authentication service was unavailable/)
+      end
+
+      it "does not raise AuthenticationError for failed-refresh temporarily unavailable failures" do
+        allow(mock_executor).to receive(:execute).and_raise(
+          StandardError.new(
+            "Failed to refresh token because the authentication service was temporarily unavailable."
+          )
+        )
+
+        expect { provider.send_message(prompt: "Hello") }
+          .to raise_error(AgentHarness::ProviderError, /authentication service was temporarily unavailable/)
+      end
+
+      it "does not raise AuthenticationError for failed-refresh connection error failures" do
+        allow(mock_executor).to receive(:execute).and_raise(
+          StandardError.new(
+            "Failed to refresh token because connection error while contacting oauth endpoint."
+          )
+        )
+
+        expect { provider.send_message(prompt: "Hello") }
+          .to raise_error(AgentHarness::ProviderError, /connection error while contacting oauth endpoint/)
+      end
+
+      it "raises TimeoutError for OAuth refresh timeout failures" do
+        allow(mock_executor).to receive(:execute).and_raise(
+          StandardError.new(
+            "Your access token could not be refreshed because the auth service timed out."
+          )
+        )
+
+        expect { provider.send_message(prompt: "Hello") }
+          .to raise_error(AgentHarness::TimeoutError, /auth service timed out/)
+      end
+
+      it "raises TimeoutError for authentication service refresh timeout failures" do
+        allow(mock_executor).to receive(:execute).and_raise(
+          StandardError.new(
+            "Your access token could not be refreshed because the authentication service timed out."
+          )
+        )
+
+        expect { provider.send_message(prompt: "Hello") }
+          .to raise_error(AgentHarness::TimeoutError, /authentication service timed out/)
+      end
+
+      it "raises TimeoutError for multiline access-token authentication service timeout failures" do
+        allow(mock_executor).to receive(:execute).and_raise(
+          StandardError.new(<<~ERROR)
+            Your access token could not be refreshed because
+            the authentication service timed out.
+          ERROR
+        )
+
+        expect { provider.send_message(prompt: "Hello") }
+          .to raise_error(AgentHarness::TimeoutError, /authentication service timed out/)
+      end
+
+      it "raises TimeoutError for multiline failed-refresh authentication service timeout failures" do
+        allow(mock_executor).to receive(:execute).and_raise(
+          StandardError.new(<<~ERROR)
+            Failed to refresh token:
+            the authentication service timed out.
+          ERROR
+        )
+
+        expect { provider.send_message(prompt: "Hello") }
+          .to raise_error(AgentHarness::TimeoutError, /authentication service timed out/)
+      end
+
+      it "raises TimeoutError for hyphenated authentication service refresh timeout failures" do
+        allow(mock_executor).to receive(:execute).and_raise(
+          StandardError.new(
+            "Your access token could not be refreshed because the authentication service timed-out."
+          )
+        )
+
+        expect { provider.send_message(prompt: "Hello") }
+          .to raise_error(AgentHarness::TimeoutError, /authentication service timed-out/)
+      end
+
+      it "raises TimeoutError for failed-refresh authentication service timeout failures" do
+        allow(mock_executor).to receive(:execute).and_raise(
+          StandardError.new(
+            "Failed to refresh token because the authentication service timed out."
+          )
+        )
+
+        expect { provider.send_message(prompt: "Hello") }
+          .to raise_error(AgentHarness::TimeoutError, /authentication service timed out/)
+      end
+
       context "with dangerous_mode option" do
         it "includes --full-auto flag" do
           expect(mock_executor).to receive(:execute).with(
@@ -457,6 +733,656 @@ RSpec.describe AgentHarness::Providers::Codex do
             patterns
           )
         ).to eq(:unknown)
+      end
+
+      it "classifies OAuth refresh failures as auth_expired" do
+        patterns = provider.error_patterns
+
+        expect(
+          AgentHarness::ErrorTaxonomy.classify(
+            StandardError.new('Failed to refresh token: "code": "refresh_token_reused"'),
+            patterns
+          )
+        ).to eq(:auth_expired)
+
+        expect(
+          AgentHarness::ErrorTaxonomy.classify(
+            StandardError.new(
+              "Your access token could not be refreshed because your refresh token has already been used. Please log out and sign in again."
+            ),
+            patterns
+          )
+        ).to eq(:auth_expired)
+
+        expect(
+          AgentHarness::ErrorTaxonomy.classify(
+            StandardError.new("Failed to refresh token: invalid_client"),
+            patterns
+          )
+        ).to eq(:auth_expired)
+
+        expect(
+          AgentHarness::ErrorTaxonomy.classify(
+            StandardError.new("Failed to refresh token because invalid_grant"),
+            patterns
+          )
+        ).to eq(:auth_expired)
+
+        expect(
+          AgentHarness::ErrorTaxonomy.classify(
+            StandardError.new("Failed to refresh token because refresh token is invalid."),
+            patterns
+          )
+        ).to eq(:auth_expired)
+
+        expect(
+          AgentHarness::ErrorTaxonomy.classify(
+            StandardError.new(<<~ERROR),
+              Failed to refresh token:
+              "code": "invalid_grant"
+            ERROR
+            patterns
+          )
+        ).to eq(:auth_expired)
+
+        expect(
+          AgentHarness::ErrorTaxonomy.classify(
+            StandardError.new(<<~ERROR),
+              Your access token could not be refreshed because
+              your refresh token was already used. Please log out and sign in again.
+            ERROR
+            patterns
+          )
+        ).to eq(:auth_expired)
+
+        expect(
+          AgentHarness::ErrorTaxonomy.classify(
+            StandardError.new(<<~ERROR),
+              Your access token could not be refreshed because
+              invalid_client
+            ERROR
+            patterns
+          )
+        ).to eq(:auth_expired)
+
+        expect(
+          AgentHarness::ErrorTaxonomy.classify(
+            StandardError.new(
+              "Your access token could not be refreshed because your refresh token is invalid."
+            ),
+            patterns
+          )
+        ).to eq(:auth_expired)
+      end
+
+      it "does not classify transient refresh failures as auth_expired" do
+        patterns = provider.error_patterns
+
+        expect(
+          AgentHarness::ErrorTaxonomy.classify(
+            StandardError.new("Failed to refresh token: connection error while contacting oauth endpoint"),
+            patterns
+          )
+        ).to eq(:transient)
+
+        expect(
+          AgentHarness::ErrorTaxonomy.classify(
+            StandardError.new(
+              "Your access token could not be refreshed because the auth service was unavailable."
+            ),
+            patterns
+          )
+        ).to eq(:transient)
+
+        expect(
+          AgentHarness::ErrorTaxonomy.classify(
+            StandardError.new(
+              "Your access token could not be refreshed because the authentication service was unavailable."
+            ),
+            patterns
+          )
+        ).to eq(:transient)
+
+        expect(
+          AgentHarness::ErrorTaxonomy.classify(
+            StandardError.new(
+              "Your access token could not be refreshed because authentication service was unavailable."
+            ),
+            patterns
+          )
+        ).to eq(:transient)
+
+        expect(
+          AgentHarness::ErrorTaxonomy.classify(
+            StandardError.new(
+              "Your access token could not be refreshed because the authentication service is unavailable."
+            ),
+            patterns
+          )
+        ).to eq(:transient)
+
+        expect(
+          AgentHarness::ErrorTaxonomy.classify(
+            StandardError.new(
+              "Your access token could not be refreshed because the authentication service was temporarily unavailable."
+            ),
+            patterns
+          )
+        ).to eq(:transient)
+
+        expect(
+          AgentHarness::ErrorTaxonomy.classify(
+            StandardError.new(
+              "Failed to refresh token because the authentication service was unavailable."
+            ),
+            patterns
+          )
+        ).to eq(:transient)
+
+        expect(
+          AgentHarness::ErrorTaxonomy.classify(
+            StandardError.new(
+              "Failed to refresh token because the authentication service was temporarily unavailable."
+            ),
+            patterns
+          )
+        ).to eq(:transient)
+
+        expect(
+          AgentHarness::ErrorTaxonomy.classify(
+            StandardError.new(
+              "Failed to refresh token because connection error while contacting oauth endpoint."
+            ),
+            patterns
+          )
+        ).to eq(:transient)
+
+        expect(
+          AgentHarness::ErrorTaxonomy.classify(
+            StandardError.new(<<~ERROR),
+              Failed to refresh token:
+              the authentication service was unavailable.
+            ERROR
+            patterns
+          )
+        ).to eq(:transient)
+
+        expect(
+          AgentHarness::ErrorTaxonomy.classify(
+            StandardError.new(<<~ERROR),
+              Your access token could not be refreshed because
+              the authentication service was unavailable.
+            ERROR
+            patterns
+          )
+        ).to eq(:transient)
+      end
+
+      it "does not classify generic re-login prompts as refresh auth failures" do
+        patterns = provider.error_patterns
+
+        expect(
+          AgentHarness::ErrorTaxonomy.classify(
+            StandardError.new("Please log out and sign in again."),
+            patterns
+          )
+        ).to eq(:unknown)
+      end
+
+      it "does not classify non-auth refresh failures as auth_expired" do
+        patterns = provider.error_patterns
+
+        expect(
+          AgentHarness::ErrorTaxonomy.classify(
+            StandardError.new("Your access token could not be refreshed because the auth service timed out."),
+            patterns
+          )
+        ).to eq(:timeout)
+
+        expect(
+          AgentHarness::ErrorTaxonomy.classify(
+            StandardError.new(
+              "Your access token could not be refreshed because the authentication service timed out."
+            ),
+            patterns
+          )
+        ).to eq(:timeout)
+
+        expect(
+          AgentHarness::ErrorTaxonomy.classify(
+            StandardError.new(
+              "Your access token could not be refreshed because the authentication service timed-out."
+            ),
+            patterns
+          )
+        ).to eq(:timeout)
+
+        expect(
+          AgentHarness::ErrorTaxonomy.classify(
+            StandardError.new(
+              "Failed to refresh token because the authentication service timed out."
+            ),
+            patterns
+          )
+        ).to eq(:timeout)
+
+        expect(
+          AgentHarness::ErrorTaxonomy.classify(
+            StandardError.new(<<~ERROR),
+              Failed to refresh token:
+              the authentication service timed out.
+            ERROR
+            patterns
+          )
+        ).to eq(:timeout)
+
+        expect(
+          AgentHarness::ErrorTaxonomy.classify(
+            StandardError.new(<<~ERROR),
+              Your access token could not be refreshed because
+              the authentication service timed out.
+            ERROR
+            patterns
+          )
+        ).to eq(:timeout)
+      end
+    end
+
+    describe "#smoke_test" do
+      let(:mock_executor) { instance_double(AgentHarness::CommandExecutor) }
+      subject(:provider) { described_class.new(executor: mock_executor) }
+
+      it "normalizes OAuth refresh failures to auth_expired" do
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "",
+            stderr: <<~ERROR,
+              Failed to refresh token: 401 Unauthorized
+              "code": "refresh_token_reused"
+              Your access token could not be refreshed because your refresh token was already used. Please log out and sign in again.
+            ERROR
+            exit_code: 1,
+            duration: 1.0
+          )
+        )
+
+        result = provider.smoke_test
+
+        expect(result[:ok]).to be false
+        expect(result[:error_category]).to eq(:auth_expired)
+      end
+
+      it "normalizes failed-refresh OAuth invalid_grant failures to auth_expired" do
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "",
+            stderr: "Failed to refresh token because invalid_grant",
+            exit_code: 1,
+            duration: 1.0
+          )
+        )
+
+        result = provider.smoke_test
+
+        expect(result[:ok]).to be false
+        expect(result[:error_category]).to eq(:auth_expired)
+      end
+
+      it "normalizes failed-refresh invalid refresh token wording to auth_expired" do
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "",
+            stderr: "Failed to refresh token because refresh token is invalid.",
+            exit_code: 1,
+            duration: 1.0
+          )
+        )
+
+        result = provider.smoke_test
+
+        expect(result[:ok]).to be false
+        expect(result[:error_category]).to eq(:auth_expired)
+      end
+
+      it "normalizes multiline failed-refresh OAuth invalid_client failures to auth_expired" do
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "",
+            stderr: <<~ERROR,
+              Failed to refresh token:
+              "code": "invalid_client"
+            ERROR
+            exit_code: 1,
+            duration: 1.0
+          )
+        )
+
+        result = provider.smoke_test
+
+        expect(result[:ok]).to be false
+        expect(result[:error_category]).to eq(:auth_expired)
+      end
+
+      it "normalizes multiline access-token refresh reuse failures to auth_expired" do
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "",
+            stderr: <<~ERROR,
+              Your access token could not be refreshed because
+              your refresh token was already used. Please log out and sign in again.
+            ERROR
+            exit_code: 1,
+            duration: 1.0
+          )
+        )
+
+        result = provider.smoke_test
+
+        expect(result[:ok]).to be false
+        expect(result[:error_category]).to eq(:auth_expired)
+      end
+
+      it "normalizes multiline access-token OAuth invalid_client failures to auth_expired" do
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "",
+            stderr: <<~ERROR,
+              Your access token could not be refreshed because
+              invalid_client
+            ERROR
+            exit_code: 1,
+            duration: 1.0
+          )
+        )
+
+        result = provider.smoke_test
+
+        expect(result[:ok]).to be false
+        expect(result[:error_category]).to eq(:auth_expired)
+      end
+
+      it "normalizes access-token invalid refresh token wording to auth_expired" do
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "",
+            stderr: "Your access token could not be refreshed because your refresh token is invalid.",
+            exit_code: 1,
+            duration: 1.0
+          )
+        )
+
+        result = provider.smoke_test
+
+        expect(result[:ok]).to be false
+        expect(result[:error_category]).to eq(:auth_expired)
+      end
+
+      it "keeps transient OAuth refresh failures retryable" do
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "",
+            stderr: "Your access token could not be refreshed because the auth service was unavailable.",
+            exit_code: 1,
+            duration: 1.0
+          )
+        )
+
+        result = provider.smoke_test
+
+        expect(result[:ok]).to be false
+        expect(result[:error_category]).to eq(:transient)
+      end
+
+      it "keeps authentication service refresh failures retryable" do
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "",
+            stderr: "Your access token could not be refreshed because the authentication service was unavailable.",
+            exit_code: 1,
+            duration: 1.0
+          )
+        )
+
+        result = provider.smoke_test
+
+        expect(result[:ok]).to be false
+        expect(result[:error_category]).to eq(:transient)
+      end
+
+      it "keeps no-article authentication service refresh failures retryable" do
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "",
+            stderr: "Your access token could not be refreshed because authentication service was unavailable.",
+            exit_code: 1,
+            duration: 1.0
+          )
+        )
+
+        result = provider.smoke_test
+
+        expect(result[:ok]).to be false
+        expect(result[:error_category]).to eq(:transient)
+      end
+
+      it "keeps authentication service is-unavailable refresh failures retryable" do
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "",
+            stderr: "Your access token could not be refreshed because the authentication service is unavailable.",
+            exit_code: 1,
+            duration: 1.0
+          )
+        )
+
+        result = provider.smoke_test
+
+        expect(result[:ok]).to be false
+        expect(result[:error_category]).to eq(:transient)
+      end
+
+      it "keeps temporarily unavailable authentication service refresh failures retryable" do
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "",
+            stderr: "Your access token could not be refreshed because the authentication service was temporarily unavailable.",
+            exit_code: 1,
+            duration: 1.0
+          )
+        )
+
+        result = provider.smoke_test
+
+        expect(result[:ok]).to be false
+        expect(result[:error_category]).to eq(:transient)
+      end
+
+      it "keeps multiline access-token authentication service refresh failures retryable" do
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "",
+            stderr: <<~ERROR,
+              Your access token could not be refreshed because
+              the authentication service was unavailable.
+            ERROR
+            exit_code: 1,
+            duration: 1.0
+          )
+        )
+
+        result = provider.smoke_test
+
+        expect(result[:ok]).to be false
+        expect(result[:error_category]).to eq(:transient)
+      end
+
+      it "keeps failed-refresh authentication service unavailable failures retryable" do
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "",
+            stderr: "Failed to refresh token because the authentication service was unavailable.",
+            exit_code: 1,
+            duration: 1.0
+          )
+        )
+
+        result = provider.smoke_test
+
+        expect(result[:ok]).to be false
+        expect(result[:error_category]).to eq(:transient)
+      end
+
+      it "keeps multiline failed-refresh authentication service unavailable failures retryable" do
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "",
+            stderr: <<~ERROR,
+              Failed to refresh token:
+              the authentication service was unavailable.
+            ERROR
+            exit_code: 1,
+            duration: 1.0
+          )
+        )
+
+        result = provider.smoke_test
+
+        expect(result[:ok]).to be false
+        expect(result[:error_category]).to eq(:transient)
+      end
+
+      it "keeps failed-refresh temporarily unavailable failures retryable" do
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "",
+            stderr: "Failed to refresh token because the authentication service was temporarily unavailable.",
+            exit_code: 1,
+            duration: 1.0
+          )
+        )
+
+        result = provider.smoke_test
+
+        expect(result[:ok]).to be false
+        expect(result[:error_category]).to eq(:transient)
+      end
+
+      it "keeps failed-refresh connection error failures retryable" do
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "",
+            stderr: "Failed to refresh token because connection error while contacting oauth endpoint.",
+            exit_code: 1,
+            duration: 1.0
+          )
+        )
+
+        result = provider.smoke_test
+
+        expect(result[:ok]).to be false
+        expect(result[:error_category]).to eq(:transient)
+      end
+
+      it "classifies OAuth refresh timeout failures as timeout" do
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "",
+            stderr: "Your access token could not be refreshed because the auth service timed out.",
+            exit_code: 1,
+            duration: 1.0
+          )
+        )
+
+        result = provider.smoke_test
+
+        expect(result[:ok]).to be false
+        expect(result[:error_category]).to eq(:timeout)
+      end
+
+      it "classifies authentication service refresh timeout failures as timeout" do
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "",
+            stderr: "Your access token could not be refreshed because the authentication service timed out.",
+            exit_code: 1,
+            duration: 1.0
+          )
+        )
+
+        result = provider.smoke_test
+
+        expect(result[:ok]).to be false
+        expect(result[:error_category]).to eq(:timeout)
+      end
+
+      it "classifies multiline access-token authentication service timeout failures as timeout" do
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "",
+            stderr: <<~ERROR,
+              Your access token could not be refreshed because
+              the authentication service timed out.
+            ERROR
+            exit_code: 1,
+            duration: 1.0
+          )
+        )
+
+        result = provider.smoke_test
+
+        expect(result[:ok]).to be false
+        expect(result[:error_category]).to eq(:timeout)
+      end
+
+      it "classifies hyphenated authentication service refresh timeout failures as timeout" do
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "",
+            stderr: "Your access token could not be refreshed because the authentication service timed-out.",
+            exit_code: 1,
+            duration: 1.0
+          )
+        )
+
+        result = provider.smoke_test
+
+        expect(result[:ok]).to be false
+        expect(result[:error_category]).to eq(:timeout)
+      end
+
+      it "classifies failed-refresh authentication service timeout failures as timeout" do
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "",
+            stderr: "Failed to refresh token because the authentication service timed out.",
+            exit_code: 1,
+            duration: 1.0
+          )
+        )
+
+        result = provider.smoke_test
+
+        expect(result[:ok]).to be false
+        expect(result[:error_category]).to eq(:timeout)
+      end
+
+      it "classifies multiline failed-refresh authentication service timeout failures as timeout" do
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "",
+            stderr: <<~ERROR,
+              Failed to refresh token:
+              the authentication service timed out.
+            ERROR
+            exit_code: 1,
+            duration: 1.0
+          )
+        )
+
+        result = provider.smoke_test
+
+        expect(result[:ok]).to be false
+        expect(result[:error_category]).to eq(:timeout)
       end
     end
 
