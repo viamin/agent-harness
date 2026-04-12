@@ -183,11 +183,16 @@ module AgentHarness
       protected
 
       def build_command(prompt, options)
-        # Silent mode suppresses the model/stats decoration older CLIs print in
-        # prompt mode, which keeps smoke-test output stable on the non-JSON path.
-        cmd = [self.class.binary_name, "-p", prompt, "-s"]
+        cmd = [self.class.binary_name, "-p", prompt]
 
-        cmd += ["--output-format", "json"] if supports_json_output_format?
+        if supports_json_output_format?
+          cmd += ["--output-format", "json"]
+        else
+          # Silent mode suppresses the model/stats decoration older CLIs print in
+          # prompt mode, which keeps smoke-test output stable on the plain-text path.
+          cmd << "-s"
+        end
+
         cmd += dangerous_mode_flags if options[:dangerous_mode] && supports_dangerous_mode?
 
         if options[:session] && !options[:session].empty?
