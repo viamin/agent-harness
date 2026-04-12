@@ -376,6 +376,21 @@ RSpec.describe AgentHarness::Providers::Aider do
         expect(response.tokens).to eq({input: 2900, output: 31, total: 2931})
       end
 
+      it "parses token counts when aider includes trailing cost text" do
+        allow(mock_executor).to receive(:execute) do |cmd, **kwargs|
+          history_path = cmd[cmd.index("--llm-history-file") + 1]
+          File.write(history_path, "")
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "response text\nTokens: 1,500 sent, 250 received. Cost: $0.0012 message, $0.0045 session.\n",
+            stderr: "",
+            exit_code: 0
+          )
+        end
+
+        response = provider.send_message(prompt: "hello")
+        expect(response.tokens).to eq({input: 1500, output: 250, total: 1750})
+      end
+
       it "uses the last token report when multiple usage lines are present" do
         allow(mock_executor).to receive(:execute) do |cmd, **kwargs|
           history_path = cmd[cmd.index("--llm-history-file") + 1]
@@ -536,6 +551,15 @@ RSpec.describe AgentHarness::Providers::Aider do
 
       it "parses token counters without a trailing period" do
         tokens = provider.send(:parse_token_usage_text, "Tokens: 42 sent, 8 received")
+
+        expect(tokens).to eq({input: 42, output: 8, total: 50})
+      end
+
+      it "parses token counters with trailing cost text" do
+        tokens = provider.send(
+          :parse_token_usage_text,
+          "Tokens: 42 sent, 8 received. Cost: $0.0012 message, $0.0045 session."
+        )
 
         expect(tokens).to eq({input: 42, output: 8, total: 50})
       end
