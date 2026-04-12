@@ -222,7 +222,12 @@ module AgentHarness
         end
 
         if saw_structured_event
-          output = text_parts.empty? ? result_text : text_parts.join
+          joined_text = text_parts.join if text_parts.any?
+          output = if joined_text && !joined_text.empty?
+            joined_text
+          else
+            result_text
+          end
           if result.failed? || structured_errors.any?
             error = build_structured_error(
               result,
