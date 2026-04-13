@@ -837,7 +837,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         expect(response.tokens).to eq({input: 7, output: 3, total: 10})
       end
 
-      it "falls back per metric from session.shutdown only when streamed usage omits values" do
+      it "does not fill missing streamed usage metrics from session.shutdown totals" do
         jsonl = <<~JSONL
           {"type":"usage","data":{"inputTokens":3}}
           {"type":"session.shutdown","data":{"modelMetrics":{"gpt-4o":{"usage":{"inputTokens":9,"outputTokens":8}}}}}
@@ -845,7 +845,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         result = make_result(stdout: jsonl)
         response = provider.send(:parse_response, result, duration: 1.0)
 
-        expect(response.tokens).to eq({input: 3, output: 8, total: 11})
+        expect(response.tokens).to eq({input: 3, output: 0, total: 3})
       end
 
       it "prefers streamed usage metrics when session.shutdown values are also present" do
@@ -869,6 +869,31 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
 
         expect(response.output).to eq("echo hello")
         expect(response.tokens).to eq({input: 3, output: 2, total: 5})
+      end
+
+      it "merges per-turn streamed usage and assistant fallback tokens without session.shutdown totals" do
+        jsonl = <<~JSONL
+          {"type":"usage","data":{"inputTokens":3}}
+          {"type":"assistant.message","data":{"content":"echo hello","outputTokens":2}}
+          {"type":"session.shutdown","data":{"modelMetrics":{"gpt-4o":{"usage":{"inputTokens":9,"outputTokens":8}}}}}
+        JSONL
+        result = make_result(stdout: jsonl)
+        response = provider.send(:parse_response, result, duration: 1.0)
+
+        expect(response.output).to eq("echo hello")
+        expect(response.tokens).to eq({input: 3, output: 2, total: 5})
+      end
+
+      it "does not fill missing assistant fallback metrics from session.shutdown totals" do
+        jsonl = <<~JSONL
+          {"type":"assistant.message","data":{"content":"echo hello","inputTokens":3}}
+          {"type":"session.shutdown","data":{"modelMetrics":{"gpt-4o":{"usage":{"inputTokens":9,"outputTokens":8}}}}}
+        JSONL
+        result = make_result(stdout: jsonl)
+        response = provider.send(:parse_response, result, duration: 1.0)
+
+        expect(response.output).to eq("echo hello")
+        expect(response.tokens).to eq({input: 3, output: 0, total: 3})
       end
 
       it "falls back to session.shutdown totals when per-turn token data is absent" do
