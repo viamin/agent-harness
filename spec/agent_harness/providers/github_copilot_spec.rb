@@ -182,8 +182,15 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
     end
 
     describe "#configuration_schema" do
-      it "has no configurable fields" do
-        expect(provider.configuration_schema[:fields]).to be_empty
+      it "includes an optional model field" do
+        expect(provider.configuration_schema[:fields]).to include(
+          hash_including(
+            name: :model,
+            type: :string,
+            required: false,
+            accepts_arbitrary: true
+          )
+        )
       end
 
       it "uses oauth auth mode" do
@@ -358,6 +365,47 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
           "Hello",
           "--output-format",
           "json",
+          "--allow-all-tools"
+        ])
+      end
+
+      it "includes configured model when present" do
+        configured_provider = described_class.new(
+          config: AgentHarness::ProviderConfig.new(:github_copilot).tap { |cfg| cfg.model = "gpt-4o-mini" },
+          executor: mock_executor
+        )
+
+        command = configured_provider.send(:build_command, "Hello", {})
+
+        expect(command).to eq([
+          "github-copilot-cli",
+          "-p",
+          "Hello",
+          "--output-format",
+          "json",
+          "--model",
+          "gpt-4o-mini",
+          "--allow-all-tools"
+        ])
+      end
+
+      it "prefers provider_runtime model over configured model" do
+        configured_provider = described_class.new(
+          config: AgentHarness::ProviderConfig.new(:github_copilot).tap { |cfg| cfg.model = "gpt-4o" },
+          executor: mock_executor
+        )
+        runtime = AgentHarness::ProviderRuntime.new(model: "gpt-4o-mini")
+
+        command = configured_provider.send(:build_command, "Hello", {provider_runtime: runtime})
+
+        expect(command).to eq([
+          "github-copilot-cli",
+          "-p",
+          "Hello",
+          "--output-format",
+          "json",
+          "--model",
+          "gpt-4o-mini",
           "--allow-all-tools"
         ])
       end
@@ -703,6 +751,34 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         expect(mock_executor).to receive(:execute).with(
           ["github-copilot-cli", "-p", "Hello", "--output-format", "json", "--allow-all-tools"],
           hash_including(env: request_env)
+        ).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: jsonl_output,
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        provider.send_message(prompt: "Hello", provider_runtime: runtime)
+      end
+
+      it "passes provider_runtime model to the Copilot command" do
+        runtime = AgentHarness::ProviderRuntime.new(model: "gpt-4o-mini")
+        jsonl_output = [
+          {"text" => "response"},
+          {"usage" => {"input_tokens" => 10, "output_tokens" => 5}}
+        ].map { |o| JSON.generate(o) }.join("\n")
+
+        allow(mock_executor).to receive(:execute).with(
+          ["github-copilot-cli", "--version"],
+          timeout: 5,
+          env: {}
+        ).and_return(version_result)
+
+        expect(mock_executor).to receive(:execute).with(
+          ["github-copilot-cli", "-p", "Hello", "--output-format", "json", "--model", "gpt-4o-mini", "--allow-all-tools"],
+          anything
         ).and_return(
           AgentHarness::CommandExecutor::Result.new(
             stdout: jsonl_output,
@@ -1726,7 +1802,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
           ).and_return(version_result)
 
           allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "-p", "Hello", "--output-format", "json", "--allow-all-tools", "--allow-all"],
+            ["github-copilot-cli", "-p", "Hello", "--output-format", "json", "--model", "gpt-4o-mini", "--allow-all-tools", "--allow-all"],
             anything
           ).and_return(
             AgentHarness::CommandExecutor::Result.new(

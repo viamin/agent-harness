@@ -103,7 +103,16 @@ module AgentHarness
 
       def configuration_schema
         {
-          fields: [],
+          fields: [
+            {
+              name: :model,
+              type: :string,
+              label: "Model",
+              required: false,
+              hint: "Copilot model identifier (for example gpt-4o or gpt-4o-mini)",
+              accepts_arbitrary: true
+            }
+          ],
           auth_modes: [:oauth],
           openai_compatible: false
         }
@@ -247,6 +256,7 @@ module AgentHarness
       def build_command(prompt, options)
         cmd = [self.class.binary_name, "-p", prompt]
         env = options.fetch(:_command_env) { build_env(options) }
+        runtime = options[:provider_runtime]
 
         if supports_json_output_format?(probe_timeout: options[:_version_probe_timeout], env: env)
           cmd += ["--output-format", "json"]
@@ -255,6 +265,9 @@ module AgentHarness
           # prompt mode, which keeps smoke-test output stable on the plain-text path.
           cmd << "-s"
         end
+
+        model = runtime&.model || @config.model
+        cmd += ["--model", model] if model && !model.empty?
 
         # Copilot prompt mode is non-interactive, so tool approvals must be
         # granted up front for normal programmatic runs.
