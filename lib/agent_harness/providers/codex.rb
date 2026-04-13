@@ -854,9 +854,11 @@ module AgentHarness
 
       def extract_task_complete_parts(payload)
         last_agent_message = payload["last_agent_message"]
-        return nil unless last_agent_message.is_a?(String)
+        return [last_agent_message] if last_agent_message.is_a?(String)
+        return nil unless last_agent_message.is_a?(Hash)
+        return nil unless wrapped_assistant_payload?(last_agent_message)
 
-        [last_agent_message]
+        extract_message_content_parts(last_agent_message)
       end
 
       def extract_delta_content_parts(item)

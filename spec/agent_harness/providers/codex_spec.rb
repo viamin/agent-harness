@@ -1988,6 +1988,50 @@ RSpec.describe AgentHarness::Providers::Codex do
           expect(response.tokens).to eq({input: 9, output: 4, total: 13})
         end
 
+        it "extracts structured assistant content from wrapped task_complete payloads" do
+          jsonl_output = [
+            JSON.generate({"type" => "event_msg", "payload" => {"type" => "agent_message_delta", "message" => "partial "}}),
+            JSON.generate({
+              "type" => "event_msg",
+              "payload" => {
+                "type" => "task_complete",
+                "last_agent_message" => {
+                  "role" => "assistant",
+                  "content" => [
+                    {"type" => "reasoning", "text" => "internal"},
+                    {"type" => "output_text", "text" => "final structured task output"}
+                  ]
+                }
+              }
+            }),
+            JSON.generate({
+              "type" => "event_msg",
+              "payload" => {
+                "type" => "token_count",
+                "info" => {
+                  "last_token_usage" => {
+                    "input_tokens" => 9,
+                    "output_tokens" => 4
+                  }
+                }
+              }
+            })
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq("final structured task output")
+          expect(response.tokens).to eq({input: 9, output: 4, total: 13})
+        end
+
         it "extracts final assistant text from wrapped turn_complete payloads" do
           jsonl_output = [
             JSON.generate({
