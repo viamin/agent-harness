@@ -518,7 +518,6 @@ module AgentHarness
         end
 
         return nil unless found
-        return nil if total_input.zero? && total_output.zero?
 
         {input: total_input, output: total_output, total: total_input + total_output}
       end
