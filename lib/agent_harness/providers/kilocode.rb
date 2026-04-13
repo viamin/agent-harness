@@ -182,7 +182,7 @@ module AgentHarness
           part = event["part"]
 
           if event["type"] == "text"
-            text = part["text"] if part.is_a?(Hash)
+            text = extract_text_chunk(event, part)
             text_parts << text if text.is_a?(String)
           end
 
@@ -442,6 +442,21 @@ module AgentHarness
         when Hash
           extract_result_text(payload["text"]) || extract_result_text(payload["message"])
         end
+      end
+
+      def extract_text_chunk(event, part)
+        text = part["text"] if part.is_a?(Hash) && part["text"].is_a?(String)
+        return text if text
+
+        text_alias_string(part.is_a?(Hash) ? part["message"] : nil) ||
+          text_alias_string(event["text"]) ||
+          text_alias_string(event["message"])
+      end
+
+      def text_alias_string(payload)
+        return payload if payload.is_a?(String)
+
+        extract_result_text(payload)
       end
 
       def build_structured_error(result, structured_errors, unstructured_output:)
