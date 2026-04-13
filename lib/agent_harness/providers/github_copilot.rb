@@ -333,6 +333,7 @@ module AgentHarness
           data = obj["data"]
           if obj["type"] == "assistant.message_delta"
             delta_content = string_content(data["deltaContent"])
+            delta_content = string_content(data["delta_content"]) if delta_content.nil? || delta_content.empty?
             return [delta_content, :assistant_delta] if delta_content && !delta_content.empty?
           end
 
