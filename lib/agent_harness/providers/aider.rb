@@ -213,14 +213,16 @@ module AgentHarness
         timeout = options[:timeout] || @config.timeout || default_timeout
         raise TimeoutError, "Command timed out before execution started" if timeout <= 0
 
+        start_time = Time.now
         llm_history_path = prepare_llm_history_file!
         command = build_command(prompt, options.merge(llm_history_path: llm_history_path))
         preparation = build_execution_preparation(options)
+        remaining_timeout = timeout - (Time.now - start_time)
+        raise TimeoutError, "Command timed out before execution started" if remaining_timeout <= 0
 
-        start_time = Time.now
         result = execute_with_timeout(
           command,
-          timeout: timeout,
+          timeout: remaining_timeout,
           env: build_env(options),
           preparation: preparation,
           **command_execution_options(options)

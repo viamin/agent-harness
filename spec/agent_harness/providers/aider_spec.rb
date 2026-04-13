@@ -703,7 +703,7 @@ RSpec.describe AgentHarness::Providers::Aider do
           expect(calls[0]).to match(
             [
               array_including("aider", "--llm-history-file"),
-              hash_including(timeout: 600)
+              hash_including(timeout: be_within(0.01).of(600))
             ]
           )
           expect(history_path).to start_with("/tmp/aider_llm_history_")
@@ -1189,6 +1189,21 @@ RSpec.describe AgentHarness::Providers::Aider do
         expect(provider.instance_variable_get(:@aider_history_path)).to be_nil
       end
 
+      it "times out before execution if history-file setup exhausts the request budget" do
+        allow(provider).to receive(:prepare_llm_history_file!).and_return("/tmp/aider_history")
+        expect(mock_executor).not_to receive(:execute)
+
+        times = [
+          Time.utc(2026, 4, 13, 0, 0, 0),
+          Time.utc(2026, 4, 13, 0, 0, 1)
+        ]
+        allow(Time).to receive(:now).and_return(*times)
+
+        expect {
+          provider.send_message(prompt: "Hello", timeout: 1)
+        }.to raise_error(AgentHarness::TimeoutError, "Command timed out before execution started")
+      end
+
       it "does not clear a newer local history handle when cleaning up an older path" do
         older_path = provider.send(:prepare_llm_history_file!)
         newer_path = provider.send(:prepare_llm_history_file!)
@@ -1558,6 +1573,31 @@ RSpec.describe AgentHarness::Providers::Aider do
         }.to raise_error(AgentHarness::TimeoutError, "Command timed out before execution started")
 
         expect(provider.instance_variable_get(:@aider_history_path)).to be_nil
+      end
+
+      it "times out before container execution if history-path setup exhausts the request budget" do
+        allow(provider).to receive(:prepare_llm_history_file!).and_return("/tmp/aider_history")
+        expect(docker_executor).to receive(:execute).with(
+          ["sh", "-lc", "rm -f -- /tmp/aider_history"],
+          timeout: 10
+        ).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "",
+            stderr: "",
+            exit_code: 0,
+            duration: 0.1
+          )
+        )
+
+        times = [
+          Time.utc(2026, 4, 13, 0, 0, 0),
+          Time.utc(2026, 4, 13, 0, 0, 1)
+        ]
+        allow(Time).to receive(:now).and_return(*times)
+
+        expect {
+          provider.send_message(prompt: "Hello", timeout: 1)
+        }.to raise_error(AgentHarness::TimeoutError, "Command timed out before execution started")
       end
 
       it "does not clear a newer container history path when cleaning up an older path" do
