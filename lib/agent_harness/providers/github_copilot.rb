@@ -339,6 +339,8 @@ module AgentHarness
             delta_content = string_content(data["deltaContent"])
             delta_content = string_content(data["delta_content"]) if delta_content.nil? || delta_content.empty?
             return [delta_content, :assistant_delta] if delta_content && !delta_content.empty?
+
+            return [nil, nil]
           end
 
           return [string_content(data["content"]), :assistant] if data.key?("content")
