@@ -346,6 +346,18 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         expect(response.error).to be_nil
       end
 
+      it "falls back to snake_case delta_content when camelCase deltaContent is empty" do
+        jsonl = <<~JSONL
+          {"type":"assistant.message_delta","data":{"deltaContent":"","delta_content":"Hello"}}
+          {"type":"assistant.message_delta","data":{"deltaContent":"","delta_content":" world"}}
+        JSONL
+        result = make_result(stdout: jsonl)
+        response = provider.send(:parse_response, result, duration: 1.0)
+
+        expect(response.output).to eq("Hello world")
+        expect(response.error).to be_nil
+      end
+
       it "ignores empty assistant.message_delta chunks around non-empty deltas" do
         jsonl = <<~JSONL
           {"type":"assistant.message_delta","data":{"deltaContent":""}}
