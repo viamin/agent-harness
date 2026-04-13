@@ -671,8 +671,9 @@ module AgentHarness
 
       def wrapped_assistant_payload?(payload)
         role = payload["role"]
+        item_type = payload["item_type"]
 
-        role.nil? || role == "assistant"
+        role == "assistant" || (role.nil? && assistant_message_item_type?(item_type))
       end
 
       def response_item_assistant_payload?(payload)
@@ -681,8 +682,15 @@ module AgentHarness
         payload_item_type = payload["item_type"]
 
         (payload_type == "message" && payload_role == "assistant") ||
-          (payload_type == "agent_message" && (payload_role.nil? || payload_role == "assistant")) ||
+          (payload_type == "agent_message" && (
+            payload_role == "assistant" ||
+            (payload_role.nil? && assistant_message_item_type?(payload_item_type))
+          )) ||
           (payload_role.nil? && payload_item_type == "assistant_message")
+      end
+
+      def assistant_message_item_type?(item_type)
+        item_type.nil? || item_type == "assistant_message"
       end
 
       def extract_message_content_parts(item)

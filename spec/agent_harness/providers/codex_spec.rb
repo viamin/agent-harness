@@ -1572,6 +1572,60 @@ RSpec.describe AgentHarness::Providers::Codex do
           expect(response.tokens).to eq({input: 4, output: 2, total: 6})
         end
 
+        it "ignores roleless wrapped payloads with non-assistant item_type" do
+          jsonl_output = [
+            JSON.generate({
+              "type" => "event_msg",
+              "payload" => {
+                "type" => "agent_message_delta",
+                "item_type" => "user_message",
+                "message" => "user partial"
+              }
+            }),
+            JSON.generate({
+              "type" => "event_msg",
+              "payload" => {
+                "type" => "agent_message",
+                "item_type" => "tool_message",
+                "message" => "tool message"
+              }
+            }),
+            JSON.generate({
+              "type" => "response_item",
+              "payload" => {
+                "type" => "agent_message",
+                "item_type" => "user_message",
+                "message" => "user final"
+              }
+            }),
+            JSON.generate({
+              "type" => "event_msg",
+              "payload" => {
+                "type" => "token_count",
+                "info" => {
+                  "total_token_usage" => {
+                    "input_tokens" => 4,
+                    "output_tokens" => 2
+                  }
+                }
+              }
+            })
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq(jsonl_output)
+          expect(response.tokens).to eq({input: 4, output: 2, total: 6})
+        end
+
         it "extracts token usage from wrapped token_count events" do
           jsonl_output = [
             JSON.generate({"type" => "event_msg", "payload" => {"type" => "token_count", "info" => nil}}),
