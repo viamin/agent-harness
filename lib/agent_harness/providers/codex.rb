@@ -1166,7 +1166,8 @@ module AgentHarness
             next({token: flag, managed_flag: false})
           end
 
-          expects_value = codex_value_flag?(flag)
+          flag_name = flag.split("=", 2).first
+          expects_value = !flag.include?("=") && codex_value_flag?(flag_name)
           {
             token: flag,
             managed_flag: dangerous_mode_flags.include?(flag) || sandbox_bypass_flags.include?(flag)

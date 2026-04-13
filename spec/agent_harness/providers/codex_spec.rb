@@ -569,6 +569,29 @@ RSpec.describe AgentHarness::Providers::Codex do
         provider_with_profile_value.send_message(prompt: "Hello")
       end
 
+      it "preserves an inline default flag value for other Codex value-taking flags" do
+        config_with_profile_value = AgentHarness::ProviderConfig.new(:codex).tap do |c|
+          c.default_flags = ["--profile=--full-auto", "--quiet"]
+          c.externally_sandboxed = true
+        end
+        provider_with_profile_value = described_class.new(config: config_with_profile_value, executor: mock_executor)
+
+        expect(mock_executor).to receive(:execute).with(
+          [
+            "codex",
+            "exec",
+            "--json",
+            "--profile=--full-auto",
+            "--quiet",
+            "--dangerously-bypass-approvals-and-sandbox",
+            "Hello"
+          ],
+          anything
+        ).and_return(success_result)
+
+        provider_with_profile_value.send_message(prompt: "Hello")
+      end
+
       it "preserves a runtime flag value for other Codex value-taking flags" do
         runtime = AgentHarness::ProviderRuntime.new(
           flags: ["--config", "--dangerously-bypass-approvals-and-sandbox", "--trace"]
@@ -582,6 +605,27 @@ RSpec.describe AgentHarness::Providers::Codex do
             "--full-auto",
             "--config",
             "--dangerously-bypass-approvals-and-sandbox",
+            "--trace",
+            "Hello"
+          ],
+          anything
+        ).and_return(success_result)
+
+        provider.send_message(prompt: "Hello", dangerous_mode: true, provider_runtime: runtime)
+      end
+
+      it "preserves an inline runtime flag value for other Codex value-taking flags" do
+        runtime = AgentHarness::ProviderRuntime.new(
+          flags: ["--config=--dangerously-bypass-approvals-and-sandbox", "--trace"]
+        )
+
+        expect(mock_executor).to receive(:execute).with(
+          [
+            "codex",
+            "exec",
+            "--json",
+            "--full-auto",
+            "--config=--dangerously-bypass-approvals-and-sandbox",
             "--trace",
             "Hello"
           ],
@@ -615,6 +659,29 @@ RSpec.describe AgentHarness::Providers::Codex do
         provider_with_profile_value.send_message(prompt: "Hello")
       end
 
+      it "preserves an inline short default flag value for other Codex value-taking flags" do
+        config_with_profile_value = AgentHarness::ProviderConfig.new(:codex).tap do |c|
+          c.default_flags = ["-p=--full-auto", "--quiet"]
+          c.externally_sandboxed = true
+        end
+        provider_with_profile_value = described_class.new(config: config_with_profile_value, executor: mock_executor)
+
+        expect(mock_executor).to receive(:execute).with(
+          [
+            "codex",
+            "exec",
+            "--json",
+            "-p=--full-auto",
+            "--quiet",
+            "--dangerously-bypass-approvals-and-sandbox",
+            "Hello"
+          ],
+          anything
+        ).and_return(success_result)
+
+        provider_with_profile_value.send_message(prompt: "Hello")
+      end
+
       it "preserves a short runtime flag value for other Codex value-taking flags" do
         runtime = AgentHarness::ProviderRuntime.new(
           flags: ["-o", "--dangerously-bypass-approvals-and-sandbox", "--trace"]
@@ -628,6 +695,27 @@ RSpec.describe AgentHarness::Providers::Codex do
             "--full-auto",
             "-o",
             "--dangerously-bypass-approvals-and-sandbox",
+            "--trace",
+            "Hello"
+          ],
+          anything
+        ).and_return(success_result)
+
+        provider.send_message(prompt: "Hello", dangerous_mode: true, provider_runtime: runtime)
+      end
+
+      it "preserves an inline short runtime flag value for other Codex value-taking flags" do
+        runtime = AgentHarness::ProviderRuntime.new(
+          flags: ["-o=--dangerously-bypass-approvals-and-sandbox", "--trace"]
+        )
+
+        expect(mock_executor).to receive(:execute).with(
+          [
+            "codex",
+            "exec",
+            "--json",
+            "--full-auto",
+            "-o=--dangerously-bypass-approvals-and-sandbox",
             "--trace",
             "Hello"
           ],
