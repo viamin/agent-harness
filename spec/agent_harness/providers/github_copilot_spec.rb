@@ -479,6 +479,38 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         ])
       end
 
+      it "includes the configured model on the older CLI fallback path" do
+        configured_provider = described_class.new(
+          config: AgentHarness::ProviderConfig.new(:github_copilot).tap { |cfg| cfg.model = "gpt-4o-mini" },
+          executor: mock_executor
+        )
+
+        allow(mock_executor).to receive(:execute).with(
+          ["github-copilot-cli", "--version"],
+          timeout: 5,
+          env: {}
+        ).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "github-copilot-cli 0.0.421",
+            stderr: "",
+            exit_code: 0,
+            duration: 0.1
+          )
+        )
+
+        command = configured_provider.send(:build_command, "Hello", {})
+
+        expect(command).to eq([
+          "github-copilot-cli",
+          "-p",
+          "Hello",
+          "-s",
+          "--model",
+          "gpt-4o-mini",
+          "--allow-all-tools"
+        ])
+      end
+
       it "keeps session flags on the older CLI fallback path" do
         allow(mock_executor).to receive(:execute).with(
           ["github-copilot-cli", "--version"],
@@ -940,6 +972,42 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         )
 
         response = provider.send_message(prompt: "Hello", provider_runtime: runtime)
+        expect(response.output).to eq("plain text response")
+        expect(response.model).to eq("gpt-4o-mini")
+      end
+
+      it "passes the configured model through the older CLI fallback path" do
+        configured_provider = described_class.new(
+          config: AgentHarness::ProviderConfig.new(:github_copilot).tap { |cfg| cfg.model = "gpt-4o-mini" },
+          executor: mock_executor
+        )
+
+        allow(mock_executor).to receive(:execute).with(
+          ["github-copilot-cli", "--version"],
+          timeout: 5,
+          env: {}
+        ).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "github-copilot-cli 0.0.421",
+            stderr: "",
+            exit_code: 0,
+            duration: 0.1
+          )
+        )
+
+        expect(mock_executor).to receive(:execute).with(
+          ["github-copilot-cli", "-p", "Hello", "-s", "--model", "gpt-4o-mini", "--allow-all-tools"],
+          anything
+        ).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "plain text response",
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        response = configured_provider.send_message(prompt: "Hello")
         expect(response.output).to eq("plain text response")
         expect(response.model).to eq("gpt-4o-mini")
       end
