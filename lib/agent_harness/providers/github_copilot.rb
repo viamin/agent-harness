@@ -125,6 +125,10 @@ module AgentHarness
         ["--allow-all"]
       end
 
+      def programmatic_tool_approval_flags
+        ["--allow-all-tools"]
+      end
+
       def supports_sessions?
         true
       end
@@ -251,6 +255,10 @@ module AgentHarness
           # prompt mode, which keeps smoke-test output stable on the plain-text path.
           cmd << "-s"
         end
+
+        # Copilot prompt mode is non-interactive, so tool approvals must be
+        # pre-authorized even when the caller does not opt into blanket access.
+        cmd += programmatic_tool_approval_flags
 
         if options[:dangerous_mode] && supports_dangerous_mode?
           cmd += dangerous_mode_flags
