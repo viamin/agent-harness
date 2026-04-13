@@ -256,8 +256,10 @@ module AgentHarness
           cmd << "-s"
         end
 
-        # Copilot prompt mode is non-interactive, so tool approvals must be
-        # pre-authorized even when the caller does not opt into blanket access.
+        # `-p` is fully non-interactive. GitHub's CLI requires tool approval to
+        # be pre-authorized on that path, so we always enable tool execution
+        # here and reserve dangerous_mode for the broader `--allow-all`
+        # escalation (paths/URLs plus tools).
         cmd += programmatic_tool_approval_flags
 
         if options[:dangerous_mode] && supports_dangerous_mode?
