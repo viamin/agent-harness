@@ -997,7 +997,7 @@ module AgentHarness
       def parse_token_count(value)
         case value
         when Integer
-          value
+          value if value >= 0
         when String
           stripped = value.strip
           return nil unless /\A\d+\z/.match?(stripped)

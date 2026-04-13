@@ -2256,6 +2256,37 @@ RSpec.describe AgentHarness::Providers::Codex do
           expect(response.tokens).to be_nil
         end
 
+        it "ignores negative wrapped token counts without dropping parsed output" do
+          jsonl_output = [
+            JSON.generate({"type" => "event_msg", "payload" => {"type" => "agent_message", "message" => "wrapped output"}}),
+            JSON.generate({
+              "type" => "event_msg",
+              "payload" => {
+                "type" => "token_count",
+                "info" => {
+                  "last_token_usage" => {
+                    "input_tokens" => -5,
+                    "output_tokens" => -1
+                  }
+                }
+              }
+            })
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq("wrapped output")
+          expect(response.tokens).to be_nil
+        end
+
         it "preserves wrapped zero-usage reports and explicit total_tokens" do
           jsonl_output = [
             JSON.generate({"type" => "event_msg", "payload" => {"type" => "agent_message", "message" => "wrapped output"}}),
@@ -3411,6 +3442,26 @@ RSpec.describe AgentHarness::Providers::Codex do
           jsonl_output = [
             JSON.generate({"type" => "message.delta", "delta" => {"text" => "Hello!"}}),
             JSON.generate({"type" => "turn.completed", "usage" => {"input_tokens" => {}, "output_tokens" => []}})
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq("Hello!")
+          expect(response.tokens).to be_nil
+        end
+
+        it "ignores negative turn token counts without dropping parsed output" do
+          jsonl_output = [
+            JSON.generate({"type" => "message.delta", "delta" => {"text" => "Hello!"}}),
+            JSON.generate({"type" => "turn.completed", "usage" => {"input_tokens" => -10, "output_tokens" => -2}})
           ].join("\n")
 
           allow(mock_executor).to receive(:execute).and_return(
