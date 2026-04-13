@@ -553,8 +553,8 @@ module AgentHarness
       end
 
       def build_tokens(shutdown_tokens:, usage_tokens:, fallback_tokens:)
-        input, input_present = first_present_token_metric(shutdown_tokens, usage_tokens, fallback_tokens, :input)
-        output, output_present = first_present_token_metric(shutdown_tokens, usage_tokens, fallback_tokens, :output)
+        input, input_present = first_present_token_metric(usage_tokens, fallback_tokens, shutdown_tokens, :input)
+        output, output_present = first_present_token_metric(usage_tokens, fallback_tokens, shutdown_tokens, :output)
         return nil unless input_present || output_present
 
         {input: input, output: output, total: input + output}

@@ -825,7 +825,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         expect(response.tokens).to eq({input: 9, output: 8, total: 17})
       end
 
-      it "prefers session.shutdown totals over streamed usage events" do
+      it "prefers streamed usage events over session.shutdown totals" do
         jsonl = <<~JSONL
           {"type":"usage","data":{"inputTokens":3,"outputTokens":2}}
           {"type":"assistant.usage","data":{"inputTokens":4,"outputTokens":1}}
@@ -834,53 +834,53 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         result = make_result(stdout: jsonl)
         response = provider.send(:parse_response, result, duration: 1.0)
 
+        expect(response.tokens).to eq({input: 7, output: 3, total: 10})
+      end
+
+      it "falls back per metric from session.shutdown only when streamed usage omits values" do
+        jsonl = <<~JSONL
+          {"type":"usage","data":{"inputTokens":3}}
+          {"type":"session.shutdown","data":{"modelMetrics":{"gpt-4o":{"usage":{"inputTokens":9,"outputTokens":8}}}}}
+        JSONL
+        result = make_result(stdout: jsonl)
+        response = provider.send(:parse_response, result, duration: 1.0)
+
+        expect(response.tokens).to eq({input: 3, output: 8, total: 11})
+      end
+
+      it "prefers streamed usage metrics when session.shutdown values are also present" do
+        jsonl = <<~JSONL
+          {"type":"usage","data":{"inputTokens":3,"outputTokens":2}}
+          {"type":"session.shutdown","data":{"modelMetrics":{"gpt-4o":{"usage":{"inputTokens":[],"outputTokens":8}}}}}
+        JSONL
+        result = make_result(stdout: jsonl)
+        response = provider.send(:parse_response, result, duration: 1.0)
+
+        expect(response.tokens).to eq({input: 3, output: 2, total: 5})
+      end
+
+      it "falls back to assistant reply token fields before session.shutdown totals" do
+        jsonl = <<~JSONL
+          {"type":"assistant.message","data":{"content":"echo hello","inputTokens":3,"outputTokens":2}}
+          {"type":"session.shutdown","data":{"modelMetrics":{"gpt-4o":{"usage":{"inputTokens":9,"outputTokens":8}}}}}
+        JSONL
+        result = make_result(stdout: jsonl)
+        response = provider.send(:parse_response, result, duration: 1.0)
+
+        expect(response.output).to eq("echo hello")
+        expect(response.tokens).to eq({input: 3, output: 2, total: 5})
+      end
+
+      it "falls back to session.shutdown totals when per-turn token data is absent" do
+        jsonl = <<~JSONL
+          {"type":"assistant.message","data":{"content":"echo hello"}}
+          {"type":"session.shutdown","data":{"modelMetrics":{"gpt-4o":{"usage":{"inputTokens":9,"outputTokens":8}}}}}
+        JSONL
+        result = make_result(stdout: jsonl)
+        response = provider.send(:parse_response, result, duration: 1.0)
+
+        expect(response.output).to eq("echo hello")
         expect(response.tokens).to eq({input: 9, output: 8, total: 17})
-      end
-
-      it "falls back per metric when session.shutdown omits values present in streamed usage" do
-        jsonl = <<~JSONL
-          {"type":"usage","data":{"inputTokens":3,"outputTokens":2}}
-          {"type":"session.shutdown","data":{"modelMetrics":{"gpt-4o":{"usage":{"inputTokens":9}}}}}
-        JSONL
-        result = make_result(stdout: jsonl)
-        response = provider.send(:parse_response, result, duration: 1.0)
-
-        expect(response.tokens).to eq({input: 9, output: 2, total: 11})
-      end
-
-      it "falls back per metric when session.shutdown values are malformed" do
-        jsonl = <<~JSONL
-          {"type":"usage","data":{"inputTokens":3,"outputTokens":2}}
-          {"type":"session.shutdown","data":{"modelMetrics":{"gpt-4o":{"usage":{"inputTokens":[],"outputTokens":8}}}}}
-        JSONL
-        result = make_result(stdout: jsonl)
-        response = provider.send(:parse_response, result, duration: 1.0)
-
-        expect(response.tokens).to eq({input: 3, output: 8, total: 11})
-      end
-
-      it "falls back to assistant reply token fields when session.shutdown omits values and no usage events exist" do
-        jsonl = <<~JSONL
-          {"type":"assistant.message","data":{"content":"echo hello","inputTokens":3,"outputTokens":2}}
-          {"type":"session.shutdown","data":{"modelMetrics":{"gpt-4o":{"usage":{"inputTokens":9}}}}}
-        JSONL
-        result = make_result(stdout: jsonl)
-        response = provider.send(:parse_response, result, duration: 1.0)
-
-        expect(response.output).to eq("echo hello")
-        expect(response.tokens).to eq({input: 9, output: 2, total: 11})
-      end
-
-      it "falls back to assistant reply token fields when session.shutdown values are malformed and no usage events exist" do
-        jsonl = <<~JSONL
-          {"type":"assistant.message","data":{"content":"echo hello","inputTokens":3,"outputTokens":2}}
-          {"type":"session.shutdown","data":{"modelMetrics":{"gpt-4o":{"usage":{"inputTokens":[],"outputTokens":8}}}}}
-        JSONL
-        result = make_result(stdout: jsonl)
-        response = provider.send(:parse_response, result, duration: 1.0)
-
-        expect(response.output).to eq("echo hello")
-        expect(response.tokens).to eq({input: 3, output: 8, total: 11})
       end
 
       it "ignores malformed session.shutdown model metrics" do
