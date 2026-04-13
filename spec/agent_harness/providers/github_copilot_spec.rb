@@ -67,11 +67,11 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
       expect(metadata[:runtime]).to include(
         output_format: :text,
         supports_token_counting: true,
-        supports_dangerous_mode: false
+        supports_dangerous_mode: true
       )
       expect(metadata[:capabilities]).to include(
         tool_use: true,
-        dangerous_mode: false
+        dangerous_mode: true
       )
     end
 
@@ -85,11 +85,11 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         available: false,
         output_format: :text,
         supports_token_counting: false,
-        supports_dangerous_mode: false
+        supports_dangerous_mode: true
       )
       expect(metadata[:capabilities]).to include(
         tool_use: true,
-        dangerous_mode: false
+        dangerous_mode: true
       )
     end
   end
@@ -168,14 +168,14 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
     end
 
     describe "#capabilities" do
-      it "does not advertise dangerous_mode because prompt mode already pre-approves tools" do
-        expect(provider.capabilities[:dangerous_mode]).to be false
+      it "advertises dangerous_mode for explicit tool pre-approval" do
+        expect(provider.capabilities[:dangerous_mode]).to be true
       end
     end
 
     describe "#supports_dangerous_mode?" do
-      it "returns false" do
-        expect(provider.supports_dangerous_mode?).to be false
+      it "returns true" do
+        expect(provider.supports_dangerous_mode?).to be true
       end
     end
 
@@ -294,8 +294,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
           "github-copilot-cli",
           "-p",
           "Hello",
-          "-s",
-          "--allow-all-tools"
+          "-s"
         ])
 
         allow(mock_executor).to receive(:execute).with(
@@ -310,8 +309,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
           "-p",
           "Hello",
           "--output-format",
-          "json",
-          "--allow-all-tools"
+          "json"
         ])
       end
 
@@ -323,8 +321,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
           "-p",
           "Hello",
           "--output-format",
-          "json",
-          "--allow-all-tools"
+          "json"
         ])
       end
 
@@ -338,8 +335,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
           "github-copilot-cli",
           "-p",
           "Hello",
-          "-s",
-          "--allow-all-tools"
+          "-s"
         ])
       end
 
@@ -363,12 +359,11 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
           "github-copilot-cli",
           "-p",
           "Hello",
-          "-s",
-          "--allow-all-tools"
+          "-s"
         ])
       end
 
-      it "keeps the same command shape when dangerous_mode is requested on the older CLI fallback path" do
+      it "adds tool approval when dangerous_mode is requested on the older CLI fallback path" do
         allow(mock_executor).to receive(:execute).with(
           ["github-copilot-cli", "--version"],
           timeout: 5,
@@ -424,8 +419,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
           "-p",
           "Hello",
           "--output-format",
-          "json",
-          "--allow-all-tools"
+          "json"
         ])
       end
 
@@ -459,16 +453,14 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
           "github-copilot-cli",
           "-p",
           "Hello",
-          "-s",
-          "--allow-all-tools"
+          "-s"
         ])
         expect(json_command).to eq([
           "github-copilot-cli",
           "-p",
           "Hello",
           "--output-format",
-          "json",
-          "--allow-all-tools"
+          "json"
         ])
       end
 
@@ -494,21 +486,19 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
           "github-copilot-cli",
           "-p",
           "Hello",
-          "-s",
-          "--allow-all-tools"
+          "-s"
         ])
         expect(second_command).to eq([
           "github-copilot-cli",
           "-p",
           "Hello",
           "--output-format",
-          "json",
-          "--allow-all-tools"
+          "json"
         ])
       end
 
-      it "includes tool approval by default in programmatic mode" do
-        command = provider.send(:build_command, "Hello", {})
+      it "adds tool approval only when dangerous_mode is requested" do
+        command = provider.send(:build_command, "Hello", {dangerous_mode: true})
 
         expect(command).to eq([
           "github-copilot-cli",
@@ -520,7 +510,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         ])
       end
 
-      it "keeps session flags while pre-approving tools" do
+      it "keeps session flags without pre-approving tools by default" do
         command = provider.send(:build_command, "Hello", {session: "session-123"})
 
         expect(command).to eq([
@@ -529,13 +519,12 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
           "Hello",
           "--output-format",
           "json",
-          "--allow-all-tools",
           "--resume",
           "session-123"
         ])
       end
 
-      it "keeps dangerous_mode as a no-op because prompt mode already requires tool approval" do
+      it "keeps session flags while adding tool approval in dangerous_mode" do
         command = provider.send(:build_command, "Hello", {session: "session-123", dangerous_mode: true})
 
         expect(command).to eq([
@@ -565,7 +554,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         ).and_return(version_result)
 
         allow(mock_executor).to receive(:execute).with(
-          ["github-copilot-cli", "-p", "Hello", "--output-format", "json", "--allow-all-tools"],
+          ["github-copilot-cli", "-p", "Hello", "--output-format", "json"],
           anything
         ).and_return(
           AgentHarness::CommandExecutor::Result.new(
@@ -577,7 +566,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         )
 
         expect(mock_executor).to receive(:execute).with(
-          ["github-copilot-cli", "-p", "Hello", "--output-format", "json", "--allow-all-tools"],
+          ["github-copilot-cli", "-p", "Hello", "--output-format", "json"],
           anything
         )
 
@@ -602,7 +591,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         ).and_return(version_result)
 
         expect(mock_executor).to receive(:execute).with(
-          ["github-copilot-cli", "-p", "Hello", "--output-format", "json", "--allow-all-tools"],
+          ["github-copilot-cli", "-p", "Hello", "--output-format", "json"],
           hash_including(env: request_env)
         ).and_return(
           AgentHarness::CommandExecutor::Result.new(
@@ -624,7 +613,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         ).and_return(version_result)
 
         allow(mock_executor).to receive(:execute).with(
-          ["github-copilot-cli", "-p", "Hello", "--output-format", "json", "--allow-all-tools"],
+          ["github-copilot-cli", "-p", "Hello", "--output-format", "json"],
           hash_including(timeout: 1.25)
         ).and_return(
           AgentHarness::CommandExecutor::Result.new(
@@ -691,7 +680,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         )
 
         allow(mock_executor).to receive(:execute).with(
-          ["github-copilot-cli", "-p", "Hello", "-s", "--allow-all-tools"],
+          ["github-copilot-cli", "-p", "Hello", "-s"],
           anything
         ).and_return(
           AgentHarness::CommandExecutor::Result.new(
@@ -712,7 +701,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         expect(mock_executor).not_to receive(:execute).with(["github-copilot-cli", "--version"], any_args)
 
         allow(mock_executor).to receive(:execute).with(
-          ["github-copilot-cli", "-p", "Hello", "-s", "--allow-all-tools"],
+          ["github-copilot-cli", "-p", "Hello", "-s"],
           anything
         ).and_return(
           AgentHarness::CommandExecutor::Result.new(
@@ -743,7 +732,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         )
 
         allow(mock_executor).to receive(:execute).with(
-          ["github-copilot-cli", "-p", "Hello", "-s", "--allow-all-tools"],
+          ["github-copilot-cli", "-p", "Hello", "-s"],
           anything
         ).and_return(
           AgentHarness::CommandExecutor::Result.new(
@@ -849,7 +838,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
             )
           )
 
-          response = provider.send_message(prompt: "Hello")
+          response = provider.send_message(prompt: "Hello", dangerous_mode: true)
           expect(response.output).to eq("Hello! How can I help?")
           expect(response.tokens).to eq({input: 100, output: 50, total: 150})
           expect(response.input_tokens).to eq(100)
@@ -881,7 +870,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
             )
           )
 
-          provider.send_message(prompt: "Hello")
+          provider.send_message(prompt: "Hello", dangerous_mode: true)
 
           expect(mock_executor).to have_received(:execute).with(
             ["github-copilot-cli", "-p", "Hello", "--output-format", "json", "--allow-all-tools"],
@@ -913,7 +902,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
             )
           )
 
-          response = provider.send_message(prompt: "Hello")
+          response = provider.send_message(prompt: "Hello", dangerous_mode: true)
           expect(response.tokens).to eq({input: 200, output: 75, total: 275})
         end
 
@@ -941,7 +930,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
             )
           )
 
-          response = provider.send_message(prompt: "Hello")
+          response = provider.send_message(prompt: "Hello", dangerous_mode: true)
           expect(response.tokens).to eq({input: 30, output: 15, total: 45})
         end
 
@@ -970,7 +959,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
             )
           )
 
-          response = provider.send_message(prompt: "Hello")
+          response = provider.send_message(prompt: "Hello", dangerous_mode: true)
           expect(response.output).to eq("Hello world!")
           expect(response.tokens).to be_nil
         end
@@ -1000,7 +989,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
             )
           )
 
-          response = provider.send_message(prompt: "Hello")
+          response = provider.send_message(prompt: "Hello", dangerous_mode: true)
           expect(response.output).to eq("Hello")
           expect(response.tokens).to be_nil
         end
@@ -1029,7 +1018,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
             )
           )
 
-          response = provider.send_message(prompt: "Hello")
+          response = provider.send_message(prompt: "Hello", dangerous_mode: true)
           expect(response.output).to eq("Hello world")
           expect(response.tokens).to be_nil
         end
@@ -1058,7 +1047,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
             )
           )
 
-          response = provider.send_message(prompt: "Hello")
+          response = provider.send_message(prompt: "Hello", dangerous_mode: true)
           expect(response.output).to eq("Hello")
           expect(response.tokens).to be_nil
         end
@@ -1087,7 +1076,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
             )
           )
 
-          response = provider.send_message(prompt: "Hello")
+          response = provider.send_message(prompt: "Hello", dangerous_mode: true)
           expect(response.output).to eq("OK")
           expect(response.tokens).to be_nil
         end
@@ -1116,7 +1105,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
             )
           )
 
-          response = provider.send_message(prompt: "Hello")
+          response = provider.send_message(prompt: "Hello", dangerous_mode: true)
           expect(response.output).to eq("Hello world!")
           expect(response.tokens).to be_nil
         end
@@ -1145,7 +1134,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
             )
           )
 
-          response = provider.send_message(prompt: "Hello")
+          response = provider.send_message(prompt: "Hello", dangerous_mode: true)
           expect(response.output).to eq("Hello world!")
           expect(response.tokens).to be_nil
         end
@@ -1174,7 +1163,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
             )
           )
 
-          response = provider.send_message(prompt: "Hello")
+          response = provider.send_message(prompt: "Hello", dangerous_mode: true)
           expect(response.output).to eq("Hello world!")
           expect(response.tokens).to be_nil
         end
@@ -1204,7 +1193,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
             )
           )
 
-          response = provider.send_message(prompt: "Hello")
+          response = provider.send_message(prompt: "Hello", dangerous_mode: true)
           expect(response.output).to eq("response")
           expect(response.tokens).to eq({input: 50, output: 15, total: 65})
         end
@@ -1234,7 +1223,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
             )
           )
 
-          response = provider.send_message(prompt: "Hello")
+          response = provider.send_message(prompt: "Hello", dangerous_mode: true)
           expect(response.output).to eq("response")
           expect(response.tokens).to eq({input: 50, output: 15, total: 65})
         end
@@ -1264,7 +1253,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
             )
           )
 
-          response = provider.send_message(prompt: "Hello")
+          response = provider.send_message(prompt: "Hello", dangerous_mode: true)
           expect(response.output).to eq("response")
           expect(response.tokens).to eq({input: 30, output: 15, total: 45})
         end
@@ -1294,7 +1283,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
             )
           )
 
-          response = provider.send_message(prompt: "Hello")
+          response = provider.send_message(prompt: "Hello", dangerous_mode: true)
           expect(response.output).to eq("response")
           expect(response.tokens).to eq({input: 20, output: 5, total: 25})
         end
@@ -1309,7 +1298,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
             )
           )
 
-          response = provider.send_message(prompt: "Hello")
+          response = provider.send_message(prompt: "Hello", dangerous_mode: true)
           expect(response.output).to eq("plain text response")
           expect(response.tokens).to be_nil
         end
@@ -1329,7 +1318,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
             )
           )
 
-          response = provider.send_message(prompt: "Hello")
+          response = provider.send_message(prompt: "Hello", dangerous_mode: true)
           expect(response.output).to eq(mixed_output)
           expect(response.tokens).to be_nil
         end
@@ -1358,7 +1347,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
             )
           )
 
-          response = provider.send_message(prompt: "Hello")
+          response = provider.send_message(prompt: "Hello", dangerous_mode: true)
           expect(response.output).to eq("Hello! World!")
           expect(response.tokens).to be_nil
         end
@@ -1390,7 +1379,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
           tracker = AgentHarness.token_tracker
           tracker.clear!
 
-          provider.send_message(prompt: "Hello")
+          provider.send_message(prompt: "Hello", dangerous_mode: true)
 
           summary = tracker.summary
           expect(summary[:total_input_tokens]).to eq(50)
@@ -1410,7 +1399,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
             )
           )
 
-          response = provider.send_message(prompt: "Hello")
+          response = provider.send_message(prompt: "Hello", dangerous_mode: true)
           expect(response.error).to include("not authorized")
         end
 
@@ -1438,7 +1427,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
             )
           )
 
-          response = provider.send_message(prompt: "Hello")
+          response = provider.send_message(prompt: "Hello", dangerous_mode: true)
           expect(response.output).to eq(jsonl_output)
           expect(response.tokens).to be_nil
           expect(response.error).to include("not authorized")
@@ -1454,7 +1443,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
             )
           )
 
-          response = provider.send_message(prompt: "Hello")
+          response = provider.send_message(prompt: "Hello", dangerous_mode: true)
           expect(response.metadata).to eq({legitimate_exit_codes: [0]})
         end
       end
@@ -1468,7 +1457,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         ].map { |o| JSON.generate(o) }.join("\n")
 
         allow(mock_executor).to receive(:execute).with(
-          ["github-copilot-cli", "-p", "Reply with exactly OK.", "--output-format", "json", "--allow-all-tools"],
+          ["github-copilot-cli", "-p", "Reply with exactly OK.", "--output-format", "json"],
           anything
         ).and_return(
           AgentHarness::CommandExecutor::Result.new(
@@ -1498,7 +1487,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         ].map { |o| JSON.generate(o) }.join("\n")
 
         allow(mock_executor).to receive(:execute).with(
-          ["github-copilot-cli", "-p", "Reply with exactly OK.", "--output-format", "json", "--allow-all-tools"],
+          ["github-copilot-cli", "-p", "Reply with exactly OK.", "--output-format", "json"],
           anything
         ).and_return(
           AgentHarness::CommandExecutor::Result.new(
@@ -1535,7 +1524,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         )
 
         expect(mock_executor).to receive(:execute).with(
-          ["github-copilot-cli", "-p", "Reply with exactly OK.", "-s", "--allow-all-tools"],
+          ["github-copilot-cli", "-p", "Reply with exactly OK.", "-s"],
           anything
         ).and_return(
           AgentHarness::CommandExecutor::Result.new(
