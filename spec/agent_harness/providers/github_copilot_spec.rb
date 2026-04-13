@@ -363,6 +363,33 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         ])
       end
 
+      it "keeps dangerous_mode opt-in on the older CLI fallback path" do
+        allow(mock_executor).to receive(:execute).with(
+          ["github-copilot-cli", "--version"],
+          timeout: 5,
+          env: {}
+        ).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "github-copilot-cli 0.0.421",
+            stderr: "",
+            exit_code: 0,
+            duration: 0.1
+          )
+        )
+
+        command = provider.send(:build_command, "Hello", {dangerous_mode: true, session: "session-123"})
+
+        expect(command).to eq([
+          "github-copilot-cli",
+          "-p",
+          "Hello",
+          "-s",
+          "--allow-all-tools",
+          "--resume",
+          "session-123"
+        ])
+      end
+
       it "memoizes parsed CLI versions after a successful probe" do
         2.times { provider.send(:build_command, "Hello", {}) }
 
@@ -751,6 +778,37 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
           )
 
           provider.send_message(prompt: "Hello", dangerous_mode: true)
+        end
+
+        it "keeps tool approval flags on the plain-text fallback path" do
+          allow(mock_executor).to receive(:execute).with(
+            ["github-copilot-cli", "--version"],
+            timeout: 5,
+            env: {}
+          ).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: "github-copilot-cli 0.0.421",
+              stderr: "",
+              exit_code: 0,
+              duration: 0.1
+            )
+          )
+
+          expect(mock_executor).to receive(:execute).with(
+            ["github-copilot-cli", "-p", "Hello", "-s", "--allow-all-tools", "--resume", "session-123"],
+            anything
+          ).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: "plain text response",
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello", dangerous_mode: true, session: "session-123")
+          expect(response.output).to eq("plain text response")
+          expect(response.tokens).to be_nil
         end
       end
 
