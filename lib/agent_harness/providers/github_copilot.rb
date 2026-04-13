@@ -256,8 +256,7 @@ module AgentHarness
 
               append_delta_segment!(output_segments, text, terminated: line.end_with?("\n"))
             elsif !text.empty?
-              drop_provisional_segments!(output_segments)
-              output_segments << {kind: :assistant, content: text, terminated: line.end_with?("\n")}
+              replace_assistant_segments!(output_segments, text, terminated: line.end_with?("\n"))
               authoritative_reply_seen = true
             end
           elsif preserve_raw_json_line?(obj) || !obj.is_a?(Hash)
@@ -637,8 +636,13 @@ module AgentHarness
         }
       end
 
-      def drop_provisional_segments!(segments)
-        segments.reject! { |segment| segment[:provisional] }
+      def replace_assistant_segments!(segments, text, terminated:)
+        drop_assistant_segments!(segments)
+        segments << {kind: :assistant, content: text, terminated: terminated}
+      end
+
+      def drop_assistant_segments!(segments)
+        segments.reject! { |segment| segment[:kind] == :assistant }
       end
 
       def with_request_probe_env(env)
@@ -657,7 +661,23 @@ module AgentHarness
       end
 
       def version_probe_env_cache_key(env)
-        env.sort_by { |key, _value| key }
+        resolved_binary_path_for_env(env) || self.class.binary_name
+      end
+
+      def resolved_binary_path_for_env(env)
+        path = if env.key?("PATH")
+          env["PATH"]
+        else
+          ENV["PATH"]
+        end
+        return nil unless path.is_a?(String) && !path.empty?
+
+        path.split(File::PATH_SEPARATOR).each do |entry|
+          full_path = File.join(entry, self.class.binary_name)
+          return full_path if File.executable?(full_path)
+        end
+
+        nil
       end
 
       def request_probe_env_from_raw_runtime(runtime)

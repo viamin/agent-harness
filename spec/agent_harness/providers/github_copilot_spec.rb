@@ -310,15 +310,15 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         allow(provider).to receive(:copilot_cli_supports_json_output?).and_return(true)
       end
 
-      it "aggregates text from event envelope data.content" do
+      it "keeps only the final assistant reply when multiple reply envelopes are emitted" do
         jsonl = <<~JSONL
-          {"type":"assistant","data":{"content":"Hello"}}
-          {"type":"assistant.message","data":{"content":" world"}}
+          {"type":"assistant","data":{"content":"intermediate draft"}}
+          {"type":"assistant.message","data":{"content":"final answer"}}
         JSONL
         result = make_result(stdout: jsonl)
         response = provider.send(:parse_response, result, duration: 1.0)
 
-        expect(response.output).to eq("Hello world")
+        expect(response.output).to eq("final answer")
         expect(response.error).to be_nil
       end
 
@@ -457,6 +457,19 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         response = provider.send(:parse_response, result, duration: 1.0)
 
         expect(response.output).to eq("note from tool\nHello")
+        expect(response.error).to be_nil
+      end
+
+      it "drops superseded assistant replies while preserving intervening literal stdout" do
+        jsonl = <<~JSONL
+          {"type":"assistant.message","data":{"content":"draft command"}}
+          tool output
+          {"type":"assistant.message","data":{"content":"final command"}}
+        JSONL
+        result = make_result(stdout: jsonl)
+        response = provider.send(:parse_response, result, duration: 1.0)
+
+        expect(response.output).to eq("tool output\nfinal command")
         expect(response.error).to be_nil
       end
 
@@ -1145,7 +1158,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         result = make_result(stdout: jsonl)
         response = provider.send(:parse_response, result, duration: 1.0)
 
-        expect(response.output).to eq("Hello world")
+        expect(response.output).to eq(" world")
         expect(response.tokens).to eq({input: 13, output: 7, total: 20})
       end
 
@@ -1371,10 +1384,9 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         expect(response).to be_success
       end
 
-      it "processes a full conversation with text and usage events" do
+      it "processes a full conversation with a final reply and usage events" do
         jsonl = <<~JSONL
-          {"type":"assistant","data":{"content":"Hello"}}
-          {"type":"assistant","data":{"content":" world!"}}
+          {"type":"assistant.message","data":{"content":"Hello world!"}}
           {"type":"usage","data":{"inputTokens":50,"outputTokens":25}}
         JSONL
         result = make_result(stdout: jsonl)
@@ -1523,12 +1535,42 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
           )
         )
         provider = described_class.new(executor: executor)
+        allow(provider).to receive(:resolved_binary_path_for_env).with({"PATH" => "/tmp/new-copilot/bin"})
+          .and_return("/tmp/new-copilot/bin/github-copilot-cli")
+        allow(provider).to receive(:resolved_binary_path_for_env).with({"PATH" => "/tmp/old-copilot/bin"})
+          .and_return("/tmp/old-copilot/bin/github-copilot-cli")
 
         env_a = {"PATH" => "/tmp/new-copilot/bin"}
         env_b = {"PATH" => "/tmp/old-copilot/bin"}
 
         2.times { expect(provider.send(:copilot_cli_supports_json_output?, env: env_a)).to be true }
         2.times { expect(provider.send(:copilot_cli_supports_json_output?, env: env_b)).to be false }
+      end
+
+      it "reuses the cached capability for envs that resolve to the same binary path" do
+        executor = instance_double(AgentHarness::CommandExecutor)
+        allow(executor).to receive(:execute).once.with(
+          ["github-copilot-cli", "--version"],
+          timeout: 5,
+          env: {"PATH" => "/tmp/copilot/bin", "GITHUB_TOKEN" => "token-a"}
+        ).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "github-copilot-cli 0.0.422\n",
+            stderr: "",
+            exit_code: 0
+          )
+        )
+        provider = described_class.new(executor: executor)
+        allow(provider).to receive(:resolved_binary_path_for_env).with({"PATH" => "/tmp/copilot/bin", "GITHUB_TOKEN" => "token-a"})
+          .and_return("/tmp/copilot/bin/github-copilot-cli")
+        allow(provider).to receive(:resolved_binary_path_for_env).with({"PATH" => "/tmp/copilot/bin", "GITHUB_TOKEN" => "token-b"})
+          .and_return("/tmp/copilot/bin/github-copilot-cli")
+
+        env_a = {"PATH" => "/tmp/copilot/bin", "GITHUB_TOKEN" => "token-a"}
+        env_b = {"PATH" => "/tmp/copilot/bin", "GITHUB_TOKEN" => "token-b"}
+
+        expect(provider.send(:copilot_cli_supports_json_output?, env: env_a)).to be true
+        expect(provider.send(:copilot_cli_supports_json_output?, env: env_b)).to be true
       end
     end
 
