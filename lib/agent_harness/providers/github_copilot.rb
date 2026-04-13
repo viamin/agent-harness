@@ -300,6 +300,8 @@ module AgentHarness
       end
 
       def copilot_cli_version(probe_timeout: nil, env: {})
+        return nil if env.empty? && !copilot_cli_binary_available?
+
         cache_key = version_probe_cache_key(env)
         @copilot_cli_versions ||= {}
         return @copilot_cli_versions[cache_key] if @copilot_cli_versions.key?(cache_key)
@@ -315,6 +317,13 @@ module AgentHarness
 
       def version_probe_cache_key(env)
         env.to_a.sort_by(&:first)
+      end
+
+      def copilot_cli_binary_available?
+        @executor.which(self.class.binary_name)
+      rescue => e
+        log_debug("copilot_cli_binary_check_failed", error: e.message)
+        nil
       end
 
       def extract_version(result)

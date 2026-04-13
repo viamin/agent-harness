@@ -115,6 +115,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
     subject(:provider) { described_class.new(config: config, executor: mock_executor) }
 
     before do
+      allow(mock_executor).to receive(:which).with("github-copilot-cli").and_return("/usr/bin/github-copilot-cli")
       allow(mock_executor).to receive(:execute).with(
         ["github-copilot-cli", "--version"],
         timeout: 5,
@@ -187,6 +188,13 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
     describe "#supports_token_counting?" do
       it "returns true" do
         expect(provider.supports_token_counting?).to be true
+      end
+
+      it "returns false without probing when the CLI is unavailable" do
+        allow(mock_executor).to receive(:which).with("github-copilot-cli").and_return(nil)
+        expect(mock_executor).not_to receive(:execute).with(["github-copilot-cli", "--version"], any_args)
+
+        expect(provider.supports_token_counting?).to be false
       end
 
       it "returns false when the installed CLI does not support JSON output" do
