@@ -590,6 +590,34 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
           "session-123"
         ])
       end
+
+      it "adds blanket approval to the older CLI fallback path only when dangerous_mode is requested" do
+        allow(mock_executor).to receive(:execute).with(
+          ["github-copilot-cli", "--version"],
+          timeout: 5,
+          env: {}
+        ).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "github-copilot-cli 0.0.421",
+            stderr: "",
+            exit_code: 0,
+            duration: 0.1
+          )
+        )
+
+        command = provider.send(:build_command, "Hello", {session: "session-123", dangerous_mode: true})
+
+        expect(command).to eq([
+          "github-copilot-cli",
+          "-p",
+          "Hello",
+          "-s",
+          "--allow-all-tools",
+          "--allow-all",
+          "--resume",
+          "session-123"
+        ])
+      end
     end
 
     describe "#send_message" do
