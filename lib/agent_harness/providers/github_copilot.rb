@@ -502,12 +502,20 @@ module AgentHarness
 
         return metrics if usage_payload?(metrics)
 
-        [
+        direct_usage = [
           metrics["usage"],
           metrics["totals"],
           metrics["total"],
           metrics["aggregate"]
         ].find { |value| usage_payload?(value) }
+        return direct_usage if direct_usage
+
+        metrics.each_value do |value|
+          nested_usage = model_metrics_usage(value)
+          return nested_usage if nested_usage
+        end
+
+        nil
       end
 
       def normalize_token_count(value)
