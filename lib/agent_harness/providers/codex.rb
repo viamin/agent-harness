@@ -1110,7 +1110,22 @@ module AgentHarness
       end
 
       def codex_value_flags
-        ["--model", "--session"]
+        [
+          "-c", "--config",
+          "--enable",
+          "--disable",
+          "-i", "--image",
+          "-m", "--model",
+          "--local-provider",
+          "-s", "--sandbox",
+          "-p", "--profile",
+          "-C", "--cd",
+          "--add-dir",
+          "--output-schema",
+          "--color",
+          "-o", "--output-last-message",
+          "--session"
+        ]
       end
 
       def externally_sandboxed?(options)
