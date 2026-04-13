@@ -960,8 +960,13 @@ module AgentHarness
 
         existing_detailed = existing_usage[:input_reported] && existing_usage[:output_reported]
         candidate_detailed = candidate_usage[:input_reported] && candidate_usage[:output_reported]
+        existing_total_only = existing_usage[:total_reported] && !existing_detailed
+        candidate_total_only = candidate_usage[:total_reported] && !candidate_detailed
 
-        existing_detailed && candidate_detailed
+        return true if existing_detailed && candidate_detailed
+        return true if existing_total_only && candidate_detailed
+
+        existing_total_only && candidate_total_only
       end
 
       def add_token_usage(left, right)
