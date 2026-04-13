@@ -524,6 +524,16 @@ RSpec.describe "ProviderRuntime integration" do
       provider.send_message(prompt: "Hello", provider_runtime: runtime, dangerous_mode: true)
     end
 
+    it "strips only a malformed runtime sandbox mode flag and preserves following flags" do
+      runtime = AgentHarness::ProviderRuntime.new(flags: ["-s", "--trace", "--quiet"])
+
+      expect(mock_executor).to receive(:execute) do |command, _options|
+        expect(command).to eq(["codex", "exec", "--json", "--full-auto", "--trace", "--quiet", "Hello"])
+      end.and_return(success_result)
+
+      provider.send_message(prompt: "Hello", provider_runtime: runtime, dangerous_mode: true)
+    end
+
     it "strips config sandbox mode flags when runtime flags request --full-auto" do
       config = AgentHarness::ProviderConfig.new(:codex).tap do |c|
         c.default_flags = ["--sandbox", "read-only", "--quiet"]

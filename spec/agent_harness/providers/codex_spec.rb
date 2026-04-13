@@ -561,6 +561,27 @@ RSpec.describe AgentHarness::Providers::Codex do
         end
       end
 
+      context "with malformed default_flags containing a sandbox mode flag without a value" do
+        let(:sandboxed_config_with_malformed_mode) do
+          AgentHarness::ProviderConfig.new(:codex).tap do |c|
+            c.default_flags = ["--sandbox", "--quiet"]
+            c.externally_sandboxed = true
+          end
+        end
+        let(:sandboxed_provider_with_malformed_mode) do
+          described_class.new(config: sandboxed_config_with_malformed_mode, executor: mock_executor)
+        end
+
+        it "strips only the sandbox mode flag and preserves following flags" do
+          expect(mock_executor).to receive(:execute).with(
+            ["codex", "exec", "--json", "--quiet", "--dangerously-bypass-approvals-and-sandbox", "Hello"],
+            anything
+          ).and_return(success_result)
+
+          sandboxed_provider_with_malformed_mode.send_message(prompt: "Hello")
+        end
+      end
+
       context "with default_flags containing an inline sandbox mode and externally_sandboxed" do
         let(:sandboxed_config_with_inline_mode) do
           AgentHarness::ProviderConfig.new(:codex).tap do |c|

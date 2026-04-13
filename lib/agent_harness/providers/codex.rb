@@ -1152,7 +1152,9 @@ module AgentHarness
         managed_sandbox_mode = externally_sandboxed || keep_full_auto
         skip_next_sandbox_value = false
 
-        each_flag_token(flags).each_with_object([]) do |token_info, normalized_flags|
+        token_infos = each_flag_token(flags)
+
+        token_infos.each_with_index.each_with_object([]) do |(token_info, index), normalized_flags|
           flag = token_info[:token]
           managed_flag = token_info[:managed_flag]
           flag_name = token_info[:flag_name]
@@ -1164,7 +1166,8 @@ module AgentHarness
           end
 
           if managed_sandbox_mode && sandbox_mode_flag?(flag_name)
-            skip_next_sandbox_value = takes_value
+            next_token = token_infos[index + 1]&.dig(:token)
+            skip_next_sandbox_value = takes_value && separate_flag_value?(next_token)
             next
           end
 
@@ -1234,6 +1237,10 @@ module AgentHarness
 
       def codex_value_flag?(flag)
         codex_value_flags.include?(flag)
+      end
+
+      def separate_flag_value?(token)
+        token.is_a?(String) && !token.start_with?("-")
       end
 
       def codex_value_flags
