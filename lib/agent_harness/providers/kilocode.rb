@@ -187,10 +187,10 @@ module AgentHarness
           end
 
           if event["type"] == "result"
-            extracted_result_text = extract_result_text(event["result"]) ||
-              extract_result_text(part) ||
-              extract_result_text(event["text"]) ||
-              extract_result_text(event["message"])
+            extracted_result_text = extract_terminal_result_text(event["result"]) ||
+              extract_terminal_result_text(part) ||
+              extract_terminal_result_text(event["text"]) ||
+              extract_terminal_result_text(event["message"])
             result_text = extracted_result_text if extracted_result_text
           end
 
@@ -442,6 +442,21 @@ module AgentHarness
         when Hash
           extract_result_text(payload["text"]) || extract_result_text(payload["message"])
         end
+      end
+
+      def extract_terminal_result_text(payload)
+        if payload.is_a?(String)
+          return if payload.strip.empty?
+
+          return payload
+        end
+
+        return unless payload.is_a?(Hash)
+
+        text = extract_terminal_result_text(payload["text"])
+        return text if text.is_a?(String) && !text.strip.empty?
+
+        extract_terminal_result_text(payload["message"]) || text
       end
 
       def extract_text_chunk(event, part)
