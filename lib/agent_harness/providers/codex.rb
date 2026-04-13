@@ -445,6 +445,7 @@ module AgentHarness
         pending_turn_usage = nil
         pending_turn_usage_source = nil
         pending_wrapped_output_parts = nil
+        pending_wrapped_same_turn_finalization = false
         turn_completed = false
         current_turn_finalized_output = false
 
@@ -457,6 +458,7 @@ module AgentHarness
           pending_turn_usage = nil
           pending_turn_usage_source = nil
           pending_wrapped_output_parts = nil
+          pending_wrapped_same_turn_finalization = false
         end
 
         start_new_turn = lambda do
@@ -535,6 +537,7 @@ module AgentHarness
 
             start_new_turn.call
             replace_current_turn_parts.call(extract_message_content_parts(event))
+            pending_wrapped_same_turn_finalization = false
           when "item.completed"
             item = event["item"]
             next unless item.is_a?(Hash)
@@ -542,6 +545,8 @@ module AgentHarness
 
             start_new_finalized_turn.call
             replace_current_turn_parts.call(extract_message_content_parts(item))
+            pending_wrapped_same_turn_finalization =
+              pending_turn_usage_source == :wrapped && pending_turn_usage
           when "turn.completed"
             turn_usage = build_token_usage(event["usage"])
             result = event["result"]
@@ -592,6 +597,7 @@ module AgentHarness
               turn_usage = merge_same_turn_usage(pending_turn_usage, turn_usage) if same_wrapped_turn
               pending_turn_usage = turn_usage
               pending_turn_usage_source = :turn_completed
+              pending_wrapped_same_turn_finalization = false
             end
 
             if result.is_a?(String)
@@ -607,11 +613,16 @@ module AgentHarness
               pending_turn_usage_source == :wrapped &&
               pending_wrapped_output_parts&.equal?(current_turn_parts) &&
               !current_turn_finalized_output
+            same_finalized_wrapped_turn =
+              pending_turn_usage_source == :wrapped &&
+              pending_wrapped_same_turn_finalization &&
+              current_turn_finalized_output
             same_wrapped_turn = pending_turn_usage_source == :wrapped &&
               same_turn_usage?(pending_turn_usage, turn_usage) &&
               (
                 pending_wrapped_output_parts&.equal?(current_turn_parts) ||
-                same_streaming_wrapped_turn
+                same_streaming_wrapped_turn ||
+                same_finalized_wrapped_turn
               )
 
             finalize_pending_wrapped_turn.call unless same_wrapped_turn
@@ -626,6 +637,7 @@ module AgentHarness
               turn_usage = merge_same_turn_usage(pending_turn_usage, turn_usage) if same_wrapped_turn
               pending_turn_usage = turn_usage
               pending_turn_usage_source = :turn_completed
+              pending_wrapped_same_turn_finalization = false
             end
 
             fail_current_turn.call
@@ -646,6 +658,7 @@ module AgentHarness
 
               start_new_turn.call
               replace_current_turn_parts.call(extract_message_content_parts(payload))
+              pending_wrapped_same_turn_finalization = false
             when "token_count"
               wrapped_token_usage = extract_wrapped_tokens(payload["info"])
               if wrapped_token_usage
@@ -669,6 +682,8 @@ module AgentHarness
 
             start_new_finalized_turn.call
             replace_current_turn_parts.call(extract_message_content_parts(payload))
+            pending_wrapped_same_turn_finalization =
+              pending_turn_usage_source == :wrapped && pending_turn_usage
           end
         end
 
