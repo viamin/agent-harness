@@ -448,15 +448,17 @@ module AgentHarness
         text = part["text"] if part.is_a?(Hash) && part["text"].is_a?(String)
         return text if text
 
-        text_alias_string(part.is_a?(Hash) ? part["message"] : nil) ||
-          text_alias_string(event["text"]) ||
-          text_alias_string(event["message"])
+        extract_text_alias_chunk(part.is_a?(Hash) ? part["message"] : nil) ||
+          extract_text_alias_chunk(event["text"]) ||
+          extract_text_alias_chunk(event["message"])
       end
 
-      def text_alias_string(payload)
+      def extract_text_alias_chunk(payload)
         return payload if payload.is_a?(String)
 
-        extract_result_text(payload)
+        return unless payload.is_a?(Hash)
+
+        extract_text_alias_chunk(payload["text"]) || extract_text_alias_chunk(payload["message"])
       end
 
       def build_structured_error(result, structured_errors, unstructured_output:)
