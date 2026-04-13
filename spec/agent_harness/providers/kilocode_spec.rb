@@ -273,6 +273,27 @@ RSpec.describe AgentHarness::Providers::Kilocode do
         expect(response.tokens).to eq({input: 100, output: 50, total: 150})
       end
 
+      it "extracts text chunks from scalar top-level message aliases on text events" do
+        ndjson = [
+          {"type" => "text", "message" => "Hello! "},
+          {"type" => "text", "text" => "How can I help?"},
+          {"type" => "result", "usage" => {"input_tokens" => 100, "output_tokens" => 50}}
+        ].map { |e| JSON.generate(e) }.join("\n")
+
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: ndjson,
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        response = provider.send_message(prompt: "Hello")
+        expect(response.output).to eq("Hello! How can I help?")
+        expect(response.tokens).to eq({input: 100, output: 50, total: 150})
+      end
+
       it "extracts text chunks from scalar part payloads on text events" do
         ndjson = [
           {"type" => "text", "part" => "Hello! "},
