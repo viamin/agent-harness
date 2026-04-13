@@ -500,6 +500,51 @@ RSpec.describe AgentHarness::Providers::Codex do
         provider.send_message(prompt: "Hello", dangerous_mode: true, provider_runtime: runtime)
       end
 
+      it "preserves a session flag value from default_flags that matches a managed sandbox flag" do
+        config_with_session_value = AgentHarness::ProviderConfig.new(:codex).tap do |c|
+          c.default_flags = ["--session", "--full-auto"]
+          c.externally_sandboxed = true
+        end
+        provider_with_session_value = described_class.new(config: config_with_session_value, executor: mock_executor)
+
+        expect(mock_executor).to receive(:execute).with(
+          [
+            "codex",
+            "exec",
+            "--json",
+            "--session",
+            "--full-auto",
+            "--dangerously-bypass-approvals-and-sandbox",
+            "Hello"
+          ],
+          anything
+        ).and_return(success_result)
+
+        provider_with_session_value.send_message(prompt: "Hello")
+      end
+
+      it "preserves a model flag value from runtime flags that matches a managed sandbox flag" do
+        runtime = AgentHarness::ProviderRuntime.new(
+          flags: ["--model", "--dangerously-bypass-approvals-and-sandbox", "--trace"]
+        )
+
+        expect(mock_executor).to receive(:execute).with(
+          [
+            "codex",
+            "exec",
+            "--json",
+            "--full-auto",
+            "--model",
+            "--dangerously-bypass-approvals-and-sandbox",
+            "--trace",
+            "Hello"
+          ],
+          anything
+        ).and_return(success_result)
+
+        provider.send_message(prompt: "Hello", dangerous_mode: true, provider_runtime: runtime)
+      end
+
       it "returns a Response object" do
         jsonl_output = [
           JSON.generate({"type" => "message.delta", "delta" => {"text" => "response output"}}),

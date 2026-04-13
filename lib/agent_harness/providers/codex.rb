@@ -332,7 +332,7 @@ module AgentHarness
         managed_sandbox_flags = {}
         runtime = options[:provider_runtime]
         all_user_flags = Array(@config.default_flags) + Array(runtime&.flags)
-        explicit_full_auto_requested = all_user_flags.any? { |flag| dangerous_mode_flags.include?(flag) }
+        explicit_full_auto_requested = managed_full_auto_requested?(all_user_flags)
         keep_full_auto = !externally_sandboxed && (adding_full_auto || explicit_full_auto_requested)
         keep_bypass = externally_sandboxed || !keep_full_auto
 
@@ -1042,18 +1042,33 @@ module AgentHarness
       end
 
       def normalize_sandbox_flags(flags, externally_sandboxed:, adding_full_auto:)
-        normalized_flags = flags.dup
-        explicit_full_auto_requested = (normalized_flags & dangerous_mode_flags).any?
-        normalized_flags -= dangerous_mode_flags if externally_sandboxed || adding_full_auto
+        explicit_full_auto_requested = managed_full_auto_requested?(flags)
         full_auto_requested = adding_full_auto || explicit_full_auto_requested
-        normalized_flags -= sandbox_bypass_flags if externally_sandboxed || full_auto_requested
-        normalized_flags
+
+        each_flag_token(flags).each_with_object([]) do |token_info, normalized_flags|
+          flag = token_info[:token]
+          managed_flag = token_info[:managed_flag]
+
+          if managed_flag
+            next if dangerous_mode_flags.include?(flag) && (externally_sandboxed || adding_full_auto)
+            next if sandbox_bypass_flags.include?(flag) && (externally_sandboxed || full_auto_requested)
+          end
+
+          normalized_flags << flag
+        end
       end
 
       def append_managed_sandbox_flags(command, flags, keep_full_auto:, keep_bypass:, managed_sandbox_flags:)
         return if flags.empty?
 
-        flags.each do |flag|
+        each_flag_token(flags).each do |token_info|
+          flag = token_info[:token]
+
+          unless token_info[:managed_flag]
+            command << flag
+            next
+          end
+
           if dangerous_mode_flags.include?(flag)
             next unless keep_full_auto
           elsif sandbox_bypass_flags.include?(flag)
@@ -1065,6 +1080,37 @@ module AgentHarness
           managed_sandbox_flags[flag] = true if dangerous_mode_flags.include?(flag) || sandbox_bypass_flags.include?(flag)
           command << flag
         end
+      end
+
+      def managed_full_auto_requested?(flags)
+        each_flag_token(flags).any? do |token_info|
+          token_info[:managed_flag] && dangerous_mode_flags.include?(token_info[:token])
+        end
+      end
+
+      def each_flag_token(flags)
+        expects_value = false
+
+        flags.map do |flag|
+          if expects_value
+            expects_value = false
+            next({token: flag, managed_flag: false})
+          end
+
+          expects_value = codex_value_flag?(flag)
+          {
+            token: flag,
+            managed_flag: dangerous_mode_flags.include?(flag) || sandbox_bypass_flags.include?(flag)
+          }
+        end
+      end
+
+      def codex_value_flag?(flag)
+        codex_value_flags.include?(flag)
+      end
+
+      def codex_value_flags
+        ["--model", "--session"]
       end
 
       def externally_sandboxed?(options)
