@@ -1854,6 +1854,72 @@ RSpec.describe AgentHarness::Providers::Codex do
           expect(response.tokens).to eq({input: 52, output: 12, total: 64})
         end
 
+        it "preserves a later top-level agent_message turn when turn.completed has no parsable usage or result" do
+          jsonl_output = [
+            JSON.generate({"type" => "agent_message", "message" => "first top-level answer"}),
+            JSON.generate({
+              "type" => "event_msg",
+              "payload" => {
+                "type" => "token_count",
+                "info" => {
+                  "last_token_usage" => {
+                    "input_tokens" => 42,
+                    "output_tokens" => 7
+                  }
+                }
+              }
+            }),
+            JSON.generate({"type" => "agent_message", "message" => "second top-level answer"}),
+            JSON.generate({"type" => "turn.completed", "usage" => {"cached_input_tokens" => 10}})
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq("second top-level answer")
+          expect(response.tokens).to eq({input: 42, output: 7, total: 49})
+        end
+
+        it "preserves a later wrapped agent_message turn when turn.completed has no parsable usage or result" do
+          jsonl_output = [
+            JSON.generate({"type" => "event_msg", "payload" => {"type" => "agent_message", "message" => "first wrapped answer"}}),
+            JSON.generate({
+              "type" => "event_msg",
+              "payload" => {
+                "type" => "token_count",
+                "info" => {
+                  "last_token_usage" => {
+                    "input_tokens" => 42,
+                    "output_tokens" => 7
+                  }
+                }
+              }
+            }),
+            JSON.generate({"type" => "event_msg", "payload" => {"type" => "agent_message", "message" => "second wrapped answer"}}),
+            JSON.generate({"type" => "turn.completed", "usage" => {"cached_input_tokens" => 10}})
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq("second wrapped answer")
+          expect(response.tokens).to eq({input: 42, output: 7, total: 49})
+        end
+
         it "commits wrapped usage before a new top-level delta turn with matching totals" do
           jsonl_output = [
             JSON.generate({"type" => "event_msg", "payload" => {"type" => "agent_message", "message" => "first wrapped answer"}}),

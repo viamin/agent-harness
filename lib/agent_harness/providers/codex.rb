@@ -518,6 +518,12 @@ module AgentHarness
               !result.is_a?(String)
 
             if wrapped_completion_without_new_data
+              if pending_wrapped_output_parts && !current_turn_parts.empty? && !current_turn_parts.equal?(pending_wrapped_output_parts)
+                commit_pending_turn.call
+                finalize_current_turn.call
+                next
+              end
+
               wrapped_output_parts = pending_wrapped_output_parts || current_turn_parts
               latest_completed_parts = wrapped_output_parts.dup
               current_turn_parts = [] if current_turn_parts.equal?(wrapped_output_parts)
