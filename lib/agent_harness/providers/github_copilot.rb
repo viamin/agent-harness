@@ -125,10 +125,6 @@ module AgentHarness
         ["--allow-all"]
       end
 
-      def programmatic_tool_approval_flags
-        ["--allow-all-tools"]
-      end
-
       def supports_sessions?
         true
       end
@@ -256,12 +252,8 @@ module AgentHarness
           cmd << "-s"
         end
 
-        # `-p` is fully non-interactive. GitHub's CLI requires tool approval to
-        # be pre-authorized on that path, so we always enable tool execution
-        # here and reserve dangerous_mode for the broader `--allow-all`
-        # escalation (paths/URLs plus tools).
-        cmd += programmatic_tool_approval_flags
-
+        # Keep automatic approval behind the explicit dangerous_mode opt-in so
+        # safe-mode prompts preserve Copilot's normal permission checks.
         if options[:dangerous_mode] && supports_dangerous_mode?
           cmd += dangerous_mode_flags
         end
