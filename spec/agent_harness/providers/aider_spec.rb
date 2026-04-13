@@ -388,6 +388,29 @@ RSpec.describe AgentHarness::Providers::Aider do
         expect(response.tokens).to eq({input: 10, output: 20, total: 30})
       end
 
+      it "preserves provider_runtime model overrides on the token-counted path" do
+        runtime = AgentHarness::ProviderRuntime.new(model: "claude-3-5-sonnet")
+
+        allow(mock_executor).to receive(:execute) do |cmd, **kwargs|
+          history_path = cmd[cmd.index("--llm-history-file") + 1]
+          File.write(history_path, <<~TEXT)
+            TO LLM 2026-04-12T00:00:00
+            -------
+            USER hello
+            LLM RESPONSE 2026-04-12T00:00:01
+            ASSISTANT world
+
+            Tokens: 10 sent, 20 received.
+          TEXT
+          result
+        end
+
+        response = provider.send_message(prompt: "hello", provider_runtime: runtime)
+
+        expect(response.model).to eq("claude-3-5-sonnet")
+        expect(response.tokens).to eq({input: 10, output: 20, total: 30})
+      end
+
       it "parses comma-delimited token counts from command output when history lacks usage" do
         allow(mock_executor).to receive(:execute) do |cmd, **kwargs|
           history_path = cmd[cmd.index("--llm-history-file") + 1]
