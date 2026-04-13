@@ -926,6 +926,27 @@ RSpec.describe AgentHarness::Providers::Kilocode do
         expect(response.tokens).to eq({input: 10, output: 5, total: 15})
       end
 
+      it "captures structured error text from scalar part payloads" do
+        ndjson = [
+          {"type" => "error", "message" => "   ", "part" => "Scalar part failure"},
+          {"type" => "step_finish", "part" => {"tokens" => {"input" => 10, "output" => 5}}}
+        ].map { |e| JSON.generate(e) }.join("\n")
+
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: ndjson,
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        response = provider.send_message(prompt: "Hello")
+        expect(response.failed?).to be true
+        expect(response.error).to eq("Scalar part failure")
+        expect(response.tokens).to eq({input: 10, output: 5, total: 15})
+      end
+
       it "captures structured error text from top-level message hash aliases" do
         ndjson = [
           {"type" => "error", "message" => {"text" => "Top-level hash failure"}},

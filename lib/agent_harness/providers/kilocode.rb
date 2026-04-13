@@ -423,6 +423,7 @@ module AgentHarness
           extract_result_text(part_error_payload),
           extract_result_text(part_error_payload.is_a?(Hash) ? part_error_payload["message"] : nil),
           extract_result_text(part_error_payload.is_a?(Hash) ? part_error_payload["data"] : nil),
+          extract_result_text(part.is_a?(Hash) ? nil : part),
           extract_result_text(part.is_a?(Hash) ? part["text"] : nil),
           extract_result_text(part.is_a?(Hash) ? part["message"] : nil)
         ]
