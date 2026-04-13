@@ -782,11 +782,13 @@ RSpec.describe AgentHarness::CommandExecutor do
           )
           cleanup_timeouts = Queue.new
           success_status = instance_double(Process::Status, exitstatus: 0)
+          cleanup_attempts = 0
 
           allow(executor).to receive(:execute_streaming).and_return(["", "", success_status])
 
           allow(executor).to receive(:cleanup_preparation).and_wrap_original do |original, applied_preparation, command_name:, timeout: nil, deadline: nil|
-            if timeout && (timeout - 0.01).abs < Float::EPSILON
+            cleanup_attempts += 1
+            if cleanup_attempts == 1
               raise AgentHarness::TimeoutError, "Command timed out after 0.01 seconds: true"
             end
 
@@ -794,7 +796,7 @@ RSpec.describe AgentHarness::CommandExecutor do
             original.call(applied_preparation, command_name: command_name, timeout: timeout, deadline: deadline)
           end
 
-          result = executor.execute(["true"], timeout: 0.01, preparation: preparation)
+          result = executor.execute(["true"], timeout: 30, preparation: preparation)
 
           expect(result).to be_success
           expect(Timeout.timeout(1) { cleanup_timeouts.pop }).to eq(

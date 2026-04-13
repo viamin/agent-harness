@@ -454,7 +454,11 @@ module AgentHarness
       end
 
       def extract_text_alias_chunk(payload)
-        return payload if payload.is_a?(String)
+        if payload.is_a?(String)
+          return if payload.empty?
+
+          return payload
+        end
 
         return unless payload.is_a?(Hash)
 

@@ -294,6 +294,27 @@ RSpec.describe AgentHarness::Providers::Kilocode do
         expect(response.tokens).to eq({input: 100, output: 50, total: 150})
       end
 
+      it "falls through blank text aliases to populated message aliases on text events" do
+        ndjson = [
+          {"type" => "text", "text" => {"text" => "", "message" => "Hello! "}},
+          {"type" => "text", "text" => "", "message" => "How can I help?"},
+          {"type" => "result", "usage" => {"input_tokens" => 100, "output_tokens" => 50}}
+        ].map { |e| JSON.generate(e) }.join("\n")
+
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: ndjson,
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        response = provider.send_message(prompt: "Hello")
+        expect(response.output).to eq("Hello! How can I help?")
+        expect(response.tokens).to eq({input: 100, output: 50, total: 150})
+      end
+
       it "handles NDJSON output without usage data" do
         ndjson = [
           {"type" => "text", "part" => {"text" => "Hello!"}}
