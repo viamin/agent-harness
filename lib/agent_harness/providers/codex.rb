@@ -664,7 +664,10 @@ module AgentHarness
         item_role == "assistant" || (
           item_role.nil? && (
             item_type == "agent_message" ||
-            item_item_type == "assistant_message"
+            (
+              message_item_type?(item_type) &&
+              item_item_type == "assistant_message"
+            )
           )
         )
       end
@@ -686,11 +689,19 @@ module AgentHarness
             payload_role == "assistant" ||
             (payload_role.nil? && assistant_message_item_type?(payload_item_type))
           )) ||
-          (payload_role.nil? && payload_item_type == "assistant_message")
+          (
+            payload_role.nil? &&
+            message_item_type?(payload_type) &&
+            payload_item_type == "assistant_message"
+          )
       end
 
       def assistant_message_item_type?(item_type)
         item_type.nil? || item_type == "assistant_message"
+      end
+
+      def message_item_type?(item_type)
+        item_type.nil? || item_type == "message"
       end
 
       def extract_message_content_parts(item)

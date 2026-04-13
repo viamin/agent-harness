@@ -1034,6 +1034,33 @@ RSpec.describe AgentHarness::Providers::Codex do
           expect(response.tokens).to eq({input: 10, output: 5, total: 15})
         end
 
+        it "ignores roleless item.completed assistant_message items with non-message types" do
+          jsonl_output = [
+            JSON.generate({
+              "type" => "item.completed",
+              "item" => {
+                "type" => "tool_call",
+                "item_type" => "assistant_message",
+                "text" => "tool text"
+              }
+            }),
+            JSON.generate({"type" => "turn.completed", "usage" => {"input_tokens" => 10, "output_tokens" => 5}})
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq(jsonl_output)
+          expect(response.tokens).to eq({input: 10, output: 5, total: 15})
+        end
+
         it "extracts text from item.completed content array when role field is nil" do
           jsonl_output = [
             JSON.generate({
@@ -1536,6 +1563,33 @@ RSpec.describe AgentHarness::Providers::Codex do
 
           response = provider.send_message(prompt: "Hello")
           expect(response.output).to eq("final assistant item_type message")
+          expect(response.tokens).to eq({input: 9, output: 4, total: 13})
+        end
+
+        it "ignores response_item assistant_message payloads with non-message types" do
+          jsonl_output = [
+            JSON.generate({
+              "type" => "response_item",
+              "payload" => {
+                "type" => "tool_call",
+                "item_type" => "assistant_message",
+                "message" => "tool payload"
+              }
+            }),
+            JSON.generate({"type" => "turn.completed", "usage" => {"input_tokens" => 9, "output_tokens" => 4}})
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq(jsonl_output)
           expect(response.tokens).to eq({input: 9, output: 4, total: 13})
         end
 
