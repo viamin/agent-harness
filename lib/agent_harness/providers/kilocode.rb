@@ -416,6 +416,7 @@ module AgentHarness
         part_error_payload = part["error"] if part.is_a?(Hash)
         candidates = [
           extract_result_text(event["message"]),
+          extract_result_text(event["text"]),
           extract_result_text(error_payload),
           extract_result_text(error_payload.is_a?(Hash) ? error_payload["message"] : nil),
           extract_result_text(error_payload.is_a?(Hash) ? error_payload["data"] : nil),
