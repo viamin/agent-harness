@@ -856,9 +856,30 @@ module AgentHarness
         last_agent_message = payload["last_agent_message"]
         return [last_agent_message] if last_agent_message.is_a?(String)
         return nil unless last_agent_message.is_a?(Hash)
-        return nil unless wrapped_assistant_payload?(last_agent_message)
+        return nil unless completed_assistant_message_payload?(last_agent_message)
 
         extract_message_content_parts(last_agent_message)
+      end
+
+      def completed_assistant_message_payload?(payload)
+        payload_role = payload["role"]
+        payload_type = payload["type"]
+        payload_item_type = payload["item_type"]
+        message_shaped_payload =
+          (
+            message_item_type?(payload_type) ||
+            payload_type == "agent_message"
+          ) && assistant_message_item_type?(payload_item_type)
+
+        (
+          payload_role == "assistant" && message_shaped_payload
+        ) || (
+          payload_role.nil? && message_shaped_payload && (
+            payload_type.nil? ||
+            payload_type == "agent_message" ||
+            payload_item_type == "assistant_message"
+          )
+        )
       end
 
       def extract_delta_content_parts(item)
