@@ -445,7 +445,7 @@ module AgentHarness
 
         [
           entry["usage"],
-          entry.dig("response", "usage")
+          nested_hash_value(entry, "response", "usage")
         ].find { |usage| usage_with_token_counts?(usage) }
       end
 
@@ -515,6 +515,14 @@ module AgentHarness
             OUTPUT_STATUS_PATTERN.match?(line) ||
             output_path_footer_line?(stripped) ||
             output_command_footer_line?(line, line_index, shell_prompt_index)
+        end
+      end
+
+      def nested_hash_value(value, *keys)
+        keys.reduce(value) do |current, key|
+          break nil unless current.is_a?(Hash)
+
+          current[key]
         end
       end
 

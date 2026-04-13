@@ -1618,6 +1618,29 @@ RSpec.describe AgentHarness::Providers::Aider do
           expect(response.tokens).to eq({input: 40, output: 10, total: 50})
         end
 
+        it "ignores non-hash response payloads while preserving later valid usage entries" do
+          allow(mock_executor).to receive(:execute) do |_cmd, _opts|
+            tempfile = provider.instance_variable_get(:@aider_history_tempfile)
+            path = tempfile.path if tempfile
+            if path
+              File.write(path, JSON.generate([
+                {"response" => "unexpected scalar"},
+                {"response" => {"usage" => {"prompt_tokens" => "40", "completion_tokens" => 10}}}
+              ]))
+            end
+
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: "response text",
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          end
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.tokens).to eq({input: 40, output: 10, total: 50})
+        end
+
         it "does not partially aggregate mixed plain-text history content" do
           allow(mock_executor).to receive(:execute) do |_cmd, _opts|
             tempfile = provider.instance_variable_get(:@aider_history_tempfile)

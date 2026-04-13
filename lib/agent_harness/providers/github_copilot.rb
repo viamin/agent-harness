@@ -471,7 +471,7 @@ module AgentHarness
       def authoritative_full_snapshot?(obj)
         obj["type"].to_s.match?(/\A(?:assistant\.message|turn\.)/) ||
           obj["message"].is_a?(Hash) ||
-          obj.dig("data", "message").is_a?(Hash)
+          nested_hash_value(obj, "data", "message").is_a?(Hash)
       end
 
       def assistant_output_event?(obj)
@@ -486,17 +486,17 @@ module AgentHarness
 
       def role_key_present?(obj)
         obj.key?("role") ||
-          obj.dig("data", "role") ||
-          obj.dig("message", "role") ||
-          obj.dig("data", "message", "role")
+          hash_key_present?(obj["data"], "role") ||
+          hash_key_present?(obj["message"], "role") ||
+          hash_key_present?(nested_hash_value(obj, "data", "message"), "role")
       end
 
       def extract_event_role(obj)
         [
           obj["role"],
-          obj.dig("data", "role"),
-          obj.dig("message", "role"),
-          obj.dig("data", "message", "role")
+          nested_hash_value(obj, "data", "role"),
+          nested_hash_value(obj, "message", "role"),
+          nested_hash_value(obj, "data", "message", "role")
         ].compact.first&.to_s
       end
 
@@ -544,12 +544,12 @@ module AgentHarness
       def model_metrics_present?(obj)
         obj["modelMetrics"].is_a?(Hash) ||
           obj["model_metrics"].is_a?(Hash) ||
-          obj.dig("data", "modelMetrics").is_a?(Hash) ||
-          obj.dig("data", "model_metrics").is_a?(Hash) ||
-          obj.dig("message", "modelMetrics").is_a?(Hash) ||
-          obj.dig("message", "model_metrics").is_a?(Hash) ||
-          obj.dig("data", "message", "modelMetrics").is_a?(Hash) ||
-          obj.dig("data", "message", "model_metrics").is_a?(Hash)
+          nested_hash_value(obj, "data", "modelMetrics").is_a?(Hash) ||
+          nested_hash_value(obj, "data", "model_metrics").is_a?(Hash) ||
+          nested_hash_value(obj, "message", "modelMetrics").is_a?(Hash) ||
+          nested_hash_value(obj, "message", "model_metrics").is_a?(Hash) ||
+          nested_hash_value(obj, "data", "message", "modelMetrics").is_a?(Hash) ||
+          nested_hash_value(obj, "data", "message", "model_metrics").is_a?(Hash)
       end
 
       def find_usages(obj)
@@ -560,23 +560,23 @@ module AgentHarness
           obj["tokens"],
           usage_payload?(obj) ? obj : nil,
           usage_payload?(obj["data"]) ? obj["data"] : nil,
-          obj.dig("data", "usage"),
-          obj.dig("data", "tokens"),
-          obj.dig("message", "usage"),
-          obj.dig("message", "tokens"),
-          obj.dig("data", "message", "usage"),
-          obj.dig("data", "message", "tokens")
+          nested_hash_value(obj, "data", "usage"),
+          nested_hash_value(obj, "data", "tokens"),
+          nested_hash_value(obj, "message", "usage"),
+          nested_hash_value(obj, "message", "tokens"),
+          nested_hash_value(obj, "data", "message", "usage"),
+          nested_hash_value(obj, "data", "message", "tokens")
         ].select { |usage| usage_with_token_counts?(usage) }.uniq
         return direct_usages if direct_usages.any?
 
         model_metrics_usages(obj["modelMetrics"]) +
           model_metrics_usages(obj["model_metrics"]) +
-          model_metrics_usages(obj.dig("data", "modelMetrics")) +
-          model_metrics_usages(obj.dig("data", "model_metrics")) +
-          model_metrics_usages(obj.dig("message", "modelMetrics")) +
-          model_metrics_usages(obj.dig("message", "model_metrics")) +
-          model_metrics_usages(obj.dig("data", "message", "modelMetrics")) +
-          model_metrics_usages(obj.dig("data", "message", "model_metrics"))
+          model_metrics_usages(nested_hash_value(obj, "data", "modelMetrics")) +
+          model_metrics_usages(nested_hash_value(obj, "data", "model_metrics")) +
+          model_metrics_usages(nested_hash_value(obj, "message", "modelMetrics")) +
+          model_metrics_usages(nested_hash_value(obj, "message", "model_metrics")) +
+          model_metrics_usages(nested_hash_value(obj, "data", "message", "modelMetrics")) +
+          model_metrics_usages(nested_hash_value(obj, "data", "message", "model_metrics"))
       end
 
       def model_metrics_usages(metrics)
@@ -646,37 +646,49 @@ module AgentHarness
           extract_text_value(obj["content"]) ||
           extract_text_value(obj["parts"]) ||
           extract_text_value(obj["result"]) ||
-          extract_text_value(obj.dig("message", "text")) ||
-          extract_text_value(obj.dig("message", "content")) ||
-          extract_text_value(obj.dig("message", "parts")) ||
-          extract_text_value(obj.dig("message", "result")) ||
-          extract_text_value(obj.dig("data", "text")) ||
-          extract_text_value(obj.dig("data", "content")) ||
-          extract_text_value(obj.dig("data", "parts")) ||
-          extract_text_value(obj.dig("data", "result")) ||
-          extract_text_value(obj.dig("data", "message", "text")) ||
-          extract_text_value(obj.dig("data", "message", "content")) ||
-          extract_text_value(obj.dig("data", "message", "parts")) ||
-          extract_text_value(obj.dig("data", "message", "result"))
+          extract_text_value(nested_hash_value(obj, "message", "text")) ||
+          extract_text_value(nested_hash_value(obj, "message", "content")) ||
+          extract_text_value(nested_hash_value(obj, "message", "parts")) ||
+          extract_text_value(nested_hash_value(obj, "message", "result")) ||
+          extract_text_value(nested_hash_value(obj, "data", "text")) ||
+          extract_text_value(nested_hash_value(obj, "data", "content")) ||
+          extract_text_value(nested_hash_value(obj, "data", "parts")) ||
+          extract_text_value(nested_hash_value(obj, "data", "result")) ||
+          extract_text_value(nested_hash_value(obj, "data", "message", "text")) ||
+          extract_text_value(nested_hash_value(obj, "data", "message", "content")) ||
+          extract_text_value(nested_hash_value(obj, "data", "message", "parts")) ||
+          extract_text_value(nested_hash_value(obj, "data", "message", "result"))
       end
 
       def extract_delta_text(obj)
         extract_text_value(obj["deltaContent"]) ||
           extract_text_value(obj["delta_content"]) ||
           extract_text_value(obj["delta"]) ||
-          extract_text_value(obj.dig("data", "deltaContent")) ||
-          extract_text_value(obj.dig("data", "delta_content")) ||
-          extract_text_value(obj.dig("data", "delta")) ||
-          extract_text_value(obj.dig("message", "deltaContent")) ||
-          extract_text_value(obj.dig("message", "delta_content")) ||
-          extract_text_value(obj.dig("message", "delta")) ||
-          extract_text_value(obj.dig("data", "message", "deltaContent")) ||
-          extract_text_value(obj.dig("data", "message", "delta_content")) ||
-          extract_text_value(obj.dig("data", "message", "delta"))
+          extract_text_value(nested_hash_value(obj, "data", "deltaContent")) ||
+          extract_text_value(nested_hash_value(obj, "data", "delta_content")) ||
+          extract_text_value(nested_hash_value(obj, "data", "delta")) ||
+          extract_text_value(nested_hash_value(obj, "message", "deltaContent")) ||
+          extract_text_value(nested_hash_value(obj, "message", "delta_content")) ||
+          extract_text_value(nested_hash_value(obj, "message", "delta")) ||
+          extract_text_value(nested_hash_value(obj, "data", "message", "deltaContent")) ||
+          extract_text_value(nested_hash_value(obj, "data", "message", "delta_content")) ||
+          extract_text_value(nested_hash_value(obj, "data", "message", "delta"))
       end
 
       def usage_payload?(value)
         value.is_a?(Hash) && token_count_keys.any? { |key| value.key?(key) }
+      end
+
+      def nested_hash_value(value, *keys)
+        keys.reduce(value) do |current, key|
+          break nil unless current.is_a?(Hash)
+
+          current[key]
+        end
+      end
+
+      def hash_key_present?(value, key)
+        value.is_a?(Hash) && value.key?(key)
       end
 
       def token_count_keys
