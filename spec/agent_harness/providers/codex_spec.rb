@@ -1274,6 +1274,33 @@ RSpec.describe AgentHarness::Providers::Codex do
           expect(response.output).to eq(jsonl_output)
           expect(response.tokens).to eq({input: 10, output: 5, total: 15})
         end
+
+        it "ignores roleless agent_message items with non-assistant item_type" do
+          jsonl_output = [
+            JSON.generate({
+              "type" => "item.completed",
+              "item" => {
+                "type" => "agent_message",
+                "item_type" => "user_message",
+                "text" => "user text"
+              }
+            }),
+            JSON.generate({"type" => "turn.completed", "usage" => {"input_tokens" => 10, "output_tokens" => 5}})
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq(jsonl_output)
+          expect(response.tokens).to eq({input: 10, output: 5, total: 15})
+        end
       end
 
       context "with wrapped JSONL event parsing" do
