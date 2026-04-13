@@ -397,7 +397,8 @@ module AgentHarness
       end
 
       def authoritative_full_snapshot?(obj)
-        obj["type"].to_s.match?(/\A(?:assistant\.message|turn\.)/)
+        obj["type"].to_s.match?(/\A(?:assistant\.message|turn\.)/) ||
+          obj["message"].is_a?(Hash)
       end
 
       def extract_tokens_from_jsonl(parsed_lines)
