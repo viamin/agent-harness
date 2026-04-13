@@ -414,19 +414,19 @@ module AgentHarness
         part = event["part"]
         part_error_payload = part["error"] if part.is_a?(Hash)
         candidates = [
-          event["message"],
-          error_payload,
-          error_payload.is_a?(Hash) ? error_payload["message"] : nil,
-          (error_payload.is_a?(Hash) && error_payload["data"].is_a?(Hash)) ? error_payload["data"]["message"] : nil,
-          part_error_payload,
-          part_error_payload.is_a?(Hash) ? part_error_payload["message"] : nil,
-          (part_error_payload.is_a?(Hash) && part_error_payload["data"].is_a?(Hash)) ? part_error_payload["data"]["message"] : nil,
-          part.is_a?(Hash) ? part["text"] : nil,
-          part.is_a?(Hash) ? part["message"] : nil
+          extract_result_text(event["message"]),
+          extract_result_text(error_payload),
+          extract_result_text(error_payload.is_a?(Hash) ? error_payload["message"] : nil),
+          extract_result_text(error_payload.is_a?(Hash) ? error_payload["data"] : nil),
+          extract_result_text(part_error_payload),
+          extract_result_text(part_error_payload.is_a?(Hash) ? part_error_payload["message"] : nil),
+          extract_result_text(part_error_payload.is_a?(Hash) ? part_error_payload["data"] : nil),
+          extract_result_text(part.is_a?(Hash) ? part["text"] : nil),
+          extract_result_text(part.is_a?(Hash) ? part["message"] : nil)
         ]
 
-        message = candidates.find { |value| value.is_a?(String) && !value.strip.empty? }
-        return message.strip if message
+        message = candidates.find { |value| value }
+        return message if message
 
         JSON.generate(event)
       end
