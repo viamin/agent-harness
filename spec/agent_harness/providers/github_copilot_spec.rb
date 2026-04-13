@@ -74,6 +74,24 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         dangerous_mode: false
       )
     end
+
+    it "reports token counting as unavailable without probing when the CLI is missing" do
+      allow(metadata_executor).to receive(:which).with("github-copilot-cli").and_return(nil)
+      expect(metadata_executor).not_to receive(:execute).with(["github-copilot-cli", "--version"], any_args)
+
+      metadata = described_class.provider_metadata(refresh: true)
+
+      expect(metadata[:runtime]).to include(
+        available: false,
+        output_format: :text,
+        supports_token_counting: false,
+        supports_dangerous_mode: false
+      )
+      expect(metadata[:capabilities]).to include(
+        tool_use: true,
+        dangerous_mode: false
+      )
+    end
   end
 
   describe ".smoke_test_contract" do
