@@ -367,6 +367,7 @@ module AgentHarness
 
         parsed_lines.each do |obj|
           next unless obj.is_a?(Hash)
+          next unless assistant_output_event?(obj)
 
           full_text = extract_non_delta_text(obj)
           if full_text
@@ -407,6 +408,32 @@ module AgentHarness
       def authoritative_full_snapshot?(obj)
         obj["type"].to_s.match?(/\A(?:assistant\.message|turn\.)/) ||
           obj["message"].is_a?(Hash)
+      end
+
+      def assistant_output_event?(obj)
+        type = obj["type"]
+        return true if type.nil? && !role_key_present?(obj)
+
+        role = extract_event_role(obj)
+        return true if role.nil? && type.to_s.match?(/\A(?:assistant\.|turn\.)/)
+
+        role == "assistant"
+      end
+
+      def role_key_present?(obj)
+        obj.key?("role") ||
+          obj.dig("data", "role") ||
+          obj.dig("message", "role") ||
+          obj.dig("data", "message", "role")
+      end
+
+      def extract_event_role(obj)
+        [
+          obj["role"],
+          obj.dig("data", "role"),
+          obj.dig("message", "role"),
+          obj.dig("data", "message", "role")
+        ].compact.first&.to_s
       end
 
       def extract_tokens_from_jsonl(parsed_lines)
