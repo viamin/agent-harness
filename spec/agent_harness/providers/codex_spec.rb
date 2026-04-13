@@ -561,6 +561,27 @@ RSpec.describe AgentHarness::Providers::Codex do
         end
       end
 
+      context "with default_flags containing an inline sandbox mode and externally_sandboxed" do
+        let(:sandboxed_config_with_inline_mode) do
+          AgentHarness::ProviderConfig.new(:codex).tap do |c|
+            c.default_flags = ["--sandbox=read-only", "--quiet"]
+            c.externally_sandboxed = true
+          end
+        end
+        let(:sandboxed_provider_with_inline_mode) do
+          described_class.new(config: sandboxed_config_with_inline_mode, executor: mock_executor)
+        end
+
+        it "strips the inline sandbox mode to avoid conflicting with the bypass flag" do
+          expect(mock_executor).to receive(:execute).with(
+            ["codex", "exec", "--json", "--quiet", "--dangerously-bypass-approvals-and-sandbox", "Hello"],
+            anything
+          ).and_return(success_result)
+
+          sandboxed_provider_with_inline_mode.send_message(prompt: "Hello")
+        end
+      end
+
       it "preserves a session value that matches a managed sandbox flag" do
         expect(mock_executor).to receive(:execute).with(
           [
