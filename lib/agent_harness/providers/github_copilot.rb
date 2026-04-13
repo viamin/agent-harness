@@ -353,6 +353,7 @@ module AgentHarness
       def preserve_raw_json_line?(obj)
         return false unless obj.is_a?(Hash)
         return false if obj.key?("type") && copilot_event_type?(obj["type"])
+        return true if obj.key?("type")
         return false if obj.key?("role") && !assistant_role?(obj["role"])
         return false if obj["message"].is_a?(Hash) && obj["message"].key?("role") &&
           !assistant_role?(obj["message"]["role"])

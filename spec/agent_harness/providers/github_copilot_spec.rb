@@ -440,6 +440,17 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         expect(response.output).to eq("{\"type\":\"record\",\"value\":1}\nfinal answer")
       end
 
+      it "preserves literal typed JSON objects with top-level content that are not Copilot control events" do
+        jsonl = <<~JSONL
+          {"type":"record","content":"literal payload"}
+          {"type":"assistant.message","data":{"content":"final answer"}}
+        JSONL
+        result = make_result(stdout: jsonl)
+        response = provider.send(:parse_response, result, duration: 1.0)
+
+        expect(response.output).to eq("{\"type\":\"record\",\"content\":\"literal payload\"}\nfinal answer")
+      end
+
       it "ignores non-string event content values" do
         jsonl = <<~JSONL
           {"type":"assistant.message","data":{"content":["not","text"]}}
