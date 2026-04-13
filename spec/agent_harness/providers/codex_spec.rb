@@ -269,6 +269,14 @@ RSpec.describe AgentHarness::Providers::Codex do
             AgentHarness::ProviderError, /default_flags must be an array/
           )
         end
+
+        it "raises an error when default_flags is false" do
+          config_with_string_flags.default_flags = false
+
+          expect { provider_with_string_flags.send_message(prompt: "Hello") }.to raise_error(
+            AgentHarness::ProviderError, /default_flags must be an array/
+          )
+        end
       end
 
       context "with default_flags configured" do
