@@ -155,6 +155,7 @@ module AgentHarness
         tokens = nil
         structured_errors = []
         error = nil
+        unstructured_output = nil
 
         if result.failed?
           combined = [result.stderr, result.stdout]
@@ -222,17 +223,18 @@ module AgentHarness
         end
 
         if saw_structured_event
+          unstructured_output = extract_unstructured_output(result.stdout)
           joined_text = text_parts.join if text_parts.any?
           output = if joined_text && !joined_text.strip.empty?
             joined_text
           else
-            result_text
+            result_text || unstructured_output
           end
           if result.failed? || structured_errors.any?
             error = build_structured_error(
               result,
               structured_errors,
-              unstructured_output: extract_unstructured_output(result.stdout)
+              unstructured_output:
             )
           end
         end
