@@ -443,10 +443,10 @@ module AgentHarness
       def find_usage_in_entry(entry)
         return nil unless entry.is_a?(Hash)
 
-        [
+        select_best_usage_payload([
           entry["usage"],
           nested_hash_value(entry, "response", "usage")
-        ].find { |usage| usage_with_token_counts?(usage) }
+        ])
       end
 
       def extract_history_token_usage_match(content)
@@ -624,6 +624,30 @@ module AgentHarness
           return value unless value.nil?
         end
         nil
+      end
+
+      def select_best_usage_payload(candidates)
+        candidates
+          .select { |usage| usage_with_token_counts?(usage) }
+          .max_by { |usage| [usage_token_field_count(usage), usage_token_total(usage)] }
+      end
+
+      def usage_token_field_count(usage)
+        return 0 unless usage.is_a?(Hash)
+
+        [
+          token_count_for(usage, "prompt_tokens", "input_tokens", "promptTokens", "inputTokens"),
+          token_count_for(usage, "completion_tokens", "output_tokens", "completionTokens", "outputTokens")
+        ].count { |value| !value.nil? }
+      end
+
+      def usage_token_total(usage)
+        return 0 unless usage.is_a?(Hash)
+
+        [
+          token_count_for(usage, "prompt_tokens", "input_tokens", "promptTokens", "inputTokens"),
+          token_count_for(usage, "completion_tokens", "output_tokens", "completionTokens", "outputTokens")
+        ].compact.sum
       end
 
       def usage_with_token_counts?(usage)

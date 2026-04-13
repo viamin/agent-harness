@@ -1289,6 +1289,35 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
           expect(response.tokens).to eq({input: 30, output: 15, total: 45})
         end
 
+        it "prefers the most complete direct usage payload within a single JSONL event" do
+          jsonl_output = [
+            {"text" => "response"},
+            {"usage" => {"input_tokens" => 10}, "message" => {"usage" => {"input_tokens" => 10, "output_tokens" => 5}}}
+          ].map { |o| JSON.generate(o) }.join("\n")
+
+          allow(mock_executor).to receive(:execute).with(
+            ["github-copilot-cli", "--version"],
+            timeout: 5,
+            env: {}
+          ).and_return(version_result)
+
+          allow(mock_executor).to receive(:execute).with(
+            ["github-copilot-cli", "-p", "Hello", "--output-format", "json", "--allow-all-tools", "--allow-all"],
+            anything
+          ).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello", dangerous_mode: true)
+          expect(response.output).to eq("response")
+          expect(response.tokens).to eq({input: 10, output: 5, total: 15})
+        end
+
         it "extracts assistant text from event payload content and delta content" do
           jsonl_output = [
             {"type" => "assistant.message", "data" => {"content" => "Hello"}},

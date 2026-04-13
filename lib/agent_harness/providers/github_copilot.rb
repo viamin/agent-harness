@@ -555,7 +555,7 @@ module AgentHarness
       def find_usages(obj)
         return [] unless obj.is_a?(Hash)
 
-        direct_usages = [
+        direct_usage = select_best_usage_payload([
           obj["usage"],
           obj["tokens"],
           usage_payload?(obj) ? obj : nil,
@@ -568,8 +568,8 @@ module AgentHarness
           nested_hash_value(obj, "message", "tokens"),
           nested_hash_value(obj, "data", "message", "usage"),
           nested_hash_value(obj, "data", "message", "tokens")
-        ].select { |usage| usage_with_token_counts?(usage) }.uniq
-        return direct_usages if direct_usages.any?
+        ])
+        return [direct_usage] if direct_usage
 
         model_metrics_usages(obj["modelMetrics"]) +
           model_metrics_usages(obj["model_metrics"]) +
@@ -614,6 +614,30 @@ module AgentHarness
           return value unless value.nil?
         end
         nil
+      end
+
+      def select_best_usage_payload(candidates)
+        candidates
+          .select { |usage| usage_with_token_counts?(usage) }
+          .max_by { |usage| [usage_token_field_count(usage), usage_token_total(usage)] }
+      end
+
+      def usage_token_field_count(usage)
+        return 0 unless usage.is_a?(Hash)
+
+        [
+          token_count_for(usage, "input_tokens", "prompt_tokens", "inputTokens", "promptTokens"),
+          token_count_for(usage, "output_tokens", "completion_tokens", "outputTokens", "completionTokens")
+        ].count { |value| !value.nil? }
+      end
+
+      def usage_token_total(usage)
+        return 0 unless usage.is_a?(Hash)
+
+        [
+          token_count_for(usage, "input_tokens", "prompt_tokens", "inputTokens", "promptTokens"),
+          token_count_for(usage, "output_tokens", "completion_tokens", "outputTokens", "completionTokens")
+        ].compact.sum
       end
 
       def usage_with_token_counts?(usage)
