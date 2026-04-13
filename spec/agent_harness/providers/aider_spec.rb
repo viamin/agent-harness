@@ -146,6 +146,33 @@ RSpec.describe AgentHarness::Providers::Aider do
     end
   end
 
+  describe ".provider_metadata" do
+    let(:metadata_executor) do
+      instance_double(
+        AgentHarness::CommandExecutor,
+        which: "/usr/bin/aider"
+      )
+    end
+
+    before do
+      allow(AgentHarness.configuration).to receive(:command_executor).and_return(metadata_executor)
+    end
+
+    it "publishes runtime token-counting support for Aider history extraction" do
+      metadata = described_class.provider_metadata(refresh: true)
+
+      expect(metadata[:runtime]).to include(
+        output_format: :text,
+        supports_token_counting: true,
+        supports_dangerous_mode: false
+      )
+      expect(metadata[:capabilities]).to include(
+        tool_use: true,
+        dangerous_mode: false
+      )
+    end
+  end
+
   describe "instance" do
     subject(:provider) { described_class.new }
 
