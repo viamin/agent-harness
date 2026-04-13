@@ -1075,6 +1075,30 @@ RSpec.describe AgentHarness::Providers::Kilocode do
         expect(response.tokens).to eq({input: 5, output: 3, total: 8})
       end
 
+      it "does not leak scalar JSON lines into fallback diagnostics for structured streams" do
+        stdout = [
+          "true",
+          "42",
+          "\"ignored\"",
+          JSON.generate({"type" => "error", "message" => "Provider request failed"}),
+          JSON.generate({"type" => "step_finish", "part" => {"tokens" => {"input" => 10, "output" => 5}}})
+        ].join("\n")
+
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: stdout,
+            stderr: "",
+            exit_code: 1,
+            duration: 1.0
+          )
+        )
+
+        response = provider.send_message(prompt: "Hello")
+        expect(response.failed?).to be true
+        expect(response.error).to eq("Provider request failed")
+        expect(response.tokens).to eq({input: 10, output: 5, total: 15})
+      end
+
       it "skips malformed JSON lines in the event stream" do
         ndjson = [
           "not-json",

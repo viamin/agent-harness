@@ -464,7 +464,8 @@ module AgentHarness
           next if stripped_line.empty?
 
           event = JSON.parse(stripped_line)
-          next if event.is_a?(Hash) && structured_event?(event)
+          next unless event.is_a?(Hash)
+          next if structured_event?(event)
 
           stripped_line
         rescue JSON::ParserError
