@@ -398,16 +398,23 @@ module AgentHarness
 
       def replace_output_with_full_text?(existing_output, full_text, saw_delta:, authoritative_snapshot:)
         saw_delta ||
-          (authoritative_snapshot && !existing_output.empty?) ||
+          authoritative_snapshot_correction?(existing_output, full_text, authoritative_snapshot: authoritative_snapshot) ||
           (!existing_output.empty? && (
             full_text.start_with?(existing_output) ||
             existing_output.start_with?(full_text)
           ))
       end
 
+      def authoritative_snapshot_correction?(existing_output, full_text, authoritative_snapshot:)
+        authoritative_snapshot &&
+          !existing_output.empty? &&
+          existing_output.length == full_text.length
+      end
+
       def authoritative_full_snapshot?(obj)
         obj["type"].to_s.match?(/\A(?:assistant\.message|turn\.)/) ||
-          obj["message"].is_a?(Hash)
+          obj["message"].is_a?(Hash) ||
+          obj.dig("data", "message").is_a?(Hash)
       end
 
       def assistant_output_event?(obj)
