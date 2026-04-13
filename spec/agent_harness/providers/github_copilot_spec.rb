@@ -389,6 +389,24 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         ])
       end
 
+      it "omits whitespace-only configured models" do
+        configured_provider = described_class.new(
+          config: AgentHarness::ProviderConfig.new(:github_copilot).tap { |cfg| cfg.model = "   " },
+          executor: mock_executor
+        )
+
+        command = configured_provider.send(:build_command, "Hello", {})
+
+        expect(command).to eq([
+          "github-copilot-cli",
+          "-p",
+          "Hello",
+          "--output-format",
+          "json",
+          "--allow-all-tools"
+        ])
+      end
+
       it "prefers provider_runtime model over configured model" do
         configured_provider = described_class.new(
           config: AgentHarness::ProviderConfig.new(:github_copilot).tap { |cfg| cfg.model = "gpt-4o" },
@@ -406,6 +424,27 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
           "json",
           "--model",
           "gpt-4o-mini",
+          "--allow-all-tools"
+        ])
+      end
+
+      it "falls back to the configured model when provider_runtime model is blank" do
+        configured_provider = described_class.new(
+          config: AgentHarness::ProviderConfig.new(:github_copilot).tap { |cfg| cfg.model = "gpt-4o" },
+          executor: mock_executor
+        )
+        runtime = AgentHarness::ProviderRuntime.new(model: "   ")
+
+        command = configured_provider.send(:build_command, "Hello", {provider_runtime: runtime})
+
+        expect(command).to eq([
+          "github-copilot-cli",
+          "-p",
+          "Hello",
+          "--output-format",
+          "json",
+          "--model",
+          "gpt-4o",
           "--allow-all-tools"
         ])
       end
@@ -2194,6 +2233,30 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
 
           response = provider.send_message(prompt: "Hello", dangerous_mode: true)
           expect(response.metadata).to eq({legitimate_exit_codes: [0]})
+        end
+
+        it "preserves the configured model when provider_runtime model is blank" do
+          configured_provider = described_class.new(
+            config: AgentHarness::ProviderConfig.new(:github_copilot).tap { |cfg| cfg.model = "gpt-4o-mini" },
+            executor: mock_executor
+          )
+          runtime = AgentHarness::ProviderRuntime.new(model: "  ")
+
+          allow(mock_executor).to receive(:execute).with(
+            ["github-copilot-cli", "-p", "Hello", "--output-format", "json", "--model", "gpt-4o-mini", "--allow-all-tools"],
+            anything
+          ).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: JSON.generate({"text" => "Hello"}),
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = configured_provider.send_message(prompt: "Hello", provider_runtime: runtime)
+
+          expect(response.model).to eq("gpt-4o-mini")
         end
       end
     end

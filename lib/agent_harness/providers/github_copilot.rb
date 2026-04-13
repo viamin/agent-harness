@@ -227,13 +227,14 @@ module AgentHarness
 
         response = parse_response(result, duration: duration, json_output_requested: json_output_requested)
         runtime = options[:provider_runtime]
-        if runtime&.model
+        effective_runtime_model = normalized_model_name(runtime&.model)
+        if effective_runtime_model
           response = Response.new(
             output: response.output,
             exit_code: response.exit_code,
             duration: response.duration,
             provider: response.provider,
-            model: runtime.model,
+            model: effective_runtime_model,
             tokens: response.tokens,
             metadata: response.metadata,
             error: response.error
@@ -266,8 +267,8 @@ module AgentHarness
           cmd << "-s"
         end
 
-        model = runtime&.model || @config.model
-        cmd += ["--model", model] if model && !model.empty?
+        model = effective_model_name(runtime)
+        cmd += ["--model", model] if model
 
         # Copilot prompt mode is non-interactive, so tool approvals must be
         # granted up front for normal programmatic runs.
@@ -303,7 +304,7 @@ module AgentHarness
           exit_code: result.exit_code,
           duration: duration,
           provider: self.class.provider_name,
-          model: @config.model,
+          model: effective_model_name,
           tokens: tokens,
           metadata: response.metadata,
           error: response.error
@@ -319,6 +320,17 @@ module AgentHarness
       def supports_json_output_format?(probe_timeout: nil, env: {})
         version = copilot_cli_version(probe_timeout: probe_timeout, env: env)
         !version.nil? && version >= JSON_OUTPUT_MIN_VERSION
+      end
+
+      def effective_model_name(runtime = nil)
+        normalized_model_name(runtime&.model) || normalized_model_name(@config.model)
+      end
+
+      def normalized_model_name(value)
+        return nil unless value.is_a?(String)
+
+        stripped = value.strip
+        stripped.empty? ? nil : stripped
       end
 
       def copilot_cli_version(probe_timeout: nil, env: {})
