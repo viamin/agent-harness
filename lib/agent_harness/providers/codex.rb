@@ -673,7 +673,12 @@ module AgentHarness
         item_type = item["type"]
         item_item_type = item["item_type"]
 
-        item_role == "assistant" || (
+        (
+          item_role == "assistant" && (
+            message_item_type?(item_type) ||
+            (item_type == "agent_message" && assistant_message_item_type?(item_item_type))
+          )
+        ) || (
           item_role.nil? && (
             (
               item_type == "agent_message" &&
