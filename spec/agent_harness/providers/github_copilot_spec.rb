@@ -1319,6 +1319,36 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
           expect(response.tokens).to be_nil
         end
 
+        it "extracts assistant text from snake_case delta_content payloads" do
+          jsonl_output = [
+            {"type" => "assistant.message", "data" => {"content" => "Hello"}},
+            {"type" => "assistant.delta", "data" => {"delta_content" => " world"}},
+            {"type" => "assistant.delta", "data" => {"delta_content" => "!"}}
+          ].map { |o| JSON.generate(o) }.join("\n")
+
+          allow(mock_executor).to receive(:execute).with(
+            ["github-copilot-cli", "--version"],
+            timeout: 5,
+            env: {}
+          ).and_return(version_result)
+
+          allow(mock_executor).to receive(:execute).with(
+            ["github-copilot-cli", "-p", "Hello", "--output-format", "json", "--allow-all-tools", "--allow-all"],
+            anything
+          ).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello", dangerous_mode: true)
+          expect(response.output).to eq("Hello world!")
+          expect(response.tokens).to be_nil
+        end
+
         it "prefers a later full-message snapshot over earlier delta fragments" do
           jsonl_output = [
             {"type" => "assistant.message", "data" => {"content" => "Hel"}},
@@ -1433,6 +1463,35 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
 
           response = provider.send_message(prompt: "Hello", dangerous_mode: true)
           expect(response.output).to eq("Hello")
+          expect(response.tokens).to be_nil
+        end
+
+        it "prefers a later corrected full-message snapshot even when the replacement length changes" do
+          jsonl_output = [
+            {"type" => "assistant.message", "data" => {"content" => "Hxllo"}},
+            {"type" => "turn.completed", "data" => {"message" => {"content" => "Hello!"}}}
+          ].map { |o| JSON.generate(o) }.join("\n")
+
+          allow(mock_executor).to receive(:execute).with(
+            ["github-copilot-cli", "--version"],
+            timeout: 5,
+            env: {}
+          ).and_return(version_result)
+
+          allow(mock_executor).to receive(:execute).with(
+            ["github-copilot-cli", "-p", "Hello", "--output-format", "json", "--allow-all-tools", "--allow-all"],
+            anything
+          ).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello", dangerous_mode: true)
+          expect(response.output).to eq("Hello!")
           expect(response.tokens).to be_nil
         end
 
@@ -1858,6 +1917,37 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
           expect(response.tokens).to eq({input: 50, output: 15, total: 65})
         end
 
+        it "prefers authoritative shutdown totals over overlapping granular usage events" do
+          jsonl_output = [
+            {"type" => "assistant.message", "data" => {"content" => "response"}},
+            {"type" => "usage", "data" => {"inputTokens" => 44, "outputTokens" => 11}},
+            {"type" => "usage", "data" => {"promptTokens" => "6", "completionTokens" => 4}},
+            {"type" => "session.shutdown", "data" => {"modelMetrics" => {"inputTokens" => 50, "outputTokens" => 15}}}
+          ].map { |o| JSON.generate(o) }.join("\n")
+
+          allow(mock_executor).to receive(:execute).with(
+            ["github-copilot-cli", "--version"],
+            timeout: 5,
+            env: {}
+          ).and_return(version_result)
+
+          allow(mock_executor).to receive(:execute).with(
+            ["github-copilot-cli", "-p", "Hello", "--output-format", "json", "--allow-all-tools", "--allow-all"],
+            anything
+          ).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello", dangerous_mode: true)
+          expect(response.output).to eq("response")
+          expect(response.tokens).to eq({input: 50, output: 15, total: 65})
+        end
+
         it "ignores malformed direct usage hashes when wrapped shutdown metrics are present" do
           jsonl_output = [
             {"type" => "assistant.message", "data" => {"content" => "response"}},
@@ -2108,6 +2198,36 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
           jsonl_output = [
             {"text" => "response"},
             {"usage" => {"input_tokens" => "not-a-number", "output_tokens" => {}}},
+            {"usage" => {"prompt_tokens" => "20", "completion_tokens" => 5}}
+          ].map { |o| JSON.generate(o) }.join("\n")
+
+          allow(mock_executor).to receive(:execute).with(
+            ["github-copilot-cli", "--version"],
+            timeout: 5,
+            env: {}
+          ).and_return(version_result)
+
+          allow(mock_executor).to receive(:execute).with(
+            ["github-copilot-cli", "-p", "Hello", "--output-format", "json", "--allow-all-tools", "--allow-all"],
+            anything
+          ).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello", dangerous_mode: true)
+          expect(response.output).to eq("response")
+          expect(response.tokens).to eq({input: 20, output: 5, total: 25})
+        end
+
+        it "rejects negative token values while preserving later valid usage lines" do
+          jsonl_output = [
+            {"text" => "response"},
+            {"usage" => {"input_tokens" => "-2", "output_tokens" => -1}},
             {"usage" => {"prompt_tokens" => "20", "completion_tokens" => 5}}
           ].map { |o| JSON.generate(o) }.join("\n")
 

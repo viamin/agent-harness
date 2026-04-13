@@ -426,17 +426,46 @@ module AgentHarness
 
       def replace_output_with_full_text?(existing_output, full_text, saw_delta:, authoritative_snapshot:)
         saw_delta ||
-          authoritative_snapshot_correction?(existing_output, full_text, authoritative_snapshot: authoritative_snapshot) ||
+          authoritative_snapshot_replacement?(existing_output, full_text, authoritative_snapshot: authoritative_snapshot) ||
           (!existing_output.empty? && (
             full_text.start_with?(existing_output) ||
             existing_output.start_with?(full_text)
           ))
       end
 
-      def authoritative_snapshot_correction?(existing_output, full_text, authoritative_snapshot:)
+      def authoritative_snapshot_replacement?(existing_output, full_text, authoritative_snapshot:)
         authoritative_snapshot &&
           !existing_output.empty? &&
-          existing_output.length == full_text.length
+          (
+            existing_output.length == full_text.length ||
+            full_text.start_with?(existing_output) ||
+            existing_output.start_with?(full_text) ||
+            longest_common_substring_length(existing_output, full_text) >= 2
+          )
+      end
+
+      def longest_common_substring_length(left, right)
+        return 0 if left.empty? || right.empty?
+
+        longest = 0
+        row = Array.new(right.length + 1, 0)
+
+        left.each_char do |left_char|
+          previous = 0
+
+          right.each_char.with_index(1) do |right_char, index|
+            current = row[index]
+            row[index] = if left_char == right_char
+              previous + 1
+            else
+              0
+            end
+            longest = [longest, row[index]].max
+            previous = current
+          end
+        end
+
+        longest
       end
 
       def authoritative_full_snapshot?(obj)
@@ -472,26 +501,56 @@ module AgentHarness
       end
 
       def extract_tokens_from_jsonl(parsed_lines)
+        usages = authoritative_usage_set(parsed_lines) || parsed_lines.flat_map { |obj| find_usages(obj) }
+
         total_input = 0
         total_output = 0
         found = false
 
-        parsed_lines.each do |obj|
-          find_usages(obj).each do |usage|
-            input = token_count_for(usage, "input_tokens", "prompt_tokens", "inputTokens", "promptTokens")
-            output_tok = token_count_for(usage, "output_tokens", "completion_tokens", "outputTokens", "completionTokens")
-            next if input.nil? && output_tok.nil?
+        usages.each do |usage|
+          input = token_count_for(usage, "input_tokens", "prompt_tokens", "inputTokens", "promptTokens")
+          output_tok = token_count_for(usage, "output_tokens", "completion_tokens", "outputTokens", "completionTokens")
+          next if input.nil? && output_tok.nil?
 
-            total_input += input || 0
-            total_output += output_tok || 0
-            found = true
-          end
+          total_input += input || 0
+          total_output += output_tok || 0
+          found = true
         end
 
         return nil unless found
         return nil if total_input.zero? && total_output.zero?
 
         {input: total_input, output: total_output, total: total_input + total_output}
+      end
+
+      def authoritative_usage_set(parsed_lines)
+        usages = parsed_lines.flat_map do |obj|
+          next [] unless authoritative_usage_event?(obj)
+
+          find_usages(obj)
+        end
+
+        usages.any? ? usages : nil
+      end
+
+      def authoritative_usage_event?(obj)
+        return false unless obj.is_a?(Hash)
+
+        type = obj["type"].to_s
+        type == "session.shutdown" ||
+          type.end_with?(".shutdown") ||
+          model_metrics_present?(obj)
+      end
+
+      def model_metrics_present?(obj)
+        obj["modelMetrics"].is_a?(Hash) ||
+          obj["model_metrics"].is_a?(Hash) ||
+          obj.dig("data", "modelMetrics").is_a?(Hash) ||
+          obj.dig("data", "model_metrics").is_a?(Hash) ||
+          obj.dig("message", "modelMetrics").is_a?(Hash) ||
+          obj.dig("message", "model_metrics").is_a?(Hash) ||
+          obj.dig("data", "message", "modelMetrics").is_a?(Hash) ||
+          obj.dig("data", "message", "model_metrics").is_a?(Hash)
       end
 
       def find_usages(obj)
@@ -538,12 +597,14 @@ module AgentHarness
       end
 
       def normalize_token_count(value)
-        case value
+        count = case value
         when Integer
           value
         when String
           Integer(value, exception: false)
         end
+
+        count if count && count >= 0
       end
 
       def token_count_for(usage, *keys)
@@ -574,6 +635,7 @@ module AgentHarness
             extract_text_value(value["parts"]) ||
             extract_text_value(value["result"]) ||
             extract_text_value(value["deltaContent"]) ||
+            extract_text_value(value["delta_content"]) ||
             extract_text_value(value["delta"]) ||
             extract_text_value(value["message"]) ||
             extract_text_value(value["data"])
@@ -601,12 +663,16 @@ module AgentHarness
 
       def extract_delta_text(obj)
         extract_text_value(obj["deltaContent"]) ||
+          extract_text_value(obj["delta_content"]) ||
           extract_text_value(obj["delta"]) ||
           extract_text_value(obj.dig("data", "deltaContent")) ||
+          extract_text_value(obj.dig("data", "delta_content")) ||
           extract_text_value(obj.dig("data", "delta")) ||
           extract_text_value(obj.dig("message", "deltaContent")) ||
+          extract_text_value(obj.dig("message", "delta_content")) ||
           extract_text_value(obj.dig("message", "delta")) ||
           extract_text_value(obj.dig("data", "message", "deltaContent")) ||
+          extract_text_value(obj.dig("data", "message", "delta_content")) ||
           extract_text_value(obj.dig("data", "message", "delta"))
       end
 
