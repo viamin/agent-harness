@@ -499,8 +499,14 @@ module AgentHarness
         ].select { |usage| usage.is_a?(Hash) }.uniq
         return direct_usages if direct_usages.any?
 
-        model_metrics_usages(obj.dig("data", "modelMetrics")) +
-          model_metrics_usages(obj.dig("data", "model_metrics"))
+        model_metrics_usages(obj["modelMetrics"]) +
+          model_metrics_usages(obj["model_metrics"]) +
+          model_metrics_usages(obj.dig("data", "modelMetrics")) +
+          model_metrics_usages(obj.dig("data", "model_metrics")) +
+          model_metrics_usages(obj.dig("message", "modelMetrics")) +
+          model_metrics_usages(obj.dig("message", "model_metrics")) +
+          model_metrics_usages(obj.dig("data", "message", "modelMetrics")) +
+          model_metrics_usages(obj.dig("data", "message", "model_metrics"))
       end
 
       def model_metrics_usages(metrics)
