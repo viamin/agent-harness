@@ -508,7 +508,7 @@ module AgentHarness
           obj.dig("message", "tokens"),
           obj.dig("data", "message", "usage"),
           obj.dig("data", "message", "tokens")
-        ].select { |usage| usage.is_a?(Hash) }.uniq
+        ].select { |usage| usage_payload?(usage) }.uniq
         return direct_usages if direct_usages.any?
 
         model_metrics_usages(obj["modelMetrics"]) +
