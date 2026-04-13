@@ -672,22 +672,18 @@ module AgentHarness
         item_role = item["role"]
         item_type = item["type"]
         item_item_type = item["item_type"]
+        message_shaped_item =
+          (
+            message_item_type?(item_type) ||
+            item_type == "agent_message"
+          ) && assistant_message_item_type?(item_item_type)
 
         (
-          item_role == "assistant" && (
-            message_item_type?(item_type) ||
-            (item_type == "agent_message" && assistant_message_item_type?(item_item_type))
-          )
+          item_role == "assistant" && message_shaped_item
         ) || (
-          item_role.nil? && (
-            (
-              item_type == "agent_message" &&
-              assistant_message_item_type?(item_item_type)
-            ) ||
-            (
-              message_item_type?(item_type) &&
-              item_item_type == "assistant_message"
-            )
+          item_role.nil? && message_shaped_item && (
+            item_type == "agent_message" ||
+            item_item_type == "assistant_message"
           )
         )
       end
@@ -696,13 +692,16 @@ module AgentHarness
         role = payload["role"]
         item_type = payload["item_type"]
 
-        role == "assistant" || (role.nil? && assistant_message_item_type?(item_type))
+        assistant_message_item_type?(item_type) &&
+          (role == "assistant" || role.nil?)
       end
 
       def response_item_assistant_payload?(payload)
         payload_type = payload["type"]
         payload_role = payload["role"]
         payload_item_type = payload["item_type"]
+
+        return false unless assistant_message_item_type?(payload_item_type)
 
         (payload_type == "message" && payload_role == "assistant") ||
           (payload_type == "agent_message" && (

@@ -1534,6 +1534,38 @@ RSpec.describe AgentHarness::Providers::Codex do
           expect(response.tokens).to eq({input: 4, output: 2, total: 6})
         end
 
+        it "ignores top-level assistant-role events with non-assistant item_type" do
+          jsonl_output = [
+            JSON.generate({"type" => "agent_message_delta", "role" => "assistant", "item_type" => "tool_message", "message" => "tool partial"}),
+            JSON.generate({"type" => "agent_message", "role" => "assistant", "item_type" => "user_message", "message" => "user message"}),
+            JSON.generate({
+              "type" => "event_msg",
+              "payload" => {
+                "type" => "token_count",
+                "info" => {
+                  "last_token_usage" => {
+                    "input_tokens" => 4,
+                    "output_tokens" => 2
+                  }
+                }
+              }
+            })
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq(jsonl_output)
+          expect(response.tokens).to eq({input: 4, output: 2, total: 6})
+        end
+
         it "extracts final assistant text from response_item events" do
           jsonl_output = [
             JSON.generate({"type" => "event_msg", "payload" => {"type" => "agent_message_delta", "message" => "partial"}}),
@@ -1764,6 +1796,39 @@ RSpec.describe AgentHarness::Providers::Codex do
             JSON.generate({"type" => "event_msg", "payload" => {"type" => "agent_message_delta", "role" => "user", "message" => "user partial"}}),
             JSON.generate({"type" => "event_msg", "payload" => {"type" => "agent_message", "role" => "tool", "message" => "tool message"}}),
             JSON.generate({"type" => "response_item", "payload" => {"type" => "message", "role" => "user", "content" => [{"type" => "output_text", "text" => "user final"}]}}),
+            JSON.generate({
+              "type" => "event_msg",
+              "payload" => {
+                "type" => "token_count",
+                "info" => {
+                  "total_token_usage" => {
+                    "input_tokens" => 4,
+                    "output_tokens" => 2
+                  }
+                }
+              }
+            })
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq(jsonl_output)
+          expect(response.tokens).to eq({input: 4, output: 2, total: 6})
+        end
+
+        it "ignores wrapped assistant-role payloads with non-assistant item_type" do
+          jsonl_output = [
+            JSON.generate({"type" => "event_msg", "payload" => {"type" => "agent_message_delta", "role" => "assistant", "item_type" => "tool_message", "message" => "tool partial"}}),
+            JSON.generate({"type" => "event_msg", "payload" => {"type" => "agent_message", "role" => "assistant", "item_type" => "user_message", "message" => "user message"}}),
+            JSON.generate({"type" => "response_item", "payload" => {"type" => "agent_message", "role" => "assistant", "item_type" => "tool_message", "message" => "tool final"}}),
             JSON.generate({
               "type" => "event_msg",
               "payload" => {
