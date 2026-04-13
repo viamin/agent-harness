@@ -446,7 +446,7 @@ module AgentHarness
 
       def extract_text_chunk(event, part)
         text = part["text"] if part.is_a?(Hash) && part["text"].is_a?(String)
-        return text if text
+        return text if text.is_a?(String) && !text.strip.empty?
 
         part_message_chunk = extract_text_alias_chunk(part.is_a?(Hash) ? part["message"] : nil)
         return part_message_chunk if part_message_chunk
