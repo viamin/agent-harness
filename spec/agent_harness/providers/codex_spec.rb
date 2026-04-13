@@ -2300,6 +2300,36 @@ RSpec.describe AgentHarness::Providers::Codex do
           expect(response.tokens).to eq({input: 9, output: 4, total: 13})
         end
 
+        it "extracts structured assistant content from top-level turn_complete events" do
+          jsonl_output = [
+            JSON.generate({"type" => "agent_message_delta", "message" => "partial "}),
+            JSON.generate({
+              "type" => "turn_complete",
+              "last_agent_message" => {
+                "role" => "assistant",
+                "content" => [
+                  {"type" => "reasoning", "text" => "internal"},
+                  {"type" => "output_text", "text" => "final top-level turn output"}
+                ]
+              }
+            }),
+            JSON.generate({"type" => "turn.completed", "usage" => {"input_tokens" => 7, "output_tokens" => 4}})
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq("final top-level turn output")
+          expect(response.tokens).to eq({input: 7, output: 4, total: 11})
+        end
+
         it "ignores non-message top-level task_complete payloads" do
           jsonl_output = [
             JSON.generate({"type" => "agent_message_delta", "message" => "partial "}),
