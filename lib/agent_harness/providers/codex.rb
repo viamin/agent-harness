@@ -935,14 +935,6 @@ module AgentHarness
         left[:total_reported] && right[:total_reported] && left[:total] == right[:total]
       end
 
-      def same_usage_values?(left, right)
-        return false unless left && right
-
-        left[:input] == right[:input] &&
-          left[:output] == right[:output] &&
-          left[:total] == right[:total]
-      end
-
       def same_turn_output?(current_turn_parts, current_turn_finalized_output, result)
         return true if current_turn_parts.empty?
         return false unless current_turn_finalized_output
