@@ -189,6 +189,7 @@ module AgentHarness
           if event["type"] == "result"
             extracted_result_text = extract_result_text(event["result"]) ||
               extract_result_text(part) ||
+              extract_result_text(event["text"]) ||
               extract_result_text(event["message"])
             result_text = extracted_result_text if extracted_result_text
           end
