@@ -547,6 +547,20 @@ module AgentHarness
             start_new_turn.call
             replace_current_turn_parts.call(extract_message_content_parts(event))
             pending_wrapped_same_turn_finalization = wrapped_same_turn_finalization
+          when "task_complete", "turn_complete"
+            completion_parts = extract_task_complete_parts(event)
+            next if completion_parts.nil?
+
+            wrapped_same_turn_finalization =
+              pending_turn_usage_source == :wrapped &&
+              pending_turn_usage &&
+              (
+                !current_turn_finalized_output ||
+                pending_wrapped_same_turn_finalization
+              )
+            start_new_turn.call
+            replace_current_turn_parts.call(completion_parts)
+            pending_wrapped_same_turn_finalization = wrapped_same_turn_finalization
           when "item.completed"
             item = event["item"]
             next unless item.is_a?(Hash)
