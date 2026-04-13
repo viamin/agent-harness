@@ -597,6 +597,11 @@ module AgentHarness
       end
 
       def normalize_token_count(value)
+        count = parse_integer_token_count(value)
+        count if count && count >= 0
+      end
+
+      def parse_integer_token_count(value)
         case value
         when Integer
           value
@@ -615,9 +620,26 @@ module AgentHarness
 
       def usage_with_token_counts?(usage)
         return false unless usage.is_a?(Hash)
+        return false if negative_token_count_present?(usage)
 
         token_count_for(usage, "prompt_tokens", "input_tokens", "promptTokens", "inputTokens") ||
           token_count_for(usage, "completion_tokens", "output_tokens", "completionTokens", "outputTokens")
+      end
+
+      def negative_token_count_present?(usage)
+        %w[
+          prompt_tokens
+          input_tokens
+          promptTokens
+          inputTokens
+          completion_tokens
+          output_tokens
+          completionTokens
+          outputTokens
+        ].any? do |key|
+          count = parse_integer_token_count(usage[key])
+          count && count < 0
+        end
       end
 
       def prepare_llm_history_file!
