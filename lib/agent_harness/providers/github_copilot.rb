@@ -325,7 +325,10 @@ module AgentHarness
       end
 
       def version_probe_cache_key(env)
-        env.to_a.sort_by(&:first)
+        [
+          env.key?("PATH") ? env["PATH"] : :inherited_path,
+          env.key?("PATHEXT") ? env["PATHEXT"] : :inherited_pathext
+        ]
       end
 
       def copilot_cli_binary_available?
@@ -476,7 +479,21 @@ module AgentHarness
         return obj.dig("data", "usage") if obj.dig("data", "usage").is_a?(Hash)
         return obj.dig("message", "usage") if obj.dig("message", "usage").is_a?(Hash)
         return obj.dig("data", "message", "usage") if obj.dig("data", "message", "usage").is_a?(Hash)
-        nil
+        model_metrics_usage(obj.dig("data", "modelMetrics")) ||
+          model_metrics_usage(obj.dig("data", "model_metrics"))
+      end
+
+      def model_metrics_usage(metrics)
+        return nil unless metrics.is_a?(Hash)
+
+        return metrics if usage_payload?(metrics)
+
+        [
+          metrics["usage"],
+          metrics["totals"],
+          metrics["total"],
+          metrics["aggregate"]
+        ].find { |value| usage_payload?(value) }
       end
 
       def normalize_token_count(value)

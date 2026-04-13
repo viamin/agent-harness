@@ -506,6 +506,42 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         ])
       end
 
+      it "does not key the version cache on unrelated runtime secrets" do
+        first_runtime = AgentHarness::ProviderRuntime.new(
+          env: {"PATH" => "/json/copilot/bin", "GITHUB_TOKEN" => "secret-one"}
+        )
+        second_runtime = AgentHarness::ProviderRuntime.new(
+          env: {"PATH" => "/json/copilot/bin", "GITHUB_TOKEN" => "secret-two"}
+        )
+
+        allow(mock_executor).to receive(:execute).with(
+          ["github-copilot-cli", "--version"],
+          timeout: 5,
+          env: {"PATH" => "/json/copilot/bin", "GITHUB_TOKEN" => "secret-one"}
+        ).and_return(version_result)
+
+        first_command = provider.send(:build_command, "Hello", {provider_runtime: first_runtime})
+        second_command = provider.send(:build_command, "Hello", {provider_runtime: second_runtime})
+
+        expect(first_command).to eq([
+          "github-copilot-cli",
+          "-p",
+          "Hello",
+          "--output-format",
+          "json",
+          "--allow-all-tools"
+        ])
+        expect(second_command).to eq(first_command)
+        expect(mock_executor).to have_received(:execute).with(
+          ["github-copilot-cli", "--version"],
+          timeout: 5,
+          env: {"PATH" => "/json/copilot/bin", "GITHUB_TOKEN" => "secret-one"}
+        ).once
+
+        cache_keys = provider.instance_variable_get(:@copilot_cli_versions).keys
+        expect(cache_keys).to contain_exactly(["/json/copilot/bin", :inherited_pathext])
+      end
+
       it "retries CLI version detection after an unparsable probe result" do
         allow(mock_executor).to receive(:execute).with(
           ["github-copilot-cli", "--version"],
@@ -1364,6 +1400,36 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
             {"type" => "assistant.message", "data" => {"content" => "response"}},
             {"type" => "turn.completed", "data" => {"usage" => {"inputTokens" => 44, "outputTokens" => 11}}},
             {"type" => "turn.completed", "data" => {"usage" => {"promptTokens" => "6", "completionTokens" => 4}}}
+          ].map { |o| JSON.generate(o) }.join("\n")
+
+          allow(mock_executor).to receive(:execute).with(
+            ["github-copilot-cli", "--version"],
+            timeout: 5,
+            env: {}
+          ).and_return(version_result)
+
+          allow(mock_executor).to receive(:execute).with(
+            ["github-copilot-cli", "-p", "Hello", "--output-format", "json", "--allow-all-tools", "--allow-all"],
+            anything
+          ).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello", dangerous_mode: true)
+          expect(response.output).to eq("response")
+          expect(response.tokens).to eq({input: 50, output: 15, total: 65})
+        end
+
+        it "extracts token usage from shutdown metrics payloads" do
+          jsonl_output = [
+            {"type" => "assistant.message", "data" => {"content" => "response"}},
+            {"type" => "session.shutdown", "data" => {"modelMetrics" => {"inputTokens" => 44, "outputTokens" => 11}}},
+            {"type" => "session.shutdown", "data" => {"model_metrics" => {"promptTokens" => "6", "completionTokens" => 4}}}
           ].map { |o| JSON.generate(o) }.join("\n")
 
           allow(mock_executor).to receive(:execute).with(
