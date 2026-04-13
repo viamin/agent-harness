@@ -363,7 +363,8 @@ module AgentHarness
           flags = normalize_sandbox_flags(
             flags,
             externally_sandboxed: externally_sandboxed,
-            adding_full_auto: adding_full_auto
+            keep_full_auto: keep_full_auto,
+            provider_adds_full_auto: adding_full_auto
           )
           append_managed_sandbox_flags(
             cmd,
@@ -392,7 +393,8 @@ module AgentHarness
           runtime_flags = normalize_sandbox_flags(
             runtime_flags,
             externally_sandboxed: externally_sandboxed,
-            adding_full_auto: adding_full_auto
+            keep_full_auto: keep_full_auto,
+            provider_adds_full_auto: adding_full_auto
           )
           append_managed_sandbox_flags(
             cmd,
@@ -1145,10 +1147,9 @@ module AgentHarness
         raise ArgumentError, "Codex configuration error: #{label} contains non-string values"
       end
 
-      def normalize_sandbox_flags(flags, externally_sandboxed:, adding_full_auto:)
+      def normalize_sandbox_flags(flags, externally_sandboxed:, keep_full_auto:, provider_adds_full_auto:)
         explicit_full_auto_requested = managed_full_auto_requested?(flags)
-        full_auto_requested = adding_full_auto || explicit_full_auto_requested
-        managed_sandbox_mode = externally_sandboxed || full_auto_requested
+        managed_sandbox_mode = externally_sandboxed || keep_full_auto
         skip_next_sandbox_value = false
 
         each_flag_token(flags).each_with_object([]) do |token_info, normalized_flags|
@@ -1168,8 +1169,8 @@ module AgentHarness
           end
 
           if managed_flag
-            next if dangerous_mode_flags.include?(flag) && (externally_sandboxed || adding_full_auto)
-            next if sandbox_bypass_flags.include?(flag) && (externally_sandboxed || full_auto_requested)
+            next if dangerous_mode_flags.include?(flag) && (externally_sandboxed || provider_adds_full_auto)
+            next if sandbox_bypass_flags.include?(flag) && (externally_sandboxed || keep_full_auto || explicit_full_auto_requested)
           end
 
           normalized_flags << flag

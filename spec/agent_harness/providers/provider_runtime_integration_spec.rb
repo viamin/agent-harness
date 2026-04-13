@@ -514,6 +514,34 @@ RSpec.describe "ProviderRuntime integration" do
       provider.send_message(prompt: "Hello", provider_runtime: runtime, dangerous_mode: true)
     end
 
+    it "strips config sandbox mode flags when runtime flags request --full-auto" do
+      config = AgentHarness::ProviderConfig.new(:codex).tap do |c|
+        c.default_flags = ["--sandbox", "read-only", "--quiet"]
+      end
+      provider_with_mode = described_class.new(config: config, executor: mock_executor)
+      runtime = AgentHarness::ProviderRuntime.new(flags: ["--full-auto", "--trace"])
+
+      expect(mock_executor).to receive(:execute) do |command, _options|
+        expect(command).to eq(["codex", "exec", "--json", "--quiet", "--full-auto", "--trace", "Hello"])
+      end.and_return(success_result)
+
+      provider_with_mode.send_message(prompt: "Hello", provider_runtime: runtime)
+    end
+
+    it "strips runtime sandbox mode flags when config already requests --full-auto" do
+      config = AgentHarness::ProviderConfig.new(:codex).tap do |c|
+        c.default_flags = ["--full-auto", "--quiet"]
+      end
+      provider_with_full_auto = described_class.new(config: config, executor: mock_executor)
+      runtime = AgentHarness::ProviderRuntime.new(flags: ["--sandbox", "read-only", "--trace"])
+
+      expect(mock_executor).to receive(:execute) do |command, _options|
+        expect(command).to eq(["codex", "exec", "--json", "--full-auto", "--quiet", "--trace", "Hello"])
+      end.and_return(success_result)
+
+      provider_with_full_auto.send_message(prompt: "Hello", provider_runtime: runtime)
+    end
+
     it "combines runtime with existing options" do
       runtime = AgentHarness::ProviderRuntime.new(
         model: "o3-pro",
