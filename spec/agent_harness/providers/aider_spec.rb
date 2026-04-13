@@ -1177,6 +1177,21 @@ RSpec.describe AgentHarness::Providers::Aider do
         expect(provider.instance_variable_get(:@aider_history_path)).to be_nil
       end
 
+      it "does not clear a newer local history handle when cleaning up an older path" do
+        older_path = provider.send(:prepare_llm_history_file!)
+        newer_path = provider.send(:prepare_llm_history_file!)
+
+        expect(provider.instance_variable_get(:@aider_history_tempfile)&.path).to eq(newer_path)
+
+        provider.send(:cleanup_llm_history_file!, older_path)
+
+        expect(provider.instance_variable_get(:@aider_history_tempfile)&.path).to eq(newer_path)
+
+        provider.send(:cleanup_llm_history_file!, newer_path)
+
+        expect(provider.instance_variable_get(:@aider_history_tempfile)).to be_nil
+      end
+
       context "with token usage from history file" do
         it "extracts tokens from OpenAI-format history" do
           allow(mock_executor).to receive(:execute) do |_cmd, _opts|
@@ -1518,6 +1533,21 @@ RSpec.describe AgentHarness::Providers::Aider do
         expect {
           provider.send_message(prompt: "Hello")
         }.to raise_error(AgentHarness::ProviderError)
+
+        expect(provider.instance_variable_get(:@aider_history_path)).to be_nil
+      end
+
+      it "does not clear a newer container history path when cleaning up an older path" do
+        older_path = provider.send(:prepare_llm_history_file!)
+        newer_path = provider.send(:prepare_llm_history_file!)
+
+        expect(provider.instance_variable_get(:@aider_history_path)).to eq(newer_path)
+
+        provider.send(:cleanup_llm_history_file!, older_path)
+
+        expect(provider.instance_variable_get(:@aider_history_path)).to eq(newer_path)
+
+        provider.send(:cleanup_llm_history_file!, newer_path)
 
         expect(provider.instance_variable_get(:@aider_history_path)).to be_nil
       end

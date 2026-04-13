@@ -614,8 +614,8 @@ module AgentHarness
         log_debug("llm_history_cleanup_error", error: e.message)
         nil
       ensure
-        @aider_history_tempfile = nil if defined?(@aider_history_tempfile)
-        @aider_history_path = nil if defined?(@aider_history_path)
+        clear_local_history_handle!(path)
+        clear_executor_history_path!(path)
       end
 
       def validate_runtime_flags!(flags)
@@ -679,6 +679,20 @@ module AgentHarness
             next
           end
         end
+      end
+
+      def clear_local_history_handle!(path)
+        return unless defined?(@aider_history_tempfile)
+        return unless @aider_history_tempfile&.path == path
+
+        @aider_history_tempfile = nil
+      end
+
+      def clear_executor_history_path!(path)
+        return unless defined?(@aider_history_path)
+        return unless @aider_history_path == path
+
+        @aider_history_path = nil
       end
     end
   end
