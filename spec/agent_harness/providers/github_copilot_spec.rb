@@ -450,6 +450,35 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         ])
       end
 
+      it "preserves runtime model overrides on the older CLI fallback path" do
+        runtime = AgentHarness::ProviderRuntime.new(model: "gpt-4o-mini")
+
+        allow(mock_executor).to receive(:execute).with(
+          ["github-copilot-cli", "--version"],
+          timeout: 5,
+          env: {}
+        ).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "github-copilot-cli 0.0.421",
+            stderr: "",
+            exit_code: 0,
+            duration: 0.1
+          )
+        )
+
+        command = provider.send(:build_command, "Hello", {provider_runtime: runtime})
+
+        expect(command).to eq([
+          "github-copilot-cli",
+          "-p",
+          "Hello",
+          "-s",
+          "--model",
+          "gpt-4o-mini",
+          "--allow-all-tools"
+        ])
+      end
+
       it "keeps session flags on the older CLI fallback path" do
         allow(mock_executor).to receive(:execute).with(
           ["github-copilot-cli", "--version"],
@@ -880,6 +909,39 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         response = provider.send_message(prompt: "Hello")
         expect(response.output).to eq("plain text response")
         expect(response.tokens).to be_nil
+      end
+
+      it "passes runtime model overrides through the older CLI fallback path" do
+        runtime = AgentHarness::ProviderRuntime.new(model: "gpt-4o-mini")
+
+        allow(mock_executor).to receive(:execute).with(
+          ["github-copilot-cli", "--version"],
+          timeout: 5,
+          env: {}
+        ).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "github-copilot-cli 0.0.421",
+            stderr: "",
+            exit_code: 0,
+            duration: 0.1
+          )
+        )
+
+        expect(mock_executor).to receive(:execute).with(
+          ["github-copilot-cli", "-p", "Hello", "-s", "--model", "gpt-4o-mini", "--allow-all-tools"],
+          anything
+        ).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "plain text response",
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        response = provider.send_message(prompt: "Hello", provider_runtime: runtime)
+        expect(response.output).to eq("plain text response")
+        expect(response.model).to eq("gpt-4o-mini")
       end
 
       it "skips the version probe during send_message when the CLI is unavailable" do
