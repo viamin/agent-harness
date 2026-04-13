@@ -1533,6 +1533,31 @@ RSpec.describe AgentHarness::Providers::Aider do
           expect(response.tokens).to eq({input: 40, output: 10, total: 50})
         end
 
+        it "falls back to nested response.usage when top-level usage has unparseable token values" do
+          allow(mock_executor).to receive(:execute) do |_cmd, _opts|
+            tempfile = provider.instance_variable_get(:@aider_history_tempfile)
+            path = tempfile.path if tempfile
+            if path
+              File.write(path, JSON.generate([
+                {
+                  "usage" => {"prompt_tokens" => "not-a-number", "completion_tokens" => []},
+                  "response" => {"usage" => {"prompt_tokens" => "40", "completion_tokens" => 10}}
+                }
+              ]))
+            end
+
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: "response text",
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          end
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.tokens).to eq({input: 40, output: 10, total: 50})
+        end
+
         it "does not partially aggregate mixed plain-text history content" do
           allow(mock_executor).to receive(:execute) do |_cmd, _opts|
             tempfile = provider.instance_variable_get(:@aider_history_tempfile)

@@ -443,13 +443,10 @@ module AgentHarness
       def find_usage_in_entry(entry)
         return nil unless entry.is_a?(Hash)
 
-        usage = entry["usage"]
-        return usage if usage.is_a?(Hash)
-
-        usage = entry.dig("response", "usage")
-        return usage if usage.is_a?(Hash)
-
-        nil
+        [
+          entry["usage"],
+          entry.dig("response", "usage")
+        ].find { |usage| usage_with_token_counts?(usage) }
       end
 
       def extract_history_token_usage_match(content)
@@ -614,6 +611,13 @@ module AgentHarness
           return value unless value.nil?
         end
         nil
+      end
+
+      def usage_with_token_counts?(usage)
+        return false unless usage.is_a?(Hash)
+
+        token_count_for(usage, "prompt_tokens", "input_tokens", "promptTokens", "inputTokens") ||
+          token_count_for(usage, "completion_tokens", "output_tokens", "completionTokens", "outputTokens")
       end
 
       def prepare_llm_history_file!

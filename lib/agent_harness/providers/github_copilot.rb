@@ -508,7 +508,7 @@ module AgentHarness
           obj.dig("message", "tokens"),
           obj.dig("data", "message", "usage"),
           obj.dig("data", "message", "tokens")
-        ].select { |usage| usage_payload?(usage) }.uniq
+        ].select { |usage| usage_with_token_counts?(usage) }.uniq
         return direct_usages if direct_usages.any?
 
         model_metrics_usages(obj["modelMetrics"]) +
@@ -524,14 +524,14 @@ module AgentHarness
       def model_metrics_usages(metrics)
         return [] unless metrics.is_a?(Hash)
 
-        return [metrics] if usage_payload?(metrics)
+        return [metrics] if usage_with_token_counts?(metrics)
 
         direct_usage = [
           metrics["usage"],
           metrics["totals"],
           metrics["total"],
           metrics["aggregate"]
-        ].find { |value| usage_payload?(value) }
+        ].find { |value| usage_with_token_counts?(value) }
         return [direct_usage] if direct_usage
 
         metrics.each_value.flat_map { |value| model_metrics_usages(value) }
@@ -552,6 +552,13 @@ module AgentHarness
           return value unless value.nil?
         end
         nil
+      end
+
+      def usage_with_token_counts?(usage)
+        return false unless usage_payload?(usage)
+
+        token_count_for(usage, "input_tokens", "prompt_tokens", "inputTokens", "promptTokens") ||
+          token_count_for(usage, "output_tokens", "completion_tokens", "outputTokens", "completionTokens")
       end
 
       def extract_text_value(value)

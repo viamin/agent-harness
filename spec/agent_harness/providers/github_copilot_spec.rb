@@ -1902,6 +1902,50 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
           expect(response.tokens).to eq({input: 50, output: 15, total: 65})
         end
 
+        it "falls back to wrapped shutdown metrics when direct usage has unparseable token values" do
+          jsonl_output = [
+            {"type" => "assistant.message", "data" => {"content" => "response"}},
+            {
+              "usage" => {"input_tokens" => "not-a-number", "output_tokens" => []},
+              "data" => {
+                "modelMetrics" => {
+                  "gpt-4o" => {"usage" => {"inputTokens" => 44, "outputTokens" => 11}}
+                }
+              }
+            },
+            {
+              "tokens" => {"promptTokens" => {}, "completionTokens" => "NaN"},
+              "message" => {
+                "model_metrics" => {
+                  "gpt-4o-mini" => {"usage" => {"promptTokens" => "6", "completionTokens" => 4}}
+                }
+              }
+            }
+          ].map { |o| JSON.generate(o) }.join("\n")
+
+          allow(mock_executor).to receive(:execute).with(
+            ["github-copilot-cli", "--version"],
+            timeout: 5,
+            env: {}
+          ).and_return(version_result)
+
+          allow(mock_executor).to receive(:execute).with(
+            ["github-copilot-cli", "-p", "Hello", "--output-format", "json", "--allow-all-tools", "--allow-all"],
+            anything
+          ).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello", dangerous_mode: true)
+          expect(response.output).to eq("response")
+          expect(response.tokens).to eq({input: 50, output: 15, total: 65})
+        end
+
         it "filters non-assistant envelopes before reconstructing Copilot output" do
           jsonl_output = [
             {"type" => "user_input", "data" => {"content" => "User prompt"}},
