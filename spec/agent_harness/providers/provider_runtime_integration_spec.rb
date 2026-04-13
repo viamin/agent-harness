@@ -490,6 +490,20 @@ RSpec.describe "ProviderRuntime integration" do
       provider.send_message(prompt: "Hello", provider_runtime: runtime, dangerous_mode: true)
     end
 
+    it "strips config bypass when runtime flags request --full-auto" do
+      config = AgentHarness::ProviderConfig.new(:codex).tap do |c|
+        c.default_flags = ["--dangerously-bypass-approvals-and-sandbox", "--quiet"]
+      end
+      provider_with_bypass = described_class.new(config: config, executor: mock_executor)
+      runtime = AgentHarness::ProviderRuntime.new(flags: ["--full-auto", "--trace"])
+
+      expect(mock_executor).to receive(:execute) do |command, _options|
+        expect(command).to eq(["codex", "exec", "--json", "--quiet", "--full-auto", "--trace", "Hello"])
+      end.and_return(success_result)
+
+      provider_with_bypass.send_message(prompt: "Hello", provider_runtime: runtime)
+    end
+
     it "combines runtime with existing options" do
       runtime = AgentHarness::ProviderRuntime.new(
         model: "o3-pro",

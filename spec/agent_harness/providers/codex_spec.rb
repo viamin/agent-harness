@@ -363,6 +363,46 @@ RSpec.describe AgentHarness::Providers::Codex do
         end
       end
 
+      context "with bypass in default_flags and --full-auto in runtime flags" do
+        let(:config_with_bypass) do
+          AgentHarness::ProviderConfig.new(:codex).tap do |c|
+            c.default_flags = ["--dangerously-bypass-approvals-and-sandbox", "--quiet"]
+          end
+        end
+        let(:provider_with_bypass) { described_class.new(config: config_with_bypass, executor: mock_executor) }
+        let(:runtime) { AgentHarness::ProviderRuntime.new(flags: ["--full-auto", "--trace"]) }
+
+        it "strips the config bypass flag when runtime flags request --full-auto" do
+          expect(mock_executor).to receive(:execute).with(
+            ["codex", "exec", "--json", "--quiet", "--full-auto", "--trace", "Hello"],
+            anything
+          ).and_return(success_result)
+
+          provider_with_bypass.send_message(prompt: "Hello", provider_runtime: runtime)
+        end
+      end
+
+      context "with --full-auto in default_flags and bypass in runtime flags" do
+        let(:config_with_full_auto) do
+          AgentHarness::ProviderConfig.new(:codex).tap do |c|
+            c.default_flags = ["--full-auto", "--quiet"]
+          end
+        end
+        let(:provider_with_full_auto) { described_class.new(config: config_with_full_auto, executor: mock_executor) }
+        let(:runtime) do
+          AgentHarness::ProviderRuntime.new(flags: ["--dangerously-bypass-approvals-and-sandbox", "--trace"])
+        end
+
+        it "strips the runtime bypass flag when default_flags already request --full-auto" do
+          expect(mock_executor).to receive(:execute).with(
+            ["codex", "exec", "--json", "--full-auto", "--quiet", "--trace", "Hello"],
+            anything
+          ).and_return(success_result)
+
+          provider_with_full_auto.send_message(prompt: "Hello", provider_runtime: runtime)
+        end
+      end
+
       context "with default_flags containing both sandbox mode flags" do
         let(:config_with_conflicting_sandbox_flags) do
           AgentHarness::ProviderConfig.new(:codex).tap do |c|
