@@ -344,6 +344,25 @@ RSpec.describe AgentHarness::Providers::Codex do
         end
       end
 
+      context "with default_flags and runtime flags both containing --full-auto" do
+        let(:config_with_full_auto) do
+          AgentHarness::ProviderConfig.new(:codex).tap do |c|
+            c.default_flags = ["--full-auto", "--quiet"]
+          end
+        end
+        let(:provider_with_full_auto) { described_class.new(config: config_with_full_auto, executor: mock_executor) }
+        let(:runtime) { AgentHarness::ProviderRuntime.new(flags: ["--full-auto", "--trace"]) }
+
+        it "does not duplicate --full-auto across config and runtime flags" do
+          expect(mock_executor).to receive(:execute).with(
+            ["codex", "exec", "--json", "--full-auto", "--quiet", "--trace", "Hello"],
+            anything
+          ).and_return(success_result)
+
+          provider_with_full_auto.send_message(prompt: "Hello", provider_runtime: runtime)
+        end
+      end
+
       context "with default_flags containing both sandbox mode flags" do
         let(:config_with_conflicting_sandbox_flags) do
           AgentHarness::ProviderConfig.new(:codex).tap do |c|
@@ -380,6 +399,28 @@ RSpec.describe AgentHarness::Providers::Codex do
           ).and_return(success_result)
 
           sandboxed_provider_with_bypass.send_message(prompt: "Hello")
+        end
+      end
+
+      context "with bypass flags in both default_flags and runtime while externally sandboxed" do
+        let(:sandboxed_config_with_bypass) do
+          AgentHarness::ProviderConfig.new(:codex).tap do |c|
+            c.default_flags = ["--dangerously-bypass-approvals-and-sandbox", "--quiet"]
+            c.externally_sandboxed = true
+          end
+        end
+        let(:sandboxed_provider_with_bypass) { described_class.new(config: sandboxed_config_with_bypass, executor: mock_executor) }
+        let(:runtime) do
+          AgentHarness::ProviderRuntime.new(flags: ["--dangerously-bypass-approvals-and-sandbox", "--trace"])
+        end
+
+        it "does not duplicate the bypass flag across config and runtime flags" do
+          expect(mock_executor).to receive(:execute).with(
+            ["codex", "exec", "--json", "--quiet", "--dangerously-bypass-approvals-and-sandbox", "--trace", "Hello"],
+            anything
+          ).and_return(success_result)
+
+          sandboxed_provider_with_bypass.send_message(prompt: "Hello", provider_runtime: runtime)
         end
       end
 

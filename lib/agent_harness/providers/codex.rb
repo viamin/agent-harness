@@ -373,6 +373,7 @@ module AgentHarness
           cmd += runtime_flags unless runtime_flags.empty?
         end
 
+        cmd = dedupe_managed_sandbox_flags(cmd)
         cmd << prompt
 
         cmd
@@ -984,6 +985,23 @@ module AgentHarness
         full_auto_requested = adding_full_auto || explicit_full_auto_requested
         normalized_flags -= sandbox_bypass_flags if externally_sandboxed || full_auto_requested
         normalized_flags
+      end
+
+      def dedupe_managed_sandbox_flags(command)
+        managed_flags = (dangerous_mode_flags + sandbox_bypass_flags).each_with_object({}) do |flag, flags|
+          flags[flag] = true
+        end
+        seen_flags = {}
+
+        command.each_with_object([]) do |part, deduped_command|
+          if managed_flags[part]
+            next if seen_flags[part]
+
+            seen_flags[part] = true
+          end
+
+          deduped_command << part
+        end
       end
 
       def externally_sandboxed?(options)
