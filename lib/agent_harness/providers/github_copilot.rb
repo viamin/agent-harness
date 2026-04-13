@@ -345,8 +345,9 @@ module AgentHarness
         return [nil, nil] if obj["message"].is_a?(Hash) && obj["message"].key?("role") &&
           !assistant_role?(obj["message"]["role"])
 
-        if obj["message"].is_a?(Hash)
-          return [string_content(obj["message"]["content"]), :assistant] if obj["message"].key?("content")
+        if obj["message"].is_a?(Hash) && obj["message"].key?("content")
+          nested_content = string_content(obj["message"]["content"])
+          return [nested_content, :assistant] if nested_content
         end
 
         output = string_content(obj["output"])
