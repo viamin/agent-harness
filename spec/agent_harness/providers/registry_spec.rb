@@ -1222,6 +1222,21 @@ RSpec.describe AgentHarness::Providers::Registry do
       )
     end
 
+    it "preserves the aider runtime contract in the registry catalog" do
+      runtime = registry.provider_metadata_catalog.fetch(:aider).fetch(:runtime)
+      capabilities = registry.provider_metadata_catalog.fetch(:aider).fetch(:capabilities)
+
+      expect(runtime).to include(
+        output_format: :text,
+        supports_token_counting: true,
+        supports_dangerous_mode: false
+      )
+      expect(capabilities).to include(
+        tool_use: true,
+        dangerous_mode: false
+      )
+    end
+
     it "reuses cached fallback availability across catalog reads" do
       legacy_provider = Class.new do
         class << self
