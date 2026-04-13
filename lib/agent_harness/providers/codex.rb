@@ -979,8 +979,9 @@ module AgentHarness
 
       def normalize_sandbox_flags(flags, externally_sandboxed:, adding_full_auto:)
         normalized_flags = flags.dup
-        full_auto_requested = adding_full_auto || (normalized_flags & dangerous_mode_flags).any?
-        normalized_flags -= dangerous_mode_flags if externally_sandboxed
+        explicit_full_auto_requested = (normalized_flags & dangerous_mode_flags).any?
+        normalized_flags -= dangerous_mode_flags if externally_sandboxed || adding_full_auto
+        full_auto_requested = adding_full_auto || explicit_full_auto_requested
         normalized_flags -= sandbox_bypass_flags if externally_sandboxed || full_auto_requested
         normalized_flags
       end

@@ -326,6 +326,24 @@ RSpec.describe AgentHarness::Providers::Codex do
         end
       end
 
+      context "with default_flags containing --full-auto and dangerous_mode" do
+        let(:config_with_full_auto) do
+          AgentHarness::ProviderConfig.new(:codex).tap do |c|
+            c.default_flags = ["--full-auto", "--quiet"]
+          end
+        end
+        let(:provider_with_full_auto) { described_class.new(config: config_with_full_auto, executor: mock_executor) }
+
+        it "does not duplicate --full-auto" do
+          expect(mock_executor).to receive(:execute).with(
+            ["codex", "exec", "--json", "--full-auto", "--quiet", "Hello"],
+            anything
+          ).and_return(success_result)
+
+          provider_with_full_auto.send_message(prompt: "Hello", dangerous_mode: true)
+        end
+      end
+
       context "with default_flags containing both sandbox mode flags" do
         let(:config_with_conflicting_sandbox_flags) do
           AgentHarness::ProviderConfig.new(:codex).tap do |c|
