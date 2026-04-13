@@ -577,8 +577,7 @@ module AgentHarness
           when "turn.failed"
             turn_usage = build_token_usage(event["usage"])
             same_wrapped_turn = pending_turn_usage_source == :wrapped &&
-              same_turn_usage?(pending_turn_usage, turn_usage) &&
-              current_turn_parts.empty?
+              same_turn_usage?(pending_turn_usage, turn_usage)
 
             finalize_pending_wrapped_turn.call unless same_wrapped_turn
 
