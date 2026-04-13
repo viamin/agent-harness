@@ -1572,6 +1572,38 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         expect(provider.send(:copilot_cli_supports_json_output?, env: env_a)).to be true
         expect(provider.send(:copilot_cli_supports_json_output?, env: env_b)).to be true
       end
+
+      it "does not reuse the ambient cache entry when a request explicitly unsets PATH" do
+        executor = instance_double(AgentHarness::CommandExecutor)
+        allow(executor).to receive(:execute).with(
+          ["github-copilot-cli", "--version"],
+          timeout: 5,
+          env: {}
+        ).once.and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "github-copilot-cli 0.0.422\n",
+            stderr: "",
+            exit_code: 0
+          )
+        )
+        allow(executor).to receive(:execute).with(
+          ["github-copilot-cli", "--version"],
+          timeout: 5,
+          env: {"PATH" => nil}
+        ).once.and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "",
+            stderr: "command not found",
+            exit_code: 127
+          )
+        )
+        provider = described_class.new(executor: executor)
+        allow(provider).to receive(:resolved_binary_path_for_env).with({}).and_return(nil)
+        allow(provider).to receive(:resolved_binary_path_for_env).with({"PATH" => nil}).and_return(nil)
+
+        expect(provider.send(:copilot_cli_supports_json_output?)).to be true
+        expect(provider.send(:copilot_cli_supports_json_output?, env: {"PATH" => nil})).to be false
+      end
     end
 
     describe "request probe env scoping" do

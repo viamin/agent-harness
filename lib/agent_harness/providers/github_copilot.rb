@@ -661,7 +661,12 @@ module AgentHarness
       end
 
       def version_probe_env_cache_key(env)
-        resolved_binary_path_for_env(env) || self.class.binary_name
+        resolved_binary_path_for_env(env) ||
+          if env.key?("PATH")
+            [:path_override, env["PATH"]]
+          else
+            self.class.binary_name
+          end
       end
 
       def resolved_binary_path_for_env(env)
