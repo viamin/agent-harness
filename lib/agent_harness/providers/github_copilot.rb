@@ -435,6 +435,7 @@ module AgentHarness
 
       def extract_shutdown_token_usage(data)
         model_metrics = data["modelMetrics"]
+        model_metrics = data["model_metrics"] unless model_metrics.is_a?(Hash)
         return nil unless model_metrics.is_a?(Hash)
 
         totals = empty_token_totals
