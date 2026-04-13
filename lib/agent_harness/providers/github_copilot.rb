@@ -233,6 +233,7 @@ module AgentHarness
         usage_tokens = empty_token_totals
         fallback_tokens = empty_token_totals
         output_segments = []
+        authoritative_reply_seen = false
         output.lines.each do |line|
           stripped_line = line.strip
           if stripped_line.empty?
@@ -251,10 +252,13 @@ module AgentHarness
           text, text_kind = extract_event_text(obj)
           if text
             if text_kind == :assistant_delta
+              next if authoritative_reply_seen
+
               append_delta_segment!(output_segments, text, terminated: line.end_with?("\n"))
             elsif !text.empty?
               drop_provisional_segments!(output_segments)
               output_segments << {kind: :assistant, content: text, terminated: line.end_with?("\n")}
+              authoritative_reply_seen = true
             end
           elsif preserve_raw_json_line?(obj) || !obj.is_a?(Hash)
             output_segments << {kind: :raw, content: line, terminated: line.end_with?("\n")}

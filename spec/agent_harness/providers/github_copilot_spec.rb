@@ -385,6 +385,18 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         expect(response.error).to be_nil
       end
 
+      it "ignores assistant.message_delta chunks emitted after a final assistant.message" do
+        jsonl = <<~JSONL
+          {"type":"assistant.message","data":{"content":"Hello"}}
+          {"type":"assistant.message_delta","data":{"deltaContent":" stale"}}
+        JSONL
+        result = make_result(stdout: jsonl)
+        response = provider.send(:parse_response, result, duration: 1.0)
+
+        expect(response.output).to eq("Hello")
+        expect(response.error).to be_nil
+      end
+
       it "keeps delta chunks when the trailing assistant.message content is empty" do
         jsonl = <<~JSONL
           {"type":"assistant.message_delta","data":{"deltaContent":"Hel"}}
