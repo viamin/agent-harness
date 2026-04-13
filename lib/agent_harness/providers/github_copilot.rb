@@ -150,10 +150,7 @@ module AgentHarness
       end
 
       def send_message(prompt:, **options)
-        options = normalize_provider_runtime(options)
-        request_env = build_env(options)
-
-        with_request_probe_env(request_env) do
+        with_request_probe_env(request_probe_env_from_raw_runtime(options[:provider_runtime])) do
           super(prompt: prompt, **options)
         end
       end
@@ -618,6 +615,47 @@ module AgentHarness
 
       def version_probe_env_cache_key(env)
         env.sort_by { |key, _value| key }
+      end
+
+      def request_probe_env_from_raw_runtime(runtime)
+        case runtime
+        when nil
+          {}
+        when ProviderRuntime
+          runtime.env.merge(runtime.unset_env.to_h { |key| [key, nil] })
+        when Hash
+          request_probe_env_from_raw_hash(runtime)
+        else
+          {}
+        end
+      end
+
+      def request_probe_env_from_raw_hash(runtime_hash)
+        env = stringify_probe_env(runtime_hash[:env] || runtime_hash["env"])
+        unset_env = stringify_probe_unset_env(runtime_hash[:unset_env] || runtime_hash["unset_env"])
+        return {} unless env && unset_env
+
+        env.merge(unset_env.to_h { |key| [key, nil] })
+      end
+
+      def stringify_probe_env(raw_env)
+        return {} if raw_env.nil?
+        return nil unless raw_env.is_a?(Hash)
+
+        raw_env.each_with_object({}) do |(key, value), env|
+          return nil unless value.is_a?(String)
+
+          env[key.to_s] = value
+        end
+      end
+
+      def stringify_probe_unset_env(raw_unset_env)
+        return [] if raw_unset_env.nil?
+        return nil unless raw_unset_env.is_a?(Array)
+
+        raw_unset_env.map(&:to_s)
+      rescue NoMethodError
+        nil
       end
 
       def writable_request_probe_env_stack

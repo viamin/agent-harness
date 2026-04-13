@@ -289,6 +289,12 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
 
         expect(response.output).to eq("echo legacy\n")
       end
+
+      it "maps malformed provider_runtime env errors through provider error handling" do
+        expect {
+          provider.send_message(prompt: "Hello", provider_runtime: {env: "bad"})
+        }.to raise_error(AgentHarness::ProviderError, /env must be a Hash/)
+      end
     end
 
     describe "#parse_response" do
