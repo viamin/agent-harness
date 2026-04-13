@@ -820,7 +820,7 @@ module AgentHarness
 
         return false unless assistant_message_item_type?(payload_item_type)
 
-        (payload_type == "message" && payload_role == "assistant") ||
+        ((message_item_type?(payload_type) || payload_type == "agent_message") && payload_role == "assistant") ||
           (payload_type == "agent_message" && (
             payload_role == "assistant" ||
             (payload_role.nil? && assistant_message_item_type?(payload_item_type))

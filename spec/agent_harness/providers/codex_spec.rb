@@ -2526,6 +2526,34 @@ RSpec.describe AgentHarness::Providers::Codex do
           expect(response.tokens).to eq({input: 9, output: 4, total: 13})
         end
 
+        it "extracts final assistant text from response_item assistant_message payloads without a type" do
+          jsonl_output = [
+            JSON.generate({"type" => "event_msg", "payload" => {"type" => "agent_message_delta", "message" => "partial"}}),
+            JSON.generate({
+              "type" => "response_item",
+              "payload" => {
+                "role" => "assistant",
+                "item_type" => "assistant_message",
+                "message" => "final assistant item without type"
+              }
+            }),
+            JSON.generate({"type" => "turn.completed", "usage" => {"input_tokens" => 9, "output_tokens" => 4}})
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq("final assistant item without type")
+          expect(response.tokens).to eq({input: 9, output: 4, total: 13})
+        end
+
         it "ignores response_item assistant_message payloads with non-message types" do
           jsonl_output = [
             JSON.generate({
