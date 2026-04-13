@@ -459,9 +459,9 @@ module AgentHarness
           stripped_line = line.strip
           next if stripped_line.empty?
 
-          event = JSON.parse(stripped_line)
-          next unless event.is_a?(Hash)
-          next if structured_event?(event)
+          parsed_line = JSON.parse(stripped_line)
+          next if parsed_structured_event?(parsed_line)
+          next if parsed_json_scalar?(parsed_line)
 
           stripped_line
         rescue JSON::ParserError
@@ -473,6 +473,14 @@ module AgentHarness
 
       def structured_event?(event)
         STRUCTURED_EVENT_TYPES.include?(event["type"])
+      end
+
+      def parsed_structured_event?(parsed_line)
+        parsed_line.is_a?(Hash) && structured_event?(parsed_line)
+      end
+
+      def parsed_json_scalar?(parsed_line)
+        !parsed_line.is_a?(Hash) && !parsed_line.is_a?(Array)
       end
 
       def coerce_token_count(value)
