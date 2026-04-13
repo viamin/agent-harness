@@ -465,16 +465,15 @@ module AgentHarness
         found = false
 
         parsed_lines.each do |obj|
-          usage = find_usage(obj)
-          next unless usage
+          find_usages(obj).each do |usage|
+            input = token_count_for(usage, "input_tokens", "prompt_tokens", "inputTokens", "promptTokens")
+            output_tok = token_count_for(usage, "output_tokens", "completion_tokens", "outputTokens", "completionTokens")
+            next if input.nil? && output_tok.nil?
 
-          input = token_count_for(usage, "input_tokens", "prompt_tokens", "inputTokens", "promptTokens")
-          output_tok = token_count_for(usage, "output_tokens", "completion_tokens", "outputTokens", "completionTokens")
-          next if input.nil? && output_tok.nil?
-
-          total_input += input || 0
-          total_output += output_tok || 0
-          found = true
+            total_input += input || 0
+            total_output += output_tok || 0
+            found = true
+          end
         end
 
         return nil unless found
@@ -483,27 +482,31 @@ module AgentHarness
         {input: total_input, output: total_output, total: total_input + total_output}
       end
 
-      def find_usage(obj)
-        return nil unless obj.is_a?(Hash)
+      def find_usages(obj)
+        return [] unless obj.is_a?(Hash)
 
-        return obj["usage"] if obj["usage"].is_a?(Hash)
-        return obj["tokens"] if obj["tokens"].is_a?(Hash)
-        return obj if usage_payload?(obj)
-        return obj["data"] if usage_payload?(obj["data"])
-        return obj.dig("data", "usage") if obj.dig("data", "usage").is_a?(Hash)
-        return obj.dig("data", "tokens") if obj.dig("data", "tokens").is_a?(Hash)
-        return obj.dig("message", "usage") if obj.dig("message", "usage").is_a?(Hash)
-        return obj.dig("message", "tokens") if obj.dig("message", "tokens").is_a?(Hash)
-        return obj.dig("data", "message", "usage") if obj.dig("data", "message", "usage").is_a?(Hash)
-        return obj.dig("data", "message", "tokens") if obj.dig("data", "message", "tokens").is_a?(Hash)
-        model_metrics_usage(obj.dig("data", "modelMetrics")) ||
-          model_metrics_usage(obj.dig("data", "model_metrics"))
+        direct_usages = [
+          obj["usage"],
+          obj["tokens"],
+          usage_payload?(obj) ? obj : nil,
+          usage_payload?(obj["data"]) ? obj["data"] : nil,
+          obj.dig("data", "usage"),
+          obj.dig("data", "tokens"),
+          obj.dig("message", "usage"),
+          obj.dig("message", "tokens"),
+          obj.dig("data", "message", "usage"),
+          obj.dig("data", "message", "tokens")
+        ].select { |usage| usage.is_a?(Hash) }.uniq
+        return direct_usages if direct_usages.any?
+
+        model_metrics_usages(obj.dig("data", "modelMetrics")) +
+          model_metrics_usages(obj.dig("data", "model_metrics"))
       end
 
-      def model_metrics_usage(metrics)
-        return nil unless metrics.is_a?(Hash)
+      def model_metrics_usages(metrics)
+        return [] unless metrics.is_a?(Hash)
 
-        return metrics if usage_payload?(metrics)
+        return [metrics] if usage_payload?(metrics)
 
         direct_usage = [
           metrics["usage"],
@@ -511,14 +514,9 @@ module AgentHarness
           metrics["total"],
           metrics["aggregate"]
         ].find { |value| usage_payload?(value) }
-        return direct_usage if direct_usage
+        return [direct_usage] if direct_usage
 
-        metrics.each_value do |value|
-          nested_usage = model_metrics_usage(value)
-          return nested_usage if nested_usage
-        end
-
-        nil
+        metrics.each_value.flat_map { |value| model_metrics_usages(value) }
       end
 
       def normalize_token_count(value)
