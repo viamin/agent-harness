@@ -1604,6 +1604,34 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         expect(provider.send(:copilot_cli_supports_json_output?)).to be true
         expect(provider.send(:copilot_cli_supports_json_output?, env: {"PATH" => nil})).to be false
       end
+
+      it "does not retain raw unresolved PATH overrides in probe cache keys" do
+        executor = instance_double(AgentHarness::CommandExecutor)
+        env = {"PATH" => "/tmp/request-secret/bin"}
+        allow(executor).to receive(:execute).with(
+          ["github-copilot-cli", "--version"],
+          timeout: 5,
+          env: env
+        ).once.and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "github-copilot-cli 0.0.422\n",
+            stderr: "",
+            exit_code: 0
+          )
+        )
+        provider = described_class.new(executor: executor)
+        allow(provider).to receive(:resolved_binary_path_for_env).with(env).and_return(nil)
+
+        expect(provider.send(:copilot_cli_supports_json_output?, env: env)).to be true
+
+        support_cache_keys = provider.instance_variable_get(:@copilot_cli_supports_json_output).keys
+        version_cache_keys = provider.instance_variable_get(:@copilot_cli_version).keys
+
+        expect(support_cache_keys).not_to include([:path_override, "/tmp/request-secret/bin"])
+        expect(version_cache_keys).not_to include([:path_override, "/tmp/request-secret/bin"])
+        expect(support_cache_keys).to include([:path_override, a_string_matching(/\A\h{64}\z/)])
+        expect(version_cache_keys).to include([:path_override, a_string_matching(/\A\h{64}\z/)])
+      end
     end
 
     describe "request probe env scoping" do

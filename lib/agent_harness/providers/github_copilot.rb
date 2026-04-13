@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require "digest"
 require "json"
 
 module AgentHarness
@@ -663,10 +664,16 @@ module AgentHarness
       def version_probe_env_cache_key(env)
         resolved_binary_path_for_env(env) ||
           if env.key?("PATH")
-            [:path_override, env["PATH"]]
+            [:path_override, cacheable_path_override(env["PATH"])]
           else
             self.class.binary_name
           end
+      end
+
+      def cacheable_path_override(path)
+        return nil unless path.is_a?(String)
+
+        Digest::SHA256.hexdigest(path)
       end
 
       def resolved_binary_path_for_env(env)
