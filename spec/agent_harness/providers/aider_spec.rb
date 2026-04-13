@@ -294,6 +294,23 @@ RSpec.describe AgentHarness::Providers::Aider do
         expect(command).not_to include("configured-model")
       end
 
+      it "falls back to the configured model when the runtime model is blank" do
+        provider.configure(model: "configured-model")
+        runtime = AgentHarness::ProviderRuntime.new(model: "  ")
+
+        command = provider.send(:build_command, "hello", provider_runtime: runtime)
+
+        expect(command).to include("--model", "configured-model")
+      end
+
+      it "omits --model when the configured model is blank" do
+        provider.configure(model: "  ")
+
+        command = provider.send(:build_command, "hello", {})
+
+        expect(command).not_to include("--model")
+      end
+
       it "appends runtime flags after provider flags" do
         runtime = AgentHarness::ProviderRuntime.new(flags: ["--map-tokens", "0"])
 
@@ -409,6 +426,32 @@ RSpec.describe AgentHarness::Providers::Aider do
 
         expect(response.model).to eq("claude-3-5-sonnet")
         expect(response.tokens).to eq({input: 10, output: 20, total: 30})
+      end
+
+      it "preserves the configured model when provider_runtime model is blank" do
+        configured_provider = described_class.new(
+          config: AgentHarness::ProviderConfig.new(:aider).tap { |cfg| cfg.model = "claude-3-5-sonnet" },
+          executor: mock_executor
+        )
+        runtime = AgentHarness::ProviderRuntime.new(model: "  ")
+
+        allow(mock_executor).to receive(:execute) do |cmd, **kwargs|
+          history_path = cmd[cmd.index("--llm-history-file") + 1]
+          File.write(history_path, <<~TEXT)
+            TO LLM 2026-04-12T00:00:00
+            -------
+            USER hello
+            LLM RESPONSE 2026-04-12T00:00:01
+            ASSISTANT world
+
+            Tokens: 10 sent, 20 received.
+          TEXT
+          result
+        end
+
+        response = configured_provider.send_message(prompt: "hello", provider_runtime: runtime)
+
+        expect(response.model).to eq("claude-3-5-sonnet")
       end
 
       it "parses comma-delimited token counts from command output when history lacks usage" do

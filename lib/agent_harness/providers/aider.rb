@@ -230,13 +230,14 @@ module AgentHarness
         duration = Time.now - start_time
 
         response = parse_response(result, duration: duration, llm_history_path: llm_history_path)
-        if runtime&.model
+        effective_runtime_model = normalized_model_name(runtime&.model)
+        if effective_runtime_model
           response = Response.new(
             output: response.output,
             exit_code: response.exit_code,
             duration: response.duration,
             provider: response.provider,
-            model: runtime.model,
+            model: effective_runtime_model,
             tokens: response.tokens,
             metadata: response.metadata,
             error: response.error
@@ -268,10 +269,8 @@ module AgentHarness
           cmd += ["--llm-history-file", options[:llm_history_path]]
         end
 
-        model = runtime&.model || @config.model
-        if model && !model.empty?
-          cmd += ["--model", model]
-        end
+        model = effective_model_name(runtime)
+        cmd += ["--model", model] if model
 
         if options[:session]
           cmd += session_flags(options[:session])
@@ -310,6 +309,17 @@ module AgentHarness
       end
 
       private
+
+      def effective_model_name(runtime = nil)
+        normalized_model_name(runtime&.model) || normalized_model_name(@config.model)
+      end
+
+      def normalized_model_name(value)
+        return nil unless value.is_a?(String)
+
+        stripped = value.strip
+        stripped.empty? ? nil : stripped
+      end
 
       TOKEN_COUNT_PATTERN = /\d[\d,]*(?:\.\d+)?[kmb]?/i
 
