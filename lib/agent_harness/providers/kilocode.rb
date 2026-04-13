@@ -496,9 +496,9 @@ module AgentHarness
           next if parsed_structured_event?(parsed_line)
           next if parsed_json_scalar?(parsed_line)
 
-          stripped_line
+          line.chomp
         rescue JSON::ParserError
-          stripped_line
+          line.chomp
         end
 
         lines.empty? ? nil : lines.join("\n")
