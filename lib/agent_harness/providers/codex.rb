@@ -442,12 +442,6 @@ module AgentHarness
 
         start_new_finalized_turn = lambda do
           start_new_turn.call
-          next unless pending_turn_usage_source == :wrapped && pending_turn_usage && current_turn_finalized_output
-
-          latest_completed_parts = current_turn_parts.dup
-          commit_pending_turn.call
-          current_turn_parts = []
-          current_turn_finalized_output = false
         end
 
         start_new_streaming_turn = lambda do
