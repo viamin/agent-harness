@@ -328,6 +328,7 @@ module AgentHarness
       def build_command(prompt, options)
         cmd = [self.class.binary_name, "exec", "--json"]
         externally_sandboxed = externally_sandboxed?(options)
+        adding_full_auto = !externally_sandboxed && (sandboxed_environment? || options[:dangerous_mode])
 
         # When externally_sandboxed is set, use --dangerously-bypass-approvals-and-sandbox
         # instead of --full-auto. In the Codex CLI, full_auto is checked first and
@@ -336,7 +337,7 @@ module AgentHarness
         #
         # When NOT externally sandboxed: use --full-auto for Docker containers
         # (to skip nested sandboxing) or when dangerous_mode is explicitly requested.
-        if !externally_sandboxed && (sandboxed_environment? || options[:dangerous_mode])
+        if adding_full_auto
           cmd += dangerous_mode_flags
         end
 
@@ -345,9 +346,11 @@ module AgentHarness
           unless flags.is_a?(Array)
             raise ArgumentError, "Codex configuration error: default_flags must be an array of strings"
           end
-          # Strip --full-auto from defaults when externally sandboxed to avoid
-          # conflicting with --dangerously-bypass-approvals-and-sandbox.
-          flags -= dangerous_mode_flags if externally_sandboxed
+          flags = normalize_sandbox_flags(
+            flags,
+            externally_sandboxed: externally_sandboxed,
+            adding_full_auto: adding_full_auto
+          )
           cmd += flags if flags.any?
         end
 
@@ -362,9 +365,11 @@ module AgentHarness
         runtime = options[:provider_runtime]
         if runtime
           cmd += ["--model", runtime.model] if runtime.model
-          runtime_flags = runtime.flags
-          # Strip --full-auto from runtime flags when externally sandboxed.
-          runtime_flags -= dangerous_mode_flags if externally_sandboxed
+          runtime_flags = normalize_sandbox_flags(
+            runtime.flags,
+            externally_sandboxed: externally_sandboxed,
+            adding_full_auto: adding_full_auto
+          )
           cmd += runtime_flags unless runtime_flags.empty?
         end
 
@@ -970,6 +975,13 @@ module AgentHarness
 
           stripped.to_i
         end
+      end
+
+      def normalize_sandbox_flags(flags, externally_sandboxed:, adding_full_auto:)
+        normalized_flags = flags.dup
+        normalized_flags -= dangerous_mode_flags if externally_sandboxed
+        normalized_flags -= sandbox_bypass_flags if externally_sandboxed || adding_full_auto
+        normalized_flags
       end
 
       def externally_sandboxed?(options)

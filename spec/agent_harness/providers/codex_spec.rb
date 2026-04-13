@@ -308,6 +308,43 @@ RSpec.describe AgentHarness::Providers::Codex do
         end
       end
 
+      context "with default_flags containing sandbox bypass and dangerous_mode" do
+        let(:config_with_bypass) do
+          AgentHarness::ProviderConfig.new(:codex).tap do |c|
+            c.default_flags = ["--dangerously-bypass-approvals-and-sandbox", "--quiet"]
+          end
+        end
+        let(:provider_with_bypass) { described_class.new(config: config_with_bypass, executor: mock_executor) }
+
+        it "strips the bypass flag to avoid conflicting with --full-auto" do
+          expect(mock_executor).to receive(:execute).with(
+            ["codex", "exec", "--json", "--full-auto", "--quiet", "Hello"],
+            anything
+          ).and_return(success_result)
+
+          provider_with_bypass.send_message(prompt: "Hello", dangerous_mode: true)
+        end
+      end
+
+      context "with default_flags containing bypass and externally_sandboxed" do
+        let(:sandboxed_config_with_bypass) do
+          AgentHarness::ProviderConfig.new(:codex).tap do |c|
+            c.default_flags = ["--dangerously-bypass-approvals-and-sandbox", "--quiet"]
+            c.externally_sandboxed = true
+          end
+        end
+        let(:sandboxed_provider_with_bypass) { described_class.new(config: sandboxed_config_with_bypass, executor: mock_executor) }
+
+        it "does not duplicate the bypass flag" do
+          expect(mock_executor).to receive(:execute).with(
+            ["codex", "exec", "--json", "--quiet", "--dangerously-bypass-approvals-and-sandbox", "Hello"],
+            anything
+          ).and_return(success_result)
+
+          sandboxed_provider_with_bypass.send_message(prompt: "Hello")
+        end
+      end
+
       it "returns a Response object" do
         jsonl_output = [
           JSON.generate({"type" => "message.delta", "delta" => {"text" => "response output"}}),
