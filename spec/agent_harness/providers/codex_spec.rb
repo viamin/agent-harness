@@ -2324,6 +2324,37 @@ RSpec.describe AgentHarness::Providers::Codex do
           expect(response.tokens).to eq({input: 9, output: 4, total: 13})
         end
 
+        it "falls back to top-level task_complete content when text is empty" do
+          jsonl_output = [
+            JSON.generate({"type" => "agent_message_delta", "message" => "partial "}),
+            JSON.generate({
+              "type" => "task_complete",
+              "last_agent_message" => {
+                "role" => "assistant",
+                "text" => "",
+                "content" => [
+                  {"type" => "reasoning", "text" => "internal"},
+                  {"type" => "output_text", "text" => "final top-level task fallback"}
+                ]
+              }
+            }),
+            JSON.generate({"type" => "turn.completed", "usage" => {"input_tokens" => 9, "output_tokens" => 4}})
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq("final top-level task fallback")
+          expect(response.tokens).to eq({input: 9, output: 4, total: 13})
+        end
+
         it "extracts structured assistant content from top-level turn_complete events" do
           jsonl_output = [
             JSON.generate({"type" => "agent_message_delta", "message" => "partial "}),
@@ -2606,6 +2637,51 @@ RSpec.describe AgentHarness::Providers::Codex do
 
           response = provider.send_message(prompt: "Hello")
           expect(response.output).to eq("")
+          expect(response.tokens).to eq({input: 3, output: 2, total: 5})
+        end
+
+        it "falls back to wrapped turn_complete content when message is empty" do
+          jsonl_output = [
+            JSON.generate({"type" => "event_msg", "payload" => {"type" => "agent_message_delta", "message" => "partial "}}),
+            JSON.generate({
+              "type" => "event_msg",
+              "payload" => {
+                "type" => "turn_complete",
+                "last_agent_message" => {
+                  "role" => "assistant",
+                  "message" => "",
+                  "content" => [
+                    {"type" => "reasoning", "text" => "internal"},
+                    {"type" => "output_text", "text" => "final wrapped turn fallback"}
+                  ]
+                }
+              }
+            }),
+            JSON.generate({
+              "type" => "event_msg",
+              "payload" => {
+                "type" => "token_count",
+                "info" => {
+                  "last_token_usage" => {
+                    "input_tokens" => 3,
+                    "output_tokens" => 2
+                  }
+                }
+              }
+            })
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq("final wrapped turn fallback")
           expect(response.tokens).to eq({input: 3, output: 2, total: 5})
         end
 
