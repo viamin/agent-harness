@@ -374,7 +374,10 @@ module AgentHarness
 
       def replace_output_with_full_text?(existing_output, full_text, saw_delta:)
         saw_delta ||
-          (!existing_output.empty? && full_text.start_with?(existing_output))
+          (!existing_output.empty? && (
+            full_text.start_with?(existing_output) ||
+            existing_output.start_with?(full_text)
+          ))
       end
 
       def extract_tokens_from_jsonl(parsed_lines)
