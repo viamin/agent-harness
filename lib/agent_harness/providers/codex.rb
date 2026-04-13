@@ -331,7 +331,10 @@ module AgentHarness
         adding_full_auto = !externally_sandboxed && (sandboxed_environment? || options[:dangerous_mode])
         managed_sandbox_flags = {}
         runtime = options[:provider_runtime]
-        all_user_flags = Array(@config.default_flags) + Array(runtime&.flags)
+        default_flags = @config.default_flags
+        runtime_flags = runtime&.flags
+        validate_string_flags!(default_flags, "default_flags") if default_flags
+        all_user_flags = Array(default_flags) + Array(runtime_flags)
         explicit_full_auto_requested = managed_full_auto_requested?(all_user_flags)
         keep_full_auto = !externally_sandboxed && (adding_full_auto || explicit_full_auto_requested)
         keep_bypass = externally_sandboxed || !keep_full_auto
@@ -353,11 +356,8 @@ module AgentHarness
           )
         end
 
-        flags = @config.default_flags
+        flags = default_flags
         if flags
-          unless flags.is_a?(Array)
-            raise ArgumentError, "Codex configuration error: default_flags must be an array of strings"
-          end
           flags = normalize_sandbox_flags(
             flags,
             externally_sandboxed: externally_sandboxed,
@@ -388,7 +388,7 @@ module AgentHarness
         if runtime
           cmd += ["--model", runtime.model] if runtime.model
           runtime_flags = normalize_sandbox_flags(
-            runtime.flags,
+            runtime_flags,
             externally_sandboxed: externally_sandboxed,
             adding_full_auto: adding_full_auto
           )
@@ -1108,6 +1108,16 @@ module AgentHarness
 
           stripped.to_i
         end
+      end
+
+      def validate_string_flags!(flags, label)
+        unless flags.is_a?(Array)
+          raise ArgumentError, "Codex configuration error: #{label} must be an array of strings"
+        end
+
+        return if flags.all?(String)
+
+        raise ArgumentError, "Codex configuration error: #{label} contains non-string values"
       end
 
       def normalize_sandbox_flags(flags, externally_sandboxed:, adding_full_auto:)

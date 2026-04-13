@@ -289,6 +289,21 @@ RSpec.describe AgentHarness::Providers::Codex do
         end
       end
 
+      context "with non-string default_flags" do
+        let(:config_with_bad_flags) do
+          AgentHarness::ProviderConfig.new(:codex).tap do |c|
+            c.default_flags = ["--quiet", 123]
+          end
+        end
+        let(:provider_with_bad_flags) { described_class.new(config: config_with_bad_flags, executor: mock_executor) }
+
+        it "raises an error" do
+          expect { provider_with_bad_flags.send_message(prompt: "Hello") }.to raise_error(
+            AgentHarness::ProviderError, /default_flags contains non-string values/
+          )
+        end
+      end
+
       context "with default_flags containing --full-auto and externally_sandboxed" do
         let(:config_with_full_auto) do
           AgentHarness::ProviderConfig.new(:codex).tap do |c|
