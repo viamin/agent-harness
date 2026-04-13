@@ -117,11 +117,11 @@ module AgentHarness
           tool_use: true,
           json_mode: false,
           mcp: false,
-          dangerous_mode: false
+          dangerous_mode: true
         }
       end
 
-      def programmatic_tool_approval_flags
+      def dangerous_mode_flags
         ["--allow-all-tools"]
       end
 
@@ -252,9 +252,9 @@ module AgentHarness
           cmd << "-s"
         end
 
-        # Copilot prompt mode is non-interactive, so tool permissions must be
-        # pre-authorized up front instead of waiting for an approval prompt.
-        cmd += programmatic_tool_approval_flags
+        if options[:dangerous_mode] && supports_dangerous_mode?
+          cmd += dangerous_mode_flags
+        end
 
         if options[:session] && !options[:session].empty?
           cmd += session_flags(options[:session])
