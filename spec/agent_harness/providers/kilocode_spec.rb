@@ -1437,6 +1437,30 @@ RSpec.describe AgentHarness::Providers::Kilocode do
         expect(response.tokens).to eq({input: 25, output: 12, total: 37})
       end
 
+      it "falls through blank hash-shaped part message aliases on terminal result events" do
+        ndjson = [
+          {"type" => "step_finish", "part" => {"tokens" => {"input" => 20, "output" => 10}}},
+          {
+            "type" => "result",
+            "part" => {"message" => {"text" => " \t", "message" => "Final answer"}},
+            "usage" => {"input_tokens" => 25, "output_tokens" => 12}
+          }
+        ].map { |e| JSON.generate(e) }.join("\n")
+
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: ndjson,
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        response = provider.send_message(prompt: "Hello")
+        expect(response.output).to eq("Final answer")
+        expect(response.tokens).to eq({input: 25, output: 12, total: 37})
+      end
+
       it "uses terminal result payload message when result and part payloads are absent" do
         ndjson = [
           {"type" => "step_finish", "part" => {"tokens" => {"input" => 20, "output" => 10}}},
