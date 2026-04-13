@@ -1706,6 +1706,20 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         expect(provider.send(:current_probe_env)).to eq({})
         expect(Thread.current.thread_variable_get(described_class::REQUEST_PROBE_ENV_STACK_KEY)).to be_nil
       end
+
+      it "clears the probe env stack when the outer scope raises" do
+        provider = described_class.new
+
+        expect {
+          provider.send(:with_request_probe_env, {"PATH" => "/tmp/outer"}) do
+            expect(provider.send(:current_probe_env)).to eq({"PATH" => "/tmp/outer"})
+            raise "boom"
+          end
+        }.to raise_error("boom")
+
+        expect(provider.send(:current_probe_env)).to eq({})
+        expect(Thread.current.thread_variable_get(described_class::REQUEST_PROBE_ENV_STACK_KEY)).to be_nil
+      end
     end
   end
 end
