@@ -550,6 +550,24 @@ RSpec.describe "ProviderRuntime integration" do
       provider_with_mode.send_message(prompt: "Hello", provider_runtime: runtime)
     end
 
+    it "strips short inline config sandbox mode flags when runtime flags request bypass" do
+      config = AgentHarness::ProviderConfig.new(:codex).tap do |c|
+        c.default_flags = ["-s=read-only", "--quiet"]
+      end
+      provider_with_mode = described_class.new(config: config, executor: mock_executor)
+      runtime = AgentHarness::ProviderRuntime.new(
+        flags: ["--dangerously-bypass-approvals-and-sandbox", "--trace"]
+      )
+
+      expect(mock_executor).to receive(:execute) do |command, _options|
+        expect(command).to eq(
+          ["codex", "exec", "--json", "--quiet", "--dangerously-bypass-approvals-and-sandbox", "--trace", "Hello"]
+        )
+      end.and_return(success_result)
+
+      provider_with_mode.send_message(prompt: "Hello", provider_runtime: runtime)
+    end
+
     it "strips runtime sandbox mode flags when dangerous_mode adds --full-auto" do
       runtime = AgentHarness::ProviderRuntime.new(flags: ["--sandbox", "read-only", "--quiet"])
 
@@ -648,6 +666,20 @@ RSpec.describe "ProviderRuntime integration" do
       end
       provider_with_full_auto = described_class.new(config: config, executor: mock_executor)
       runtime = AgentHarness::ProviderRuntime.new(flags: ["--sandbox", "read-only", "--trace"])
+
+      expect(mock_executor).to receive(:execute) do |command, _options|
+        expect(command).to eq(["codex", "exec", "--json", "--full-auto", "--quiet", "--trace", "Hello"])
+      end.and_return(success_result)
+
+      provider_with_full_auto.send_message(prompt: "Hello", provider_runtime: runtime)
+    end
+
+    it "strips short inline runtime sandbox mode flags when config already requests --full-auto" do
+      config = AgentHarness::ProviderConfig.new(:codex).tap do |c|
+        c.default_flags = ["--full-auto", "--quiet"]
+      end
+      provider_with_full_auto = described_class.new(config: config, executor: mock_executor)
+      runtime = AgentHarness::ProviderRuntime.new(flags: ["-s=read-only", "--trace"])
 
       expect(mock_executor).to receive(:execute) do |command, _options|
         expect(command).to eq(["codex", "exec", "--json", "--full-auto", "--quiet", "--trace", "Hello"])
