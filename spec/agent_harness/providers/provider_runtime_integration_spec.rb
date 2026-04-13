@@ -534,6 +534,16 @@ RSpec.describe "ProviderRuntime integration" do
       provider.send_message(prompt: "Hello", provider_runtime: runtime, dangerous_mode: true)
     end
 
+    it "strips empty inline runtime sandbox mode flags when dangerous_mode adds --full-auto" do
+      runtime = AgentHarness::ProviderRuntime.new(flags: ["--sandbox=", "--quiet"])
+
+      expect(mock_executor).to receive(:execute) do |command, _options|
+        expect(command).to eq(["codex", "exec", "--json", "--full-auto", "--quiet", "Hello"])
+      end.and_return(success_result)
+
+      provider.send_message(prompt: "Hello", provider_runtime: runtime, dangerous_mode: true)
+    end
+
     it "strips attached short runtime sandbox mode flags when dangerous_mode adds --full-auto" do
       runtime = AgentHarness::ProviderRuntime.new(flags: ["-sread-only", "--quiet"])
 
