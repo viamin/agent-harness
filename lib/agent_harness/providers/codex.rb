@@ -660,9 +660,24 @@ module AgentHarness
             when "agent_message"
               next unless wrapped_assistant_payload?(payload)
 
+              wrapped_same_turn_finalization =
+                pending_turn_usage_source == :wrapped &&
+                pending_turn_usage &&
+                !current_turn_finalized_output
               start_new_turn.call
               replace_current_turn_parts.call(extract_message_content_parts(payload))
-              pending_wrapped_same_turn_finalization = false
+              pending_wrapped_same_turn_finalization = wrapped_same_turn_finalization
+            when "task_complete", "turn_complete"
+              completion_parts = extract_task_complete_parts(payload)
+              next if completion_parts.nil?
+
+              wrapped_same_turn_finalization =
+                pending_turn_usage_source == :wrapped &&
+                pending_turn_usage &&
+                !current_turn_finalized_output
+              start_new_turn.call
+              replace_current_turn_parts.call(completion_parts)
+              pending_wrapped_same_turn_finalization = wrapped_same_turn_finalization
             when "token_count"
               wrapped_token_usage = extract_wrapped_tokens(payload["info"])
               if wrapped_token_usage
@@ -835,6 +850,13 @@ module AgentHarness
         end
 
         extract_delta_content_parts(payload)
+      end
+
+      def extract_task_complete_parts(payload)
+        last_agent_message = payload["last_agent_message"]
+        return nil unless last_agent_message.is_a?(String)
+
+        [last_agent_message]
       end
 
       def extract_delta_content_parts(item)

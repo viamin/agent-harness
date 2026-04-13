@@ -1950,6 +1950,81 @@ RSpec.describe AgentHarness::Providers::Codex do
           expect(response.output).to eq("final wrapped agent message")
         end
 
+        it "extracts final assistant text from wrapped task_complete payloads" do
+          jsonl_output = [
+            JSON.generate({"type" => "event_msg", "payload" => {"type" => "agent_message_delta", "message" => "partial "}}),
+            JSON.generate({
+              "type" => "event_msg",
+              "payload" => {
+                "type" => "task_complete",
+                "last_agent_message" => "final wrapped task output"
+              }
+            }),
+            JSON.generate({
+              "type" => "event_msg",
+              "payload" => {
+                "type" => "token_count",
+                "info" => {
+                  "last_token_usage" => {
+                    "input_tokens" => 9,
+                    "output_tokens" => 4
+                  }
+                }
+              }
+            })
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq("final wrapped task output")
+          expect(response.tokens).to eq({input: 9, output: 4, total: 13})
+        end
+
+        it "extracts final assistant text from wrapped turn_complete payloads" do
+          jsonl_output = [
+            JSON.generate({
+              "type" => "event_msg",
+              "payload" => {
+                "type" => "turn_complete",
+                "last_agent_message" => ""
+              }
+            }),
+            JSON.generate({
+              "type" => "event_msg",
+              "payload" => {
+                "type" => "token_count",
+                "info" => {
+                  "last_token_usage" => {
+                    "input_tokens" => 3,
+                    "output_tokens" => 2
+                  }
+                }
+              }
+            })
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq("")
+          expect(response.tokens).to eq({input: 3, output: 2, total: 5})
+        end
+
         it "extracts final assistant text from response_item when item_type is assistant_message" do
           jsonl_output = [
             JSON.generate({"type" => "event_msg", "payload" => {"type" => "agent_message_delta", "message" => "partial"}}),
@@ -3178,6 +3253,44 @@ RSpec.describe AgentHarness::Providers::Codex do
               }
             }),
             JSON.generate({"type" => "item.completed", "item" => {"type" => "message", "role" => "assistant", "text" => "final"}}),
+            JSON.generate({"type" => "turn.failed", "usage" => {"input_tokens" => 50, "output_tokens" => 10}})
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq("")
+          expect(response.tokens).to eq({input: 50, output: 10, total: 60})
+        end
+
+        it "does not double-count wrapped usage when wrapped agent_message finalizes the same failed turn" do
+          jsonl_output = [
+            JSON.generate({
+              "type" => "event_msg",
+              "payload" => {
+                "type" => "token_count",
+                "info" => {
+                  "last_token_usage" => {
+                    "input_tokens" => 50,
+                    "output_tokens" => 10
+                  }
+                }
+              }
+            }),
+            JSON.generate({
+              "type" => "event_msg",
+              "payload" => {
+                "type" => "agent_message",
+                "message" => "final"
+              }
+            }),
             JSON.generate({"type" => "turn.failed", "usage" => {"input_tokens" => 50, "output_tokens" => 10}})
           ].join("\n")
 
