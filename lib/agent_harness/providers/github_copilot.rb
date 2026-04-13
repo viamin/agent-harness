@@ -255,7 +255,7 @@ module AgentHarness
           if text
             if text_kind == :assistant_delta
               append_delta_segment!(output_segments, text, terminated: line.end_with?("\n"))
-            else
+            elsif !text.empty?
               drop_provisional_segments!(output_segments)
               output_segments << {kind: :assistant, content: text, terminated: line.end_with?("\n")}
             end
