@@ -1204,6 +1204,29 @@ RSpec.describe AgentHarness::Providers::Aider do
         }.to raise_error(AgentHarness::TimeoutError, "Command timed out before execution started")
       end
 
+      it "cleans up the reserved history file when setup exhausts the request budget" do
+        reserved_path = nil
+        allow(provider).to receive(:prepare_llm_history_file!).and_wrap_original do |original|
+          reserved_path = original.call
+        end
+        expect(mock_executor).not_to receive(:execute)
+
+        times = [
+          Time.utc(2026, 4, 13, 0, 0, 0),
+          Time.utc(2026, 4, 13, 0, 0, 1)
+        ]
+        allow(Time).to receive(:now).and_return(*times)
+
+        expect {
+          provider.send_message(prompt: "Hello", timeout: 1)
+        }.to raise_error(AgentHarness::TimeoutError, "Command timed out before execution started")
+
+        expect(reserved_path).not_to be_nil
+        expect(File.exist?(reserved_path)).to be false
+        expect(provider.instance_variable_get(:@aider_history_tempfile)).to be_nil
+        expect(provider.instance_variable_get(:@aider_history_path)).to be_nil
+      end
+
       it "does not clear a newer local history handle when cleaning up an older path" do
         older_path = provider.send(:prepare_llm_history_file!)
         newer_path = provider.send(:prepare_llm_history_file!)
