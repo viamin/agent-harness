@@ -361,7 +361,12 @@ module AgentHarness
 
           full_text = extract_non_delta_text(obj)
           if full_text
-            output = if replace_output_with_full_text?(output, full_text, saw_delta: saw_delta)
+            output = if replace_output_with_full_text?(
+              output,
+              full_text,
+              saw_delta: saw_delta,
+              authoritative_snapshot: authoritative_full_snapshot?(obj)
+            )
               full_text.dup
             else
               output + full_text
@@ -381,12 +386,17 @@ module AgentHarness
         saw_text ? output : nil
       end
 
-      def replace_output_with_full_text?(existing_output, full_text, saw_delta:)
+      def replace_output_with_full_text?(existing_output, full_text, saw_delta:, authoritative_snapshot:)
         saw_delta ||
+          (authoritative_snapshot && !existing_output.empty?) ||
           (!existing_output.empty? && (
             full_text.start_with?(existing_output) ||
             existing_output.start_with?(full_text)
           ))
+      end
+
+      def authoritative_full_snapshot?(obj)
+        obj["type"].to_s.match?(/\A(?:assistant\.message|turn\.)/)
       end
 
       def extract_tokens_from_jsonl(parsed_lines)

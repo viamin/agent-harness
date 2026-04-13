@@ -1080,6 +1080,35 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
           expect(response.tokens).to be_nil
         end
 
+        it "prefers a later corrected full-message snapshot over an earlier same-length snapshot" do
+          jsonl_output = [
+            {"type" => "assistant.message", "data" => {"content" => "Hxllo"}},
+            {"type" => "turn.completed", "data" => {"message" => {"content" => "Hello"}}}
+          ].map { |o| JSON.generate(o) }.join("\n")
+
+          allow(mock_executor).to receive(:execute).with(
+            ["github-copilot-cli", "--version"],
+            timeout: 5,
+            env: {}
+          ).and_return(version_result)
+
+          allow(mock_executor).to receive(:execute).with(
+            ["github-copilot-cli", "-p", "Hello", "--output-format", "json", "--allow-all-tools"],
+            anything
+          ).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello", dangerous_mode: true)
+          expect(response.output).to eq("Hello")
+          expect(response.tokens).to be_nil
+        end
+
         it "does not duplicate identical back-to-back full snapshots" do
           jsonl_output = [
             {"type" => "assistant.message", "data" => {"content" => "OK"}},
