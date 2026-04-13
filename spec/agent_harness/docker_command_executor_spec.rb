@@ -869,6 +869,7 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
 
     it "returns success and schedules async cleanup when container cleanup times out after success" do
       cleanup_timeouts = Queue.new
+      first_cleanup_attempt = true
 
       allow(executor).to receive(:apply_container_preparation) do |preparation, timeout:, deadline:, env:, cleanup_steps:|
         cleanup_steps << {command: ["cleanup"]}
@@ -885,8 +886,9 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
       )
       allow(executor).to receive(:run_host_command).and_return(mock_result)
       allow(executor).to receive(:cleanup_container_preparation) do |steps, timeout:, deadline:, command_name:|
-        if timeout && (timeout - 0.01).abs < Float::EPSILON
-          raise AgentHarness::TimeoutError, "Command timed out after 0.01 seconds: echo"
+        if first_cleanup_attempt
+          first_cleanup_attempt = false
+          raise AgentHarness::TimeoutError, "Command timed out after 1 seconds: echo"
         end
 
         cleanup_timeouts << timeout
@@ -895,7 +897,7 @@ RSpec.describe AgentHarness::DockerCommandExecutor do
 
       result = executor.execute(
         ["echo", "hello"],
-        timeout: 0.01,
+        timeout: 1,
         preparation: AgentHarness::ExecutionPreparation.new(
           file_writes: [{path: "~/.config/opencode/opencode.json", content: "{\"ok\":true}"}]
         )
