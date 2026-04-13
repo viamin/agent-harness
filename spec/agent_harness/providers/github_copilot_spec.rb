@@ -465,6 +465,19 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         expect(response.output).to eq("{\"type\":\"record\",\"content\":\"literal payload\"}\nfinal answer")
       end
 
+      it "preserves unknown typed JSON usage objects literally and ignores their token payloads" do
+        jsonl = <<~JSONL
+          {"type":"record","usage":{"input_tokens":99,"output_tokens":77}}
+          {"type":"assistant.message","data":{"content":"final answer"}}
+          {"type":"usage","data":{"inputTokens":4,"outputTokens":2}}
+        JSONL
+        result = make_result(stdout: jsonl)
+        response = provider.send(:parse_response, result, duration: 1.0)
+
+        expect(response.output).to eq("{\"type\":\"record\",\"usage\":{\"input_tokens\":99,\"output_tokens\":77}}\nfinal answer")
+        expect(response.tokens).to eq({input: 4, output: 2, total: 6})
+      end
+
       it "ignores non-string event content values" do
         jsonl = <<~JSONL
           {"type":"assistant.message","data":{"content":["not","text"]}}
