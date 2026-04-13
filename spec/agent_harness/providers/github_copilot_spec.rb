@@ -601,8 +601,24 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         expect(response.output).to eq("top-level content")
       end
 
+      it "falls back to top-level content when nested assistant message.content is empty" do
+        jsonl = '{"content":"top-level content","message":{"role":"assistant","content":""}}'
+        result = make_result(stdout: jsonl)
+        response = provider.send(:parse_response, result, duration: 1.0)
+
+        expect(response.output).to eq("top-level content")
+      end
+
       it "falls back to top-level output when nested assistant message.content is non-string" do
         jsonl = '{"output":"top-level output","message":{"role":"assistant","content":["nested output"]}}'
+        result = make_result(stdout: jsonl)
+        response = provider.send(:parse_response, result, duration: 1.0)
+
+        expect(response.output).to eq("top-level output")
+      end
+
+      it "falls back to top-level output when nested assistant message.content is empty" do
+        jsonl = '{"output":"top-level output","message":{"role":"assistant","content":""}}'
         result = make_result(stdout: jsonl)
         response = provider.send(:parse_response, result, duration: 1.0)
 

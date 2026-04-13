@@ -347,7 +347,7 @@ module AgentHarness
 
         if obj["message"].is_a?(Hash) && obj["message"].key?("content")
           nested_content = string_content(obj["message"]["content"])
-          return [nested_content, :assistant] if nested_content
+          return [nested_content, :assistant] if nested_content && !nested_content.empty?
         end
 
         output = string_content(obj["output"])
