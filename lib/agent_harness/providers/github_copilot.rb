@@ -375,7 +375,9 @@ module AgentHarness
         return false if extract_token_usage(obj)
         return false if string_content(obj["output"])
         return false if string_content(obj["content"])
-        return false if obj["message"].is_a?(Hash) && string_content(obj["message"]["content"])
+        return false if obj["message"].is_a?(Hash) &&
+          (message_content = string_content(obj["message"]["content"])) &&
+          !message_content.empty?
 
         true
       end

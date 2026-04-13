@@ -625,6 +625,14 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         expect(response.output).to eq("top-level output")
       end
 
+      it "preserves literal JSON when nested assistant message.content is empty and no sibling fallback exists" do
+        jsonl = '{"message":{"role":"assistant","content":""}}'
+        result = make_result(stdout: jsonl)
+        response = provider.send(:parse_response, result, duration: 1.0)
+
+        expect(response.output).to eq(jsonl)
+      end
+
       it "ignores top-level non-assistant role content objects" do
         jsonl = <<~JSONL
           {"role":"user","content":"user prompt"}
