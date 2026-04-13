@@ -1219,8 +1219,7 @@ module AgentHarness
             next({token: flag, managed_flag: false, flag_name: nil, takes_value: false})
           end
 
-          flag_name = flag.split("=", 2).first
-          takes_value = !flag.include?("=") && codex_value_flag?(flag_name)
+          flag_name, takes_value = parse_flag_token(flag)
           expects_value = takes_value
           {
             token: flag,
@@ -1229,6 +1228,20 @@ module AgentHarness
             managed_flag: dangerous_mode_flags.include?(flag) || sandbox_bypass_flags.include?(flag)
           }
         end
+      end
+
+      def parse_flag_token(flag)
+        flag_name = flag.split("=", 2).first
+        return [flag_name, false] if flag.include?("=")
+
+        return [flag_name, true] if codex_value_flag?(flag_name)
+
+        return [flag, false] unless flag.start_with?("-") && flag.length > 2 && !flag.start_with?("--")
+
+        short_flag = flag[0, 2]
+        return [short_flag, false] if codex_value_flag?(short_flag)
+
+        [flag, false]
       end
 
       def sandbox_mode_flag?(flag)
