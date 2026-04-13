@@ -131,11 +131,7 @@ module AgentHarness
       end
 
       def dangerous_mode_flags
-        ["--allow-all"]
-      end
-
-      def programmatic_tool_approval_flags
-        ["--allow-all-tools"]
+        ["--allow-all-tools", "--allow-all"]
       end
 
       def supports_sessions?
@@ -270,11 +266,6 @@ module AgentHarness
         model = effective_model_name(runtime)
         cmd += ["--model", model] if model
 
-        # Copilot prompt mode is non-interactive, so tool approvals must be
-        # granted up front for normal programmatic runs.
-        cmd += programmatic_tool_approval_flags
-
-        # dangerous_mode remains the broader blanket approval switch.
         if options[:dangerous_mode] && supports_dangerous_mode?
           cmd += dangerous_mode_flags
         end
@@ -501,8 +492,35 @@ module AgentHarness
       end
 
       def extract_tokens_from_jsonl(parsed_lines)
-        usages = authoritative_usage_set(parsed_lines) || parsed_lines.flat_map { |obj| find_usages(obj) }
+        authoritative = authoritative_usage_set(parsed_lines)
 
+        if authoritative.nil?
+          usages = parsed_lines.flat_map { |obj| find_usages(obj) }
+          return aggregate_token_totals(usages)
+        end
+
+        auth_input = sum_token_field(authoritative, "input_tokens", "prompt_tokens", "inputTokens", "promptTokens")
+        auth_output = sum_token_field(authoritative, "output_tokens", "completion_tokens", "outputTokens", "completionTokens")
+
+        if !auth_input.nil? && !auth_output.nil?
+          return {input: auth_input, output: auth_output, total: auth_input + auth_output}
+        end
+
+        fallback_usages = parsed_lines.flat_map { |obj| find_usages(obj) }
+        fallback_input = sum_token_field(fallback_usages, "input_tokens", "prompt_tokens", "inputTokens", "promptTokens")
+        fallback_output = sum_token_field(fallback_usages, "output_tokens", "completion_tokens", "outputTokens", "completionTokens")
+
+        input = auth_input.nil? ? fallback_input : auth_input
+        output = auth_output.nil? ? fallback_output : auth_output
+
+        return nil if input.nil? && output.nil?
+
+        input ||= 0
+        output ||= 0
+        {input: input, output: output, total: input + output}
+      end
+
+      def aggregate_token_totals(usages)
         total_input = 0
         total_output = 0
         found = false
@@ -520,6 +538,17 @@ module AgentHarness
         return nil unless found
 
         {input: total_input, output: total_output, total: total_input + total_output}
+      end
+
+      def sum_token_field(usages, *keys)
+        total = nil
+        usages.each do |usage|
+          value = token_count_for(usage, *keys)
+          next if value.nil?
+
+          total = total.nil? ? value : total + value
+        end
+        total
       end
 
       def authoritative_usage_set(parsed_lines)
