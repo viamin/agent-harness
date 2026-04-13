@@ -538,7 +538,10 @@ module AgentHarness
             wrapped_same_turn_finalization =
               pending_turn_usage_source == :wrapped &&
               pending_turn_usage &&
-              !current_turn_finalized_output
+              (
+                !current_turn_finalized_output ||
+                pending_wrapped_same_turn_finalization
+              )
             start_new_turn.call
             replace_current_turn_parts.call(extract_message_content_parts(event))
             pending_wrapped_same_turn_finalization = wrapped_same_turn_finalization
@@ -663,7 +666,10 @@ module AgentHarness
               wrapped_same_turn_finalization =
                 pending_turn_usage_source == :wrapped &&
                 pending_turn_usage &&
-                !current_turn_finalized_output
+                (
+                  !current_turn_finalized_output ||
+                  pending_wrapped_same_turn_finalization
+                )
               start_new_turn.call
               replace_current_turn_parts.call(extract_message_content_parts(payload))
               pending_wrapped_same_turn_finalization = wrapped_same_turn_finalization
@@ -674,7 +680,10 @@ module AgentHarness
               wrapped_same_turn_finalization =
                 pending_turn_usage_source == :wrapped &&
                 pending_turn_usage &&
-                !current_turn_finalized_output
+                (
+                  !current_turn_finalized_output ||
+                  pending_wrapped_same_turn_finalization
+                )
               start_new_turn.call
               replace_current_turn_parts.call(completion_parts)
               pending_wrapped_same_turn_finalization = wrapped_same_turn_finalization

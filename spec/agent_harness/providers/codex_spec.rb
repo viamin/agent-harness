@@ -3543,6 +3543,58 @@ RSpec.describe AgentHarness::Providers::Codex do
           expect(response.tokens).to eq({input: 50, output: 10, total: 60})
         end
 
+        it "does not double-count wrapped usage when repeated wrapped agent_message events finalize the same failed turn" do
+          jsonl_output = [
+            JSON.generate({
+              "type" => "event_msg",
+              "payload" => {
+                "type" => "agent_message_delta",
+                "message" => "partial"
+              }
+            }),
+            JSON.generate({
+              "type" => "event_msg",
+              "payload" => {
+                "type" => "token_count",
+                "info" => {
+                  "last_token_usage" => {
+                    "input_tokens" => 50,
+                    "output_tokens" => 10
+                  }
+                }
+              }
+            }),
+            JSON.generate({
+              "type" => "event_msg",
+              "payload" => {
+                "type" => "agent_message",
+                "message" => "first final"
+              }
+            }),
+            JSON.generate({
+              "type" => "event_msg",
+              "payload" => {
+                "type" => "agent_message",
+                "message" => "second final"
+              }
+            }),
+            JSON.generate({"type" => "turn.failed", "usage" => {"input_tokens" => 50, "output_tokens" => 10}})
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq("")
+          expect(response.tokens).to eq({input: 50, output: 10, total: 60})
+        end
+
         it "does not double-count wrapped usage when agent_message finalizes the same failed turn" do
           jsonl_output = [
             JSON.generate({
@@ -3558,6 +3610,46 @@ RSpec.describe AgentHarness::Providers::Codex do
               }
             }),
             JSON.generate({"type" => "agent_message", "message" => "final"}),
+            JSON.generate({"type" => "turn.failed", "usage" => {"input_tokens" => 50, "output_tokens" => 10}})
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq("")
+          expect(response.tokens).to eq({input: 50, output: 10, total: 60})
+        end
+
+        it "does not double-count wrapped usage when repeated agent_message events finalize the same failed turn" do
+          jsonl_output = [
+            JSON.generate({
+              "type" => "event_msg",
+              "payload" => {
+                "type" => "agent_message_delta",
+                "message" => "partial"
+              }
+            }),
+            JSON.generate({
+              "type" => "event_msg",
+              "payload" => {
+                "type" => "token_count",
+                "info" => {
+                  "last_token_usage" => {
+                    "input_tokens" => 50,
+                    "output_tokens" => 10
+                  }
+                }
+              }
+            }),
+            JSON.generate({"type" => "agent_message", "message" => "first final"}),
+            JSON.generate({"type" => "agent_message", "message" => "second final"}),
             JSON.generate({"type" => "turn.failed", "usage" => {"input_tokens" => 50, "output_tokens" => 10}})
           ].join("\n")
 
