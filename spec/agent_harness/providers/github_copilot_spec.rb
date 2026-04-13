@@ -398,6 +398,19 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         expect(response.error).to be_nil
       end
 
+      it "keeps delta chunks when the trailing assistant.message content is malformed" do
+        jsonl = <<~JSONL
+          {"type":"assistant.message_delta","data":{"deltaContent":"Hel"}}
+          {"type":"assistant.message_delta","data":{"deltaContent":"lo"}}
+          {"type":"assistant.message","data":{"content":["not","text"]}}
+        JSONL
+        result = make_result(stdout: jsonl)
+        response = provider.send(:parse_response, result, duration: 1.0)
+
+        expect(response.output).to eq("Hello")
+        expect(response.error).to be_nil
+      end
+
       it "prefers the final assistant.message over preceding delta chunks even when literal stdout intervenes" do
         jsonl = <<~JSONL
           {"type":"assistant.message_delta","data":{"deltaContent":"Hel"}}
