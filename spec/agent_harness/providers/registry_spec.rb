@@ -1214,11 +1214,11 @@ RSpec.describe AgentHarness::Providers::Registry do
       expect(runtime).to include(
         output_format: :text,
         supports_token_counting: true,
-        supports_dangerous_mode: true
+        supports_dangerous_mode: false
       )
       expect(capabilities).to include(
         tool_use: true,
-        dangerous_mode: true
+        dangerous_mode: false
       )
     end
 
