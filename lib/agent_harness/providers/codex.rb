@@ -338,6 +338,7 @@ module AgentHarness
         runtime_flags = Array(runtime_flags)
         all_user_flags = Array(default_flags) + runtime_flags
         explicit_full_auto_requested = managed_full_auto_requested?(all_user_flags)
+        explicit_bypass_requested = managed_bypass_requested?(all_user_flags)
         keep_full_auto = !externally_sandboxed && (adding_full_auto || explicit_full_auto_requested)
         keep_bypass = externally_sandboxed || !keep_full_auto
 
@@ -364,7 +365,8 @@ module AgentHarness
             flags,
             externally_sandboxed: externally_sandboxed,
             keep_full_auto: keep_full_auto,
-            provider_adds_full_auto: adding_full_auto
+            provider_adds_full_auto: adding_full_auto,
+            explicit_bypass_requested: explicit_bypass_requested
           )
           append_managed_sandbox_flags(
             cmd,
@@ -394,7 +396,8 @@ module AgentHarness
             runtime_flags,
             externally_sandboxed: externally_sandboxed,
             keep_full_auto: keep_full_auto,
-            provider_adds_full_auto: adding_full_auto
+            provider_adds_full_auto: adding_full_auto,
+            explicit_bypass_requested: explicit_bypass_requested
           )
           append_managed_sandbox_flags(
             cmd,
@@ -1147,9 +1150,9 @@ module AgentHarness
         raise ArgumentError, "Codex configuration error: #{label} contains non-string values"
       end
 
-      def normalize_sandbox_flags(flags, externally_sandboxed:, keep_full_auto:, provider_adds_full_auto:)
+      def normalize_sandbox_flags(flags, externally_sandboxed:, keep_full_auto:, provider_adds_full_auto:, explicit_bypass_requested:)
         explicit_full_auto_requested = managed_full_auto_requested?(flags)
-        managed_sandbox_mode = externally_sandboxed || keep_full_auto
+        managed_sandbox_mode = externally_sandboxed || keep_full_auto || explicit_bypass_requested
         skip_next_sandbox_value = false
 
         token_infos = each_flag_token(flags)
@@ -1207,6 +1210,12 @@ module AgentHarness
       def managed_full_auto_requested?(flags)
         each_flag_token(flags).any? do |token_info|
           token_info[:managed_flag] && dangerous_mode_flags.include?(token_info[:token])
+        end
+      end
+
+      def managed_bypass_requested?(flags)
+        each_flag_token(flags).any? do |token_info|
+          token_info[:managed_flag] && sandbox_bypass_flags.include?(token_info[:token])
         end
       end
 
