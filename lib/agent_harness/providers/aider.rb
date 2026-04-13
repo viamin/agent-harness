@@ -388,6 +388,7 @@ module AgentHarness
 
         input = parse_token_count(match[:input])
         output = parse_token_count(match[:output])
+        return nil if input.negative? || output.negative?
 
         {input: input, output: output, total: input + output}
       end

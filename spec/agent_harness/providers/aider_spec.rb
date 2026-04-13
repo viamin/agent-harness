@@ -915,6 +915,19 @@ RSpec.describe AgentHarness::Providers::Aider do
         expect(tokens).to be_nil
       end
 
+      it "rejects negative token counters in footer output" do
+        tokens = provider.send(
+          :parse_token_usage_text,
+          <<~TEXT
+            response text
+
+            Tokens: -42 sent, 8 received.
+          TEXT
+        )
+
+        expect(tokens).to be_nil
+      end
+
       it "parses output footer token counters after a blank-line separator" do
         tokens = provider.send(
           :parse_token_usage_text,
