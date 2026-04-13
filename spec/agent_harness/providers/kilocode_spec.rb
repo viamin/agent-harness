@@ -1218,6 +1218,26 @@ RSpec.describe AgentHarness::Providers::Kilocode do
         expect(response.tokens).to eq({input: 25, output: 12, total: 37})
       end
 
+      it "preserves earlier top-level result hash aliases across later usage-only result events" do
+        ndjson = [
+          {"type" => "result", "message" => {"text" => "Final answer", "message" => "Ignored alias"}},
+          {"type" => "result", "usage" => {"input_tokens" => 25, "output_tokens" => 12}}
+        ].map { |e| JSON.generate(e) }.join("\n")
+
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: ndjson,
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        response = provider.send_message(prompt: "Hello")
+        expect(response.output).to eq("Final answer")
+        expect(response.tokens).to eq({input: 25, output: 12, total: 37})
+      end
+
       it "does not return raw NDJSON for structured error-only output" do
         ndjson = [
           {"type" => "error", "message" => "Provider request failed"}
