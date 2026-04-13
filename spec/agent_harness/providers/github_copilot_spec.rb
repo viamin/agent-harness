@@ -310,6 +310,21 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         ])
       end
 
+      it "falls back to silent prompt mode without probing when the CLI is unavailable" do
+        allow(mock_executor).to receive(:which).with("github-copilot-cli").and_return(nil)
+        expect(mock_executor).not_to receive(:execute).with(["github-copilot-cli", "--version"], any_args)
+
+        command = provider.send(:build_command, "Hello", {})
+
+        expect(command).to eq([
+          "github-copilot-cli",
+          "-p",
+          "Hello",
+          "-s",
+          "--allow-all-tools"
+        ])
+      end
+
       it "omits --output-format json on older CLI versions" do
         allow(mock_executor).to receive(:execute).with(
           ["github-copilot-cli", "--version"],
@@ -629,6 +644,27 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
             duration: 0.1
           )
         )
+
+        allow(mock_executor).to receive(:execute).with(
+          ["github-copilot-cli", "-p", "Hello", "-s", "--allow-all-tools"],
+          anything
+        ).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "plain text response",
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        response = provider.send_message(prompt: "Hello")
+        expect(response.output).to eq("plain text response")
+        expect(response.tokens).to be_nil
+      end
+
+      it "skips the version probe during send_message when the CLI is unavailable" do
+        allow(mock_executor).to receive(:which).with("github-copilot-cli").and_return(nil)
+        expect(mock_executor).not_to receive(:execute).with(["github-copilot-cli", "--version"], any_args)
 
         allow(mock_executor).to receive(:execute).with(
           ["github-copilot-cli", "-p", "Hello", "-s", "--allow-all-tools"],
