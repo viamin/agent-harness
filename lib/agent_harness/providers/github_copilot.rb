@@ -125,6 +125,10 @@ module AgentHarness
         ["--allow-all"]
       end
 
+      def programmatic_tool_approval_flags
+        ["--allow-all-tools"]
+      end
+
       def supports_sessions?
         true
       end
@@ -252,8 +256,11 @@ module AgentHarness
           cmd << "-s"
         end
 
-        # Keep automatic approval behind the explicit dangerous_mode opt-in so
-        # safe-mode prompts preserve Copilot's normal permission checks.
+        # Copilot prompt mode is non-interactive, so tool approvals must be
+        # granted up front for normal programmatic runs.
+        cmd += programmatic_tool_approval_flags
+
+        # dangerous_mode remains the broader blanket approval switch.
         if options[:dangerous_mode] && supports_dangerous_mode?
           cmd += dangerous_mode_flags
         end
