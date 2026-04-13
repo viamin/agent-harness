@@ -351,10 +351,10 @@ module AgentHarness
         end
 
         output = string_content(obj["output"])
-        return [output, :assistant] if output
+        return [output, :assistant] if output && !output.empty?
 
         content = string_content(obj["content"])
-        return [content, :assistant] if content
+        return [content, :assistant] if content && !content.empty?
 
         [nil, nil]
       end
@@ -373,8 +373,8 @@ module AgentHarness
         return false if obj["message"].is_a?(Hash) && obj["message"].key?("role") &&
           !assistant_role?(obj["message"]["role"])
         return false if extract_token_usage(obj)
-        return false if string_content(obj["output"])
-        return false if string_content(obj["content"])
+        return false if (output = string_content(obj["output"])) && !output.empty?
+        return false if (content = string_content(obj["content"])) && !content.empty?
         return false if obj["message"].is_a?(Hash) &&
           (message_content = string_content(obj["message"]["content"])) &&
           !message_content.empty?
