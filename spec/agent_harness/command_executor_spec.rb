@@ -678,9 +678,9 @@ RSpec.describe AgentHarness::CommandExecutor do
             file_writes: [{path: file_path, content: "{\"ok\":true}"}]
           )
 
-          allow(FileUtils).to receive(:cp).and_wrap_original do |original, *args|
-            sleep 0.05 if args.first == file_path && args.last == {preserve: true}
-            original.call(*args)
+          allow(FileUtils).to receive(:cp).and_wrap_original do |original, *args, **kwargs|
+            sleep 0.05 if args.first == file_path && kwargs == {preserve: true}
+            original.call(*args, **kwargs)
           end
 
           expect {

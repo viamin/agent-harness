@@ -432,20 +432,14 @@ module AgentHarness
       end
 
       def extract_result_text(payload)
-        if payload.is_a?(String)
+        case payload
+        when String
           return if payload.strip.empty?
 
-          return payload.strip
+          payload.strip
+        when Hash
+          extract_result_text(payload["text"]) || extract_result_text(payload["message"])
         end
-        return unless payload.is_a?(Hash)
-
-        candidates = [
-          payload["text"],
-          payload["message"]
-        ]
-
-        result_text = candidates.find { |value| value.is_a?(String) && !value.strip.empty? }
-        result_text&.strip
       end
 
       def build_structured_error(result, structured_errors, unstructured_output:)
