@@ -329,6 +329,12 @@ module AgentHarness
         cmd = [self.class.binary_name, "exec", "--json"]
         externally_sandboxed = externally_sandboxed?(options)
         adding_full_auto = !externally_sandboxed && (sandboxed_environment? || options[:dangerous_mode])
+        managed_sandbox_flags = {}
+        runtime = options[:provider_runtime]
+        all_user_flags = Array(@config.default_flags) + Array(runtime&.flags)
+        explicit_full_auto_requested = all_user_flags.any? { |flag| dangerous_mode_flags.include?(flag) }
+        keep_full_auto = !externally_sandboxed && (adding_full_auto || explicit_full_auto_requested)
+        keep_bypass = externally_sandboxed || !keep_full_auto
 
         # When externally_sandboxed is set, use --dangerously-bypass-approvals-and-sandbox
         # instead of --full-auto. In the Codex CLI, full_auto is checked first and
@@ -338,7 +344,13 @@ module AgentHarness
         # When NOT externally sandboxed: use --full-auto for Docker containers
         # (to skip nested sandboxing) or when dangerous_mode is explicitly requested.
         if adding_full_auto
-          cmd += dangerous_mode_flags
+          append_managed_sandbox_flags(
+            cmd,
+            dangerous_mode_flags,
+            keep_full_auto: keep_full_auto,
+            keep_bypass: keep_bypass,
+            managed_sandbox_flags: managed_sandbox_flags
+          )
         end
 
         flags = @config.default_flags
@@ -351,18 +363,28 @@ module AgentHarness
             externally_sandboxed: externally_sandboxed,
             adding_full_auto: adding_full_auto
           )
-          cmd += flags if flags.any?
+          append_managed_sandbox_flags(
+            cmd,
+            flags,
+            keep_full_auto: keep_full_auto,
+            keep_bypass: keep_bypass,
+            managed_sandbox_flags: managed_sandbox_flags
+          )
         end
 
         if externally_sandboxed
-          cmd += sandbox_bypass_flags
+          append_managed_sandbox_flags(
+            cmd,
+            sandbox_bypass_flags,
+            keep_full_auto: keep_full_auto,
+            keep_bypass: keep_bypass,
+            managed_sandbox_flags: managed_sandbox_flags
+          )
         end
 
         if options[:session]
           cmd += session_flags(options[:session])
         end
-
-        runtime = options[:provider_runtime]
         if runtime
           cmd += ["--model", runtime.model] if runtime.model
           runtime_flags = normalize_sandbox_flags(
@@ -370,14 +392,15 @@ module AgentHarness
             externally_sandboxed: externally_sandboxed,
             adding_full_auto: adding_full_auto
           )
-          cmd += runtime_flags unless runtime_flags.empty?
+          append_managed_sandbox_flags(
+            cmd,
+            runtime_flags,
+            keep_full_auto: keep_full_auto,
+            keep_bypass: keep_bypass,
+            managed_sandbox_flags: managed_sandbox_flags
+          )
         end
 
-        cmd = normalize_managed_sandbox_flags(
-          cmd,
-          externally_sandboxed: externally_sandboxed,
-          adding_full_auto: adding_full_auto
-        )
         cmd << prompt
 
         cmd
@@ -1027,25 +1050,20 @@ module AgentHarness
         normalized_flags
       end
 
-      def normalize_managed_sandbox_flags(command, externally_sandboxed:, adding_full_auto:)
-        managed_flags = (dangerous_mode_flags + sandbox_bypass_flags).each_with_object({}) do |flag, flags|
-          flags[flag] = true
-        end
-        full_auto_requested = adding_full_auto || command.any? { |part| dangerous_mode_flags.include?(part) }
-        keep_full_auto = !externally_sandboxed && full_auto_requested
-        keep_bypass = externally_sandboxed || !keep_full_auto
-        seen_flags = {}
+      def append_managed_sandbox_flags(command, flags, keep_full_auto:, keep_bypass:, managed_sandbox_flags:)
+        return if flags.empty?
 
-        command.each_with_object([]) do |part, deduped_command|
-          if managed_flags[part]
-            next if dangerous_mode_flags.include?(part) && !keep_full_auto
-            next if sandbox_bypass_flags.include?(part) && !keep_bypass
-            next if seen_flags[part]
-
-            seen_flags[part] = true
+        flags.each do |flag|
+          if dangerous_mode_flags.include?(flag)
+            next unless keep_full_auto
+          elsif sandbox_bypass_flags.include?(flag)
+            next unless keep_bypass
           end
 
-          deduped_command << part
+          next if managed_sandbox_flags[flag]
+
+          managed_sandbox_flags[flag] = true if dangerous_mode_flags.include?(flag) || sandbox_bypass_flags.include?(flag)
+          command << flag
         end
       end
 

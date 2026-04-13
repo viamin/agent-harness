@@ -464,6 +464,42 @@ RSpec.describe AgentHarness::Providers::Codex do
         end
       end
 
+      it "preserves a session value that matches a managed sandbox flag" do
+        expect(mock_executor).to receive(:execute).with(
+          [
+            "codex",
+            "exec",
+            "--json",
+            "--dangerously-bypass-approvals-and-sandbox",
+            "--session",
+            "--full-auto",
+            "Hello"
+          ],
+          anything
+        ).and_return(success_result)
+
+        provider.send_message(prompt: "Hello", externally_sandboxed: true, session: "--full-auto")
+      end
+
+      it "preserves a model value that matches a managed sandbox flag" do
+        runtime = AgentHarness::ProviderRuntime.new(model: "--dangerously-bypass-approvals-and-sandbox")
+
+        expect(mock_executor).to receive(:execute).with(
+          [
+            "codex",
+            "exec",
+            "--json",
+            "--full-auto",
+            "--model",
+            "--dangerously-bypass-approvals-and-sandbox",
+            "Hello"
+          ],
+          anything
+        ).and_return(success_result)
+
+        provider.send_message(prompt: "Hello", dangerous_mode: true, provider_runtime: runtime)
+      end
+
       it "returns a Response object" do
         jsonl_output = [
           JSON.generate({"type" => "message.delta", "delta" => {"text" => "response output"}}),
