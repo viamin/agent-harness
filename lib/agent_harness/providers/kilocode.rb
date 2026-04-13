@@ -428,7 +428,11 @@ module AgentHarness
       end
 
       def extract_result_text(payload)
-        return payload if payload.is_a?(String)
+        if payload.is_a?(String)
+          return if payload.strip.empty?
+
+          return payload.strip
+        end
         return unless payload.is_a?(Hash)
 
         candidates = [
