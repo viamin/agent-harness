@@ -486,6 +486,13 @@ module AgentHarness
           current_turn_finalized_output = false
         end
 
+        fail_current_turn = lambda do
+          latest_completed_parts = []
+          current_turn_parts = []
+          turn_completed = true
+          current_turn_finalized_output = false
+        end
+
         events.each do |event|
           type = event["type"]
 
@@ -573,6 +580,27 @@ module AgentHarness
             end
 
             finalize_current_turn.call
+          when "turn.failed"
+            turn_usage = build_token_usage(event["usage"])
+            same_wrapped_turn = pending_turn_usage_source == :wrapped &&
+              same_turn_usage?(pending_turn_usage, turn_usage) &&
+              current_turn_parts.empty?
+
+            finalize_pending_wrapped_turn.call unless same_wrapped_turn
+
+            if turn_completed && !same_wrapped_turn
+              commit_pending_turn.call
+              turn_completed = false
+            end
+
+            if turn_usage
+              has_usage = true
+              turn_usage = merge_same_turn_usage(pending_turn_usage, turn_usage) if same_wrapped_turn
+              pending_turn_usage = turn_usage
+              pending_turn_usage_source = :turn_completed
+            end
+
+            fail_current_turn.call
           when "event_msg"
             payload = event["payload"]
             next unless payload.is_a?(Hash)
