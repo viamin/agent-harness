@@ -591,6 +591,52 @@ RSpec.describe AgentHarness::Providers::Codex do
         provider.send_message(prompt: "Hello", dangerous_mode: true, provider_runtime: runtime)
       end
 
+      it "preserves a short default flag value for other Codex value-taking flags" do
+        config_with_profile_value = AgentHarness::ProviderConfig.new(:codex).tap do |c|
+          c.default_flags = ["-p", "--full-auto", "--quiet"]
+          c.externally_sandboxed = true
+        end
+        provider_with_profile_value = described_class.new(config: config_with_profile_value, executor: mock_executor)
+
+        expect(mock_executor).to receive(:execute).with(
+          [
+            "codex",
+            "exec",
+            "--json",
+            "-p",
+            "--full-auto",
+            "--quiet",
+            "--dangerously-bypass-approvals-and-sandbox",
+            "Hello"
+          ],
+          anything
+        ).and_return(success_result)
+
+        provider_with_profile_value.send_message(prompt: "Hello")
+      end
+
+      it "preserves a short runtime flag value for other Codex value-taking flags" do
+        runtime = AgentHarness::ProviderRuntime.new(
+          flags: ["-o", "--dangerously-bypass-approvals-and-sandbox", "--trace"]
+        )
+
+        expect(mock_executor).to receive(:execute).with(
+          [
+            "codex",
+            "exec",
+            "--json",
+            "--full-auto",
+            "-o",
+            "--dangerously-bypass-approvals-and-sandbox",
+            "--trace",
+            "Hello"
+          ],
+          anything
+        ).and_return(success_result)
+
+        provider.send_message(prompt: "Hello", dangerous_mode: true, provider_runtime: runtime)
+      end
+
       it "returns a Response object" do
         jsonl_output = [
           JSON.generate({"type" => "message.delta", "delta" => {"text" => "response output"}}),
