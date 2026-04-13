@@ -2354,6 +2354,30 @@ RSpec.describe AgentHarness::Providers::Codex do
           expect(response.tokens).to eq({input: 7, output: 4, total: 11})
         end
 
+        it "treats empty top-level turn_complete output as the final assistant message" do
+          jsonl_output = [
+            JSON.generate({"type" => "agent_message_delta", "message" => "partial "}),
+            JSON.generate({
+              "type" => "turn_complete",
+              "last_agent_message" => ""
+            }),
+            JSON.generate({"type" => "turn.completed", "usage" => {"input_tokens" => 7, "output_tokens" => 4}})
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq("")
+          expect(response.tokens).to eq({input: 7, output: 4, total: 11})
+        end
+
         it "ignores non-message top-level task_complete payloads" do
           jsonl_output = [
             JSON.generate({"type" => "agent_message_delta", "message" => "partial "}),
@@ -2512,6 +2536,44 @@ RSpec.describe AgentHarness::Providers::Codex do
 
         it "extracts final assistant text from wrapped turn_complete payloads" do
           jsonl_output = [
+            JSON.generate({
+              "type" => "event_msg",
+              "payload" => {
+                "type" => "turn_complete",
+                "last_agent_message" => ""
+              }
+            }),
+            JSON.generate({
+              "type" => "event_msg",
+              "payload" => {
+                "type" => "token_count",
+                "info" => {
+                  "last_token_usage" => {
+                    "input_tokens" => 3,
+                    "output_tokens" => 2
+                  }
+                }
+              }
+            })
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq("")
+          expect(response.tokens).to eq({input: 3, output: 2, total: 5})
+        end
+
+        it "treats empty wrapped turn_complete output as the final assistant message after partial output" do
+          jsonl_output = [
+            JSON.generate({"type" => "event_msg", "payload" => {"type" => "agent_message_delta", "message" => "partial "}}),
             JSON.generate({
               "type" => "event_msg",
               "payload" => {
