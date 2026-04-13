@@ -117,12 +117,12 @@ module AgentHarness
           tool_use: true,
           json_mode: false,
           mcp: false,
-          dangerous_mode: false
+          dangerous_mode: true
         }
       end
 
-      def programmatic_tool_approval_flags
-        ["--allow-all-tools"]
+      def dangerous_mode_flags
+        ["--allow-all"]
       end
 
       def supports_sessions?
@@ -252,10 +252,9 @@ module AgentHarness
           cmd << "-s"
         end
 
-        # GitHub documents --allow-all-tools for programmatic prompt-mode usage.
-        # Since this provider always invokes Copilot via -p, the CLI cannot stop
-        # for interactive tool approvals and must be pre-authorized up front.
-        cmd += programmatic_tool_approval_flags
+        if options[:dangerous_mode] && supports_dangerous_mode?
+          cmd += dangerous_mode_flags
+        end
 
         if options[:session] && !options[:session].empty?
           cmd += session_flags(options[:session])
