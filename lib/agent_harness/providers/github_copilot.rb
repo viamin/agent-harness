@@ -491,8 +491,11 @@ module AgentHarness
         return obj if usage_payload?(obj)
         return obj["data"] if usage_payload?(obj["data"])
         return obj.dig("data", "usage") if obj.dig("data", "usage").is_a?(Hash)
+        return obj.dig("data", "tokens") if obj.dig("data", "tokens").is_a?(Hash)
         return obj.dig("message", "usage") if obj.dig("message", "usage").is_a?(Hash)
+        return obj.dig("message", "tokens") if obj.dig("message", "tokens").is_a?(Hash)
         return obj.dig("data", "message", "usage") if obj.dig("data", "message", "usage").is_a?(Hash)
+        return obj.dig("data", "message", "tokens") if obj.dig("data", "message", "tokens").is_a?(Hash)
         model_metrics_usage(obj.dig("data", "modelMetrics")) ||
           model_metrics_usage(obj.dig("data", "model_metrics"))
       end

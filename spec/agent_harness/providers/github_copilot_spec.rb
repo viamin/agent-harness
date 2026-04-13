@@ -1593,6 +1593,37 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
           expect(response.tokens).to eq({input: 50, output: 15, total: 65})
         end
 
+        it "extracts token usage from wrapped tokens payloads" do
+          jsonl_output = [
+            {"type" => "assistant.message", "data" => {"content" => "response"}},
+            {"type" => "turn.completed", "data" => {"tokens" => {"input_tokens" => 44, "output_tokens" => 11}}},
+            {"message" => {"tokens" => {"promptTokens" => "6", "completionTokens" => 4}}},
+            {"data" => {"message" => {"tokens" => {"inputTokens" => 5, "outputTokens" => 1}}}}
+          ].map { |o| JSON.generate(o) }.join("\n")
+
+          allow(mock_executor).to receive(:execute).with(
+            ["github-copilot-cli", "--version"],
+            timeout: 5,
+            env: {}
+          ).and_return(version_result)
+
+          allow(mock_executor).to receive(:execute).with(
+            ["github-copilot-cli", "-p", "Hello", "--output-format", "json", "--allow-all-tools", "--allow-all"],
+            anything
+          ).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello", dangerous_mode: true)
+          expect(response.output).to eq("response")
+          expect(response.tokens).to eq({input: 55, output: 16, total: 71})
+        end
+
         it "extracts token usage from shutdown metrics payloads" do
           jsonl_output = [
             {"type" => "assistant.message", "data" => {"content" => "response"}},
