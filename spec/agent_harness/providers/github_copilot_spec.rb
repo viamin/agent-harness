@@ -334,6 +334,32 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         expect(response.error).to be_nil
       end
 
+      it "ignores empty assistant.message_delta chunks around non-empty deltas" do
+        jsonl = <<~JSONL
+          {"type":"assistant.message_delta","data":{"deltaContent":""}}
+          {"type":"assistant.message_delta","data":{"deltaContent":"Hello"}}
+          {"type":"assistant.message_delta","data":{"deltaContent":""}}
+          {"type":"assistant.message_delta","data":{"deltaContent":" world"}}
+        JSONL
+        result = make_result(stdout: jsonl)
+        response = provider.send(:parse_response, result, duration: 1.0)
+
+        expect(response.output).to eq("Hello world")
+        expect(response.error).to be_nil
+      end
+
+      it "ignores empty assistant.message_delta chunks before literal stdout" do
+        jsonl = <<~JSONL
+          {"type":"assistant.message_delta","data":{"deltaContent":""}}
+          literal output
+        JSONL
+        result = make_result(stdout: jsonl)
+        response = provider.send(:parse_response, result, duration: 1.0)
+
+        expect(response.output).to eq("literal output\n")
+        expect(response.error).to be_nil
+      end
+
       it "prefers the final assistant.message over preceding delta chunks" do
         jsonl = <<~JSONL
           {"type":"assistant.message_delta","data":{"deltaContent":"Hel"}}
