@@ -560,6 +560,8 @@ module AgentHarness
           obj["tokens"],
           usage_payload?(obj) ? obj : nil,
           usage_payload?(obj["data"]) ? obj["data"] : nil,
+          usage_payload?(obj["message"]) ? obj["message"] : nil,
+          usage_payload?(nested_hash_value(obj, "data", "message")) ? nested_hash_value(obj, "data", "message") : nil,
           nested_hash_value(obj, "data", "usage"),
           nested_hash_value(obj, "data", "tokens"),
           nested_hash_value(obj, "message", "usage"),
