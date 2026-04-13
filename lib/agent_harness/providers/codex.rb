@@ -535,9 +535,13 @@ module AgentHarness
           when "agent_message"
             next unless wrapped_assistant_payload?(event)
 
+            wrapped_same_turn_finalization =
+              pending_turn_usage_source == :wrapped &&
+              pending_turn_usage &&
+              !current_turn_finalized_output
             start_new_turn.call
             replace_current_turn_parts.call(extract_message_content_parts(event))
-            pending_wrapped_same_turn_finalization = false
+            pending_wrapped_same_turn_finalization = wrapped_same_turn_finalization
           when "item.completed"
             item = event["item"]
             next unless item.is_a?(Hash)
