@@ -1031,6 +1031,27 @@ RSpec.describe AgentHarness::Providers::Kilocode do
         expect(response.tokens).to eq({input: 10, output: 5, total: 15})
       end
 
+      it "falls through blank top-level message hash aliases on structured errors" do
+        ndjson = [
+          {"type" => "error", "message" => {"text" => " \t", "message" => "Top-level hash failure"}},
+          {"type" => "step_finish", "part" => {"tokens" => {"input" => 10, "output" => 5}}}
+        ].map { |e| JSON.generate(e) }.join("\n")
+
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: ndjson,
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        response = provider.send_message(prompt: "Hello")
+        expect(response.failed?).to be true
+        expect(response.error).to eq("Top-level hash failure")
+        expect(response.tokens).to eq({input: 10, output: 5, total: 15})
+      end
+
       it "captures structured error text from top-level text aliases" do
         ndjson = [
           {"type" => "error", "text" => {"message" => "Top-level text failure"}},
