@@ -1383,6 +1383,29 @@ RSpec.describe AgentHarness::Providers::Aider do
           expect(response.tokens).to eq({input: 80, output: 40, total: 120})
         end
 
+        it "extracts tokens from camelCase usage keys in history entries" do
+          allow(mock_executor).to receive(:execute) do |_cmd, _opts|
+            tempfile = provider.instance_variable_get(:@aider_history_tempfile)
+            path = tempfile.path if tempfile
+            if path
+              File.write(path, JSON.generate([
+                {"usage" => {"promptTokens" => 80, "completionTokens" => 40}},
+                {"response" => {"usage" => {"inputTokens" => "20", "outputTokens" => 10}}}
+              ]))
+            end
+
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: "response text",
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          end
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.tokens).to eq({input: 100, output: 50, total: 150})
+        end
+
         it "returns nil tokens when history file is empty" do
           allow(mock_executor).to receive(:execute) do |_cmd, _opts|
             tempfile = provider.instance_variable_get(:@aider_history_tempfile)

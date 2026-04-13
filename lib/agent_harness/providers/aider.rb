@@ -415,8 +415,8 @@ module AgentHarness
           usage = find_usage_in_entry(entry)
           next unless usage
 
-          input = normalize_token_count(usage["prompt_tokens"]) || normalize_token_count(usage["input_tokens"])
-          output = normalize_token_count(usage["completion_tokens"]) || normalize_token_count(usage["output_tokens"])
+          input = token_count_for(usage, "prompt_tokens", "input_tokens", "promptTokens", "inputTokens")
+          output = token_count_for(usage, "completion_tokens", "output_tokens", "completionTokens", "outputTokens")
           next if input.nil? && output.nil?
 
           total_input += input || 0
@@ -596,6 +596,14 @@ module AgentHarness
         when String
           Integer(value, exception: false)
         end
+      end
+
+      def token_count_for(usage, *keys)
+        keys.each do |key|
+          value = normalize_token_count(usage[key])
+          return value unless value.nil?
+        end
+        nil
       end
 
       def prepare_llm_history_file!
