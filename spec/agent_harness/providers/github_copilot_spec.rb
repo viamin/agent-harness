@@ -418,6 +418,20 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         expect(response.output).to eq("final answer")
       end
 
+      it "suppresses exact Copilot root control event types from rendered output" do
+        jsonl = <<~JSONL
+          {"type":"user","data":{"content":"user prompt"}}
+          {"type":"system","data":{"content":"system prompt"}}
+          {"type":"tool","data":{"name":"bash"}}
+          {"type":"command","data":{"argv":["ls"]}}
+          {"type":"assistant.message","data":{"content":"final answer"}}
+        JSONL
+        result = make_result(stdout: jsonl)
+        response = provider.send(:parse_response, result, duration: 1.0)
+
+        expect(response.output).to eq("final answer")
+      end
+
       it "ignores typed top-level content on malformed control events" do
         jsonl = <<~JSONL
           {"type":"assistant.reasoning","content":"scratchpad"}

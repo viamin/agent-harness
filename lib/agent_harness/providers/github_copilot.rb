@@ -307,7 +307,21 @@ module AgentHarness
         external_tool.
         command.
       ].freeze
-      COPILOT_EVENT_TYPES = ["abort"].freeze
+      COPILOT_EVENT_TYPES = %w[
+        abort
+        command
+        elicitation
+        exit_plan_mode
+        external_tool
+        permission
+        session
+        skill
+        subagent
+        system
+        tool
+        user
+        user_input
+      ].freeze
 
       def extract_event_text(obj)
         return [nil, nil] unless obj.is_a?(Hash)
