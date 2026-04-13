@@ -1177,6 +1177,18 @@ RSpec.describe AgentHarness::Providers::Aider do
         expect(provider.instance_variable_get(:@aider_history_path)).to be_nil
       end
 
+      it "fails before reserving a history file when timeout is non-positive" do
+        expect(provider).not_to receive(:prepare_llm_history_file!)
+        expect(mock_executor).not_to receive(:execute)
+
+        expect {
+          provider.send_message(prompt: "Hello", timeout: 0)
+        }.to raise_error(AgentHarness::TimeoutError, "Command timed out before execution started")
+
+        expect(provider.instance_variable_get(:@aider_history_tempfile)).to be_nil
+        expect(provider.instance_variable_get(:@aider_history_path)).to be_nil
+      end
+
       it "does not clear a newer local history handle when cleaning up an older path" do
         older_path = provider.send(:prepare_llm_history_file!)
         newer_path = provider.send(:prepare_llm_history_file!)
@@ -1533,6 +1545,17 @@ RSpec.describe AgentHarness::Providers::Aider do
         expect {
           provider.send_message(prompt: "Hello")
         }.to raise_error(AgentHarness::ProviderError)
+
+        expect(provider.instance_variable_get(:@aider_history_path)).to be_nil
+      end
+
+      it "fails before reserving a container history path when timeout is non-positive" do
+        expect(provider).not_to receive(:prepare_llm_history_file!)
+        expect(docker_executor).not_to receive(:execute)
+
+        expect {
+          provider.send_message(prompt: "Hello", timeout: 0)
+        }.to raise_error(AgentHarness::TimeoutError, "Command timed out before execution started")
 
         expect(provider.instance_variable_get(:@aider_history_path)).to be_nil
       end

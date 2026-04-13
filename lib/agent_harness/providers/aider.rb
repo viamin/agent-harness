@@ -210,10 +210,12 @@ module AgentHarness
         options = normalize_mcp_servers(options)
         validate_mcp_servers!(options[:mcp_servers]) if options[:mcp_servers]&.any?
 
+        timeout = options[:timeout] || @config.timeout || default_timeout
+        raise TimeoutError, "Command timed out before execution started" if timeout <= 0
+
         llm_history_path = prepare_llm_history_file!
         command = build_command(prompt, options.merge(llm_history_path: llm_history_path))
         preparation = build_execution_preparation(options)
-        timeout = options[:timeout] || @config.timeout || default_timeout
 
         start_time = Time.now
         result = execute_with_timeout(
