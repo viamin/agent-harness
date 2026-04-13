@@ -312,6 +312,29 @@ RSpec.describe AgentHarness::Providers::Codex do
         end
       end
 
+      context "with malformed provider_runtime flags" do
+        let(:malformed_runtime) do
+          AgentHarness::ProviderRuntime.allocate.tap do |runtime|
+            runtime.instance_variable_set(:@model, nil)
+            runtime.instance_variable_set(:@base_url, nil)
+            runtime.instance_variable_set(:@api_provider, nil)
+            runtime.instance_variable_set(:@env, {})
+            runtime.instance_variable_set(:@flags, false)
+            runtime.instance_variable_set(:@metadata, {})
+            runtime.instance_variable_set(:@unset_env, [])
+            runtime.freeze
+          end
+        end
+
+        it "raises a provider configuration error" do
+          expect {
+            provider.send_message(prompt: "Hello", provider_runtime: malformed_runtime)
+          }.to raise_error(
+            AgentHarness::ProviderError, /provider_runtime\.flags must be an array/
+          )
+        end
+      end
+
       context "with default_flags containing --full-auto and externally_sandboxed" do
         let(:config_with_full_auto) do
           AgentHarness::ProviderConfig.new(:codex).tap do |c|

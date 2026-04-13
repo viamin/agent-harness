@@ -334,6 +334,7 @@ module AgentHarness
         default_flags = @config.default_flags
         runtime_flags = runtime&.flags
         validate_string_flags!(default_flags, "default_flags") unless default_flags.nil?
+        validate_string_flags!(runtime_flags, "provider_runtime.flags") unless runtime_flags.nil?
         all_user_flags = Array(default_flags) + Array(runtime_flags)
         explicit_full_auto_requested = managed_full_auto_requested?(all_user_flags)
         keep_full_auto = !externally_sandboxed && (adding_full_auto || explicit_full_auto_requested)
