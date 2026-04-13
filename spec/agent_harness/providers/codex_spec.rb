@@ -326,6 +326,26 @@ RSpec.describe AgentHarness::Providers::Codex do
         end
       end
 
+      context "with default_flags containing both sandbox mode flags" do
+        let(:config_with_conflicting_sandbox_flags) do
+          AgentHarness::ProviderConfig.new(:codex).tap do |c|
+            c.default_flags = ["--full-auto", "--dangerously-bypass-approvals-and-sandbox", "--quiet"]
+          end
+        end
+        let(:provider_with_conflicting_sandbox_flags) do
+          described_class.new(config: config_with_conflicting_sandbox_flags, executor: mock_executor)
+        end
+
+        it "strips the bypass flag when default_flags already request --full-auto" do
+          expect(mock_executor).to receive(:execute).with(
+            ["codex", "exec", "--json", "--full-auto", "--quiet", "Hello"],
+            anything
+          ).and_return(success_result)
+
+          provider_with_conflicting_sandbox_flags.send_message(prompt: "Hello")
+        end
+      end
+
       context "with default_flags containing bypass and externally_sandboxed" do
         let(:sandboxed_config_with_bypass) do
           AgentHarness::ProviderConfig.new(:codex).tap do |c|

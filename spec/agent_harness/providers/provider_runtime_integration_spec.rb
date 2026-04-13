@@ -455,6 +455,20 @@ RSpec.describe "ProviderRuntime integration" do
       provider.send_message(prompt: "Hello", provider_runtime: runtime)
     end
 
+    it "strips the bypass flag when runtime flags already request --full-auto" do
+      runtime = AgentHarness::ProviderRuntime.new(
+        flags: ["--full-auto", "--dangerously-bypass-approvals-and-sandbox", "--quiet"]
+      )
+
+      expect(mock_executor).to receive(:execute) do |command, _options|
+        expect(command).to include("codex", "exec", "--json", "--full-auto", "--quiet", "Hello")
+        expect(command).not_to include("--dangerously-bypass-approvals-and-sandbox")
+        success_result
+      end
+
+      provider.send_message(prompt: "Hello", provider_runtime: runtime)
+    end
+
     it "strips conflicting runtime sandbox flags when dangerous_mode adds --full-auto" do
       runtime = AgentHarness::ProviderRuntime.new(flags: ["--dangerously-bypass-approvals-and-sandbox", "--quiet"])
 
