@@ -1134,10 +1134,24 @@ module AgentHarness
       def normalize_sandbox_flags(flags, externally_sandboxed:, adding_full_auto:)
         explicit_full_auto_requested = managed_full_auto_requested?(flags)
         full_auto_requested = adding_full_auto || explicit_full_auto_requested
+        managed_sandbox_mode = externally_sandboxed || full_auto_requested
+        skip_next_sandbox_value = false
 
         each_flag_token(flags).each_with_object([]) do |token_info, normalized_flags|
           flag = token_info[:token]
           managed_flag = token_info[:managed_flag]
+          flag_name = token_info[:flag_name]
+          takes_value = token_info[:takes_value]
+
+          if skip_next_sandbox_value
+            skip_next_sandbox_value = false
+            next
+          end
+
+          if managed_sandbox_mode && sandbox_mode_flag?(flag_name)
+            skip_next_sandbox_value = takes_value
+            next
+          end
 
           if managed_flag
             next if dangerous_mode_flags.include?(flag) && (externally_sandboxed || adding_full_auto)
@@ -1184,16 +1198,23 @@ module AgentHarness
         flags.map do |flag|
           if expects_value
             expects_value = false
-            next({token: flag, managed_flag: false})
+            next({token: flag, managed_flag: false, flag_name: nil, takes_value: false})
           end
 
           flag_name = flag.split("=", 2).first
-          expects_value = !flag.include?("=") && codex_value_flag?(flag_name)
+          takes_value = !flag.include?("=") && codex_value_flag?(flag_name)
+          expects_value = takes_value
           {
             token: flag,
+            flag_name: flag_name,
+            takes_value: takes_value,
             managed_flag: dangerous_mode_flags.include?(flag) || sandbox_bypass_flags.include?(flag)
           }
         end
+      end
+
+      def sandbox_mode_flag?(flag)
+        flag == "-s" || flag == "--sandbox"
       end
 
       def codex_value_flag?(flag)

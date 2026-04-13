@@ -542,6 +542,25 @@ RSpec.describe AgentHarness::Providers::Codex do
         end
       end
 
+      context "with default_flags containing an explicit sandbox mode and externally_sandboxed" do
+        let(:sandboxed_config_with_mode) do
+          AgentHarness::ProviderConfig.new(:codex).tap do |c|
+            c.default_flags = ["--sandbox", "read-only", "--quiet"]
+            c.externally_sandboxed = true
+          end
+        end
+        let(:sandboxed_provider_with_mode) { described_class.new(config: sandboxed_config_with_mode, executor: mock_executor) }
+
+        it "strips the explicit sandbox mode to avoid conflicting with the bypass flag" do
+          expect(mock_executor).to receive(:execute).with(
+            ["codex", "exec", "--json", "--quiet", "--dangerously-bypass-approvals-and-sandbox", "Hello"],
+            anything
+          ).and_return(success_result)
+
+          sandboxed_provider_with_mode.send_message(prompt: "Hello")
+        end
+      end
+
       it "preserves a session value that matches a managed sandbox flag" do
         expect(mock_executor).to receive(:execute).with(
           [
@@ -621,6 +640,17 @@ RSpec.describe AgentHarness::Providers::Codex do
         ).and_return(success_result)
 
         provider.send_message(prompt: "Hello", dangerous_mode: true, provider_runtime: runtime)
+      end
+
+      it "preserves an explicit sandbox flag when the provider is not managing sandbox mode" do
+        runtime = AgentHarness::ProviderRuntime.new(flags: ["--sandbox", "read-only", "--trace"])
+
+        expect(mock_executor).to receive(:execute).with(
+          ["codex", "exec", "--json", "--sandbox", "read-only", "--trace", "Hello"],
+          anything
+        ).and_return(success_result)
+
+        provider.send_message(prompt: "Hello", provider_runtime: runtime)
       end
 
       it "preserves a default flag value for other Codex value-taking flags" do
