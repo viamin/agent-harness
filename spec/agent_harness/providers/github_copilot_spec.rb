@@ -1527,6 +1527,36 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
       end
 
       context "error handling" do
+        it "preserves provider_runtime model overrides on the JSON output path" do
+          runtime = AgentHarness::ProviderRuntime.new(model: "gpt-4o-mini")
+          jsonl_output = [
+            {"text" => "response"},
+            {"usage" => {"input_tokens" => 10, "output_tokens" => 5}}
+          ].map { |o| JSON.generate(o) }.join("\n")
+
+          allow(mock_executor).to receive(:execute).with(
+            ["github-copilot-cli", "--version"],
+            timeout: 5,
+            env: {}
+          ).and_return(version_result)
+
+          allow(mock_executor).to receive(:execute).with(
+            ["github-copilot-cli", "-p", "Hello", "--output-format", "json", "--allow-all-tools", "--allow-all"],
+            anything
+          ).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello", dangerous_mode: true, provider_runtime: runtime)
+          expect(response.model).to eq("gpt-4o-mini")
+          expect(response.tokens).to eq({input: 10, output: 5, total: 15})
+        end
+
         it "classifies error from combined output on failure" do
           allow(mock_executor).to receive(:execute).and_return(
             AgentHarness::CommandExecutor::Result.new(
