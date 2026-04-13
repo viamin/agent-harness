@@ -1392,6 +1392,38 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
           expect(response.tokens).to eq({input: 12, output: 3, total: 15})
         end
 
+        it "filters non-assistant role envelopes nested under message payloads" do
+          jsonl_output = [
+            {"message" => {"role" => "user", "content" => "User prompt"}},
+            {"data" => {"message" => {"role" => "system", "content" => "System instructions"}}},
+            {"message" => {"role" => "assistant", "content" => "Hello"}},
+            {"data" => {"message" => {"role" => "assistant", "content" => " world"}}},
+            {"type" => "turn.completed", "data" => {"usage" => {"inputTokens" => 12, "outputTokens" => 3}}}
+          ].map { |o| JSON.generate(o) }.join("\n")
+
+          allow(mock_executor).to receive(:execute).with(
+            ["github-copilot-cli", "--version"],
+            timeout: 5,
+            env: {}
+          ).and_return(version_result)
+
+          allow(mock_executor).to receive(:execute).with(
+            ["github-copilot-cli", "-p", "Hello", "--output-format", "json", "--allow-all-tools", "--allow-all"],
+            anything
+          ).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello", dangerous_mode: true)
+          expect(response.output).to eq("Hello world")
+          expect(response.tokens).to eq({input: 12, output: 3, total: 15})
+        end
+
         it "ignores non-hash JSONL entries while preserving valid token usage" do
           jsonl_output = [
             {"text" => "response"},
