@@ -441,8 +441,23 @@ module AgentHarness
       end
 
       def extract_shutdown_token_usage(data)
-        model_metrics = data["modelMetrics"]
-        model_metrics = data["model_metrics"] unless model_metrics.is_a?(Hash)
+        model_metrics = extract_shutdown_model_metrics_usage(data["modelMetrics"])
+        snake_case_model_metrics = extract_shutdown_model_metrics_usage(data["model_metrics"])
+
+        input, input_present = merged_token_metric(model_metrics, snake_case_model_metrics, :input)
+        output, output_present = merged_token_metric(model_metrics, snake_case_model_metrics, :output)
+        return nil unless input_present || output_present
+
+        {
+          source: :shutdown,
+          input: input,
+          output: output,
+          input_present: input_present,
+          output_present: output_present
+        }
+      end
+
+      def extract_shutdown_model_metrics_usage(model_metrics)
         return nil unless model_metrics.is_a?(Hash)
 
         totals = empty_token_totals
@@ -466,13 +481,7 @@ module AgentHarness
 
         return nil unless totals[:input_present] || totals[:output_present]
 
-        {
-          source: :shutdown,
-          input: totals[:input],
-          output: totals[:output],
-          input_present: totals[:input_present],
-          output_present: totals[:output_present]
-        }
+        totals
       end
 
       def extract_payload_token_usage(payload, source:, input_keys:, output_keys:)

@@ -992,6 +992,26 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         expect(response.tokens).to eq({input: 7, output: 3, total: 10})
       end
 
+      it "falls back to snake_case model_metrics when camelCase shutdown metrics are empty" do
+        jsonl = <<~JSONL
+          {"type":"session.shutdown","data":{"modelMetrics":{},"model_metrics":{"gpt-4o":{"usage":{"inputTokens":7,"outputTokens":3}}}}}
+        JSONL
+        result = make_result(stdout: jsonl)
+        response = provider.send(:parse_response, result, duration: 1.0)
+
+        expect(response.tokens).to eq({input: 7, output: 3, total: 10})
+      end
+
+      it "falls back per metric from snake_case shutdown metrics when camelCase metrics are only partially usable" do
+        jsonl = <<~JSONL
+          {"type":"session.shutdown","data":{"modelMetrics":{"gpt-4o":{"usage":{"inputTokens":7,"outputTokens":[]}}},"model_metrics":{"gpt-4o":{"usage":{"inputTokens":9,"outputTokens":3}}}}}
+        JSONL
+        result = make_result(stdout: jsonl)
+        response = provider.send(:parse_response, result, duration: 1.0)
+
+        expect(response.tokens).to eq({input: 7, output: 3, total: 10})
+      end
+
       it "prefers streamed usage events over session.shutdown totals" do
         jsonl = <<~JSONL
           {"type":"usage","data":{"inputTokens":3,"outputTokens":2}}
