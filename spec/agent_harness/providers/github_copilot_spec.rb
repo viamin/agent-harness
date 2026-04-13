@@ -92,6 +92,34 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         dangerous_mode: true
       )
     end
+
+    it "reports token counting as unavailable when the installed CLI lacks JSON output support" do
+      allow(metadata_executor).to receive(:execute).with(
+        ["github-copilot-cli", "--version"],
+        timeout: 5,
+        env: {}
+      ).and_return(
+        AgentHarness::CommandExecutor::Result.new(
+          stdout: "github-copilot-cli 0.0.421",
+          stderr: "",
+          exit_code: 0,
+          duration: 0.1
+        )
+      )
+
+      metadata = described_class.provider_metadata(refresh: true)
+
+      expect(metadata[:runtime]).to include(
+        available: true,
+        output_format: :text,
+        supports_token_counting: false,
+        supports_dangerous_mode: true
+      )
+      expect(metadata[:capabilities]).to include(
+        tool_use: true,
+        dangerous_mode: true
+      )
+    end
   end
 
   describe ".smoke_test_contract" do
