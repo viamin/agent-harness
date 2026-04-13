@@ -934,7 +934,7 @@ RSpec.describe AgentHarness::Providers::Codex do
         provider_with_profile_value.send_message(prompt: "Hello")
       end
 
-      it "preserves a short runtime flag value for other Codex value-taking flags" do
+      it "preserves -o flag without consuming the following managed bypass flag" do
         runtime = AgentHarness::ProviderRuntime.new(
           flags: ["-o", "--dangerously-bypass-approvals-and-sandbox", "--trace"]
         )
@@ -946,7 +946,6 @@ RSpec.describe AgentHarness::Providers::Codex do
             "--json",
             "--full-auto",
             "-o",
-            "--dangerously-bypass-approvals-and-sandbox",
             "--trace",
             "Hello"
           ],
@@ -3345,7 +3344,7 @@ RSpec.describe AgentHarness::Providers::Codex do
 
           response = provider.send_message(prompt: "Hello")
           expect(response.output).to eq("wrapped output")
-          expect(response.tokens).to eq({input: 42, output: 7, total: 49})
+          expect(response.tokens).to eq({input: 72, output: 7, total: 79})
         end
 
         it "prefers per-turn wrapped usage over mismatched cumulative session totals" do
@@ -3489,7 +3488,7 @@ RSpec.describe AgentHarness::Providers::Codex do
           expect(response.tokens).to eq({input: 52, output: 12, total: 64})
         end
 
-        it "preserves a later top-level agent_message turn when turn.completed has no parsable usage or result" do
+        it "preserves a later top-level agent_message turn and folds cached tokens from turn.completed" do
           jsonl_output = [
             JSON.generate({"type" => "agent_message", "message" => "first top-level answer"}),
             JSON.generate({
@@ -3519,10 +3518,10 @@ RSpec.describe AgentHarness::Providers::Codex do
 
           response = provider.send_message(prompt: "Hello")
           expect(response.output).to eq("second top-level answer")
-          expect(response.tokens).to eq({input: 42, output: 7, total: 49})
+          expect(response.tokens).to eq({input: 52, output: 7, total: 59})
         end
 
-        it "preserves a later wrapped agent_message turn when turn.completed has no parsable usage or result" do
+        it "preserves a later wrapped agent_message turn and folds cached tokens from turn.completed" do
           jsonl_output = [
             JSON.generate({"type" => "event_msg", "payload" => {"type" => "agent_message", "message" => "first wrapped answer"}}),
             JSON.generate({
@@ -3552,7 +3551,7 @@ RSpec.describe AgentHarness::Providers::Codex do
 
           response = provider.send_message(prompt: "Hello")
           expect(response.output).to eq("second wrapped answer")
-          expect(response.tokens).to eq({input: 42, output: 7, total: 49})
+          expect(response.tokens).to eq({input: 52, output: 7, total: 59})
         end
 
         it "commits wrapped usage before a new top-level delta turn with matching totals" do
@@ -3597,7 +3596,7 @@ RSpec.describe AgentHarness::Providers::Codex do
           expect(response.tokens).to eq({input: 84, output: 36, total: 120})
         end
 
-        it "preserves wrapped output when turn.completed has no result or parsable usage" do
+        it "preserves wrapped output and folds cached tokens from turn.completed" do
           jsonl_output = [
             JSON.generate({"type" => "event_msg", "payload" => {"type" => "agent_message", "message" => "wrapped answer"}}),
             JSON.generate({
@@ -3626,7 +3625,7 @@ RSpec.describe AgentHarness::Providers::Codex do
 
           response = provider.send_message(prompt: "Hello")
           expect(response.output).to eq("wrapped answer")
-          expect(response.tokens).to eq({input: 42, output: 7, total: 49})
+          expect(response.tokens).to eq({input: 141, output: 7, total: 148})
         end
 
         it "ignores malformed wrapped token counts without dropping parsed output" do
@@ -3973,7 +3972,7 @@ RSpec.describe AgentHarness::Providers::Codex do
           expect(response.total_tokens).to eq(12)
         end
 
-        it "falls back to wrapped cumulative snapshots when last_token_usage has no token fields" do
+        it "uses per-turn cached tokens when last_token_usage has only cached_input_tokens" do
           jsonl_output = [
             JSON.generate({"type" => "event_msg", "payload" => {"type" => "agent_message", "message" => "wrapped output"}}),
             JSON.generate({
@@ -4005,8 +4004,8 @@ RSpec.describe AgentHarness::Providers::Codex do
 
           response = provider.send_message(prompt: "Hello")
           expect(response.output).to eq("wrapped output")
-          expect(response.tokens).to eq({input: 5, output: 5, total: 12})
-          expect(response.total_tokens).to eq(12)
+          expect(response.tokens).to eq({input: 9, output: 0, total: 9})
+          expect(response.total_tokens).to eq(9)
         end
 
         it "treats fallback wrapped cumulative snapshots as replacements after earlier deltas" do
@@ -4073,10 +4072,10 @@ RSpec.describe AgentHarness::Providers::Codex do
 
           response = provider.send_message(prompt: "Hello")
           expect(response.output).to eq("Hello!")
-          expect(response.tokens).to eq({input: 100, output: 25, total: 125})
-          expect(response.input_tokens).to eq(100)
+          expect(response.tokens).to eq({input: 150, output: 25, total: 175})
+          expect(response.input_tokens).to eq(150)
           expect(response.output_tokens).to eq(25)
-          expect(response.total_tokens).to eq(125)
+          expect(response.total_tokens).to eq(175)
         end
 
         it "appends text across multiple message.delta events" do
@@ -4929,7 +4928,7 @@ RSpec.describe AgentHarness::Providers::Codex do
           expect(response.tokens).to eq({input: 0, output: 0, total: 0})
         end
 
-        it "extracts result from turn.completed when usage lacks token fields" do
+        it "extracts result from turn.completed and folds cached tokens into usage" do
           jsonl_output = [
             JSON.generate({"type" => "message.delta", "delta" => {"text" => "partial"}}),
             JSON.generate({"type" => "turn.completed", "usage" => {"cached_input_tokens" => 100}, "result" => "final answer"})
@@ -4946,7 +4945,7 @@ RSpec.describe AgentHarness::Providers::Codex do
 
           response = provider.send_message(prompt: "Hello")
           expect(response.output).to eq("final answer")
-          expect(response.tokens).to be_nil
+          expect(response.tokens).to eq({input: 100, output: 0, total: 100})
         end
 
         it "extracts text from turn.completed result field" do
@@ -5123,7 +5122,7 @@ RSpec.describe AgentHarness::Providers::Codex do
           expect(response.tokens).to be_nil
         end
 
-        it "returns nil tokens when usage hash has no token fields" do
+        it "folds cached_input_tokens into usage when it is the only token field" do
           jsonl_output = [
             JSON.generate({"type" => "message.delta", "delta" => {"text" => "Hello!"}}),
             JSON.generate({"type" => "turn.completed", "usage" => {"cached_input_tokens" => 50}})
@@ -5140,7 +5139,7 @@ RSpec.describe AgentHarness::Providers::Codex do
 
           response = provider.send_message(prompt: "Hello")
           expect(response.output).to eq("Hello!")
-          expect(response.tokens).to be_nil
+          expect(response.tokens).to eq({input: 50, output: 0, total: 50})
         end
 
         it "ignores malformed turn token counts without dropping parsed output" do

@@ -431,17 +431,6 @@ module AgentHarness
       def parse_jsonl_output(raw_output)
         return nil if raw_output.nil? || raw_output.strip.empty?
 
-        events = raw_output.lines.filter_map do |line|
-          line = line.strip
-          next if line.empty?
-          JSON.parse(line)
-        rescue JSON::ParserError
-          nil
-        end
-
-        events.select! { |event| event.is_a?(Hash) }
-        return nil if events.empty?
-
         latest_completed_parts = []
         current_turn_parts = []
         total_input = 0
@@ -523,7 +512,9 @@ module AgentHarness
           current_turn_finalized_output = false
         end
 
-        events.each do |event|
+        process_event = lambda do |event|
+          next unless event.is_a?(Hash)
+
           type = event["type"]
 
           case type
@@ -578,16 +569,22 @@ module AgentHarness
           when "turn.completed"
             turn_usage = build_token_usage(event["usage"])
             result = event["result"]
-            wrapped_completion_without_new_data =
+            wrapped_completion_without_new_output =
               pending_turn_usage_source == :wrapped &&
               pending_turn_usage &&
-              turn_usage.nil? &&
-              !result.is_a?(String)
+              !result.is_a?(String) &&
+              (turn_usage.nil? || current_turn_parts.empty? || current_turn_parts.equal?(pending_wrapped_output_parts))
 
-            if wrapped_completion_without_new_data
+            if wrapped_completion_without_new_output
               if pending_wrapped_output_parts && !current_turn_parts.empty? && !current_turn_parts.equal?(pending_wrapped_output_parts)
                 commit_pending_turn.call
                 finalize_current_turn.call
+                if turn_usage
+                  has_usage = true
+                  pending_turn_usage = turn_usage
+                  pending_turn_usage_source = :turn_completed
+                  pending_wrapped_same_turn_finalization = false
+                end
                 next
               end
 
@@ -595,13 +592,17 @@ module AgentHarness
               latest_completed_parts = wrapped_output_parts.dup
               current_turn_parts = [] if current_turn_parts.equal?(wrapped_output_parts)
               commit_pending_turn.call
+              if turn_usage
+                has_usage = true
+                total_input += turn_usage[:input]
+                total_output += turn_usage[:output]
+                total_tokens += turn_usage[:total]
+              end
               turn_completed = true
               current_turn_finalized_output = false
               next
             end
 
-            # Wrapped streams can emit token_count before the matching top-level
-            # turn.completed for the same turn; treat matching usage as a replacement.
             same_streaming_wrapped_turn =
               pending_turn_usage_source == :wrapped &&
               pending_wrapped_output_parts&.equal?(current_turn_parts) &&
@@ -734,6 +735,19 @@ module AgentHarness
             pending_wrapped_same_turn_finalization =
               pending_turn_usage_source == :wrapped && pending_turn_usage
           end
+        end
+
+        raw_output.each_line do |line|
+          line = line.strip
+          next if line.empty?
+
+          begin
+            event = JSON.parse(line)
+          rescue JSON::ParserError
+            next
+          end
+
+          process_event.call(event)
         end
 
         commit_pending_turn.call
@@ -961,6 +975,7 @@ module AgentHarness
       def token_usage_fields_present?(usage)
         usage.is_a?(Hash) && (
           !parse_token_count(usage["input_tokens"]).nil? ||
+          !parse_token_count(usage["cached_input_tokens"]).nil? ||
           !parse_token_count(usage["output_tokens"]).nil? ||
           !parse_token_count(usage["total_tokens"]).nil?
         )
@@ -970,19 +985,19 @@ module AgentHarness
         return unless token_usage_fields_present?(usage)
 
         input_value = parse_token_count(usage["input_tokens"])
+        cached_input_value = parse_token_count(usage["cached_input_tokens"])
         output_value = parse_token_count(usage["output_tokens"])
         total_value = parse_token_count(usage["total_tokens"])
 
-        input = input_value || 0
+        input = (input_value || 0) + (cached_input_value || 0)
         output = output_value || 0
-        total = total_value
-        total ||= (input + output)
+        total = total_value || (input + output)
 
         {
           input: input,
           output: output,
           total: total,
-          input_reported: !input_value.nil?,
+          input_reported: !input_value.nil? || !cached_input_value.nil?,
           output_reported: !output_value.nil?,
           total_reported: !total_value.nil?
         }
@@ -1279,7 +1294,6 @@ module AgentHarness
           "--add-dir",
           "--output-schema",
           "--color",
-          "-o", "--output-last-message",
           "--session"
         ]
       end
