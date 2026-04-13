@@ -716,6 +716,8 @@ module AgentHarness
         return @copilot_cli_version[cache_key] if @copilot_cli_version.key?(cache_key)
 
         result = @executor.execute([self.class.binary_name, "--version"], timeout: 5, env: env)
+        return @copilot_cli_version[cache_key] = nil unless result.exit_code.zero?
+
         @copilot_cli_version[cache_key] = parse_copilot_cli_version(result.stdout) || parse_copilot_cli_version(result.stderr)
       rescue
         @copilot_cli_version[cache_key] = nil

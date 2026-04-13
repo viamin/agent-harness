@@ -1260,6 +1260,24 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         expect(provider.send(:copilot_cli_supports_json_output?)).to be false
       end
 
+      it "treats non-zero version probe exits as unsupported even if stderr looks versioned" do
+        executor = instance_double(AgentHarness::CommandExecutor)
+        allow(executor).to receive(:execute).with(
+          ["github-copilot-cli", "--version"],
+          timeout: 5,
+          env: {}
+        ).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "",
+            stderr: "github-copilot-cli 0.0.422\nprobe failed",
+            exit_code: 1
+          )
+        )
+        provider = described_class.new(executor: executor)
+
+        expect(provider.send(:copilot_cli_supports_json_output?)).to be false
+      end
+
       it "caches the detected version capability" do
         executor = instance_double(AgentHarness::CommandExecutor)
         allow(executor).to receive(:execute).once.with(
