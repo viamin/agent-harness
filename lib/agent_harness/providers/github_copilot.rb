@@ -612,9 +612,8 @@ module AgentHarness
           nested_hash_value(obj, "data", "message", "usage"),
           nested_hash_value(obj, "data", "message", "tokens")
         ])
-        return [direct_usage] if direct_usage
-
-        model_metrics_usages(obj["modelMetrics"]) +
+        metrics_usages =
+          model_metrics_usages(obj["modelMetrics"]) +
           model_metrics_usages(obj["model_metrics"]) +
           model_metrics_usages(nested_hash_value(obj, "data", "modelMetrics")) +
           model_metrics_usages(nested_hash_value(obj, "data", "model_metrics")) +
@@ -622,6 +621,11 @@ module AgentHarness
           model_metrics_usages(nested_hash_value(obj, "message", "model_metrics")) +
           model_metrics_usages(nested_hash_value(obj, "data", "message", "modelMetrics")) +
           model_metrics_usages(nested_hash_value(obj, "data", "message", "model_metrics"))
+
+        return metrics_usages if prefer_usage_set?(aggregate_usage_payload(metrics_usages), direct_usage)
+        return [direct_usage] if direct_usage
+
+        metrics_usages
       end
 
       def model_metrics_usages(metrics)
@@ -663,6 +667,29 @@ module AgentHarness
         candidates
           .select { |usage| usage_with_token_counts?(usage) }
           .max_by { |usage| [usage_token_field_count(usage), usage_token_total(usage)] }
+      end
+
+      def aggregate_usage_payload(usages)
+        return nil if usages.empty?
+
+        input = sum_token_field(usages, "input_tokens", "prompt_tokens", "inputTokens", "promptTokens")
+        output = sum_token_field(usages, "output_tokens", "completion_tokens", "outputTokens", "completionTokens")
+        return nil if input.nil? && output.nil?
+
+        payload = {}
+        payload["input_tokens"] = input unless input.nil?
+        payload["output_tokens"] = output unless output.nil?
+        payload
+      end
+
+      def prefer_usage_set?(candidate, current)
+        return false if candidate.nil?
+        return true if current.nil?
+
+        (
+          [usage_token_field_count(candidate), usage_token_total(candidate)] <=>
+            [usage_token_field_count(current), usage_token_total(current)]
+        ) == 1
       end
 
       def usage_token_field_count(usage)
