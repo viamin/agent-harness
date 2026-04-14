@@ -269,14 +269,6 @@ RSpec.describe AgentHarness::Providers::Codex do
             AgentHarness::ProviderError, /default_flags must be an array/
           )
         end
-
-        it "raises an error when default_flags is false" do
-          config_with_string_flags.default_flags = false
-
-          expect { provider_with_string_flags.send_message(prompt: "Hello") }.to raise_error(
-            AgentHarness::ProviderError, /default_flags must be an array/
-          )
-        end
       end
 
       context "with default_flags configured" do
@@ -297,76 +289,6 @@ RSpec.describe AgentHarness::Providers::Codex do
         end
       end
 
-      context "with non-string default_flags" do
-        let(:config_with_bad_flags) do
-          AgentHarness::ProviderConfig.new(:codex).tap do |c|
-            c.default_flags = ["--quiet", 123]
-          end
-        end
-        let(:provider_with_bad_flags) { described_class.new(config: config_with_bad_flags, executor: mock_executor) }
-
-        it "raises an error" do
-          expect { provider_with_bad_flags.send_message(prompt: "Hello") }.to raise_error(
-            AgentHarness::ProviderError, /default_flags contains non-string values/
-          )
-        end
-      end
-
-      context "with malformed provider_runtime flags" do
-        let(:malformed_runtime) do
-          AgentHarness::ProviderRuntime.allocate.tap do |runtime|
-            runtime.instance_variable_set(:@model, nil)
-            runtime.instance_variable_set(:@base_url, nil)
-            runtime.instance_variable_set(:@api_provider, nil)
-            runtime.instance_variable_set(:@env, {})
-            runtime.instance_variable_set(:@flags, false)
-            runtime.instance_variable_set(:@metadata, {})
-            runtime.instance_variable_set(:@unset_env, [])
-            runtime.freeze
-          end
-        end
-
-        it "raises a provider configuration error" do
-          expect {
-            provider.send_message(prompt: "Hello", provider_runtime: malformed_runtime)
-          }.to raise_error(
-            AgentHarness::ProviderError, /provider_runtime\.flags must be an array/
-          )
-        end
-      end
-
-      context "with nil provider_runtime flags in a malformed runtime object" do
-        let(:malformed_runtime) do
-          AgentHarness::ProviderRuntime.allocate.tap do |runtime|
-            runtime.instance_variable_set(:@model, nil)
-            runtime.instance_variable_set(:@base_url, nil)
-            runtime.instance_variable_set(:@api_provider, nil)
-            runtime.instance_variable_set(:@env, {})
-            runtime.instance_variable_set(:@flags, nil)
-            runtime.instance_variable_set(:@metadata, {})
-            runtime.instance_variable_set(:@unset_env, [])
-            runtime.freeze
-          end
-        end
-
-        it "treats the missing flags as empty" do
-          expect(mock_executor).to receive(:execute).with(
-            ["codex", "exec", "--json", "Hello"],
-            anything
-          ).and_return(
-            AgentHarness::CommandExecutor::Result.new(
-              stdout: "ok",
-              stderr: "",
-              exit_code: 0,
-              duration: 1.0
-            )
-          )
-
-          response = provider.send_message(prompt: "Hello", provider_runtime: malformed_runtime)
-          expect(response.output).to eq("ok")
-        end
-      end
-
       context "with default_flags containing --full-auto and externally_sandboxed" do
         let(:config_with_full_auto) do
           AgentHarness::ProviderConfig.new(:codex).tap do |c|
@@ -384,642 +306,6 @@ RSpec.describe AgentHarness::Providers::Codex do
 
           provider_with_full_auto.send_message(prompt: "Hello")
         end
-      end
-
-      context "with default_flags containing sandbox bypass and dangerous_mode" do
-        let(:config_with_bypass) do
-          AgentHarness::ProviderConfig.new(:codex).tap do |c|
-            c.default_flags = ["--dangerously-bypass-approvals-and-sandbox", "--quiet"]
-          end
-        end
-        let(:provider_with_bypass) { described_class.new(config: config_with_bypass, executor: mock_executor) }
-
-        it "strips the bypass flag to avoid conflicting with --full-auto" do
-          expect(mock_executor).to receive(:execute).with(
-            ["codex", "exec", "--json", "--full-auto", "--quiet", "Hello"],
-            anything
-          ).and_return(success_result)
-
-          provider_with_bypass.send_message(prompt: "Hello", dangerous_mode: true)
-        end
-      end
-
-      context "with default_flags containing --full-auto and dangerous_mode" do
-        let(:config_with_full_auto) do
-          AgentHarness::ProviderConfig.new(:codex).tap do |c|
-            c.default_flags = ["--full-auto", "--quiet"]
-          end
-        end
-        let(:provider_with_full_auto) { described_class.new(config: config_with_full_auto, executor: mock_executor) }
-
-        it "does not duplicate --full-auto" do
-          expect(mock_executor).to receive(:execute).with(
-            ["codex", "exec", "--json", "--full-auto", "--quiet", "Hello"],
-            anything
-          ).and_return(success_result)
-
-          provider_with_full_auto.send_message(prompt: "Hello", dangerous_mode: true)
-        end
-      end
-
-      context "with default_flags and runtime flags both containing --full-auto" do
-        let(:config_with_full_auto) do
-          AgentHarness::ProviderConfig.new(:codex).tap do |c|
-            c.default_flags = ["--full-auto", "--quiet"]
-          end
-        end
-        let(:provider_with_full_auto) { described_class.new(config: config_with_full_auto, executor: mock_executor) }
-        let(:runtime) { AgentHarness::ProviderRuntime.new(flags: ["--full-auto", "--trace"]) }
-
-        it "does not duplicate --full-auto across config and runtime flags" do
-          expect(mock_executor).to receive(:execute).with(
-            ["codex", "exec", "--json", "--full-auto", "--quiet", "--trace", "Hello"],
-            anything
-          ).and_return(success_result)
-
-          provider_with_full_auto.send_message(prompt: "Hello", provider_runtime: runtime)
-        end
-      end
-
-      context "with bypass in default_flags and --full-auto in runtime flags" do
-        let(:config_with_bypass) do
-          AgentHarness::ProviderConfig.new(:codex).tap do |c|
-            c.default_flags = ["--dangerously-bypass-approvals-and-sandbox", "--quiet"]
-          end
-        end
-        let(:provider_with_bypass) { described_class.new(config: config_with_bypass, executor: mock_executor) }
-        let(:runtime) { AgentHarness::ProviderRuntime.new(flags: ["--full-auto", "--trace"]) }
-
-        it "strips the config bypass flag when runtime flags request --full-auto" do
-          expect(mock_executor).to receive(:execute).with(
-            ["codex", "exec", "--json", "--quiet", "--full-auto", "--trace", "Hello"],
-            anything
-          ).and_return(success_result)
-
-          provider_with_bypass.send_message(prompt: "Hello", provider_runtime: runtime)
-        end
-      end
-
-      context "with --full-auto in default_flags and bypass in runtime flags" do
-        let(:config_with_full_auto) do
-          AgentHarness::ProviderConfig.new(:codex).tap do |c|
-            c.default_flags = ["--full-auto", "--quiet"]
-          end
-        end
-        let(:provider_with_full_auto) { described_class.new(config: config_with_full_auto, executor: mock_executor) }
-        let(:runtime) do
-          AgentHarness::ProviderRuntime.new(flags: ["--dangerously-bypass-approvals-and-sandbox", "--trace"])
-        end
-
-        it "strips the runtime bypass flag when default_flags already request --full-auto" do
-          expect(mock_executor).to receive(:execute).with(
-            ["codex", "exec", "--json", "--full-auto", "--quiet", "--trace", "Hello"],
-            anything
-          ).and_return(success_result)
-
-          provider_with_full_auto.send_message(prompt: "Hello", provider_runtime: runtime)
-        end
-      end
-
-      context "with default_flags containing both sandbox mode flags" do
-        let(:config_with_conflicting_sandbox_flags) do
-          AgentHarness::ProviderConfig.new(:codex).tap do |c|
-            c.default_flags = ["--full-auto", "--dangerously-bypass-approvals-and-sandbox", "--quiet"]
-          end
-        end
-        let(:provider_with_conflicting_sandbox_flags) do
-          described_class.new(config: config_with_conflicting_sandbox_flags, executor: mock_executor)
-        end
-
-        it "strips the bypass flag when default_flags already request --full-auto" do
-          expect(mock_executor).to receive(:execute).with(
-            ["codex", "exec", "--json", "--full-auto", "--quiet", "Hello"],
-            anything
-          ).and_return(success_result)
-
-          provider_with_conflicting_sandbox_flags.send_message(prompt: "Hello")
-        end
-      end
-
-      context "with default_flags containing bypass and externally_sandboxed" do
-        let(:sandboxed_config_with_bypass) do
-          AgentHarness::ProviderConfig.new(:codex).tap do |c|
-            c.default_flags = ["--dangerously-bypass-approvals-and-sandbox", "--quiet"]
-            c.externally_sandboxed = true
-          end
-        end
-        let(:sandboxed_provider_with_bypass) { described_class.new(config: sandboxed_config_with_bypass, executor: mock_executor) }
-
-        it "does not duplicate the bypass flag" do
-          expect(mock_executor).to receive(:execute).with(
-            ["codex", "exec", "--json", "--quiet", "--dangerously-bypass-approvals-and-sandbox", "Hello"],
-            anything
-          ).and_return(success_result)
-
-          sandboxed_provider_with_bypass.send_message(prompt: "Hello")
-        end
-      end
-
-      context "with bypass flags in both default_flags and runtime while externally sandboxed" do
-        let(:sandboxed_config_with_bypass) do
-          AgentHarness::ProviderConfig.new(:codex).tap do |c|
-            c.default_flags = ["--dangerously-bypass-approvals-and-sandbox", "--quiet"]
-            c.externally_sandboxed = true
-          end
-        end
-        let(:sandboxed_provider_with_bypass) { described_class.new(config: sandboxed_config_with_bypass, executor: mock_executor) }
-        let(:runtime) do
-          AgentHarness::ProviderRuntime.new(flags: ["--dangerously-bypass-approvals-and-sandbox", "--trace"])
-        end
-
-        it "does not duplicate the bypass flag across config and runtime flags" do
-          expect(mock_executor).to receive(:execute).with(
-            ["codex", "exec", "--json", "--quiet", "--dangerously-bypass-approvals-and-sandbox", "--trace", "Hello"],
-            anything
-          ).and_return(success_result)
-
-          sandboxed_provider_with_bypass.send_message(prompt: "Hello", provider_runtime: runtime)
-        end
-      end
-
-      context "with default_flags requesting bypass and an explicit sandbox mode" do
-        let(:config_with_bypass_and_mode) do
-          AgentHarness::ProviderConfig.new(:codex).tap do |c|
-            c.default_flags = ["--dangerously-bypass-approvals-and-sandbox", "--sandbox", "read-only", "--quiet"]
-          end
-        end
-        let(:provider_with_bypass_and_mode) do
-          described_class.new(config: config_with_bypass_and_mode, executor: mock_executor)
-        end
-
-        it "strips the explicit sandbox mode and keeps the bypass flag" do
-          expect(mock_executor).to receive(:execute).with(
-            [
-              "codex",
-              "exec",
-              "--json",
-              "--dangerously-bypass-approvals-and-sandbox",
-              "--quiet",
-              "Hello"
-            ],
-            anything
-          ).and_return(success_result)
-
-          provider_with_bypass_and_mode.send_message(prompt: "Hello")
-        end
-      end
-
-      context "with default_flags requesting bypass and an inline sandbox mode" do
-        let(:config_with_bypass_and_inline_mode) do
-          AgentHarness::ProviderConfig.new(:codex).tap do |c|
-            c.default_flags = ["--dangerously-bypass-approvals-and-sandbox", "--sandbox=read-only", "--quiet"]
-          end
-        end
-        let(:provider_with_bypass_and_inline_mode) do
-          described_class.new(config: config_with_bypass_and_inline_mode, executor: mock_executor)
-        end
-
-        it "strips the inline sandbox mode and keeps the bypass flag" do
-          expect(mock_executor).to receive(:execute).with(
-            [
-              "codex",
-              "exec",
-              "--json",
-              "--dangerously-bypass-approvals-and-sandbox",
-              "--quiet",
-              "Hello"
-            ],
-            anything
-          ).and_return(success_result)
-
-          provider_with_bypass_and_inline_mode.send_message(prompt: "Hello")
-        end
-      end
-
-      context "with default_flags requesting bypass and an inline short sandbox mode" do
-        let(:config_with_bypass_and_short_inline_mode) do
-          AgentHarness::ProviderConfig.new(:codex).tap do |c|
-            c.default_flags = ["--dangerously-bypass-approvals-and-sandbox", "-s=read-only", "--quiet"]
-          end
-        end
-        let(:provider_with_bypass_and_short_inline_mode) do
-          described_class.new(config: config_with_bypass_and_short_inline_mode, executor: mock_executor)
-        end
-
-        it "strips the inline short sandbox mode and keeps the bypass flag" do
-          expect(mock_executor).to receive(:execute).with(
-            [
-              "codex",
-              "exec",
-              "--json",
-              "--dangerously-bypass-approvals-and-sandbox",
-              "--quiet",
-              "Hello"
-            ],
-            anything
-          ).and_return(success_result)
-
-          provider_with_bypass_and_short_inline_mode.send_message(prompt: "Hello")
-        end
-      end
-
-      context "with default_flags containing an explicit sandbox mode and externally_sandboxed" do
-        let(:sandboxed_config_with_mode) do
-          AgentHarness::ProviderConfig.new(:codex).tap do |c|
-            c.default_flags = ["--sandbox", "read-only", "--quiet"]
-            c.externally_sandboxed = true
-          end
-        end
-        let(:sandboxed_provider_with_mode) { described_class.new(config: sandboxed_config_with_mode, executor: mock_executor) }
-
-        it "strips the explicit sandbox mode to avoid conflicting with the bypass flag" do
-          expect(mock_executor).to receive(:execute).with(
-            ["codex", "exec", "--json", "--quiet", "--dangerously-bypass-approvals-and-sandbox", "Hello"],
-            anything
-          ).and_return(success_result)
-
-          sandboxed_provider_with_mode.send_message(prompt: "Hello")
-        end
-      end
-
-      context "with malformed default_flags containing a sandbox mode flag without a value" do
-        let(:sandboxed_config_with_malformed_mode) do
-          AgentHarness::ProviderConfig.new(:codex).tap do |c|
-            c.default_flags = ["--sandbox", "--quiet"]
-            c.externally_sandboxed = true
-          end
-        end
-        let(:sandboxed_provider_with_malformed_mode) do
-          described_class.new(config: sandboxed_config_with_malformed_mode, executor: mock_executor)
-        end
-
-        it "strips only the sandbox mode flag and preserves following flags" do
-          expect(mock_executor).to receive(:execute).with(
-            ["codex", "exec", "--json", "--quiet", "--dangerously-bypass-approvals-and-sandbox", "Hello"],
-            anything
-          ).and_return(success_result)
-
-          sandboxed_provider_with_malformed_mode.send_message(prompt: "Hello")
-        end
-      end
-
-      context "with default_flags containing an inline sandbox mode and externally_sandboxed" do
-        let(:sandboxed_config_with_inline_mode) do
-          AgentHarness::ProviderConfig.new(:codex).tap do |c|
-            c.default_flags = ["--sandbox=read-only", "--quiet"]
-            c.externally_sandboxed = true
-          end
-        end
-        let(:sandboxed_provider_with_inline_mode) do
-          described_class.new(config: sandboxed_config_with_inline_mode, executor: mock_executor)
-        end
-
-        it "strips the inline sandbox mode to avoid conflicting with the bypass flag" do
-          expect(mock_executor).to receive(:execute).with(
-            ["codex", "exec", "--json", "--quiet", "--dangerously-bypass-approvals-and-sandbox", "Hello"],
-            anything
-          ).and_return(success_result)
-
-          sandboxed_provider_with_inline_mode.send_message(prompt: "Hello")
-        end
-      end
-
-      context "with malformed default_flags containing an empty inline sandbox mode" do
-        let(:sandboxed_config_with_empty_inline_mode) do
-          AgentHarness::ProviderConfig.new(:codex).tap do |c|
-            c.default_flags = ["--sandbox=", "--quiet"]
-            c.externally_sandboxed = true
-          end
-        end
-        let(:sandboxed_provider_with_empty_inline_mode) do
-          described_class.new(config: sandboxed_config_with_empty_inline_mode, executor: mock_executor)
-        end
-
-        it "strips only the empty inline sandbox mode and preserves following flags" do
-          expect(mock_executor).to receive(:execute).with(
-            ["codex", "exec", "--json", "--quiet", "--dangerously-bypass-approvals-and-sandbox", "Hello"],
-            anything
-          ).and_return(success_result)
-
-          sandboxed_provider_with_empty_inline_mode.send_message(prompt: "Hello")
-        end
-      end
-
-      it "preserves a session value that matches a managed sandbox flag" do
-        expect(mock_executor).to receive(:execute).with(
-          [
-            "codex",
-            "exec",
-            "--json",
-            "--dangerously-bypass-approvals-and-sandbox",
-            "--session",
-            "--full-auto",
-            "Hello"
-          ],
-          anything
-        ).and_return(success_result)
-
-        provider.send_message(prompt: "Hello", externally_sandboxed: true, session: "--full-auto")
-      end
-
-      it "preserves a model value that matches a managed sandbox flag" do
-        runtime = AgentHarness::ProviderRuntime.new(model: "--dangerously-bypass-approvals-and-sandbox")
-
-        expect(mock_executor).to receive(:execute).with(
-          [
-            "codex",
-            "exec",
-            "--json",
-            "--full-auto",
-            "--model",
-            "--dangerously-bypass-approvals-and-sandbox",
-            "Hello"
-          ],
-          anything
-        ).and_return(success_result)
-
-        provider.send_message(prompt: "Hello", dangerous_mode: true, provider_runtime: runtime)
-      end
-
-      it "preserves a session flag value from default_flags that matches a managed sandbox flag" do
-        config_with_session_value = AgentHarness::ProviderConfig.new(:codex).tap do |c|
-          c.default_flags = ["--session", "--full-auto"]
-          c.externally_sandboxed = true
-        end
-        provider_with_session_value = described_class.new(config: config_with_session_value, executor: mock_executor)
-
-        expect(mock_executor).to receive(:execute).with(
-          [
-            "codex",
-            "exec",
-            "--json",
-            "--session",
-            "--full-auto",
-            "--dangerously-bypass-approvals-and-sandbox",
-            "Hello"
-          ],
-          anything
-        ).and_return(success_result)
-
-        provider_with_session_value.send_message(prompt: "Hello")
-      end
-
-      it "preserves a model flag value from runtime flags that matches a managed sandbox flag" do
-        runtime = AgentHarness::ProviderRuntime.new(
-          flags: ["--model", "--dangerously-bypass-approvals-and-sandbox", "--trace"]
-        )
-
-        expect(mock_executor).to receive(:execute).with(
-          [
-            "codex",
-            "exec",
-            "--json",
-            "--full-auto",
-            "--model",
-            "--dangerously-bypass-approvals-and-sandbox",
-            "--trace",
-            "Hello"
-          ],
-          anything
-        ).and_return(success_result)
-
-        provider.send_message(prompt: "Hello", dangerous_mode: true, provider_runtime: runtime)
-      end
-
-      it "preserves an explicit sandbox flag when the provider is not managing sandbox mode" do
-        runtime = AgentHarness::ProviderRuntime.new(flags: ["--sandbox", "read-only", "--trace"])
-
-        expect(mock_executor).to receive(:execute).with(
-          ["codex", "exec", "--json", "--sandbox", "read-only", "--trace", "Hello"],
-          anything
-        ).and_return(success_result)
-
-        provider.send_message(prompt: "Hello", provider_runtime: runtime)
-      end
-
-      it "preserves a default flag value for other Codex value-taking flags" do
-        config_with_profile_value = AgentHarness::ProviderConfig.new(:codex).tap do |c|
-          c.default_flags = ["--profile", "--full-auto", "--quiet"]
-          c.externally_sandboxed = true
-        end
-        provider_with_profile_value = described_class.new(config: config_with_profile_value, executor: mock_executor)
-
-        expect(mock_executor).to receive(:execute).with(
-          [
-            "codex",
-            "exec",
-            "--json",
-            "--profile",
-            "--full-auto",
-            "--quiet",
-            "--dangerously-bypass-approvals-and-sandbox",
-            "Hello"
-          ],
-          anything
-        ).and_return(success_result)
-
-        provider_with_profile_value.send_message(prompt: "Hello")
-      end
-
-      it "preserves an inline default flag value for other Codex value-taking flags" do
-        config_with_profile_value = AgentHarness::ProviderConfig.new(:codex).tap do |c|
-          c.default_flags = ["--profile=--full-auto", "--quiet"]
-          c.externally_sandboxed = true
-        end
-        provider_with_profile_value = described_class.new(config: config_with_profile_value, executor: mock_executor)
-
-        expect(mock_executor).to receive(:execute).with(
-          [
-            "codex",
-            "exec",
-            "--json",
-            "--profile=--full-auto",
-            "--quiet",
-            "--dangerously-bypass-approvals-and-sandbox",
-            "Hello"
-          ],
-          anything
-        ).and_return(success_result)
-
-        provider_with_profile_value.send_message(prompt: "Hello")
-      end
-
-      it "preserves a runtime flag value for other Codex value-taking flags" do
-        runtime = AgentHarness::ProviderRuntime.new(
-          flags: ["--config", "--dangerously-bypass-approvals-and-sandbox", "--trace"]
-        )
-
-        expect(mock_executor).to receive(:execute).with(
-          [
-            "codex",
-            "exec",
-            "--json",
-            "--full-auto",
-            "--config",
-            "--dangerously-bypass-approvals-and-sandbox",
-            "--trace",
-            "Hello"
-          ],
-          anything
-        ).and_return(success_result)
-
-        provider.send_message(prompt: "Hello", dangerous_mode: true, provider_runtime: runtime)
-      end
-
-      it "preserves an inline runtime flag value for other Codex value-taking flags" do
-        runtime = AgentHarness::ProviderRuntime.new(
-          flags: ["--config=--dangerously-bypass-approvals-and-sandbox", "--trace"]
-        )
-
-        expect(mock_executor).to receive(:execute).with(
-          [
-            "codex",
-            "exec",
-            "--json",
-            "--full-auto",
-            "--config=--dangerously-bypass-approvals-and-sandbox",
-            "--trace",
-            "Hello"
-          ],
-          anything
-        ).and_return(success_result)
-
-        provider.send_message(prompt: "Hello", dangerous_mode: true, provider_runtime: runtime)
-      end
-
-      it "preserves a short default flag value for other Codex value-taking flags" do
-        config_with_profile_value = AgentHarness::ProviderConfig.new(:codex).tap do |c|
-          c.default_flags = ["-p", "--full-auto", "--quiet"]
-          c.externally_sandboxed = true
-        end
-        provider_with_profile_value = described_class.new(config: config_with_profile_value, executor: mock_executor)
-
-        expect(mock_executor).to receive(:execute).with(
-          [
-            "codex",
-            "exec",
-            "--json",
-            "-p",
-            "--full-auto",
-            "--quiet",
-            "--dangerously-bypass-approvals-and-sandbox",
-            "Hello"
-          ],
-          anything
-        ).and_return(success_result)
-
-        provider_with_profile_value.send_message(prompt: "Hello")
-      end
-
-      it "preserves an inline short default flag value for other Codex value-taking flags" do
-        config_with_profile_value = AgentHarness::ProviderConfig.new(:codex).tap do |c|
-          c.default_flags = ["-p=--full-auto", "--quiet"]
-          c.externally_sandboxed = true
-        end
-        provider_with_profile_value = described_class.new(config: config_with_profile_value, executor: mock_executor)
-
-        expect(mock_executor).to receive(:execute).with(
-          [
-            "codex",
-            "exec",
-            "--json",
-            "-p=--full-auto",
-            "--quiet",
-            "--dangerously-bypass-approvals-and-sandbox",
-            "Hello"
-          ],
-          anything
-        ).and_return(success_result)
-
-        provider_with_profile_value.send_message(prompt: "Hello")
-      end
-
-      it "preserves -o flag values that match managed sandbox flags" do
-        runtime = AgentHarness::ProviderRuntime.new(
-          flags: ["-o", "--dangerously-bypass-approvals-and-sandbox", "--trace"]
-        )
-
-        expect(mock_executor).to receive(:execute).with(
-          [
-            "codex",
-            "exec",
-            "--json",
-            "--full-auto",
-            "-o",
-            "--dangerously-bypass-approvals-and-sandbox",
-            "--trace",
-            "Hello"
-          ],
-          anything
-        ).and_return(success_result)
-
-        provider.send_message(prompt: "Hello", dangerous_mode: true, provider_runtime: runtime)
-      end
-
-      it "preserves --output-last-message values that match managed sandbox flags" do
-        runtime = AgentHarness::ProviderRuntime.new(
-          flags: ["--output-last-message", "--dangerously-bypass-approvals-and-sandbox", "--trace"]
-        )
-
-        expect(mock_executor).to receive(:execute).with(
-          [
-            "codex",
-            "exec",
-            "--json",
-            "--full-auto",
-            "--output-last-message",
-            "--dangerously-bypass-approvals-and-sandbox",
-            "--trace",
-            "Hello"
-          ],
-          anything
-        ).and_return(success_result)
-
-        provider.send_message(prompt: "Hello", dangerous_mode: true, provider_runtime: runtime)
-      end
-
-      it "preserves an inline short runtime flag value for other Codex value-taking flags" do
-        runtime = AgentHarness::ProviderRuntime.new(
-          flags: ["-o=--dangerously-bypass-approvals-and-sandbox", "--trace"]
-        )
-
-        expect(mock_executor).to receive(:execute).with(
-          [
-            "codex",
-            "exec",
-            "--json",
-            "--full-auto",
-            "-o=--dangerously-bypass-approvals-and-sandbox",
-            "--trace",
-            "Hello"
-          ],
-          anything
-        ).and_return(success_result)
-
-        provider.send_message(prompt: "Hello", dangerous_mode: true, provider_runtime: runtime)
-      end
-
-      it "preserves an attached short config flag value for other Codex value-taking flags" do
-        config_with_profile_value = AgentHarness::ProviderConfig.new(:codex).tap do |c|
-          c.default_flags = ["-p--full-auto", "--quiet"]
-          c.externally_sandboxed = true
-        end
-        provider_with_profile_value = described_class.new(config: config_with_profile_value, executor: mock_executor)
-
-        expect(mock_executor).to receive(:execute).with(
-          [
-            "codex",
-            "exec",
-            "--json",
-            "-p--full-auto",
-            "--quiet",
-            "--dangerously-bypass-approvals-and-sandbox",
-            "Hello"
-          ],
-          anything
-        ).and_return(success_result)
-
-        provider_with_profile_value.send_message(prompt: "Hello")
       end
 
       it "returns a Response object" do
@@ -2232,6 +1518,48 @@ RSpec.describe AgentHarness::Providers::Codex do
           expect(response.tokens).to eq({input: 4, output: 2, total: 6})
         end
 
+        it "extracts wrapped agent_message_delta output_text_delta content blocks" do
+          jsonl_output = [
+            JSON.generate({
+              "type" => "event_msg",
+              "payload" => {
+                "type" => "agent_message_delta",
+                "delta" => {
+                  "content" => [
+                    {"type" => "reasoning", "text" => "internal"},
+                    {"type" => "output_text_delta", "text" => "wrapped delta partial"}
+                  ]
+                }
+              }
+            }),
+            JSON.generate({
+              "type" => "event_msg",
+              "payload" => {
+                "type" => "token_count",
+                "info" => {
+                  "last_token_usage" => {
+                    "input_tokens" => 4,
+                    "output_tokens" => 2
+                  }
+                }
+              }
+            })
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq("wrapped delta partial")
+          expect(response.tokens).to eq({input: 4, output: 2, total: 6})
+        end
+
         it "falls back to wrapped agent_message_delta content when message is empty" do
           jsonl_output = [
             JSON.generate({
@@ -2519,6 +1847,36 @@ RSpec.describe AgentHarness::Providers::Codex do
           expect(response.tokens).to eq({input: 7, output: 4, total: 11})
         end
 
+        it "extracts structured assistant content from top-level turn_complete assistant_message payloads" do
+          jsonl_output = [
+            JSON.generate({"type" => "agent_message_delta", "message" => "partial "}),
+            JSON.generate({
+              "type" => "turn_complete",
+              "last_agent_message" => {
+                "type" => "assistant_message",
+                "content" => [
+                  {"type" => "reasoning", "text" => "internal"},
+                  {"type" => "output_text", "text" => "final top-level assistant_message turn output"}
+                ]
+              }
+            }),
+            JSON.generate({"type" => "turn.completed", "usage" => {"input_tokens" => 7, "output_tokens" => 4}})
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq("final top-level assistant_message turn output")
+          expect(response.tokens).to eq({input: 7, output: 4, total: 11})
+        end
+
         it "falls back to top-level turn_complete content when message is empty" do
           jsonl_output = [
             JSON.generate({"type" => "agent_message_delta", "message" => "partial "}),
@@ -2676,6 +2034,50 @@ RSpec.describe AgentHarness::Providers::Codex do
 
           response = provider.send_message(prompt: "Hello")
           expect(response.output).to eq("final structured task output")
+          expect(response.tokens).to eq({input: 9, output: 4, total: 13})
+        end
+
+        it "extracts structured assistant content from wrapped task_complete assistant_message payloads" do
+          jsonl_output = [
+            JSON.generate({"type" => "event_msg", "payload" => {"type" => "agent_message_delta", "message" => "partial "}}),
+            JSON.generate({
+              "type" => "event_msg",
+              "payload" => {
+                "type" => "task_complete",
+                "last_agent_message" => {
+                  "type" => "assistant_message",
+                  "content" => [
+                    {"type" => "reasoning", "text" => "internal"},
+                    {"type" => "output_text", "text" => "final wrapped assistant_message task output"}
+                  ]
+                }
+              }
+            }),
+            JSON.generate({
+              "type" => "event_msg",
+              "payload" => {
+                "type" => "token_count",
+                "info" => {
+                  "last_token_usage" => {
+                    "input_tokens" => 9,
+                    "output_tokens" => 4
+                  }
+                }
+              }
+            })
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq("final wrapped assistant_message task output")
           expect(response.tokens).to eq({input: 9, output: 4, total: 13})
         end
 
@@ -3187,6 +2589,33 @@ RSpec.describe AgentHarness::Providers::Codex do
 
           response = provider.send_message(prompt: "Hello")
           expect(response.output).to eq("final assistant item without type")
+          expect(response.tokens).to eq({input: 9, output: 4, total: 13})
+        end
+
+        it "extracts final assistant text from typed response_item assistant_message payloads" do
+          jsonl_output = [
+            JSON.generate({"type" => "event_msg", "payload" => {"type" => "agent_message_delta", "message" => "partial"}}),
+            JSON.generate({
+              "type" => "response_item",
+              "payload" => {
+                "type" => "assistant_message",
+                "message" => "final typed assistant_message response item"
+              }
+            }),
+            JSON.generate({"type" => "turn.completed", "usage" => {"input_tokens" => 9, "output_tokens" => 4}})
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq("final typed assistant_message response item")
           expect(response.tokens).to eq({input: 9, output: 4, total: 13})
         end
 

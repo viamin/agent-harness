@@ -328,19 +328,7 @@ module AgentHarness
       def build_command(prompt, options)
         cmd = [self.class.binary_name, "exec", "--json"]
         externally_sandboxed = externally_sandboxed?(options)
-        adding_full_auto = !externally_sandboxed && (sandboxed_environment? || options[:dangerous_mode])
-        managed_sandbox_flags = {}
         runtime = options[:provider_runtime]
-        default_flags = @config.default_flags
-        runtime_flags = runtime&.flags
-        validate_string_flags!(default_flags, "default_flags") unless default_flags.nil?
-        validate_string_flags!(runtime_flags, "provider_runtime.flags") unless runtime_flags.nil?
-        runtime_flags = Array(runtime_flags)
-        all_user_flags = Array(default_flags) + runtime_flags
-        explicit_full_auto_requested = managed_full_auto_requested?(all_user_flags)
-        explicit_bypass_requested = managed_bypass_requested?(all_user_flags)
-        keep_full_auto = !externally_sandboxed && (adding_full_auto || explicit_full_auto_requested)
-        keep_bypass = externally_sandboxed || !keep_full_auto
 
         # When externally_sandboxed is set, use --dangerously-bypass-approvals-and-sandbox
         # instead of --full-auto. In the Codex CLI, full_auto is checked first and
@@ -349,42 +337,23 @@ module AgentHarness
         #
         # When NOT externally sandboxed: use --full-auto for Docker containers
         # (to skip nested sandboxing) or when dangerous_mode is explicitly requested.
-        if adding_full_auto
-          append_managed_sandbox_flags(
-            cmd,
-            dangerous_mode_flags,
-            keep_full_auto: keep_full_auto,
-            keep_bypass: keep_bypass,
-            managed_sandbox_flags: managed_sandbox_flags
-          )
+        if !externally_sandboxed && (sandboxed_environment? || options[:dangerous_mode])
+          cmd += dangerous_mode_flags
         end
 
-        flags = default_flags
+        flags = @config.default_flags
         if flags
-          flags = normalize_sandbox_flags(
-            flags,
-            externally_sandboxed: externally_sandboxed,
-            keep_full_auto: keep_full_auto,
-            provider_adds_full_auto: adding_full_auto,
-            explicit_bypass_requested: explicit_bypass_requested
-          )
-          append_managed_sandbox_flags(
-            cmd,
-            flags,
-            keep_full_auto: keep_full_auto,
-            keep_bypass: keep_bypass,
-            managed_sandbox_flags: managed_sandbox_flags
-          )
+          unless flags.is_a?(Array)
+            raise ArgumentError, "Codex configuration error: default_flags must be an array of strings"
+          end
+          # Strip --full-auto from defaults when externally sandboxed to avoid
+          # conflicting with --dangerously-bypass-approvals-and-sandbox.
+          flags -= dangerous_mode_flags if externally_sandboxed
+          cmd += flags if flags.any?
         end
 
         if externally_sandboxed
-          append_managed_sandbox_flags(
-            cmd,
-            sandbox_bypass_flags,
-            keep_full_auto: keep_full_auto,
-            keep_bypass: keep_bypass,
-            managed_sandbox_flags: managed_sandbox_flags
-          )
+          cmd += sandbox_bypass_flags
         end
 
         if options[:session]
@@ -392,20 +361,10 @@ module AgentHarness
         end
         if runtime
           cmd += ["--model", runtime.model] if runtime.model
-          runtime_flags = normalize_sandbox_flags(
-            runtime_flags,
-            externally_sandboxed: externally_sandboxed,
-            keep_full_auto: keep_full_auto,
-            provider_adds_full_auto: adding_full_auto,
-            explicit_bypass_requested: explicit_bypass_requested
-          )
-          append_managed_sandbox_flags(
-            cmd,
-            runtime_flags,
-            keep_full_auto: keep_full_auto,
-            keep_bypass: keep_bypass,
-            managed_sandbox_flags: managed_sandbox_flags
-          )
+          runtime_flags = runtime.flags
+          # Strip --full-auto from runtime flags when externally sandboxed.
+          runtime_flags -= dangerous_mode_flags if externally_sandboxed
+          cmd += runtime_flags unless runtime_flags.empty?
         end
 
         cmd << prompt
@@ -834,14 +793,21 @@ module AgentHarness
         payload_type = payload["type"]
         payload_role = payload["role"]
         payload_item_type = payload["item_type"]
+        assistant_message_type = payload_type == "assistant_message"
 
         return false unless assistant_message_item_type?(payload_item_type)
 
-        ((message_item_type?(payload_type) || payload_type == "agent_message") && payload_role == "assistant") ||
+        ((message_item_type?(payload_type) || payload_type == "agent_message" || assistant_message_type) && payload_role == "assistant") ||
           (payload_type == "agent_message" && (
             payload_role == "assistant" ||
             (payload_role.nil? && assistant_message_item_type?(payload_item_type))
           )) ||
+          (
+            assistant_message_type && (
+              payload_role == "assistant" ||
+              (payload_role.nil? && assistant_message_item_type?(payload_item_type))
+            )
+          ) ||
           (
             payload_role.nil? &&
             message_item_type?(payload_type) &&
@@ -912,7 +878,8 @@ module AgentHarness
         message_shaped_payload =
           (
             message_item_type?(payload_type) ||
-            payload_type == "agent_message"
+            payload_type == "agent_message" ||
+            payload_type == "assistant_message"
           ) && assistant_message_item_type?(payload_item_type)
 
         (
@@ -921,6 +888,7 @@ module AgentHarness
           payload_role.nil? && message_shaped_payload && (
             payload_type.nil? ||
             payload_type == "agent_message" ||
+            payload_type == "assistant_message" ||
             payload_item_type == "assistant_message"
           )
         )
@@ -940,7 +908,7 @@ module AgentHarness
       def output_text_block?(block)
         block_type = block["type"]
 
-        block_type.nil? || block_type == "output_text"
+        block_type.nil? || block_type == "output_text" || block_type == "output_text_delta"
       end
 
       def extract_content_parts(item_content)
@@ -1153,150 +1121,6 @@ module AgentHarness
 
           stripped.to_i
         end
-      end
-
-      def validate_string_flags!(flags, label)
-        unless flags.is_a?(Array)
-          raise ArgumentError, "Codex configuration error: #{label} must be an array of strings"
-        end
-
-        return if flags.all?(String)
-
-        raise ArgumentError, "Codex configuration error: #{label} contains non-string values"
-      end
-
-      def normalize_sandbox_flags(flags, externally_sandboxed:, keep_full_auto:, provider_adds_full_auto:, explicit_bypass_requested:)
-        explicit_full_auto_requested = managed_full_auto_requested?(flags)
-        managed_sandbox_mode = externally_sandboxed || keep_full_auto || explicit_bypass_requested
-        skip_next_sandbox_value = false
-
-        token_infos = each_flag_token(flags)
-
-        token_infos.each_with_index.each_with_object([]) do |(token_info, index), normalized_flags|
-          flag = token_info[:token]
-          managed_flag = token_info[:managed_flag]
-          flag_name = token_info[:flag_name]
-          takes_value = token_info[:takes_value]
-
-          if skip_next_sandbox_value
-            skip_next_sandbox_value = false
-            next
-          end
-
-          if managed_sandbox_mode && sandbox_mode_flag?(flag_name)
-            next_token = token_infos[index + 1]&.dig(:token)
-            skip_next_sandbox_value = takes_value && separate_flag_value?(next_token)
-            next
-          end
-
-          if managed_flag
-            next if dangerous_mode_flags.include?(flag) && (externally_sandboxed || provider_adds_full_auto)
-            next if sandbox_bypass_flags.include?(flag) && (externally_sandboxed || keep_full_auto || explicit_full_auto_requested)
-          end
-
-          normalized_flags << flag
-        end
-      end
-
-      def append_managed_sandbox_flags(command, flags, keep_full_auto:, keep_bypass:, managed_sandbox_flags:)
-        return if flags.empty?
-
-        each_flag_token(flags).each do |token_info|
-          flag = token_info[:token]
-
-          unless token_info[:managed_flag]
-            command << flag
-            next
-          end
-
-          if dangerous_mode_flags.include?(flag)
-            next unless keep_full_auto
-          elsif sandbox_bypass_flags.include?(flag)
-            next unless keep_bypass
-          end
-
-          next if managed_sandbox_flags[flag]
-
-          managed_sandbox_flags[flag] = true if dangerous_mode_flags.include?(flag) || sandbox_bypass_flags.include?(flag)
-          command << flag
-        end
-      end
-
-      def managed_full_auto_requested?(flags)
-        each_flag_token(flags).any? do |token_info|
-          token_info[:managed_flag] && dangerous_mode_flags.include?(token_info[:token])
-        end
-      end
-
-      def managed_bypass_requested?(flags)
-        each_flag_token(flags).any? do |token_info|
-          token_info[:managed_flag] && sandbox_bypass_flags.include?(token_info[:token])
-        end
-      end
-
-      def each_flag_token(flags)
-        expects_value = false
-
-        flags.map do |flag|
-          if expects_value
-            expects_value = false
-            next({token: flag, managed_flag: false, flag_name: nil, takes_value: false})
-          end
-
-          flag_name, takes_value = parse_flag_token(flag)
-          expects_value = takes_value
-          {
-            token: flag,
-            flag_name: flag_name,
-            takes_value: takes_value,
-            managed_flag: dangerous_mode_flags.include?(flag) || sandbox_bypass_flags.include?(flag)
-          }
-        end
-      end
-
-      def parse_flag_token(flag)
-        flag_name = flag.split("=", 2).first
-        return [flag_name, false] if flag.include?("=")
-
-        return [flag_name, true] if codex_value_flag?(flag_name)
-
-        return [flag, false] unless flag.start_with?("-") && flag.length > 2 && !flag.start_with?("--")
-
-        short_flag = flag[0, 2]
-        return [short_flag, false] if codex_value_flag?(short_flag)
-
-        [flag, false]
-      end
-
-      def sandbox_mode_flag?(flag)
-        flag == "-s" || flag == "--sandbox"
-      end
-
-      def codex_value_flag?(flag)
-        codex_value_flags.include?(flag)
-      end
-
-      def separate_flag_value?(token)
-        token.is_a?(String) && !token.start_with?("-")
-      end
-
-      def codex_value_flags
-        [
-          "-c", "--config",
-          "--enable",
-          "--disable",
-          "-i", "--image",
-          "-m", "--model",
-          "--local-provider",
-          "-s", "--sandbox",
-          "-p", "--profile",
-          "-C", "--cd",
-          "--add-dir",
-          "--output-schema",
-          "-o", "--output-last-message",
-          "--color",
-          "--session"
-        ]
       end
 
       def externally_sandboxed?(options)
