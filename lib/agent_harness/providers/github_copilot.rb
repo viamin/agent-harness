@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require "digest"
 require "json"
 require "rubygems"
 
@@ -346,9 +347,18 @@ module AgentHarness
 
       def version_probe_cache_key(env)
         [
-          env.key?("PATH") ? env["PATH"] : :inherited_path,
-          env.key?("PATHEXT") ? env["PATHEXT"] : :inherited_pathext
+          probe_env_cache_component(env, "PATH", inherited: :inherited_path, label: :path_override),
+          probe_env_cache_component(env, "PATHEXT", inherited: :inherited_pathext, label: :pathext_override)
         ]
+      end
+
+      def probe_env_cache_component(env, key, inherited:, label:)
+        return inherited unless env.key?(key)
+
+        value = env[key]
+        return [label, :unset] if value.nil?
+
+        [label, Digest::SHA256.hexdigest(value)]
       end
 
       def copilot_cli_binary_available?

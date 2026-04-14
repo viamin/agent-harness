@@ -316,6 +316,32 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
 
         expect(provider.supports_token_counting?).to be false
       end
+
+      it "hashes explicit probe path overrides in the version cache key" do
+        env = {"PATH" => "/tmp/request-secret/bin", "PATHEXT" => ".EXE:.CMD"}
+        allow(mock_executor).to receive(:execute).with(
+          ["github-copilot-cli", "--version"],
+          timeout: 5,
+          env: env
+        ).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "github-copilot-cli 0.0.422",
+            stderr: "",
+            exit_code: 0,
+            duration: 0.1
+          )
+        )
+
+        expect(provider.send(:supports_json_output_format?, env: env)).to be true
+
+        cache_keys = provider.instance_variable_get(:@copilot_cli_versions).keys
+
+        expect(cache_keys.flatten).not_to include("/tmp/request-secret/bin", ".EXE:.CMD")
+        expect(cache_keys).to include([
+          [:path_override, a_string_matching(/\A\h{64}\z/)],
+          [:pathext_override, a_string_matching(/\A\h{64}\z/)]
+        ])
+      end
     end
 
     describe "#error_patterns" do
@@ -688,7 +714,11 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         ).once
 
         cache_keys = provider.instance_variable_get(:@copilot_cli_versions).keys
-        expect(cache_keys).to contain_exactly(["/json/copilot/bin", :inherited_pathext])
+        expect(cache_keys.flatten).not_to include("/json/copilot/bin", "secret-one", "secret-two")
+        expect(cache_keys).to contain_exactly([
+          [:path_override, a_string_matching(/\A\h{64}\z/)],
+          :inherited_pathext
+        ])
       end
 
       it "retries CLI version detection after an unparsable probe result" do
