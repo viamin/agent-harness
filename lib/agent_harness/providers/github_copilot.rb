@@ -130,8 +130,12 @@ module AgentHarness
         }
       end
 
-      def dangerous_mode_flags
-        ["--allow-all-tools", "--allow-all"]
+      def dangerous_mode_flags(probe_timeout: nil, env: {})
+        if supports_json_output_format?(probe_timeout: probe_timeout, env: env)
+          ["--allow-all"]
+        else
+          ["--allow-all-tools"]
+        end
       end
 
       def supports_sessions?
@@ -267,7 +271,7 @@ module AgentHarness
         cmd += ["--model", model] if model
 
         if options[:dangerous_mode] && supports_dangerous_mode?
-          cmd += dangerous_mode_flags
+          cmd += dangerous_mode_flags(probe_timeout: options[:_version_probe_timeout], env: env)
         end
 
         if options[:session] && !options[:session].empty?
