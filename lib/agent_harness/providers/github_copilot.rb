@@ -354,12 +354,22 @@ module AgentHarness
       end
 
       def probe_env_cache_component(env, key, inherited:, label:)
-        return inherited unless env.key?(key)
+        return inherited unless env_override_present?(env, key)
 
-        value = env[key]
+        value = env_override_value(env, key)
         return [label, :unset] if value.nil?
 
         [label, Digest::SHA256.hexdigest(value)]
+      end
+
+      def env_override_present?(env, key)
+        env.key?(key) || env.key?(key.to_sym)
+      end
+
+      def env_override_value(env, key)
+        return env[key] if env.key?(key)
+
+        env[key.to_sym]
       end
 
       def copilot_cli_binary_available?
