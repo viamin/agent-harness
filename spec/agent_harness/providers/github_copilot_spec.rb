@@ -721,7 +721,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         ])
       end
 
-      it "retries CLI version detection after an unparsable probe result" do
+      it "caches unparsable probe result and does not retry" do
         allow(mock_executor).to receive(:execute).with(
           ["github-copilot-cli", "--version"],
           timeout: 5,
@@ -732,26 +732,26 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
             stderr: "",
             exit_code: 0,
             duration: 0.1
-          ),
-          version_result
+          )
         )
 
         first_command = provider.send(:build_command, "Hello", {})
         second_command = provider.send(:build_command, "Hello", {})
 
-        expect(first_command).to eq([
+        fallback_command = [
           "github-copilot-cli",
           "-p",
           "Hello",
           "-s"
-        ])
-        expect(second_command).to eq([
-          "github-copilot-cli",
-          "-p",
-          "Hello",
-          "--output-format",
-          "json"
-        ])
+        ]
+        expect(first_command).to eq(fallback_command)
+        expect(second_command).to eq(fallback_command)
+
+        expect(mock_executor).to have_received(:execute).with(
+          ["github-copilot-cli", "--version"],
+          timeout: 5,
+          env: {}
+        ).once
       end
 
       it "does not add tool approval flags by default" do

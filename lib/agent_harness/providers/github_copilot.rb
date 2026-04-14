@@ -338,7 +338,7 @@ module AgentHarness
 
         result = @executor.execute([self.class.binary_name, "--version"], timeout: probe_timeout || 5, env: env)
         version = extract_version(result)
-        @copilot_cli_versions[cache_key] = version if version
+        @copilot_cli_versions[cache_key] = version
         version
       rescue => e
         log_debug("copilot_cli_version_check_failed", error: e.message)

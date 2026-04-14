@@ -748,8 +748,10 @@ module AgentHarness
         nil
       end
 
+      MAX_HISTORY_PATH_ATTEMPTS = 10
+
       def reserve_local_llm_history_path
-        loop do
+        MAX_HISTORY_PATH_ATTEMPTS.times do
           path = generate_llm_history_path
 
           begin
@@ -759,6 +761,8 @@ module AgentHarness
             next
           end
         end
+
+        raise "failed to reserve unique LLM history path after #{MAX_HISTORY_PATH_ATTEMPTS} attempts"
       end
 
       def clear_local_history_handle!(path)
