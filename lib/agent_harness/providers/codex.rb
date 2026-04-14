@@ -1293,6 +1293,7 @@ module AgentHarness
           "-C", "--cd",
           "--add-dir",
           "--output-schema",
+          "-o", "--output-last-message",
           "--color",
           "--session"
         ]

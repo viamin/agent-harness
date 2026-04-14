@@ -934,7 +934,7 @@ RSpec.describe AgentHarness::Providers::Codex do
         provider_with_profile_value.send_message(prompt: "Hello")
       end
 
-      it "preserves -o flag without consuming the following managed bypass flag" do
+      it "preserves -o flag values that match managed sandbox flags" do
         runtime = AgentHarness::ProviderRuntime.new(
           flags: ["-o", "--dangerously-bypass-approvals-and-sandbox", "--trace"]
         )
@@ -946,6 +946,29 @@ RSpec.describe AgentHarness::Providers::Codex do
             "--json",
             "--full-auto",
             "-o",
+            "--dangerously-bypass-approvals-and-sandbox",
+            "--trace",
+            "Hello"
+          ],
+          anything
+        ).and_return(success_result)
+
+        provider.send_message(prompt: "Hello", dangerous_mode: true, provider_runtime: runtime)
+      end
+
+      it "preserves --output-last-message values that match managed sandbox flags" do
+        runtime = AgentHarness::ProviderRuntime.new(
+          flags: ["--output-last-message", "--dangerously-bypass-approvals-and-sandbox", "--trace"]
+        )
+
+        expect(mock_executor).to receive(:execute).with(
+          [
+            "codex",
+            "exec",
+            "--json",
+            "--full-auto",
+            "--output-last-message",
+            "--dangerously-bypass-approvals-and-sandbox",
             "--trace",
             "Hello"
           ],
