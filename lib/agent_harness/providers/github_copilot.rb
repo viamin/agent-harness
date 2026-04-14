@@ -387,7 +387,7 @@ module AgentHarness
 
           JSON.parse(line)
         rescue JSON::ParserError
-          return nil
+          next
         end
 
         parsed.empty? ? nil : parsed

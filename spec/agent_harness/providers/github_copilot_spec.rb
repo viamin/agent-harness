@@ -2509,6 +2509,36 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
           expect(response.tokens).to eq({input: 20, output: 5, total: 25})
         end
 
+        it "skips unparseable JSONL lines instead of discarding the entire output" do
+          jsonl_output = [
+            JSON.generate({"text" => "hello"}),
+            "NOT VALID JSON {{{",
+            JSON.generate({"usage" => {"input_tokens" => 10, "output_tokens" => 5}})
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).with(
+            ["github-copilot-cli", "--version"],
+            timeout: 5,
+            env: {}
+          ).and_return(version_result)
+
+          allow(mock_executor).to receive(:execute).with(
+            ["github-copilot-cli", "-p", "Hello", "--output-format", "json", "--allow-all"],
+            anything
+          ).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello", dangerous_mode: true)
+          expect(response.output).to eq("hello")
+          expect(response.tokens).to eq({input: 10, output: 5, total: 15})
+        end
+
         it "handles non-JSON output gracefully" do
           allow(mock_executor).to receive(:execute).and_return(
             AgentHarness::CommandExecutor::Result.new(
