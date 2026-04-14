@@ -675,9 +675,23 @@ module AgentHarness
 
       def usage_with_token_counts?(usage)
         return false unless usage_payload?(usage)
+        return false if negative_token_count_present?(usage)
 
         token_count_for(usage, "input_tokens", "prompt_tokens", "inputTokens", "promptTokens") ||
           token_count_for(usage, "output_tokens", "completion_tokens", "outputTokens", "completionTokens")
+      end
+
+      def negative_token_count_present?(usage)
+        token_count_keys.any? do |key|
+          count = case usage[key]
+          when Integer
+            usage[key]
+          when String
+            Integer(usage[key], exception: false)
+          end
+
+          count && count < 0
+        end
       end
 
       def extract_text_value(value)
