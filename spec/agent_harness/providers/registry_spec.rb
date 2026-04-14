@@ -1208,6 +1208,10 @@ RSpec.describe AgentHarness::Providers::Registry do
     end
 
     it "preserves the github_copilot runtime contract in the registry catalog" do
+      allow_any_instance_of(AgentHarness::Providers::GithubCopilot)
+        .to receive(:supports_token_counting?)
+        .and_return(true)
+
       runtime = registry.provider_metadata_catalog.fetch(:github_copilot).fetch(:runtime)
       capabilities = registry.provider_metadata_catalog.fetch(:github_copilot).fetch(:capabilities)
 
