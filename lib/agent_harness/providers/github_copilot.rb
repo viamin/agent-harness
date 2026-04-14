@@ -132,11 +132,9 @@ module AgentHarness
       end
 
       def dangerous_mode_flags(probe_timeout: nil, env: {})
-        if supports_json_output_format?(probe_timeout: probe_timeout, env: env)
-          ["--allow-all"]
-        else
-          ["--allow-all-tools"]
-        end
+        return [] unless supports_json_output_format?(probe_timeout: probe_timeout, env: env)
+
+        ["--allow-all"]
       end
 
       def supports_sessions?
@@ -270,6 +268,7 @@ module AgentHarness
 
         model = effective_model_name(runtime)
         cmd += ["--model", model] if model
+        cmd += programmatic_tool_approval_flags
 
         if options[:dangerous_mode] && supports_dangerous_mode?
           cmd += dangerous_mode_flags(probe_timeout: options[:_version_probe_timeout], env: env)
@@ -313,6 +312,10 @@ module AgentHarness
 
       private
 
+      def programmatic_tool_approval_flags
+        ["--allow-all-tools"]
+      end
+
       def supports_json_output_format?(probe_timeout: nil, env: {})
         version = copilot_cli_version(probe_timeout: probe_timeout, env: env)
         !version.nil? && version >= JSON_OUTPUT_MIN_VERSION
@@ -348,15 +351,17 @@ module AgentHarness
 
       def version_probe_cache_key(env)
         [
-          probe_env_cache_component(env, "PATH", inherited: :inherited_path, label: :path_override),
-          probe_env_cache_component(env, "PATHEXT", inherited: :inherited_pathext, label: :pathext_override)
+          probe_env_cache_component(env, "PATH", inherited_label: :inherited_path, override_label: :path_override),
+          probe_env_cache_component(env, "PATHEXT", inherited_label: :inherited_pathext, override_label: :pathext_override)
         ]
       end
 
-      def probe_env_cache_component(env, key, inherited:, label:)
-        return inherited unless env_override_present?(env, key)
-
-        value = env_override_value(env, key)
+      def probe_env_cache_component(env, key, inherited_label:, override_label:)
+        label, value = if env_override_present?(env, key)
+          [override_label, env_override_value(env, key)]
+        else
+          [inherited_label, ENV[key]]
+        end
         return [label, :unset] if value.nil?
 
         [label, Digest::SHA256.hexdigest(value)]
