@@ -339,7 +339,7 @@ module AgentHarness
       def generate_llm_history_path
         return "/tmp/aider_llm_history_#{SecureRandom.hex(8)}.json" if sandboxed_environment?
 
-        File.join(Dir.tmpdir, "aider_llm_history_#{Process.pid}_#{SecureRandom.hex(8)}")
+        File.join(Dir.tmpdir, "aider_llm_history_#{Process.pid}_#{SecureRandom.hex(8)}.json")
       end
 
       def parse_token_usage(result, llm_history_path:)

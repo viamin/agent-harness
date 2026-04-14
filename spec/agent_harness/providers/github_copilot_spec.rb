@@ -366,7 +366,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
     end
 
     describe "#build_command" do
-      it "retries CLI version detection after transient failures" do
+      it "caches negative version probes from transient failures" do
         allow(mock_executor).to receive(:execute).with(
           ["github-copilot-cli", "--version"],
           timeout: 5,
@@ -381,19 +381,13 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
           "-s"
         ])
 
-        allow(mock_executor).to receive(:execute).with(
-          ["github-copilot-cli", "--version"],
-          timeout: 5,
-          env: {}
-        ).and_return(version_result)
-
+        # Second call should use cached nil without retrying the probe
         second_command = provider.send(:build_command, "Hello", {})
         expect(second_command).to eq([
           "github-copilot-cli",
           "-p",
           "Hello",
-          "--output-format",
-          "json"
+          "-s"
         ])
       end
 

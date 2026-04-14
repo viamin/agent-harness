@@ -342,7 +342,7 @@ module AgentHarness
         version
       rescue => e
         log_debug("copilot_cli_version_check_failed", error: e.message)
-        nil
+        @copilot_cli_versions[cache_key] = nil
       end
 
       def version_probe_cache_key(env)
