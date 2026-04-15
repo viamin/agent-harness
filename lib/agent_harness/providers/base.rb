@@ -104,6 +104,15 @@ module AgentHarness
       def send_message(prompt:, **options)
         log_debug("send_message_start", prompt_length: prompt.length, options: options.keys)
 
+        # Text mode: fall back to CLI with tools disabled when the provider
+        # does not have an HTTP text transport.  Providers that support text
+        # mode (e.g. Anthropic) override send_message to intercept this
+        # before reaching Base.
+        if options[:mode] == :text && !supports_text_mode?
+          log_debug("text_mode_cli_fallback", provider: self.class.provider_name)
+          options = options.except(:mode).merge(tools: :none)
+        end
+
         # Warn when tools option is passed to a provider that doesn't support it
         if options[:tools] && !supports_tool_control?
           log_debug("tools_option_unsupported",

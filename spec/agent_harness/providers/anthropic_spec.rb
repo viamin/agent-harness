@@ -961,6 +961,186 @@ RSpec.describe AgentHarness::Providers::Anthropic do
       end
     end
 
+    describe "#supports_text_mode?" do
+      it "returns true" do
+        expect(provider.supports_text_mode?).to be true
+      end
+    end
+
+    describe "text mode (mode: :text)" do
+      context "with ANTHROPIC_API_KEY set" do
+        let(:api_key) { "sk-ant-test-key-456" }
+
+        before do
+          allow(ENV).to receive(:[]).and_call_original
+          allow(ENV).to receive(:[]).with("ANTHROPIC_API_KEY").and_return(api_key)
+        end
+
+        it "sends via HTTP transport instead of CLI" do
+          http_response = instance_double(Net::HTTPOK,
+            code: "200",
+            body: JSON.generate({
+              "content" => [{"type" => "text", "text" => "HTTP response"}],
+              "model" => "claude-sonnet-4-20250514",
+              "usage" => {"input_tokens" => 20, "output_tokens" => 10}
+            }))
+
+          http = instance_double(Net::HTTP)
+          allow(Net::HTTP).to receive(:new).and_return(http)
+          allow(http).to receive(:use_ssl=)
+          allow(http).to receive(:open_timeout=)
+          allow(http).to receive(:read_timeout=)
+          allow(http).to receive(:request).and_return(http_response)
+
+          # CLI executor should NOT be called
+          expect(mock_executor).not_to receive(:execute)
+
+          response = provider.send_message(prompt: "Summarize this", mode: :text)
+
+          expect(response.output).to eq("HTTP response")
+          expect(response.success?).to be true
+          expect(response.provider).to eq(:claude)
+          expect(response.metadata[:transport]).to eq(:http)
+        end
+
+        it "extracts tokens from HTTP response" do
+          http_response = instance_double(Net::HTTPOK,
+            code: "200",
+            body: JSON.generate({
+              "content" => [{"type" => "text", "text" => "response"}],
+              "usage" => {"input_tokens" => 50, "output_tokens" => 25}
+            }))
+
+          http = instance_double(Net::HTTP)
+          allow(Net::HTTP).to receive(:new).and_return(http)
+          allow(http).to receive(:use_ssl=)
+          allow(http).to receive(:open_timeout=)
+          allow(http).to receive(:read_timeout=)
+          allow(http).to receive(:request).and_return(http_response)
+
+          response = provider.send_message(prompt: "prompt", mode: :text)
+
+          expect(response.tokens).to eq({input: 50, output: 25, total: 75})
+        end
+
+        it "records tokens with the global token tracker" do
+          http_response = instance_double(Net::HTTPOK,
+            code: "200",
+            body: JSON.generate({
+              "content" => [{"type" => "text", "text" => "response"}],
+              "usage" => {"input_tokens" => 30, "output_tokens" => 15}
+            }))
+
+          http = instance_double(Net::HTTP)
+          allow(Net::HTTP).to receive(:new).and_return(http)
+          allow(http).to receive(:use_ssl=)
+          allow(http).to receive(:open_timeout=)
+          allow(http).to receive(:read_timeout=)
+          allow(http).to receive(:request).and_return(http_response)
+
+          tracker = AgentHarness.token_tracker
+          tracker.clear!
+
+          provider.send_message(prompt: "prompt", mode: :text)
+
+          summary = tracker.summary
+          expect(summary[:total_input_tokens]).to eq(30)
+          expect(summary[:total_output_tokens]).to eq(15)
+          expect(summary[:total_tokens]).to eq(45)
+        end
+
+        it "uses configured model" do
+          http = instance_double(Net::HTTP)
+          allow(Net::HTTP).to receive(:new).and_return(http)
+          allow(http).to receive(:use_ssl=)
+          allow(http).to receive(:open_timeout=)
+          allow(http).to receive(:read_timeout=)
+
+          expect(http).to receive(:request) do |req|
+            body = JSON.parse(req.body)
+            expect(body["model"]).to eq("claude-3-5-sonnet")
+
+            instance_double(Net::HTTPOK,
+              code: "200",
+              body: JSON.generate({
+                "content" => [{"type" => "text", "text" => "ok"}],
+                "model" => "claude-3-5-sonnet",
+                "usage" => {"input_tokens" => 1, "output_tokens" => 1}
+              }))
+          end
+
+          provider.send_message(prompt: "prompt", mode: :text)
+        end
+
+        it "raises AuthenticationError on 401 from API" do
+          http_response = instance_double(Net::HTTPOK,
+            code: "401",
+            body: JSON.generate({
+              "error" => {"type" => "authentication_error", "message" => "invalid api key"}
+            }))
+
+          http = instance_double(Net::HTTP)
+          allow(Net::HTTP).to receive(:new).and_return(http)
+          allow(http).to receive(:use_ssl=)
+          allow(http).to receive(:open_timeout=)
+          allow(http).to receive(:read_timeout=)
+          allow(http).to receive(:request).and_return(http_response)
+
+          expect { provider.send_message(prompt: "prompt", mode: :text) }
+            .to raise_error(AgentHarness::AuthenticationError)
+        end
+
+        it "raises RateLimitError on 429 from API" do
+          http_response = instance_double(Net::HTTPOK,
+            code: "429",
+            body: JSON.generate({
+              "error" => {"type" => "rate_limit_error", "message" => "rate limited"}
+            }))
+
+          http = instance_double(Net::HTTP)
+          allow(Net::HTTP).to receive(:new).and_return(http)
+          allow(http).to receive(:use_ssl=)
+          allow(http).to receive(:open_timeout=)
+          allow(http).to receive(:read_timeout=)
+          allow(http).to receive(:request).and_return(http_response)
+
+          expect { provider.send_message(prompt: "prompt", mode: :text) }
+            .to raise_error(AgentHarness::RateLimitError)
+        end
+      end
+
+      context "without ANTHROPIC_API_KEY" do
+        before do
+          allow(ENV).to receive(:[]).and_call_original
+          allow(ENV).to receive(:[]).with("ANTHROPIC_API_KEY").and_return(nil)
+        end
+
+        it "raises AuthMismatchError" do
+          expect { provider.send_message(prompt: "prompt", mode: :text) }
+            .to raise_error(AgentHarness::AuthMismatchError, /ANTHROPIC_API_KEY/) do |error|
+              expect(error.provider).to eq(:claude)
+            end
+        end
+
+        it "includes guidance about billing in the error message" do
+          expect { provider.send_message(prompt: "prompt", mode: :text) }
+            .to raise_error(AgentHarness::AuthMismatchError, /billing/)
+        end
+      end
+
+      context "with empty ANTHROPIC_API_KEY" do
+        before do
+          allow(ENV).to receive(:[]).and_call_original
+          allow(ENV).to receive(:[]).with("ANTHROPIC_API_KEY").and_return("   ")
+        end
+
+        it "raises AuthMismatchError" do
+          expect { provider.send_message(prompt: "prompt", mode: :text) }
+            .to raise_error(AgentHarness::AuthMismatchError)
+        end
+      end
+    end
+
     describe "#execution_semantics" do
       it "returns the full provider contract" do
         semantics = provider.execution_semantics
