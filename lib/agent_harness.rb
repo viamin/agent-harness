@@ -245,6 +245,7 @@ require_relative "agent_harness/docker_command_executor"
 require_relative "agent_harness/response"
 require_relative "agent_harness/token_tracker"
 require_relative "agent_harness/error_taxonomy"
+require_relative "agent_harness/text_transport"
 require_relative "agent_harness/authentication"
 require_relative "agent_harness/provider_health_check"
 

@@ -862,6 +862,17 @@ module AgentHarness
         false
       end
 
+      # Check if provider supports text-only mode via direct HTTP transport.
+      #
+      # Providers that return +true+ will route +mode: :text+ requests
+      # through their REST API instead of the CLI. Providers that return
+      # +false+ fall back to the CLI path with tools forcibly disabled.
+      #
+      # @return [Boolean] true if the provider has an HTTP text transport
+      def supports_text_mode?
+        false
+      end
+
       # Check if provider supports dangerous mode
       #
       # @return [Boolean] true if dangerous mode is supported

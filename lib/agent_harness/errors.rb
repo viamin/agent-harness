@@ -59,6 +59,13 @@ module AgentHarness
     end
   end
 
+  # Auth mismatch errors — raised when the requested transport mode
+  # requires credentials that differ from the caller's current auth mode.
+  # For example, requesting HTTP text mode with only OAuth/subscription
+  # credentials (no API key) would silently shift billing from
+  # subscription to API-metered usage.
+  class AuthMismatchError < AuthenticationError; end
+
   # Configuration errors
   class ConfigurationError < Error; end
 

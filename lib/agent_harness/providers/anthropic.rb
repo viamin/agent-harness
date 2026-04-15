@@ -297,6 +297,10 @@ module AgentHarness
       end
 
       def send_message(prompt:, **options)
+        if options[:mode] == :text
+          return send_text_message(prompt, **options.except(:mode))
+        end
+
         super
       ensure
         cleanup_mcp_tempfiles!
@@ -318,6 +322,10 @@ module AgentHarness
       end
 
       def supports_tool_control?
+        true
+      end
+
+      def supports_text_mode?
         true
       end
 
@@ -494,6 +502,67 @@ module AgentHarness
       end
 
       private
+
+      def send_text_message(prompt, **options)
+        api_key = resolve_text_mode_api_key
+        model = options[:model] || @config.model
+        timeout = options[:timeout] || @config.timeout || default_timeout
+        max_tokens = options[:max_tokens]
+
+        transport = TextTransport.new(api_key: api_key, logger: @logger)
+
+        kwargs = {model: model, timeout: timeout}
+        kwargs[:max_tokens] = max_tokens if max_tokens
+
+        response = transport.send_message(prompt, **kwargs)
+
+        # Apply runtime model override if present
+        runtime = options[:provider_runtime]
+        runtime = ProviderRuntime.wrap(runtime) if runtime.is_a?(Hash)
+        if runtime&.model
+          response = Response.new(
+            output: response.output,
+            exit_code: response.exit_code,
+            duration: response.duration,
+            provider: response.provider,
+            model: runtime.model,
+            tokens: response.tokens,
+            metadata: response.metadata,
+            error: response.error
+          )
+        end
+
+        track_tokens(response) if response.tokens
+
+        log_debug("send_text_message_complete",
+          duration: response.duration,
+          tokens: response.tokens,
+          transport: :http)
+
+        response
+      end
+
+      # Resolve the API key for text mode, validating that the caller's
+      # credentials support direct API access without silently shifting
+      # billing from subscription to API-metered usage.
+      #
+      # @return [String] the API key
+      # @raise [AuthMismatchError] if no API key is available
+      def resolve_text_mode_api_key
+        api_key = ENV["ANTHROPIC_API_KEY"]
+
+        if api_key.nil? || api_key.strip.empty?
+          raise AuthMismatchError.new(
+            "Text mode requires an ANTHROPIC_API_KEY for direct API access. " \
+            "OAuth/subscription credentials cannot be used for HTTP transport " \
+            "because it would silently shift billing to API-metered usage. " \
+            "Set ANTHROPIC_API_KEY or use the default CLI mode instead.",
+            provider: :claude
+          )
+        end
+
+        api_key.strip
+      end
 
       def parse_json_output(output)
         return nil if output.nil? || output.empty?
