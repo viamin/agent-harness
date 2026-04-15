@@ -174,7 +174,7 @@ module AgentHarness
       def execution_semantics
         {
           prompt_delivery: :arg,
-          output_format: :text,
+          output_format: :json,
           sandbox_aware: true,
           uses_subcommand: true,
           non_interactive_flag: nil,
@@ -275,15 +275,49 @@ module AgentHarness
       protected
 
       def parse_response(result, duration:)
-        response = super
+        output = result.stdout
+        error = nil
+        tokens = nil
+        legitimate = execution_semantics[:legitimate_exit_codes] || [0]
+
+        unless legitimate.include?(result.exit_code)
+          combined = [result.stderr, result.stdout]
+            .map { |stream| stream.to_s.strip }
+            .reject(&:empty?)
+            .join("\n")
+          error = combined unless combined.empty?
+        end
+
+        parsed = parse_jsonl_output(output)
+        if parsed
+          output = parsed[:text].nil? ? output : parsed[:text]
+          tokens = parsed[:tokens]
+        end
+
+        response = Response.new(
+          output: output,
+          exit_code: result.exit_code,
+          duration: duration,
+          provider: self.class.provider_name,
+          model: @config.model,
+          tokens: tokens,
+          metadata: {
+            legitimate_exit_codes: legitimate
+          },
+          error: error
+        )
 
         if response.success? && sandbox_failure_detected?(result.stderr)
           return Response.new(
-            output: result.stdout,
+            output: output,
             exit_code: 1,
             duration: duration,
             provider: self.class.provider_name,
             model: @config.model,
+            tokens: tokens,
+            metadata: {
+              legitimate_exit_codes: legitimate
+            },
             error: "Sandbox failure detected: #{result.stderr.strip}"
           )
         end
@@ -292,8 +326,9 @@ module AgentHarness
       end
 
       def build_command(prompt, options)
-        cmd = [self.class.binary_name, "exec"]
+        cmd = [self.class.binary_name, "exec", "--json"]
         externally_sandboxed = externally_sandboxed?(options)
+        runtime = options[:provider_runtime]
 
         # When externally_sandboxed is set, use --dangerously-bypass-approvals-and-sandbox
         # instead of --full-auto. In the Codex CLI, full_auto is checked first and
@@ -324,8 +359,6 @@ module AgentHarness
         if options[:session]
           cmd += session_flags(options[:session])
         end
-
-        runtime = options[:provider_runtime]
         if runtime
           cmd += ["--model", runtime.model] if runtime.model
           runtime_flags = runtime.flags
@@ -353,6 +386,742 @@ module AgentHarness
       end
 
       private
+
+      def parse_jsonl_output(raw_output)
+        return nil if raw_output.nil? || raw_output.strip.empty?
+
+        latest_completed_parts = []
+        current_turn_parts = []
+        total_input = 0
+        total_output = 0
+        total_tokens = 0
+        has_usage = false
+        saw_assistant_output = false
+        pending_turn_usage = nil
+        pending_turn_usage_source = nil
+        pending_wrapped_output_parts = nil
+        pending_wrapped_same_turn_finalization = false
+        turn_completed = false
+        current_turn_finalized_output = false
+
+        commit_pending_turn = lambda do
+          next unless pending_turn_usage
+
+          total_input += pending_turn_usage[:input]
+          total_output += pending_turn_usage[:output]
+          total_tokens += pending_turn_usage[:total]
+          pending_turn_usage = nil
+          pending_turn_usage_source = nil
+          pending_wrapped_output_parts = nil
+          pending_wrapped_same_turn_finalization = false
+        end
+
+        start_new_turn = lambda do
+          next unless turn_completed
+
+          commit_pending_turn.call
+          turn_completed = false
+          current_turn_finalized_output = false
+        end
+
+        start_new_finalized_turn = lambda do
+          start_new_turn.call
+        end
+
+        start_new_streaming_turn = lambda do
+          start_new_turn.call
+          next unless pending_turn_usage_source == :wrapped && pending_turn_usage && current_turn_finalized_output
+
+          latest_completed_parts = current_turn_parts.dup
+          commit_pending_turn.call
+          current_turn_parts = []
+          current_turn_finalized_output = false
+        end
+
+        replace_current_turn_parts = lambda do |parts|
+          next if parts.nil?
+
+          current_turn_parts = parts
+          saw_assistant_output = true
+          current_turn_finalized_output = true
+        end
+
+        finalize_current_turn = lambda do
+          latest_completed_parts = current_turn_parts.dup
+          current_turn_parts = []
+          turn_completed = true
+          current_turn_finalized_output = false
+        end
+
+        finalize_pending_wrapped_turn = lambda do
+          next unless pending_turn_usage_source == :wrapped && pending_turn_usage
+
+          wrapped_output_parts = pending_wrapped_output_parts || current_turn_parts
+          latest_completed_parts = wrapped_output_parts.dup
+          current_turn_parts = [] if current_turn_parts.equal?(wrapped_output_parts)
+          commit_pending_turn.call
+          turn_completed = false
+          current_turn_finalized_output = false
+        end
+
+        fail_current_turn = lambda do
+          latest_completed_parts = []
+          current_turn_parts = []
+          turn_completed = true
+          current_turn_finalized_output = false
+        end
+
+        process_event = lambda do |event|
+          next unless event.is_a?(Hash)
+
+          type = event["type"]
+
+          case type
+          when "message.delta"
+            start_new_streaming_turn.call
+            appended = append_delta_text(current_turn_parts, event["delta"])
+            current_turn_finalized_output = false if appended
+            saw_assistant_output ||= appended
+          when "agent_message_delta"
+            next unless wrapped_assistant_payload?(event)
+
+            start_new_streaming_turn.call
+            appended = append_wrapped_delta_text(current_turn_parts, event)
+            current_turn_finalized_output = false if appended
+            saw_assistant_output ||= appended
+          when "agent_message"
+            next unless wrapped_assistant_payload?(event)
+
+            wrapped_same_turn_finalization =
+              pending_turn_usage_source == :wrapped &&
+              pending_turn_usage &&
+              (
+                !current_turn_finalized_output ||
+                pending_wrapped_same_turn_finalization
+              )
+            start_new_turn.call
+            replace_current_turn_parts.call(extract_message_content_parts(event))
+            pending_wrapped_same_turn_finalization = wrapped_same_turn_finalization
+          when "task_complete", "turn_complete"
+            completion_parts = extract_task_complete_parts(event)
+            next if completion_parts.nil?
+
+            wrapped_same_turn_finalization =
+              pending_turn_usage_source == :wrapped &&
+              pending_turn_usage &&
+              (
+                !current_turn_finalized_output ||
+                pending_wrapped_same_turn_finalization
+              )
+            start_new_turn.call
+            replace_current_turn_parts.call(completion_parts)
+            pending_wrapped_same_turn_finalization = wrapped_same_turn_finalization
+          when "item.completed"
+            item = event["item"]
+            next unless item.is_a?(Hash)
+            next unless assistant_message_item?(item)
+
+            start_new_finalized_turn.call
+            replace_current_turn_parts.call(extract_message_content_parts(item))
+            pending_wrapped_same_turn_finalization =
+              pending_turn_usage_source == :wrapped && pending_turn_usage
+          when "turn.completed"
+            turn_usage = build_token_usage(event["usage"])
+            result = event["result"]
+            wrapped_completion_without_new_output =
+              pending_turn_usage_source == :wrapped &&
+              pending_turn_usage &&
+              !result.is_a?(String) &&
+              (turn_usage.nil? || current_turn_parts.empty? || current_turn_parts.equal?(pending_wrapped_output_parts))
+
+            if wrapped_completion_without_new_output
+              if pending_wrapped_output_parts && !current_turn_parts.empty? && !current_turn_parts.equal?(pending_wrapped_output_parts)
+                commit_pending_turn.call
+                finalize_current_turn.call
+                if turn_usage
+                  has_usage = true
+                  pending_turn_usage = turn_usage
+                  pending_turn_usage_source = :turn_completed
+                  pending_wrapped_same_turn_finalization = false
+                end
+                next
+              end
+
+              wrapped_output_parts = pending_wrapped_output_parts || current_turn_parts
+              latest_completed_parts = wrapped_output_parts.dup
+              current_turn_parts = [] if current_turn_parts.equal?(wrapped_output_parts)
+              commit_pending_turn.call
+              if turn_usage
+                has_usage = true
+                total_input += turn_usage[:input]
+                total_output += turn_usage[:output]
+                total_tokens += turn_usage[:total]
+              end
+              turn_completed = true
+              current_turn_finalized_output = false
+              next
+            end
+
+            same_streaming_wrapped_turn =
+              pending_turn_usage_source == :wrapped &&
+              pending_wrapped_output_parts&.equal?(current_turn_parts) &&
+              !current_turn_finalized_output
+            same_wrapped_turn = pending_turn_usage_source == :wrapped &&
+              same_turn_usage?(pending_turn_usage, turn_usage) &&
+              (
+                same_turn_output?(current_turn_parts, current_turn_finalized_output, result) ||
+                same_streaming_wrapped_turn
+              )
+
+            finalize_pending_wrapped_turn.call unless same_wrapped_turn
+
+            if turn_completed && !same_wrapped_turn
+              commit_pending_turn.call
+              turn_completed = false
+            end
+
+            if turn_usage
+              has_usage = true
+              turn_usage = merge_same_turn_usage(pending_turn_usage, turn_usage) if same_wrapped_turn
+              pending_turn_usage = turn_usage
+              pending_turn_usage_source = :turn_completed
+              pending_wrapped_same_turn_finalization = false
+            end
+
+            if result.is_a?(String)
+              current_turn_parts = [result]
+              saw_assistant_output = true
+              current_turn_finalized_output = true
+            end
+
+            finalize_current_turn.call
+          when "turn.failed"
+            turn_usage = build_token_usage(event["usage"])
+            same_streaming_wrapped_turn =
+              pending_turn_usage_source == :wrapped &&
+              pending_wrapped_output_parts&.equal?(current_turn_parts) &&
+              !current_turn_finalized_output
+            same_finalized_wrapped_turn =
+              pending_turn_usage_source == :wrapped &&
+              pending_wrapped_same_turn_finalization &&
+              current_turn_finalized_output
+            same_wrapped_turn = pending_turn_usage_source == :wrapped &&
+              same_turn_usage?(pending_turn_usage, turn_usage) &&
+              (
+                pending_wrapped_output_parts&.equal?(current_turn_parts) ||
+                same_streaming_wrapped_turn ||
+                same_finalized_wrapped_turn
+              )
+
+            finalize_pending_wrapped_turn.call unless same_wrapped_turn
+
+            if turn_completed && !same_wrapped_turn
+              commit_pending_turn.call
+              turn_completed = false
+            end
+
+            if turn_usage
+              has_usage = true
+              turn_usage = merge_same_turn_usage(pending_turn_usage, turn_usage) if same_wrapped_turn
+              pending_turn_usage = turn_usage
+              pending_turn_usage_source = :turn_completed
+              pending_wrapped_same_turn_finalization = false
+            end
+
+            fail_current_turn.call
+          when "event_msg"
+            payload = event["payload"]
+            next unless payload.is_a?(Hash)
+
+            case payload["type"]
+            when "agent_message_delta"
+              next unless wrapped_assistant_payload?(payload)
+
+              start_new_streaming_turn.call
+              appended = append_wrapped_delta_text(current_turn_parts, payload)
+              current_turn_finalized_output = false if appended
+              saw_assistant_output ||= appended
+            when "agent_message"
+              next unless wrapped_assistant_payload?(payload)
+
+              wrapped_same_turn_finalization =
+                pending_turn_usage_source == :wrapped &&
+                pending_turn_usage &&
+                (
+                  !current_turn_finalized_output ||
+                  pending_wrapped_same_turn_finalization
+                )
+              start_new_turn.call
+              replace_current_turn_parts.call(extract_message_content_parts(payload))
+              pending_wrapped_same_turn_finalization = wrapped_same_turn_finalization
+            when "task_complete", "turn_complete"
+              completion_parts = extract_task_complete_parts(payload)
+              next if completion_parts.nil?
+
+              wrapped_same_turn_finalization =
+                pending_turn_usage_source == :wrapped &&
+                pending_turn_usage &&
+                (
+                  !current_turn_finalized_output ||
+                  pending_wrapped_same_turn_finalization
+                )
+              start_new_turn.call
+              replace_current_turn_parts.call(completion_parts)
+              pending_wrapped_same_turn_finalization = wrapped_same_turn_finalization
+            when "token_count"
+              wrapped_token_usage = extract_wrapped_tokens(payload["info"])
+              if wrapped_token_usage
+                has_usage = true
+                if wrapped_token_usage_starts_new_turn?(pending_turn_usage, pending_turn_usage_source, turn_completed, wrapped_token_usage)
+                  commit_pending_turn.call
+                  turn_completed = false
+                end
+                pending_turn_usage, pending_turn_usage_source = merge_wrapped_turn_usage(
+                  pending_turn_usage,
+                  pending_turn_usage_source,
+                  wrapped_token_usage
+                )
+                pending_wrapped_output_parts =
+                  (pending_turn_usage_source == :wrapped) ? current_turn_parts : nil
+              end
+            end
+          when "response_item"
+            payload = event["payload"]
+            next unless payload.is_a?(Hash) && response_item_assistant_payload?(payload)
+
+            start_new_finalized_turn.call
+            replace_current_turn_parts.call(extract_message_content_parts(payload))
+            pending_wrapped_same_turn_finalization =
+              pending_turn_usage_source == :wrapped && pending_turn_usage
+          end
+        end
+
+        raw_output.each_line do |line|
+          line = line.strip
+          next if line.empty?
+
+          begin
+            event = JSON.parse(line)
+          rescue JSON::ParserError
+            next
+          end
+
+          process_event.call(event)
+        end
+
+        commit_pending_turn.call
+        final_parts = current_turn_parts.empty? ? latest_completed_parts : current_turn_parts
+        text = if final_parts.empty?
+          (turn_completed && saw_assistant_output) ? "" : nil
+        else
+          final_parts.join
+        end
+
+        {
+          text: text,
+          tokens: has_usage ? {
+            input: total_input,
+            output: total_output,
+            total: total_tokens
+          } : nil
+        }
+      rescue
+        nil
+      end
+
+      def append_delta_text(parts, delta)
+        return false unless delta.is_a?(Hash)
+
+        delta_parts = extract_delta_content_parts(delta)
+        return false if delta_parts.nil?
+
+        appended = false
+        delta_parts.each do |part|
+          next if part.empty?
+
+          parts << part
+          appended = true
+        end
+
+        appended
+      end
+
+      def append_wrapped_delta_text(parts, payload)
+        delta_parts = extract_wrapped_delta_parts(payload)
+        return false if delta_parts.nil?
+
+        appended = false
+        delta_parts.each do |part|
+          next if part.empty?
+
+          parts << part
+          appended = true
+        end
+
+        appended
+      end
+
+      def assistant_message_item?(item)
+        item_role = item["role"]
+        item_type = item["type"]
+        item_item_type = item["item_type"]
+        message_shaped_item =
+          (
+            message_item_type?(item_type) ||
+            item_type == "agent_message"
+          ) && assistant_message_item_type?(item_item_type)
+
+        (
+          item_role == "assistant" && message_shaped_item
+        ) || (
+          item_role.nil? && message_shaped_item && (
+            item_type == "agent_message" ||
+            item_item_type == "assistant_message"
+          )
+        )
+      end
+
+      def wrapped_assistant_payload?(payload)
+        role = payload["role"]
+        item_type = payload["item_type"]
+
+        assistant_message_item_type?(item_type) &&
+          (role == "assistant" || role.nil?)
+      end
+
+      def response_item_assistant_payload?(payload)
+        payload_type = payload["type"]
+        payload_role = payload["role"]
+        payload_item_type = payload["item_type"]
+        assistant_message_type = payload_type == "assistant_message"
+
+        return false unless assistant_message_item_type?(payload_item_type)
+
+        ((message_item_type?(payload_type) || payload_type == "agent_message" || assistant_message_type) && payload_role == "assistant") ||
+          (payload_type == "agent_message" && (
+            payload_role == "assistant" ||
+            (payload_role.nil? && assistant_message_item_type?(payload_item_type))
+          )) ||
+          (
+            assistant_message_type && (
+              payload_role == "assistant" ||
+              (payload_role.nil? && assistant_message_item_type?(payload_item_type))
+            )
+          ) ||
+          (
+            payload_role.nil? &&
+            message_item_type?(payload_type) &&
+            payload_item_type == "assistant_message"
+          )
+      end
+
+      def assistant_message_item_type?(item_type)
+        item_type.nil? || item_type == "assistant_message"
+      end
+
+      def message_item_type?(item_type)
+        item_type.nil? || item_type == "message"
+      end
+
+      def extract_message_content_parts(item)
+        item_text = item["text"]
+        return [item_text] if item_text.is_a?(String) && !item_text.empty?
+
+        item_message = item["message"]
+        return [item_message] if item_message.is_a?(String) && !item_message.empty?
+
+        if item_text.is_a?(String)
+          return extract_fallback_content_parts(item, item_text)
+        end
+
+        if item_message.is_a?(String)
+          return extract_fallback_content_parts(item, item_message)
+        end
+
+        item_content = item["content"]
+        return nil unless item_content.is_a?(Array)
+
+        extract_content_parts(item_content)
+      end
+
+      def extract_fallback_content_parts(item, empty_value)
+        item_content = item["content"]
+        return [empty_value] unless item_content.is_a?(Array)
+
+        content_parts = extract_content_parts(item_content)
+        content_parts.nil? ? [empty_value] : content_parts
+      end
+
+      def extract_wrapped_delta_parts(payload)
+        delta = payload["delta"]
+        if delta.is_a?(Hash)
+          delta_parts = extract_delta_content_parts(delta)
+          return delta_parts unless delta_parts.nil?
+        end
+
+        extract_delta_content_parts(payload)
+      end
+
+      def extract_task_complete_parts(payload)
+        last_agent_message = payload["last_agent_message"]
+        return [last_agent_message] if last_agent_message.is_a?(String)
+        return nil unless last_agent_message.is_a?(Hash)
+        return nil unless completed_assistant_message_payload?(last_agent_message)
+
+        extract_message_content_parts(last_agent_message)
+      end
+
+      def completed_assistant_message_payload?(payload)
+        payload_role = payload["role"]
+        payload_type = payload["type"]
+        payload_item_type = payload["item_type"]
+        message_shaped_payload =
+          (
+            message_item_type?(payload_type) ||
+            payload_type == "agent_message" ||
+            payload_type == "assistant_message"
+          ) && assistant_message_item_type?(payload_item_type)
+
+        (
+          payload_role == "assistant" && message_shaped_payload
+        ) || (
+          payload_role.nil? && message_shaped_payload && (
+            payload_type.nil? ||
+            payload_type == "agent_message" ||
+            payload_type == "assistant_message" ||
+            payload_item_type == "assistant_message"
+          )
+        )
+      end
+
+      def extract_delta_content_parts(item)
+        direct_parts = extract_message_content_parts(item)
+        return direct_parts unless direct_parts == [""]
+
+        item_content = item["content"]
+        return direct_parts unless item_content.is_a?(Array)
+
+        content_parts = extract_content_parts(item_content)
+        content_parts.nil? ? direct_parts : content_parts
+      end
+
+      def output_text_block?(block)
+        block_type = block["type"]
+
+        block_type.nil? || block_type == "output_text" || block_type == "output_text_delta"
+      end
+
+      def extract_content_parts(item_content)
+        completed_parts = []
+        extracted_content = false
+
+        item_content.each do |block|
+          next unless block.is_a?(Hash)
+          next unless output_text_block?(block)
+
+          block_text = block["text"]
+          next unless block_text.is_a?(String)
+
+          extracted_content = true
+          completed_parts << block_text
+        end
+
+        extracted_content ? completed_parts : nil
+      end
+
+      def extract_wrapped_tokens(info)
+        return unless info.is_a?(Hash)
+
+        last_usage = build_token_usage(info["last_token_usage"])
+        total_usage = build_token_usage(info["total_token_usage"])
+
+        return unless last_usage || total_usage
+
+        {last: last_usage, total: total_usage}
+      end
+
+      def token_usage_fields_present?(usage)
+        usage.is_a?(Hash) && (
+          !parse_token_count(usage["input_tokens"]).nil? ||
+          !parse_token_count(usage["cached_input_tokens"]).nil? ||
+          !parse_token_count(usage["output_tokens"]).nil? ||
+          !parse_token_count(usage["total_tokens"]).nil?
+        )
+      end
+
+      def build_token_usage(usage)
+        return unless token_usage_fields_present?(usage)
+
+        input_value = parse_token_count(usage["input_tokens"])
+        cached_input_value = parse_token_count(usage["cached_input_tokens"])
+        output_value = parse_token_count(usage["output_tokens"])
+        total_value = parse_token_count(usage["total_tokens"])
+
+        input = (input_value || 0) + (cached_input_value || 0)
+        output = output_value || 0
+        total = total_value || (input + output)
+
+        {
+          input: input,
+          output: output,
+          total: total,
+          input_reported: !input_value.nil? || !cached_input_value.nil?,
+          output_reported: !output_value.nil?,
+          total_reported: !total_value.nil?
+        }
+      end
+
+      def merge_wrapped_turn_usage(existing_usage, existing_source, wrapped_token_usage)
+        total_usage = wrapped_token_usage[:total]
+        last_usage = wrapped_token_usage[:last]
+
+        if existing_source == :turn_completed
+          replacement_usage = merged_wrapped_usage(existing_usage, existing_source, last_usage, total_usage)
+          return [existing_usage, existing_source] unless replacement_usage
+
+          return [merge_same_turn_usage(existing_usage, replacement_usage), :turn_completed]
+        end
+
+        merged_usage = merged_wrapped_usage(existing_usage, existing_source, last_usage, total_usage)
+        [merged_usage, :wrapped]
+      end
+
+      def merged_wrapped_usage(existing_usage, existing_source, last_usage, total_usage)
+        if last_usage
+          replacement_usage = last_usage
+          if total_usage && same_turn_usage?(replacement_usage, total_usage)
+            replacement_usage = merge_same_turn_usage(replacement_usage, total_usage)
+          end
+
+          return replacement_usage unless existing_source == :wrapped && existing_usage
+
+          merged_usage = add_token_usage(existing_usage, last_usage)
+          if total_usage && same_turn_usage?(merged_usage, total_usage)
+            return merge_same_turn_usage(merged_usage, total_usage)
+          end
+
+          return replacement_usage if total_usage && same_turn_usage?(last_usage, total_usage)
+
+          return merged_usage
+        end
+
+        total_usage
+      end
+
+      def wrapped_token_usage_starts_new_turn?(existing_usage, existing_source, turn_completed, wrapped_token_usage)
+        return false unless turn_completed && existing_source == :turn_completed && existing_usage
+
+        candidate_usage = wrapped_token_usage[:total] || wrapped_token_usage[:last]
+        return false unless candidate_usage
+
+        return false if same_turn_usage?(existing_usage, candidate_usage)
+
+        existing_detailed = existing_usage[:input_reported] && existing_usage[:output_reported]
+        candidate_detailed = candidate_usage[:input_reported] && candidate_usage[:output_reported]
+        existing_total_only = existing_usage[:total_reported] && !existing_detailed
+        candidate_total_only = candidate_usage[:total_reported] && !candidate_detailed
+
+        return true if existing_detailed && candidate_detailed
+        return true if existing_total_only && candidate_detailed
+
+        existing_total_only && candidate_total_only
+      end
+
+      def add_token_usage(left, right)
+        {
+          input: left[:input] + right[:input],
+          output: left[:output] + right[:output],
+          total: left[:total] + right[:total],
+          input_reported: left[:input_reported] || right[:input_reported],
+          output_reported: left[:output_reported] || right[:output_reported],
+          total_reported: left[:total_reported] || right[:total_reported]
+        }
+      end
+
+      def merge_same_turn_usage(left, right)
+        return right unless left
+        return left unless right
+
+        merged_input_reported = left[:input_reported] || right[:input_reported]
+        merged_output_reported = left[:output_reported] || right[:output_reported]
+        merged_total_reported = left[:total_reported] || right[:total_reported]
+
+        input = if right[:input_reported]
+          right[:input]
+        elsif left[:input_reported]
+          left[:input]
+        else
+          0
+        end
+
+        output = if right[:output_reported]
+          right[:output]
+        elsif left[:output_reported]
+          left[:output]
+        else
+          0
+        end
+
+        total = if right[:total_reported]
+          right[:total]
+        elsif left[:total_reported]
+          left[:total]
+        else
+          input + output
+        end
+
+        {
+          input: input,
+          output: output,
+          total: total,
+          input_reported: merged_input_reported,
+          output_reported: merged_output_reported,
+          total_reported: merged_total_reported
+        }
+      end
+
+      def same_turn_usage?(left, right)
+        return false unless left && right
+
+        detailed_usage_matches = left[:input_reported] &&
+          right[:input_reported] &&
+          left[:output_reported] &&
+          right[:output_reported]
+        return left[:input] == right[:input] && left[:output] == right[:output] if detailed_usage_matches
+
+        mixed_total_match = (
+          left[:input_reported] &&
+          left[:output_reported] &&
+          right[:total_reported]
+        ) || (
+          right[:input_reported] &&
+          right[:output_reported] &&
+          left[:total_reported]
+        )
+        return left[:total] == right[:total] if mixed_total_match
+
+        left[:total_reported] && right[:total_reported] && left[:total] == right[:total]
+      end
+
+      def same_turn_output?(current_turn_parts, current_turn_finalized_output, result)
+        return true if current_turn_parts.empty?
+        return false unless current_turn_finalized_output
+        return true unless result.is_a?(String)
+
+        current_turn_parts.join == result
+      end
+
+      def parse_token_count(value)
+        case value
+        when Integer
+          value if value >= 0
+        when String
+          stripped = value.strip
+          return nil unless /\A\d+\z/.match?(stripped)
+
+          stripped.to_i
+        end
+      end
 
       def externally_sandboxed?(options)
         if options.key?(:externally_sandboxed)
