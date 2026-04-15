@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require "shellwords"
 require "tmpdir"
 
 RSpec.describe AgentHarness::Providers::Aider do
@@ -145,6 +146,33 @@ RSpec.describe AgentHarness::Providers::Aider do
     end
   end
 
+  describe ".provider_metadata" do
+    let(:metadata_executor) do
+      instance_double(
+        AgentHarness::CommandExecutor,
+        which: "/usr/bin/aider"
+      )
+    end
+
+    before do
+      allow(AgentHarness.configuration).to receive(:command_executor).and_return(metadata_executor)
+    end
+
+    it "publishes runtime token-counting support for Aider history extraction" do
+      metadata = described_class.provider_metadata(refresh: true)
+
+      expect(metadata[:runtime]).to include(
+        output_format: :text,
+        supports_token_counting: true,
+        supports_dangerous_mode: false
+      )
+      expect(metadata[:capabilities]).to include(
+        tool_use: true,
+        dangerous_mode: false
+      )
+    end
+  end
+
   describe "instance" do
     subject(:provider) { described_class.new }
 
@@ -237,6 +265,7 @@ RSpec.describe AgentHarness::Providers::Aider do
     describe "#build_command" do
       it "uses the install contract binary name and non-interactive flag" do
         contract = described_class.installation_contract
+        allow(provider).to receive(:instance_variable_get).with(:@aider_history_tempfile).and_return(nil)
         command = provider.send(:build_command, "hello", {})
 
         expect(command.first).to eq(contract[:binary_name])
@@ -263,6 +292,23 @@ RSpec.describe AgentHarness::Providers::Aider do
 
         expect(command).to include("--model", "runtime-model")
         expect(command).not_to include("configured-model")
+      end
+
+      it "falls back to the configured model when the runtime model is blank" do
+        provider.configure(model: "configured-model")
+        runtime = AgentHarness::ProviderRuntime.new(model: "  ")
+
+        command = provider.send(:build_command, "hello", provider_runtime: runtime)
+
+        expect(command).to include("--model", "configured-model")
+      end
+
+      it "omits --model when the configured model is blank" do
+        provider.configure(model: "  ")
+
+        command = provider.send(:build_command, "hello", {})
+
+        expect(command).not_to include("--model")
       end
 
       it "appends runtime flags after provider flags" do
@@ -357,6 +403,55 @@ RSpec.describe AgentHarness::Providers::Aider do
 
         response = provider.send_message(prompt: "hello")
         expect(response.tokens).to eq({input: 10, output: 20, total: 30})
+      end
+
+      it "preserves provider_runtime model overrides on the token-counted path" do
+        runtime = AgentHarness::ProviderRuntime.new(model: "claude-3-5-sonnet")
+
+        allow(mock_executor).to receive(:execute) do |cmd, **kwargs|
+          history_path = cmd[cmd.index("--llm-history-file") + 1]
+          File.write(history_path, <<~TEXT)
+            TO LLM 2026-04-12T00:00:00
+            -------
+            USER hello
+            LLM RESPONSE 2026-04-12T00:00:01
+            ASSISTANT world
+
+            Tokens: 10 sent, 20 received.
+          TEXT
+          result
+        end
+
+        response = provider.send_message(prompt: "hello", provider_runtime: runtime)
+
+        expect(response.model).to eq("claude-3-5-sonnet")
+        expect(response.tokens).to eq({input: 10, output: 20, total: 30})
+      end
+
+      it "preserves the configured model when provider_runtime model is blank" do
+        configured_provider = described_class.new(
+          config: AgentHarness::ProviderConfig.new(:aider).tap { |cfg| cfg.model = "claude-3-5-sonnet" },
+          executor: mock_executor
+        )
+        runtime = AgentHarness::ProviderRuntime.new(model: "  ")
+
+        allow(mock_executor).to receive(:execute) do |cmd, **kwargs|
+          history_path = cmd[cmd.index("--llm-history-file") + 1]
+          File.write(history_path, <<~TEXT)
+            TO LLM 2026-04-12T00:00:00
+            -------
+            USER hello
+            LLM RESPONSE 2026-04-12T00:00:01
+            ASSISTANT world
+
+            Tokens: 10 sent, 20 received.
+          TEXT
+          result
+        end
+
+        response = configured_provider.send_message(prompt: "hello", provider_runtime: runtime)
+
+        expect(response.model).to eq("claude-3-5-sonnet")
       end
 
       it "parses comma-delimited token counts from command output when history lacks usage" do
@@ -701,7 +796,7 @@ RSpec.describe AgentHarness::Providers::Aider do
           expect(calls[0]).to match(
             [
               array_including("aider", "--llm-history-file"),
-              hash_including(timeout: 600)
+              hash_including(timeout: be_within(0.01).of(600))
             ]
           )
           expect(history_path).to start_with("/tmp/aider_llm_history_")
@@ -814,6 +909,19 @@ RSpec.describe AgentHarness::Providers::Aider do
           <<~TEXT
             ASSISTANT Please print this exactly:
             Tokens: 42 sent, 8 received.
+          TEXT
+        )
+
+        expect(tokens).to be_nil
+      end
+
+      it "rejects negative token counters in footer output" do
+        tokens = provider.send(
+          :parse_token_usage_text,
+          <<~TEXT
+            response text
+
+            Tokens: -42 sent, 8 received.
           TEXT
         )
 
@@ -1090,6 +1198,693 @@ RSpec.describe AgentHarness::Providers::Aider do
         )
 
         expect(tokens).to be_nil
+      end
+    end
+
+    describe "#supports_token_counting?" do
+      it "returns true" do
+        expect(provider.supports_token_counting?).to be true
+      end
+    end
+  end
+
+  describe "instance with executor" do
+    let(:mock_executor) do
+      instance_double(AgentHarness::CommandExecutor)
+    end
+
+    let(:config) do
+      AgentHarness::ProviderConfig.new(:aider).tap do |c|
+        c.model = "gpt-4o"
+      end
+    end
+
+    subject(:provider) { described_class.new(config: config, executor: mock_executor) }
+
+    describe "#send_message" do
+      it "includes --llm-history-file in the command" do
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "response",
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        expect(mock_executor).to receive(:execute).with(
+          array_including("--llm-history-file"),
+          anything
+        )
+
+        provider.send_message(prompt: "Hello")
+      end
+
+      it "creates the local history file before execution starts" do
+        allow(mock_executor).to receive(:execute) do |_cmd, _opts|
+          tempfile = provider.instance_variable_get(:@aider_history_tempfile)
+          expect(tempfile).not_to be_nil
+          expect(File.exist?(tempfile.path)).to be true
+
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "response",
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        end
+
+        provider.send_message(prompt: "Hello")
+      end
+
+      it "cleans up the history tempfile after execution" do
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "response",
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        provider.send_message(prompt: "Hello")
+        expect(provider.instance_variable_get(:@aider_history_tempfile)).to be_nil
+        expect(provider.instance_variable_get(:@aider_history_path)).to be_nil
+      end
+
+      it "cleans up the history tempfile even when execution fails" do
+        allow(mock_executor).to receive(:execute).and_raise(StandardError.new("something went wrong"))
+
+        expect {
+          provider.send_message(prompt: "Hello")
+        }.to raise_error(AgentHarness::ProviderError)
+
+        expect(provider.instance_variable_get(:@aider_history_tempfile)).to be_nil
+        expect(provider.instance_variable_get(:@aider_history_path)).to be_nil
+      end
+
+      it "fails before reserving a history file when timeout is non-positive" do
+        expect(provider).not_to receive(:prepare_llm_history_file!)
+        expect(mock_executor).not_to receive(:execute)
+
+        expect {
+          provider.send_message(prompt: "Hello", timeout: 0)
+        }.to raise_error(AgentHarness::TimeoutError, "Command timed out before execution started")
+
+        expect(provider.instance_variable_get(:@aider_history_tempfile)).to be_nil
+        expect(provider.instance_variable_get(:@aider_history_path)).to be_nil
+      end
+
+      it "times out before execution if history-file setup exhausts the request budget" do
+        allow(provider).to receive(:prepare_llm_history_file!).and_return("/tmp/aider_history")
+        expect(mock_executor).not_to receive(:execute)
+
+        times = [
+          Time.utc(2026, 4, 13, 0, 0, 0),
+          Time.utc(2026, 4, 13, 0, 0, 1)
+        ]
+        allow(Time).to receive(:now).and_return(*times)
+
+        expect {
+          provider.send_message(prompt: "Hello", timeout: 1)
+        }.to raise_error(AgentHarness::TimeoutError, "Command timed out before execution started")
+      end
+
+      it "cleans up the reserved history file when setup exhausts the request budget" do
+        reserved_path = nil
+        allow(provider).to receive(:prepare_llm_history_file!).and_wrap_original do |original|
+          reserved_path = original.call
+        end
+        expect(mock_executor).not_to receive(:execute)
+
+        times = [
+          Time.utc(2026, 4, 13, 0, 0, 0),
+          Time.utc(2026, 4, 13, 0, 0, 1)
+        ]
+        allow(Time).to receive(:now).and_return(*times)
+
+        expect {
+          provider.send_message(prompt: "Hello", timeout: 1)
+        }.to raise_error(AgentHarness::TimeoutError, "Command timed out before execution started")
+
+        expect(reserved_path).not_to be_nil
+        expect(File.exist?(reserved_path)).to be false
+        expect(provider.instance_variable_get(:@aider_history_tempfile)).to be_nil
+        expect(provider.instance_variable_get(:@aider_history_path)).to be_nil
+      end
+
+      it "does not clear a newer local history handle when cleaning up an older path" do
+        older_path = provider.send(:prepare_llm_history_file!)
+        newer_path = provider.send(:prepare_llm_history_file!)
+
+        expect(provider.instance_variable_get(:@aider_history_tempfile)&.path).to eq(newer_path)
+
+        provider.send(:cleanup_llm_history_file!, older_path)
+
+        expect(provider.instance_variable_get(:@aider_history_tempfile)&.path).to eq(newer_path)
+
+        provider.send(:cleanup_llm_history_file!, newer_path)
+
+        expect(provider.instance_variable_get(:@aider_history_tempfile)).to be_nil
+      end
+
+      context "with token usage from history file" do
+        it "extracts tokens from OpenAI-format history" do
+          allow(mock_executor).to receive(:execute) do |_cmd, _opts|
+            tempfile = provider.instance_variable_get(:@aider_history_tempfile)
+            history_path = tempfile.path if tempfile
+            if history_path
+              File.write(history_path, JSON.generate([
+                {"usage" => {"prompt_tokens" => 100, "completion_tokens" => 50, "total_tokens" => 150}}
+              ]))
+            end
+
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: "response text",
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          end
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.tokens).to eq({input: 100, output: 50, total: 150})
+          expect(response.output).to eq("response text")
+        end
+
+        it "extracts tokens from Anthropic-format history" do
+          allow(mock_executor).to receive(:execute) do |_cmd, _opts|
+            tempfile = provider.instance_variable_get(:@aider_history_tempfile)
+            path = tempfile.path if tempfile
+            if path
+              File.write(path, JSON.generate([
+                {"usage" => {"input_tokens" => 200, "output_tokens" => 75}}
+              ]))
+            end
+
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: "response text",
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          end
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.tokens).to eq({input: 200, output: 75, total: 275})
+        end
+
+        it "aggregates tokens from multiple history entries" do
+          allow(mock_executor).to receive(:execute) do |_cmd, _opts|
+            tempfile = provider.instance_variable_get(:@aider_history_tempfile)
+            path = tempfile.path if tempfile
+            if path
+              File.write(path, JSON.generate([
+                {"usage" => {"prompt_tokens" => 100, "completion_tokens" => 50}},
+                {"usage" => {"prompt_tokens" => 50, "completion_tokens" => 25}}
+              ]))
+            end
+
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: "response text",
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          end
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.tokens).to eq({input: 150, output: 75, total: 225})
+        end
+
+        it "extracts tokens from nested response.usage format" do
+          allow(mock_executor).to receive(:execute) do |_cmd, _opts|
+            tempfile = provider.instance_variable_get(:@aider_history_tempfile)
+            path = tempfile.path if tempfile
+            if path
+              File.write(path, JSON.generate([
+                {"response" => {"usage" => {"prompt_tokens" => 80, "completion_tokens" => 40}}}
+              ]))
+            end
+
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: "response text",
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          end
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.tokens).to eq({input: 80, output: 40, total: 120})
+        end
+
+        it "extracts tokens from camelCase usage keys in history entries" do
+          allow(mock_executor).to receive(:execute) do |_cmd, _opts|
+            tempfile = provider.instance_variable_get(:@aider_history_tempfile)
+            path = tempfile.path if tempfile
+            if path
+              File.write(path, JSON.generate([
+                {"usage" => {"promptTokens" => 80, "completionTokens" => 40}},
+                {"response" => {"usage" => {"inputTokens" => "20", "outputTokens" => 10}}}
+              ]))
+            end
+
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: "response text",
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          end
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.tokens).to eq({input: 100, output: 50, total: 150})
+        end
+
+        it "preserves explicit zero-token usage from history entries" do
+          allow(mock_executor).to receive(:execute) do |_cmd, _opts|
+            tempfile = provider.instance_variable_get(:@aider_history_tempfile)
+            path = tempfile.path if tempfile
+            if path
+              File.write(path, JSON.generate([
+                {"usage" => {"prompt_tokens" => 0, "completion_tokens" => 0}}
+              ]))
+            end
+
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: "response text",
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          end
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.tokens).to eq({input: 0, output: 0, total: 0})
+        end
+
+        it "returns nil tokens when history file is empty" do
+          allow(mock_executor).to receive(:execute) do |_cmd, _opts|
+            tempfile = provider.instance_variable_get(:@aider_history_tempfile)
+            path = tempfile.path if tempfile
+            File.write(path, "") if path
+
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: "response text",
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          end
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.tokens).to be_nil
+        end
+
+        it "returns nil tokens when history file has no usage data" do
+          allow(mock_executor).to receive(:execute) do |_cmd, _opts|
+            tempfile = provider.instance_variable_get(:@aider_history_tempfile)
+            path = tempfile.path if tempfile
+            if path
+              File.write(path, JSON.generate([{"content" => "no usage here"}]))
+            end
+
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: "response text",
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          end
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.tokens).to be_nil
+        end
+
+        it "ignores non-hash history entries while aggregating valid usage data" do
+          allow(mock_executor).to receive(:execute) do |_cmd, _opts|
+            tempfile = provider.instance_variable_get(:@aider_history_tempfile)
+            path = tempfile.path if tempfile
+            if path
+              File.write(path, JSON.generate([
+                "unexpected entry",
+                {"usage" => {"prompt_tokens" => 60, "completion_tokens" => 20}}
+              ]))
+            end
+
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: "response text",
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          end
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.tokens).to eq({input: 60, output: 20, total: 80})
+        end
+
+        it "skips malformed token counts while preserving valid history entries" do
+          allow(mock_executor).to receive(:execute) do |_cmd, _opts|
+            tempfile = provider.instance_variable_get(:@aider_history_tempfile)
+            path = tempfile.path if tempfile
+            if path
+              File.write(path, JSON.generate([
+                {"usage" => {"prompt_tokens" => "not-a-number", "completion_tokens" => []}},
+                {"usage" => {"prompt_tokens" => "40", "completion_tokens" => 10}}
+              ]))
+            end
+
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: "response text",
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          end
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.tokens).to eq({input: 40, output: 10, total: 50})
+        end
+
+        it "falls back to nested response.usage when top-level usage has unparseable token values" do
+          allow(mock_executor).to receive(:execute) do |_cmd, _opts|
+            tempfile = provider.instance_variable_get(:@aider_history_tempfile)
+            path = tempfile.path if tempfile
+            if path
+              File.write(path, JSON.generate([
+                {
+                  "usage" => {"prompt_tokens" => "not-a-number", "completion_tokens" => []},
+                  "response" => {"usage" => {"prompt_tokens" => "40", "completion_tokens" => 10}}
+                }
+              ]))
+            end
+
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: "response text",
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          end
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.tokens).to eq({input: 40, output: 10, total: 50})
+        end
+
+        it "falls back to nested response.usage when top-level usage has negative token values" do
+          allow(mock_executor).to receive(:execute) do |_cmd, _opts|
+            tempfile = provider.instance_variable_get(:@aider_history_tempfile)
+            path = tempfile.path if tempfile
+            if path
+              File.write(path, JSON.generate([
+                {
+                  "usage" => {"prompt_tokens" => -5, "completion_tokens" => "7"},
+                  "response" => {"usage" => {"prompt_tokens" => "40", "completion_tokens" => 10}}
+                }
+              ]))
+            end
+
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: "response text",
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          end
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.tokens).to eq({input: 40, output: 10, total: 50})
+        end
+
+        it "prefers the most complete usage payload within a single history entry" do
+          allow(mock_executor).to receive(:execute) do |_cmd, _opts|
+            tempfile = provider.instance_variable_get(:@aider_history_tempfile)
+            path = tempfile.path if tempfile
+            if path
+              File.write(path, JSON.generate([
+                {
+                  "usage" => {"prompt_tokens" => 10},
+                  "response" => {"usage" => {"prompt_tokens" => 10, "completion_tokens" => 5}}
+                }
+              ]))
+            end
+
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: "response text",
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          end
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.tokens).to eq({input: 10, output: 5, total: 15})
+        end
+
+        it "ignores non-hash response payloads while preserving later valid usage entries" do
+          allow(mock_executor).to receive(:execute) do |_cmd, _opts|
+            tempfile = provider.instance_variable_get(:@aider_history_tempfile)
+            path = tempfile.path if tempfile
+            if path
+              File.write(path, JSON.generate([
+                {"response" => "unexpected scalar"},
+                {"response" => {"usage" => {"prompt_tokens" => "40", "completion_tokens" => 10}}}
+              ]))
+            end
+
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: "response text",
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          end
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.tokens).to eq({input: 40, output: 10, total: 50})
+        end
+
+        it "does not partially aggregate mixed plain-text history content" do
+          allow(mock_executor).to receive(:execute) do |_cmd, _opts|
+            tempfile = provider.instance_variable_get(:@aider_history_tempfile)
+            path = tempfile.path if tempfile
+            if path
+              File.write(path, <<~HISTORY)
+                conversation transcript
+                {"usage":{"prompt_tokens":40,"completion_tokens":10}}
+              HISTORY
+            end
+
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: "response text",
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          end
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.tokens).to be_nil
+        end
+
+        it "records tokens with the global token tracker" do
+          allow(mock_executor).to receive(:execute) do |_cmd, _opts|
+            tempfile = provider.instance_variable_get(:@aider_history_tempfile)
+            path = tempfile.path if tempfile
+            if path
+              File.write(path, JSON.generate([
+                {"usage" => {"prompt_tokens" => 50, "completion_tokens" => 25}}
+              ]))
+            end
+
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: "response text",
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          end
+
+          tracker = AgentHarness.token_tracker
+          tracker.clear!
+
+          provider.send_message(prompt: "Hello")
+
+          summary = tracker.summary
+          expect(summary[:total_input_tokens]).to eq(50)
+          expect(summary[:total_output_tokens]).to eq(25)
+          expect(summary[:total_tokens]).to eq(75)
+        end
+      end
+    end
+  end
+
+  describe "instance with Docker executor" do
+    let(:docker_executor) do
+      instance_double(AgentHarness::CommandExecutor)
+    end
+
+    let(:config) do
+      AgentHarness::ProviderConfig.new(:aider).tap do |c|
+        c.model = "gpt-4o"
+      end
+    end
+
+    subject(:provider) { described_class.new(config: config, executor: docker_executor) }
+
+    before do
+      allow(provider).to receive(:sandboxed_environment?).and_return(true)
+    end
+
+    before do
+      allow(docker_executor).to receive(:execute) do |command, **_opts|
+        if command[0..1] == ["sh", "-lc"] && command.last.include?("cat")
+          history_path = provider.instance_variable_get(:@aider_history_path)
+          if history_path && command.last.include?(Shellwords.escape(history_path))
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: JSON.generate([
+                {"usage" => {"prompt_tokens" => 100, "completion_tokens" => 50}}
+              ]),
+              stderr: "",
+              exit_code: 0,
+              duration: 0.1
+            )
+          else
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: "",
+              stderr: "",
+              exit_code: 1,
+              duration: 0.1
+            )
+          end
+        elsif command[0..1] == ["sh", "-lc"] && command.last.include?("rm -f --")
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "",
+            stderr: "",
+            exit_code: 0,
+            duration: 0.1
+          )
+        else
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "response text",
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        end
+      end
+    end
+
+    describe "#send_message" do
+      it "uses a container-local path for --llm-history-file" do
+        aider_command = nil
+        allow(docker_executor).to receive(:execute) do |command, **_opts|
+          aider_command ||= command if command.is_a?(Array) && command.first == "aider"
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "response text",
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        end
+
+        provider.send_message(prompt: "Hello")
+
+        history_flag_idx = aider_command.index("--llm-history-file")
+        expect(history_flag_idx).not_to be_nil
+        history_path = aider_command[history_flag_idx + 1]
+        expect(history_path).to match(%r{/tmp/aider_llm_history_[a-f0-9]+\.json})
+      end
+
+      it "extracts tokens by reading history from the container" do
+        response = provider.send_message(prompt: "Hello")
+        expect(response.tokens).to eq({input: 100, output: 50, total: 150})
+      end
+
+      it "cleans up the container history file after execution" do
+        provider.send_message(prompt: "Hello")
+
+        expect(docker_executor).to have_received(:execute).with(
+          ["sh", "-lc", a_string_starting_with("rm -f -- /tmp/aider_llm_history_")],
+          anything
+        )
+        expect(provider.instance_variable_get(:@aider_history_path)).to be_nil
+      end
+
+      it "cleans up the container history file even when execution fails" do
+        main_execution = true
+        allow(docker_executor).to receive(:execute) do |command, **_opts|
+          if main_execution && !(command[0..1] == ["sh", "-lc"] && command.last.include?("cat")) &&
+              !(command[0..1] == ["sh", "-lc"] && command.last.include?("rm -f --"))
+            main_execution = false
+            raise StandardError, "container error"
+          end
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "",
+            stderr: "",
+            exit_code: 0,
+            duration: 0.1
+          )
+        end
+
+        expect {
+          provider.send_message(prompt: "Hello")
+        }.to raise_error(AgentHarness::ProviderError)
+
+        expect(provider.instance_variable_get(:@aider_history_path)).to be_nil
+      end
+
+      it "fails before reserving a container history path when timeout is non-positive" do
+        expect(provider).not_to receive(:prepare_llm_history_file!)
+        expect(docker_executor).not_to receive(:execute)
+
+        expect {
+          provider.send_message(prompt: "Hello", timeout: 0)
+        }.to raise_error(AgentHarness::TimeoutError, "Command timed out before execution started")
+
+        expect(provider.instance_variable_get(:@aider_history_path)).to be_nil
+      end
+
+      it "times out before container execution if history-path setup exhausts the request budget" do
+        allow(provider).to receive(:prepare_llm_history_file!).and_return("/tmp/aider_history")
+        expect(docker_executor).to receive(:execute).with(
+          ["sh", "-lc", "rm -f -- /tmp/aider_history"],
+          timeout: 10
+        ).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "",
+            stderr: "",
+            exit_code: 0,
+            duration: 0.1
+          )
+        )
+
+        times = [
+          Time.utc(2026, 4, 13, 0, 0, 0),
+          Time.utc(2026, 4, 13, 0, 0, 1)
+        ]
+        allow(Time).to receive(:now).and_return(*times)
+
+        expect {
+          provider.send_message(prompt: "Hello", timeout: 1)
+        }.to raise_error(AgentHarness::TimeoutError, "Command timed out before execution started")
+      end
+
+      it "does not clear a newer container history path when cleaning up an older path" do
+        older_path = provider.send(:prepare_llm_history_file!)
+        newer_path = provider.send(:prepare_llm_history_file!)
+
+        expect(provider.instance_variable_get(:@aider_history_path)).to eq(newer_path)
+
+        provider.send(:cleanup_llm_history_file!, older_path)
+
+        expect(provider.instance_variable_get(:@aider_history_path)).to eq(newer_path)
+
+        provider.send(:cleanup_llm_history_file!, newer_path)
+
+        expect(provider.instance_variable_get(:@aider_history_path)).to be_nil
       end
     end
   end

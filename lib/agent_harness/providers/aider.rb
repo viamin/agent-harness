@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require "json"
 require "securerandom"
 require "shellwords"
 require "tmpdir"
@@ -10,6 +11,8 @@ module AgentHarness
     #
     # Provides integration with the Aider CLI tool.
     class Aider < Base
+      include TokenUsageParsing
+
       UV_VERSION = "0.8.17"
       SUPPORTED_CLI_VERSION = "0.86.2"
       SUPPORTED_CLI_REQUIREMENT = Gem::Requirement.new(">= #{SUPPORTED_CLI_VERSION}", "< 0.87.0").freeze
@@ -196,6 +199,10 @@ module AgentHarness
         ["--restore-chat-history", session_id]
       end
 
+      def supports_token_counting?
+        true
+      end
+
       def send_message(prompt:, **options)
         log_debug("send_message_start", prompt_length: prompt.length, options: options.keys)
 
@@ -205,15 +212,19 @@ module AgentHarness
         options = normalize_mcp_servers(options)
         validate_mcp_servers!(options[:mcp_servers]) if options[:mcp_servers]&.any?
 
-        llm_history_path = generate_llm_history_path
-        command = build_command(prompt, options.merge(llm_history_path: llm_history_path))
-        preparation = build_execution_preparation(options)
         timeout = options[:timeout] || @config.timeout || default_timeout
+        raise TimeoutError, "Command timed out before execution started" if timeout <= 0
 
         start_time = Time.now
+        llm_history_path = prepare_llm_history_file!
+        command = build_command(prompt, options.merge(llm_history_path: llm_history_path))
+        preparation = build_execution_preparation(options)
+        remaining_timeout = timeout - (Time.now - start_time)
+        raise TimeoutError, "Command timed out before execution started" if remaining_timeout <= 0
+
         result = execute_with_timeout(
           command,
-          timeout: timeout,
+          timeout: remaining_timeout,
           env: build_env(options),
           preparation: preparation,
           **command_execution_options(options)
@@ -221,13 +232,14 @@ module AgentHarness
         duration = Time.now - start_time
 
         response = parse_response(result, duration: duration, llm_history_path: llm_history_path)
-        if runtime&.model
+        effective_runtime_model = normalized_model_name(runtime&.model)
+        if effective_runtime_model
           response = Response.new(
             output: response.output,
             exit_code: response.exit_code,
             duration: response.duration,
             provider: response.provider,
-            model: runtime.model,
+            model: effective_runtime_model,
             tokens: response.tokens,
             metadata: response.metadata,
             error: response.error
@@ -259,10 +271,8 @@ module AgentHarness
           cmd += ["--llm-history-file", options[:llm_history_path]]
         end
 
-        model = runtime&.model || @config.model
-        if model && !model.empty?
-          cmd += ["--model", model]
-        end
+        model = effective_model_name(runtime)
+        cmd += ["--model", model] if model
 
         if options[:session]
           cmd += session_flags(options[:session])
@@ -316,11 +326,11 @@ module AgentHarness
       COMMON_SHELL_COMMAND_PATTERN =
         /\A(?:git|bundle|ruby|python\d*(?:\.\d+)?|uv|npm|yarn|pnpm|node|bash|sh|zsh|make|rake|rspec|rails|go|pytest|bin\/[\w.-]+|sed|rg|grep|find|ls|cat|cp|mv|rm|mkdir|touch|chmod|chown|docker|kubectl)\z/
       EXECUTOR_LLM_HISTORY_TIMEOUT = 10
-
+      HistoryFileHandle = Struct.new(:path)
       def generate_llm_history_path
-        return "/tmp/aider_llm_history_#{Process.pid}_#{SecureRandom.hex(8)}" if sandboxed_environment?
+        return "/tmp/aider_llm_history_#{SecureRandom.hex(8)}.json" if sandboxed_environment?
 
-        File.join(Dir.tmpdir, "aider_llm_history_#{Process.pid}_#{SecureRandom.hex(8)}")
+        File.join(Dir.tmpdir, "aider_llm_history_#{Process.pid}_#{SecureRandom.hex(8)}.json")
       end
 
       def parse_token_usage(result, llm_history_path:)
@@ -328,9 +338,16 @@ module AgentHarness
         # Prefer the request-local history file when it includes a token report,
         # but fall back to captured command output because the usage summary is
         # printed there during normal runs.
-        parse_token_usage_text(safe_read_llm_history(llm_history_path), source: :history) ||
+        parse_token_usage_history_content(safe_read_llm_history(llm_history_path)) ||
           parse_token_usage_text(result.stdout, source: :output) ||
           parse_token_usage_text(result.stderr, source: :output)
+      end
+
+      def parse_token_usage_history_content(content)
+        return nil if content.nil? || content.strip.empty?
+
+        aggregate_token_counts(parse_history_entries(content)) ||
+          parse_token_usage_text(content, source: :history)
       end
 
       def read_llm_history(path)
@@ -362,8 +379,65 @@ module AgentHarness
 
         input = parse_token_count(match[:input])
         output = parse_token_count(match[:output])
+        return nil if input.negative? || output.negative?
 
         {input: input, output: output, total: input + output}
+      end
+
+      def parse_history_entries(content)
+        parsed = JSON.parse(content)
+        case parsed
+        when Array
+          parsed
+        when Hash
+          [parsed]
+        end
+      rescue JSON::ParserError
+        parsed_lines = []
+
+        content.each_line do |line|
+          next if line.strip.empty?
+
+          parsed_lines << JSON.parse(line)
+        rescue JSON::ParserError
+          return nil
+        end
+
+        parsed_lines.empty? ? nil : parsed_lines
+      end
+
+      def aggregate_token_counts(entries)
+        return nil unless entries&.any?
+
+        total_input = 0
+        total_output = 0
+        found = false
+
+        entries.each do |entry|
+          usage = find_usage_in_entry(entry)
+          next unless usage
+
+          input = token_count_for(usage, "prompt_tokens", "input_tokens", "promptTokens", "inputTokens")
+          output = token_count_for(usage, "completion_tokens", "output_tokens", "completionTokens", "outputTokens")
+          next if input.nil? && output.nil?
+
+          total_input += input || 0
+          total_output += output || 0
+          found = true
+        end
+
+        return nil unless found
+
+        {input: total_input, output: total_output, total: total_input + total_output}
+      end
+
+      def find_usage_in_entry(entry)
+        return nil unless entry.is_a?(Hash)
+
+        select_best_usage_payload([
+          entry["usage"],
+          nested_hash_value(entry, "response", "usage")
+        ])
       end
 
       def extract_history_token_usage_match(content)
@@ -513,6 +587,16 @@ module AgentHarness
         (normalized.to_f * multiplier).round
       end
 
+      def prepare_llm_history_file!
+        if sandboxed_environment?
+          @aider_history_path = generate_llm_history_path
+        else
+          path = reserve_local_llm_history_path
+          @aider_history_tempfile = HistoryFileHandle.new(path)
+          path
+        end
+      end
+
       def cleanup_llm_history_file!(path)
         return unless path
 
@@ -522,6 +606,9 @@ module AgentHarness
       rescue => e
         log_debug("llm_history_cleanup_error", error: e.message)
         nil
+      ensure
+        clear_local_history_handle!(path)
+        clear_executor_history_path!(path)
       end
 
       def validate_runtime_flags!(flags)
@@ -572,6 +659,37 @@ module AgentHarness
       rescue => e
         log_debug("llm_history_cleanup_error", error: e.message)
         nil
+      end
+
+      MAX_HISTORY_PATH_ATTEMPTS = 10
+
+      def reserve_local_llm_history_path
+        MAX_HISTORY_PATH_ATTEMPTS.times do
+          path = generate_llm_history_path
+
+          begin
+            File.open(path, File::WRONLY | File::CREAT | File::EXCL, 0o600, &:close)
+            return path
+          rescue Errno::EEXIST
+            next
+          end
+        end
+
+        raise "failed to reserve unique LLM history path after #{MAX_HISTORY_PATH_ATTEMPTS} attempts"
+      end
+
+      def clear_local_history_handle!(path)
+        return unless defined?(@aider_history_tempfile)
+        return unless @aider_history_tempfile&.path == path
+
+        @aider_history_tempfile = nil
+      end
+
+      def clear_executor_history_path!(path)
+        return unless defined?(@aider_history_path)
+        return unless @aider_history_path == path
+
+        @aider_history_path = nil
       end
     end
   end

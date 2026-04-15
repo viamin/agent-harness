@@ -5,25 +5,15 @@ require "json"
 
 module AgentHarness
   module Providers
-    # GitHub Copilot CLI provider
-    #
-    # Provides integration with the GitHub Copilot CLI tool.
     class GithubCopilot < Base
-      MIN_JSON_OUTPUT_VERSION = Gem::Version.new("0.0.422").freeze
-      REQUEST_PROBE_ENV_STACK_KEY = :agent_harness_github_copilot_request_probe_env_stack
+      include TokenUsageParsing
 
-      # Model name pattern for GitHub Copilot (uses OpenAI models)
       MODEL_PATTERN = /^gpt-[\d.o-]+(?:-turbo)?(?:-mini)?$/i
+      JSON_OUTPUT_MIN_VERSION = Gem::Version.new("0.0.422").freeze
 
-      # Copilot-specific smoke test contract.  The `what-the-shell` subcommand
-      # translates natural language into shell commands, so the generic
-      # "Reply with exactly OK." prompt would produce something like
-      # `echo "OK"` rather than the literal text "OK".  We use a prompt that
-      # is meaningful for the shell-translation path and only require
-      # non-empty output (no exact match).
       SMOKE_TEST_CONTRACT = {
-        prompt: "list files in the current directory",
-        expected_output: nil,
+        prompt: "Reply with exactly OK.",
+        expected_output: "OK",
         timeout: 30,
         require_output: true,
         success_message: "Smoke test passed"
@@ -115,7 +105,16 @@ module AgentHarness
 
       def configuration_schema
         {
-          fields: [],
+          fields: [
+            {
+              name: :model,
+              type: :string,
+              label: "Model",
+              required: false,
+              hint: "Copilot model identifier (for example gpt-4o or gpt-4o-mini)",
+              accepts_arbitrary: true
+            }
+          ],
           auth_modes: [:oauth],
           openai_compatible: false
         }
@@ -133,8 +132,10 @@ module AgentHarness
         }
       end
 
-      def dangerous_mode_flags
-        ["--allow-all-tools"]
+      def dangerous_mode_flags(probe_timeout: nil, env: {})
+        return [] unless supports_json_output_format?(probe_timeout: probe_timeout, env: env)
+
+        ["--allow-all"]
       end
 
       def supports_sessions?
@@ -150,19 +151,15 @@ module AgentHarness
         :oauth
       end
 
-      def send_message(prompt:, **options)
-        with_request_probe_env(request_probe_env_from_raw_runtime(options[:provider_runtime])) do
-          super(prompt: prompt, **options)
-        end
-      end
-
       def execution_semantics
         {
           prompt_delivery: :arg,
-          output_format: copilot_cli_supports_json_output? ? :json : :text,
+          # Older Copilot CLIs fall back to plain-text prompt mode, so metadata
+          # must not claim JSON-only output even though newer versions support it.
+          output_format: :text,
           sandbox_aware: false,
-          uses_subcommand: true,
-          non_interactive_flag: nil,
+          uses_subcommand: false,
+          non_interactive_flag: "-p",
           legitimate_exit_codes: [0],
           stderr_is_diagnostic: true,
           parses_rate_limit_reset: false
@@ -194,18 +191,89 @@ module AgentHarness
         }
       end
 
+      def supports_token_counting?
+        supports_json_output_format?
+      end
+
+      def send_message(prompt:, **options)
+        log_debug("send_message_start", prompt_length: prompt.length, options: options.keys)
+
+        options = normalize_provider_runtime(options)
+        options = normalize_mcp_servers(options)
+        validate_mcp_servers!(options[:mcp_servers]) if options[:mcp_servers]&.any?
+
+        timeout = options[:timeout] || @config.timeout || default_timeout
+        raise TimeoutError, "Command timed out before execution started" if timeout <= 0
+
+        env = build_env(options)
+        options = options.merge(_version_probe_timeout: [timeout, 5].min, _command_env: env)
+
+        start_time = Time.now
+        command = build_command(prompt, options)
+        preparation = build_execution_preparation(options)
+        remaining_timeout = timeout - (Time.now - start_time)
+        raise TimeoutError, "Command timed out before execution started" if remaining_timeout <= 0
+
+        json_output_requested = command.include?("--output-format") && command.include?("json")
+
+        result = execute_with_timeout(
+          command,
+          timeout: remaining_timeout,
+          env: env,
+          preparation: preparation,
+          **command_execution_options(options)
+        )
+        duration = Time.now - start_time
+
+        response = parse_response(result, duration: duration, json_output_requested: json_output_requested)
+        runtime = options[:provider_runtime]
+        effective_runtime_model = normalized_model_name(runtime&.model)
+        if effective_runtime_model
+          response = Response.new(
+            output: response.output,
+            exit_code: response.exit_code,
+            duration: response.duration,
+            provider: response.provider,
+            model: effective_runtime_model,
+            tokens: response.tokens,
+            metadata: response.metadata,
+            error: response.error
+          )
+        end
+
+        track_tokens(response) if response.tokens
+
+        log_debug("send_message_complete", duration: duration, tokens: response.tokens)
+
+        response
+      rescue McpConfigurationError, McpUnsupportedError, McpTransportUnsupportedError
+        raise
+      rescue => e
+        handle_error(e, prompt: prompt, options: options)
+      end
+
       protected
 
       def build_command(prompt, options)
-        cmd = [self.class.binary_name, "what-the-shell", prompt]
-        cmd += ["--output-format", "json"] if copilot_cli_supports_json_output?
+        cmd = [self.class.binary_name, "-p", prompt]
+        env = options.fetch(:_command_env) { build_env(options) }
+        runtime = options[:provider_runtime]
 
-        # Opt in to unrestricted tool access explicitly to preserve a safe default.
-        if supports_dangerous_mode? && options[:dangerous_mode]
-          cmd += dangerous_mode_flags
+        if supports_json_output_format?(probe_timeout: options[:_version_probe_timeout], env: env)
+          cmd += ["--output-format", "json"]
+        else
+          # Silent mode suppresses the model/stats decoration older CLIs print in
+          # prompt mode, which keeps smoke-test output stable on the plain-text path.
+          cmd << "-s"
         end
 
-        # Add session support if provided
+        model = effective_model_name(runtime)
+        cmd += ["--model", model] if model
+        if options[:dangerous_mode] && supports_dangerous_mode?
+          cmd += programmatic_tool_approval_flags
+          cmd += dangerous_mode_flags(probe_timeout: options[:_version_probe_timeout], env: env)
+        end
+
         if options[:session] && !options[:session].empty?
           cmd += session_flags(options[:session])
         end
@@ -213,588 +281,461 @@ module AgentHarness
         cmd
       end
 
+      def parse_response(result, duration:, json_output_requested: false)
+        response = super(result, duration: duration)
+        output = response.output
+        tokens = nil
+
+        parsed_lines = if json_output_requested && response.error.nil?
+          parse_jsonl_output(output)
+        end
+        if parsed_lines
+          output = extract_text_from_jsonl(parsed_lines) || output
+          tokens = extract_tokens_from_jsonl(parsed_lines)
+        end
+
+        Response.new(
+          output: output,
+          exit_code: result.exit_code,
+          duration: duration,
+          provider: self.class.provider_name,
+          model: effective_model_name,
+          tokens: tokens,
+          metadata: response.metadata,
+          error: response.error
+        )
+      end
+
       def default_timeout
         300
       end
 
-      def parse_response(result, duration:)
-        return super unless copilot_cli_supports_json_output?
+      private
 
-        output = result.stdout.to_s
-        error = nil
-
-        legitimate = execution_semantics[:legitimate_exit_codes] || [0]
-        unless legitimate.include?(result.exit_code)
-          combined = [result.stderr.to_s, output].map(&:strip).reject(&:empty?).join("\n")
-          error = combined unless combined.empty?
-        end
-
-        structured_json_seen = false
-        shutdown_tokens = empty_token_totals
-        usage_tokens = empty_token_totals
-        fallback_tokens = empty_token_totals
-        output_segments = []
-        authoritative_reply_seen = false
-        output.lines.each do |line|
-          stripped_line = line.strip
-          if stripped_line.empty?
-            output_segments << {kind: :raw, content: line, terminated: line.end_with?("\n")}
-            next
-          end
-          begin
-            obj = JSON.parse(stripped_line)
-          rescue JSON::ParserError
-            output_segments << {kind: :raw, content: line, terminated: line.end_with?("\n")}
-            next
-          end
-
-          structured_json_seen ||= obj.is_a?(Hash)
-
-          text, text_kind = extract_event_text(obj)
-          if text
-            if text_kind == :assistant_delta
-              next if authoritative_reply_seen
-
-              append_delta_segment!(output_segments, text, terminated: line.end_with?("\n"))
-            elsif !text.empty?
-              replace_assistant_segments!(output_segments, text, terminated: line.end_with?("\n"))
-              authoritative_reply_seen = true
-            end
-          elsif preserve_raw_json_line?(obj) || !obj.is_a?(Hash)
-            output_segments << {kind: :raw, content: line, terminated: line.end_with?("\n")}
-          end
-
-          token_usage = extract_token_usage(obj)
-          next unless token_usage
-
-          if token_usage[:source] == :shutdown
-            accumulate_token_totals!(shutdown_tokens, token_usage)
-          elsif token_usage[:source] == :usage
-            accumulate_token_totals!(usage_tokens, token_usage)
-          else
-            accumulate_token_totals!(fallback_tokens, token_usage)
-          end
-        end
-        tokens = build_tokens(shutdown_tokens: shutdown_tokens, usage_tokens: usage_tokens, fallback_tokens: fallback_tokens)
-        final_output = structured_json_seen ? render_output_segments(output_segments) : output
-
-        Response.new(
-          output: final_output,
-          exit_code: result.exit_code,
-          duration: duration,
-          provider: self.class.provider_name,
-          model: @config.model,
-          tokens: tokens,
-          error: error,
-          metadata: {
-            legitimate_exit_codes: legitimate
-          }
-        )
+      def programmatic_tool_approval_flags
+        ["--allow-all-tools"]
       end
 
-      ASSISTANT_OUTPUT_EVENT_TYPES = %w[assistant assistant.message assistant.message_delta].freeze
-      ASSISTANT_TOKEN_FALLBACK_EVENT_TYPES = %w[assistant assistant.message].freeze
-      SESSION_SHUTDOWN_EVENT_TYPES = ["session.shutdown"].freeze
-      USAGE_EVENT_TYPES = %w[usage assistant.usage].freeze
-      COPILOT_EVENT_TYPE_PREFIXES = %w[
-        assistant.
-        user.
-        user_input.
-        system.
-        session.
-        tool.
-        permission.
-        elicitation.
-        exit_plan_mode.
-        skill.
-        subagent.
-        external_tool.
-        command.
-      ].freeze
-      COPILOT_EVENT_TYPES = %w[
-        abort
-        command
-        elicitation
-        exit_plan_mode
-        external_tool
-        permission
-        session
-        skill
-        subagent
-        system
-        tool
-        user
-        user_input
-      ].freeze
-
-      def extract_event_text(obj)
-        return [nil, nil] unless obj.is_a?(Hash)
-
-        if obj.key?("type")
-          return [nil, nil] unless obj["data"].is_a?(Hash)
-          return [nil, nil] unless ASSISTANT_OUTPUT_EVENT_TYPES.include?(obj["type"])
-
-          data = obj["data"]
-          if obj["type"] == "assistant.message_delta"
-            delta_content = string_content(data["deltaContent"])
-            delta_content = string_content(data["delta_content"]) if delta_content.nil? || delta_content.empty?
-            return [delta_content, :assistant_delta] if delta_content && !delta_content.empty?
-
-            return [nil, nil]
-          end
-
-          return [string_content(data["content"]), :assistant] if data.key?("content")
-
-          return [nil, nil]
-        end
-
-        return [nil, nil] if obj.key?("role") && !assistant_role?(obj["role"])
-        return [nil, nil] if obj["message"].is_a?(Hash) && obj["message"].key?("role") &&
-          !assistant_role?(obj["message"]["role"])
-
-        if obj["message"].is_a?(Hash) && obj["message"].key?("content")
-          nested_content = string_content(obj["message"]["content"])
-          return [nested_content, :assistant] if nested_content && !nested_content.empty?
-        end
-
-        output = string_content(obj["output"])
-        return [output, :assistant] if output && !output.empty?
-
-        content = string_content(obj["content"])
-        return [content, :assistant] if content && !content.empty?
-
-        [nil, nil]
+      def supports_json_output_format?(probe_timeout: nil, env: {})
+        version = copilot_cli_version(probe_timeout: probe_timeout, env: env)
+        !version.nil? && version >= JSON_OUTPUT_MIN_VERSION
       end
 
-      def string_content(value)
-        return value if value.is_a?(String)
+      def copilot_cli_version(probe_timeout: nil, env: {})
+        return nil if env.empty? && !copilot_cli_binary_available?
 
-        nil
+        cache_key = version_probe_cache_key(env)
+        @copilot_cli_versions ||= {}
+        return @copilot_cli_versions[cache_key] if @copilot_cli_versions.key?(cache_key)
+
+        result = @executor.execute([self.class.binary_name, "--version"], timeout: probe_timeout || 5, env: env)
+        version = extract_version(result)
+        @copilot_cli_versions[cache_key] = version
+        version
+      rescue => e
+        log_debug("copilot_cli_version_check_failed", error: e.message)
+        @copilot_cli_versions ||= {}
+        @copilot_cli_versions[cache_key] = nil if defined?(cache_key)
       end
 
-      def preserve_raw_json_line?(obj)
-        return false unless obj.is_a?(Hash)
-        return false if obj.key?("type") && copilot_event_type?(obj["type"])
-        return true if obj.key?("type")
-        return false if obj.key?("role") && !assistant_role?(obj["role"])
-        return false if obj["message"].is_a?(Hash) && obj["message"].key?("role") &&
-          !assistant_role?(obj["message"]["role"])
-        return false if extract_token_usage(obj)
-        return false if (output = string_content(obj["output"])) && !output.empty?
-        return false if (content = string_content(obj["content"])) && !content.empty?
-        return false if obj["message"].is_a?(Hash) &&
-          (message_content = string_content(obj["message"]["content"])) &&
-          !message_content.empty?
-
-        true
+      def version_probe_cache_key(env)
+        [
+          probe_env_cache_component(env, "PATH", inherited_label: :inherited_path, override_label: :path_override),
+          probe_env_cache_component(env, "PATHEXT", inherited_label: :inherited_pathext, override_label: :pathext_override)
+        ]
       end
 
-      def assistant_role?(role)
-        role == "assistant"
-      end
-
-      def copilot_event_type?(event_type)
-        return true if ASSISTANT_OUTPUT_EVENT_TYPES.include?(event_type)
-        return true if ASSISTANT_TOKEN_FALLBACK_EVENT_TYPES.include?(event_type)
-        return true if SESSION_SHUTDOWN_EVENT_TYPES.include?(event_type)
-        return true if USAGE_EVENT_TYPES.include?(event_type)
-        return false unless event_type.is_a?(String)
-        return true if COPILOT_EVENT_TYPES.include?(event_type)
-
-        COPILOT_EVENT_TYPE_PREFIXES.any? { |prefix| event_type.start_with?(prefix) }
-      end
-
-      def extract_token_usage(obj)
-        return nil unless obj.is_a?(Hash)
-
-        if obj.key?("type")
-          return nil unless obj["data"].is_a?(Hash)
-
-          data = obj["data"]
-
-          if SESSION_SHUTDOWN_EVENT_TYPES.include?(obj["type"])
-            return extract_shutdown_token_usage(data)
-          end
-
-          if USAGE_EVENT_TYPES.include?(obj["type"])
-            return extract_payload_token_usage(
-              data,
-              source: :usage,
-              input_keys: ["inputTokens", "input_tokens"],
-              output_keys: ["outputTokens", "output_tokens"]
-            )
-          end
-
-          if ASSISTANT_TOKEN_FALLBACK_EVENT_TYPES.include?(obj["type"])
-            return extract_payload_token_usage(
-              data,
-              source: :assistant,
-              input_keys: ["inputTokens", "input_tokens"],
-              output_keys: ["outputTokens", "output_tokens"]
-            )
-          end
-
-          return nil
-        end
-
-        extract_top_level_token_usage(obj)
-      end
-
-      def extract_shutdown_token_usage(data)
-        model_metrics = extract_shutdown_model_metrics_usage(data["modelMetrics"])
-        snake_case_model_metrics = extract_shutdown_model_metrics_usage(data["model_metrics"])
-
-        input, input_present = merged_token_metric(model_metrics, snake_case_model_metrics, :input)
-        output, output_present = merged_token_metric(model_metrics, snake_case_model_metrics, :output)
-        return nil unless input_present || output_present
-
-        {
-          source: :shutdown,
-          input: input,
-          output: output,
-          input_present: input_present,
-          output_present: output_present
-        }
-      end
-
-      def extract_shutdown_model_metrics_usage(model_metrics)
-        return nil unless model_metrics.is_a?(Hash)
-
-        totals = empty_token_totals
-
-        model_metrics.each_value do |metric|
-          next unless metric.is_a?(Hash)
-
-          usage = metric["usage"]
-          next unless usage.is_a?(Hash)
-
-          metric_usage = extract_payload_token_usage(
-            usage,
-            source: :shutdown,
-            input_keys: ["inputTokens", "input_tokens", "input"],
-            output_keys: ["outputTokens", "output_tokens", "output"]
-          )
-          next unless metric_usage
-
-          accumulate_token_totals!(totals, metric_usage)
-        end
-
-        return nil unless totals[:input_present] || totals[:output_present]
-
-        totals
-      end
-
-      def extract_payload_token_usage(payload, source:, input_keys:, output_keys:)
-        return nil unless payload.is_a?(Hash)
-
-        input, input_present = token_value(payload, *input_keys)
-        output, output_present = token_value(payload, *output_keys)
-        return nil unless input_present || output_present
-
-        {
-          source: source,
-          input: input,
-          output: output,
-          input_present: input_present,
-          output_present: output_present
-        }
-      end
-
-      def extract_top_level_token_usage(obj)
-        return nil if obj.key?("role") && !assistant_role?(obj["role"])
-        return nil if obj["message"].is_a?(Hash) && obj["message"].key?("role") &&
-          !assistant_role?(obj["message"]["role"])
-
-        usage = extract_payload_token_usage(
-          obj["usage"],
-          source: :usage,
-          input_keys: ["input_tokens", "inputTokens", "input"],
-          output_keys: ["output_tokens", "outputTokens", "output"]
-        )
-        tokens = extract_payload_token_usage(
-          obj["tokens"],
-          source: :usage,
-          input_keys: ["input_tokens", "inputTokens", "input"],
-          output_keys: ["output_tokens", "outputTokens", "output"]
-        )
-        return nil unless usage || tokens
-
-        input, input_present = merged_token_metric(usage, tokens, :input)
-        output, output_present = merged_token_metric(usage, tokens, :output)
-        return nil unless input_present || output_present
-
-        {
-          source: :usage,
-          input: input,
-          output: output,
-          input_present: input_present,
-          output_present: output_present
-        }
-      end
-
-      def merged_token_metric(primary, fallback, metric)
-        present_key = :"#{metric}_present"
-        return [primary[metric], true] if primary&.[](present_key)
-        return [fallback[metric], true] if fallback&.[](present_key)
-
-        [0, false]
-      end
-
-      def empty_token_totals
-        {
-          input: 0,
-          output: 0,
-          input_present: false,
-          output_present: false
-        }
-      end
-
-      def accumulate_token_totals!(totals, token_usage)
-        if token_usage[:input_present]
-          totals[:input_present] = true
-          totals[:input] += token_usage[:input]
-        end
-
-        return unless token_usage[:output_present]
-
-        totals[:output_present] = true
-        totals[:output] += token_usage[:output]
-      end
-
-      def token_value(obj, *keys)
-        keys.each do |candidate|
-          next unless obj.key?(candidate)
-
-          value, valid = coerce_token_value(obj[candidate])
-          return [value, true] if valid
-        end
-
-        [0, false]
-      end
-
-      def build_tokens(shutdown_tokens:, usage_tokens:, fallback_tokens:)
-        input, input_present = first_present_token_metric(usage_tokens, fallback_tokens, :input)
-        output, output_present = first_present_token_metric(usage_tokens, fallback_tokens, :output)
-        return token_hash(input, output, input_present, output_present) if input_present || output_present
-
-        input, input_present = first_present_token_metric(shutdown_tokens, :input)
-        output, output_present = first_present_token_metric(shutdown_tokens, :output)
-        token_hash(input, output, input_present, output_present)
-      end
-
-      def token_hash(input, output, input_present, output_present)
-        return nil unless input_present || output_present
-
-        {input: input, output: output, total: input + output}
-      end
-
-      def first_present_token_metric(*sources, metric)
-        present_key = :"#{metric}_present"
-
-        sources.each do |source|
-          next unless source[present_key]
-
-          return [source[metric], true]
-        end
-
-        [0, false]
-      end
-
-      def render_output_segments(segments)
-        rendered = +""
-        previous_kind = nil
-        previous_terminated = false
-
-        segments.each do |segment|
-          if previous_terminated && previous_kind == :assistant &&
-              segment[:kind] != :assistant &&
-              !rendered.empty? &&
-              !rendered.end_with?("\n")
-            rendered << "\n"
-          end
-
-          rendered << segment[:content]
-          previous_kind = segment[:kind]
-          previous_terminated = segment[:terminated]
-        end
-
-        rendered
-      end
-
-      def append_delta_segment!(segments, text, terminated:)
-        previous_segment = segments.last
-        if previous_segment&.[](:provisional) && previous_segment[:kind] == :assistant
-          previous_segment[:content] << text
-          previous_segment[:terminated] = terminated
-          return
-        end
-
-        segments << {
-          kind: :assistant,
-          content: +text,
-          terminated: terminated,
-          provisional: true
-        }
-      end
-
-      def replace_assistant_segments!(segments, text, terminated:)
-        drop_assistant_segments!(segments)
-        segments << {kind: :assistant, content: text, terminated: terminated}
-      end
-
-      def drop_assistant_segments!(segments)
-        segments.reject! { |segment| segment[:kind] == :assistant }
-      end
-
-      def with_request_probe_env(env)
-        stack = writable_request_probe_env_stack
-        stack << env
-        yield
-      ensure
-        stack&.pop
-        clear_request_probe_env_stack! if stack&.empty?
-      end
-
-      def current_probe_env
-        stacks = Thread.current.thread_variable_get(REQUEST_PROBE_ENV_STACK_KEY)
-        stack = stacks && stacks[object_id]
-        stack&.last || {}
-      end
-
-      def version_probe_env_cache_key(env)
-        resolved_binary_path_for_env(env) ||
-          if env.key?("PATH")
-            [:path_override, cacheable_path_override(env["PATH"])]
-          else
-            self.class.binary_name
-          end
-      end
-
-      def cacheable_path_override(path)
-        return nil unless path.is_a?(String)
-
-        Digest::SHA256.hexdigest(path)
-      end
-
-      def resolved_binary_path_for_env(env)
-        path = if env.key?("PATH")
-          env["PATH"]
+      def probe_env_cache_component(env, key, inherited_label:, override_label:)
+        label, value = if env_override_present?(env, key)
+          [override_label, env_override_value(env, key)]
         else
-          ENV["PATH"]
+          [inherited_label, ENV[key]]
         end
-        return nil unless path.is_a?(String) && !path.empty?
+        return [label, :unset] if value.nil?
 
-        path.split(File::PATH_SEPARATOR).each do |entry|
-          full_path = File.join(entry, self.class.binary_name)
-          return full_path if File.executable?(full_path)
-        end
+        [label, Digest::SHA256.hexdigest(value)]
+      end
 
+      def env_override_present?(env, key)
+        env.key?(key) || env.key?(key.to_sym)
+      end
+
+      def env_override_value(env, key)
+        return env[key] if env.key?(key)
+
+        env[key.to_sym]
+      end
+
+      def copilot_cli_binary_available?
+        @executor.which(self.class.binary_name)
+      rescue => e
+        log_debug("copilot_cli_binary_check_failed", error: e.message)
         nil
       end
 
-      def request_probe_env_from_raw_runtime(runtime)
-        case runtime
-        when nil
-          {}
-        when ProviderRuntime
-          runtime.env.merge(runtime.unset_env.to_h { |key| [key, nil] })
-        when Hash
-          request_probe_env_from_raw_hash(runtime)
-        else
-          {}
-        end
-      end
+      def extract_version(result)
+        return nil unless result.success?
 
-      def request_probe_env_from_raw_hash(runtime_hash)
-        env = stringify_probe_env(runtime_hash[:env] || runtime_hash["env"])
-        unset_env = stringify_probe_unset_env(runtime_hash[:unset_env] || runtime_hash["unset_env"])
-        return {} unless env && unset_env
+        version_string = [result.stdout, result.stderr].compact.join("\n")[/\d+\.\d+\.\d+(?:[-+][A-Za-z0-9.-]+)?/]
+        return nil if version_string.nil? || version_string.empty?
 
-        env.merge(unset_env.to_h { |key| [key, nil] })
-      end
-
-      def stringify_probe_env(raw_env)
-        return {} if raw_env.nil?
-        return nil unless raw_env.is_a?(Hash)
-
-        raw_env.each_with_object({}) do |(key, value), env|
-          return nil unless value.is_a?(String)
-
-          env[key.to_s] = value
-        end
-      end
-
-      def stringify_probe_unset_env(raw_unset_env)
-        return [] if raw_unset_env.nil?
-        return nil unless raw_unset_env.is_a?(Array)
-
-        raw_unset_env.map(&:to_s)
-      rescue NoMethodError
-        nil
-      end
-
-      def writable_request_probe_env_stack
-        stacks = Thread.current.thread_variable_get(REQUEST_PROBE_ENV_STACK_KEY)
-        unless stacks
-          stacks = {}
-          Thread.current.thread_variable_set(REQUEST_PROBE_ENV_STACK_KEY, stacks)
-        end
-
-        stacks[object_id] ||= []
-      end
-
-      def clear_request_probe_env_stack!
-        stacks = Thread.current.thread_variable_get(REQUEST_PROBE_ENV_STACK_KEY)
-        return unless stacks
-
-        stacks.delete(object_id)
-        Thread.current.thread_variable_set(REQUEST_PROBE_ENV_STACK_KEY, nil) if stacks.empty?
-      end
-
-      def copilot_cli_supports_json_output?(env: current_probe_env)
-        @copilot_cli_supports_json_output ||= {}
-        cache_key = version_probe_env_cache_key(env)
-        return @copilot_cli_supports_json_output[cache_key] if @copilot_cli_supports_json_output.key?(cache_key)
-
-        version = copilot_cli_version(env: env)
-        @copilot_cli_supports_json_output[cache_key] = !version.nil? && version >= MIN_JSON_OUTPUT_VERSION
-      rescue
-        @copilot_cli_supports_json_output[cache_key] = false
-      end
-
-      def copilot_cli_version(env: current_probe_env)
-        @copilot_cli_version ||= {}
-        cache_key = version_probe_env_cache_key(env)
-        return @copilot_cli_version[cache_key] if @copilot_cli_version.key?(cache_key)
-
-        result = @executor.execute([self.class.binary_name, "--version"], timeout: 5, env: env)
-        return @copilot_cli_version[cache_key] = nil unless result.exit_code.zero?
-
-        @copilot_cli_version[cache_key] = parse_copilot_cli_version(result.stdout) || parse_copilot_cli_version(result.stderr)
-      rescue
-        @copilot_cli_version[cache_key] = nil
-      end
-
-      def parse_copilot_cli_version(output)
-        match = output.to_s.match(/(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)/)
-        return nil unless match
-
-        Gem::Version.new(match[1])
+        Gem::Version.new(version_string)
       rescue ArgumentError
         nil
       end
 
-      def coerce_token_value(value)
-        case value
-        when Integer
-          return [value, true] if value >= 0
-        when Float
-          return [value.to_i, true] if value.finite? && value >= 0 && value == value.to_i
-        when String
-          return [value.to_i, true] if /\A\+?\d+\z/.match?(value)
+      def parse_jsonl_output(output)
+        return nil if output.nil? || output.strip.empty?
+
+        parsed = output.each_line(chomp: true).filter_map do |line|
+          next if line.strip.empty?
+
+          JSON.parse(line)
+        rescue JSON::ParserError
+          next
         end
 
-        [0, false]
+        parsed.empty? ? nil : parsed
+      end
+
+      def extract_text_from_jsonl(parsed_lines)
+        output = +""
+        saw_text = false
+        saw_delta = false
+
+        parsed_lines.each do |obj|
+          next unless obj.is_a?(Hash)
+          next unless assistant_output_event?(obj)
+
+          full_text = extract_non_delta_text(obj)
+          if full_text
+            output = if replace_output_with_full_text?(
+              output,
+              full_text,
+              saw_delta: saw_delta,
+              authoritative_snapshot: authoritative_full_snapshot?(obj)
+            )
+              full_text.dup
+            else
+              output + full_text
+            end
+            saw_text = true
+            saw_delta = false
+          end
+
+          delta_text = extract_delta_text(obj)
+          next unless delta_text
+
+          output << delta_text
+          saw_text = true
+          saw_delta = true
+        end
+
+        saw_text ? output : nil
+      end
+
+      def replace_output_with_full_text?(existing_output, full_text, saw_delta:, authoritative_snapshot:)
+        saw_delta ||
+          authoritative_snapshot_replacement?(existing_output, full_text, authoritative_snapshot: authoritative_snapshot) ||
+          (!existing_output.empty? && (
+            full_text.start_with?(existing_output) ||
+            existing_output.start_with?(full_text)
+          ))
+      end
+
+      def authoritative_snapshot_replacement?(existing_output, full_text, authoritative_snapshot:)
+        authoritative_snapshot &&
+          !existing_output.empty? &&
+          (
+            existing_output.length == full_text.length ||
+            full_text.start_with?(existing_output) ||
+            existing_output.start_with?(full_text) ||
+            longest_common_substring_length(existing_output, full_text) >= [[existing_output.length, full_text.length].min / 2, 1].max
+          )
+      end
+
+      def longest_common_substring_length(left, right)
+        return 0 if left.empty? || right.empty?
+
+        longest = 0
+        row = Array.new(right.length + 1, 0)
+
+        left.each_char do |left_char|
+          previous = 0
+
+          right.each_char.with_index(1) do |right_char, index|
+            current = row[index]
+            row[index] = if left_char == right_char
+              previous + 1
+            else
+              0
+            end
+            longest = [longest, row[index]].max
+            previous = current
+          end
+        end
+
+        longest
+      end
+
+      def authoritative_full_snapshot?(obj)
+        obj["type"].to_s.match?(/\A(?:assistant\.message|turn\.)/) ||
+          obj["message"].is_a?(Hash) ||
+          nested_hash_value(obj, "data", "message").is_a?(Hash)
+      end
+
+      def assistant_output_event?(obj)
+        type = obj["type"]
+        return true if type.nil? && !role_key_present?(obj)
+
+        role = extract_event_role(obj)
+        return true if role.nil? && type.to_s.match?(/\A(?:assistant\.|turn\.)/)
+
+        role == "assistant"
+      end
+
+      def role_key_present?(obj)
+        obj.key?("role") ||
+          hash_key_present?(obj["data"], "role") ||
+          hash_key_present?(obj["message"], "role") ||
+          hash_key_present?(nested_hash_value(obj, "data", "message"), "role")
+      end
+
+      def extract_event_role(obj)
+        [
+          obj["role"],
+          nested_hash_value(obj, "data", "role"),
+          nested_hash_value(obj, "message", "role"),
+          nested_hash_value(obj, "data", "message", "role")
+        ].compact.first&.to_s
+      end
+
+      def extract_tokens_from_jsonl(parsed_lines)
+        authoritative = authoritative_usage_set(parsed_lines)
+
+        if authoritative.nil?
+          usages = parsed_lines.flat_map { |obj| find_usages(obj) }
+          return aggregate_token_totals(usages)
+        end
+
+        auth_input = sum_token_field(authoritative, "input_tokens", "prompt_tokens", "inputTokens", "promptTokens")
+        auth_output = sum_token_field(authoritative, "output_tokens", "completion_tokens", "outputTokens", "completionTokens")
+
+        if !auth_input.nil? && !auth_output.nil?
+          return {input: auth_input, output: auth_output, total: auth_input + auth_output}
+        end
+
+        fallback_usages = parsed_lines.flat_map { |obj| find_usages(obj) }
+        fallback_input = sum_token_field(fallback_usages, "input_tokens", "prompt_tokens", "inputTokens", "promptTokens")
+        fallback_output = sum_token_field(fallback_usages, "output_tokens", "completion_tokens", "outputTokens", "completionTokens")
+
+        input = auth_input.nil? ? fallback_input : auth_input
+        output = auth_output.nil? ? fallback_output : auth_output
+
+        return nil if input.nil? && output.nil?
+
+        input ||= 0
+        output ||= 0
+        {input: input, output: output, total: input + output}
+      end
+
+      def aggregate_token_totals(usages)
+        total_input = 0
+        total_output = 0
+        found = false
+
+        usages.each do |usage|
+          input = token_count_for(usage, "input_tokens", "prompt_tokens", "inputTokens", "promptTokens")
+          output_tok = token_count_for(usage, "output_tokens", "completion_tokens", "outputTokens", "completionTokens")
+          next if input.nil? && output_tok.nil?
+
+          total_input += input || 0
+          total_output += output_tok || 0
+          found = true
+        end
+
+        return nil unless found
+
+        {input: total_input, output: total_output, total: total_input + total_output}
+      end
+
+      def sum_token_field(usages, *keys)
+        total = nil
+        usages.each do |usage|
+          value = token_count_for(usage, *keys)
+          next if value.nil?
+
+          total = total.nil? ? value : total + value
+        end
+        total
+      end
+
+      def authoritative_usage_set(parsed_lines)
+        usages = parsed_lines.flat_map do |obj|
+          next [] unless authoritative_usage_event?(obj)
+
+          find_usages(obj)
+        end
+
+        usages.any? ? usages : nil
+      end
+
+      def authoritative_usage_event?(obj)
+        return false unless obj.is_a?(Hash)
+
+        type = obj["type"].to_s
+        type == "session.shutdown" ||
+          type.end_with?(".shutdown") ||
+          model_metrics_present?(obj)
+      end
+
+      def model_metrics_present?(obj)
+        obj["modelMetrics"].is_a?(Hash) ||
+          obj["model_metrics"].is_a?(Hash) ||
+          nested_hash_value(obj, "data", "modelMetrics").is_a?(Hash) ||
+          nested_hash_value(obj, "data", "model_metrics").is_a?(Hash) ||
+          nested_hash_value(obj, "message", "modelMetrics").is_a?(Hash) ||
+          nested_hash_value(obj, "message", "model_metrics").is_a?(Hash) ||
+          nested_hash_value(obj, "data", "message", "modelMetrics").is_a?(Hash) ||
+          nested_hash_value(obj, "data", "message", "model_metrics").is_a?(Hash)
+      end
+
+      def find_usages(obj)
+        return [] unless obj.is_a?(Hash)
+
+        direct_usage = select_best_usage_payload([
+          obj["usage"],
+          obj["tokens"],
+          usage_payload?(obj) ? obj : nil,
+          usage_payload?(obj["data"]) ? obj["data"] : nil,
+          usage_payload?(obj["message"]) ? obj["message"] : nil,
+          usage_payload?(nested_hash_value(obj, "data", "message")) ? nested_hash_value(obj, "data", "message") : nil,
+          nested_hash_value(obj, "data", "usage"),
+          nested_hash_value(obj, "data", "tokens"),
+          nested_hash_value(obj, "message", "usage"),
+          nested_hash_value(obj, "message", "tokens"),
+          nested_hash_value(obj, "data", "message", "usage"),
+          nested_hash_value(obj, "data", "message", "tokens")
+        ])
+        metrics_usages =
+          model_metrics_usages(obj["modelMetrics"]) +
+          model_metrics_usages(obj["model_metrics"]) +
+          model_metrics_usages(nested_hash_value(obj, "data", "modelMetrics")) +
+          model_metrics_usages(nested_hash_value(obj, "data", "model_metrics")) +
+          model_metrics_usages(nested_hash_value(obj, "message", "modelMetrics")) +
+          model_metrics_usages(nested_hash_value(obj, "message", "model_metrics")) +
+          model_metrics_usages(nested_hash_value(obj, "data", "message", "modelMetrics")) +
+          model_metrics_usages(nested_hash_value(obj, "data", "message", "model_metrics"))
+
+        return metrics_usages if prefer_usage_set?(aggregate_usage_payload(metrics_usages), direct_usage)
+        return [direct_usage] if direct_usage
+
+        metrics_usages
+      end
+
+      MAX_METRICS_DEPTH = 5
+
+      def model_metrics_usages(metrics, depth: 0)
+        return [] unless metrics.is_a?(Hash)
+
+        return [metrics] if usage_with_token_counts?(metrics)
+
+        direct_usage = [
+          metrics["usage"],
+          metrics["totals"],
+          metrics["total"],
+          metrics["aggregate"]
+        ].find { |value| usage_with_token_counts?(value) }
+        return [direct_usage] if direct_usage
+
+        return [] if depth >= MAX_METRICS_DEPTH
+
+        metrics.each_value.flat_map { |value| model_metrics_usages(value, depth: depth + 1) }
+      end
+
+      def aggregate_usage_payload(usages)
+        return nil if usages.empty?
+
+        input = sum_token_field(usages, "input_tokens", "prompt_tokens", "inputTokens", "promptTokens")
+        output = sum_token_field(usages, "output_tokens", "completion_tokens", "outputTokens", "completionTokens")
+        return nil if input.nil? && output.nil?
+
+        payload = {}
+        payload["input_tokens"] = input unless input.nil?
+        payload["output_tokens"] = output unless output.nil?
+        payload
+      end
+
+      def prefer_usage_set?(candidate, current)
+        return false if candidate.nil?
+        return true if current.nil?
+
+        (
+          [usage_token_field_count(candidate), usage_token_total(candidate)] <=>
+            [usage_token_field_count(current), usage_token_total(current)]
+        ) == 1
+      end
+
+      def extract_text_value(value)
+        case value
+        when String
+          value
+        when Array
+          parts = value.filter_map { |part| extract_text_value(part) }
+          parts.empty? ? nil : parts.join
+        when Hash
+          extract_text_value(value["text"]) ||
+            extract_text_value(value["content"]) ||
+            extract_text_value(value["parts"]) ||
+            extract_text_value(value["result"]) ||
+            extract_text_value(value["deltaContent"]) ||
+            extract_text_value(value["delta_content"]) ||
+            extract_text_value(value["delta"]) ||
+            extract_text_value(value["message"]) ||
+            extract_text_value(value["data"])
+        end
+      end
+
+      def extract_non_delta_text(obj)
+        extract_text_value(obj["text"]) ||
+          extract_text_value(obj["content"]) ||
+          extract_text_value(obj["parts"]) ||
+          extract_text_value(obj["result"]) ||
+          extract_text_value(nested_hash_value(obj, "message", "text")) ||
+          extract_text_value(nested_hash_value(obj, "message", "content")) ||
+          extract_text_value(nested_hash_value(obj, "message", "parts")) ||
+          extract_text_value(nested_hash_value(obj, "message", "result")) ||
+          extract_text_value(nested_hash_value(obj, "data", "text")) ||
+          extract_text_value(nested_hash_value(obj, "data", "content")) ||
+          extract_text_value(nested_hash_value(obj, "data", "parts")) ||
+          extract_text_value(nested_hash_value(obj, "data", "result")) ||
+          extract_text_value(nested_hash_value(obj, "data", "message", "text")) ||
+          extract_text_value(nested_hash_value(obj, "data", "message", "content")) ||
+          extract_text_value(nested_hash_value(obj, "data", "message", "parts")) ||
+          extract_text_value(nested_hash_value(obj, "data", "message", "result"))
+      end
+
+      def extract_delta_text(obj)
+        extract_text_value(obj["deltaContent"]) ||
+          extract_text_value(obj["delta_content"]) ||
+          extract_text_value(obj["delta"]) ||
+          extract_text_value(nested_hash_value(obj, "data", "deltaContent")) ||
+          extract_text_value(nested_hash_value(obj, "data", "delta_content")) ||
+          extract_text_value(nested_hash_value(obj, "data", "delta")) ||
+          extract_text_value(nested_hash_value(obj, "message", "deltaContent")) ||
+          extract_text_value(nested_hash_value(obj, "message", "delta_content")) ||
+          extract_text_value(nested_hash_value(obj, "message", "delta")) ||
+          extract_text_value(nested_hash_value(obj, "data", "message", "deltaContent")) ||
+          extract_text_value(nested_hash_value(obj, "data", "message", "delta_content")) ||
+          extract_text_value(nested_hash_value(obj, "data", "message", "delta"))
+      end
+
+      def usage_payload?(value)
+        value.is_a?(Hash) && token_count_keys.any? { |key| value.key?(key) }
+      end
+
+      def hash_key_present?(value, key)
+        value.is_a?(Hash) && value.key?(key)
       end
     end
   end

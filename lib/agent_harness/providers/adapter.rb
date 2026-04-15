@@ -257,6 +257,11 @@ module AgentHarness
                 :supported_mcp_transports,
                 default: default_supported_mcp_transports
               ),
+              supports_token_counting: provider_metadata_value(
+                provider,
+                :supports_token_counting?,
+                default: default_supports_token_counting
+              ),
               supports_sessions: provider_metadata_value(
                 provider,
                 :supports_sessions?,
@@ -601,6 +606,10 @@ module AgentHarness
           false
         end
 
+        def default_supports_token_counting
+          false
+        end
+
         def default_supports_dangerous_mode
           false
         end
@@ -880,6 +889,13 @@ module AgentHarness
       # @return [Array<String>] CLI flags for session continuation
       def session_flags(session_id)
         []
+      end
+
+      # Whether this provider can extract token usage from CLI output
+      #
+      # @return [Boolean] true if the provider returns token counts
+      def supports_token_counting?
+        false
       end
 
       # Validate provider configuration

@@ -484,6 +484,7 @@ RSpec.describe AgentHarness::Providers::Registry do
         requires_cli: true,
         installable: true,
         supports_mcp: true,
+        supports_token_counting: true,
         supports_dangerous_mode: true
       )
       expect(metadata[:health_check]).to include(
@@ -582,6 +583,7 @@ RSpec.describe AgentHarness::Providers::Registry do
         installable: false,
         installation: nil,
         supports_mcp: false,
+        supports_token_counting: false,
         supports_sessions: false
       )
       expect(metadata[:health_check]).to include(
@@ -1205,6 +1207,40 @@ RSpec.describe AgentHarness::Providers::Registry do
       )
     end
 
+    it "preserves the github_copilot runtime contract in the registry catalog" do
+      allow_any_instance_of(AgentHarness::Providers::GithubCopilot)
+        .to receive(:supports_token_counting?)
+        .and_return(true)
+
+      runtime = registry.provider_metadata_catalog.fetch(:github_copilot).fetch(:runtime)
+      capabilities = registry.provider_metadata_catalog.fetch(:github_copilot).fetch(:capabilities)
+
+      expect(runtime).to include(
+        output_format: :text,
+        supports_token_counting: true,
+        supports_dangerous_mode: true
+      )
+      expect(capabilities).to include(
+        tool_use: true,
+        dangerous_mode: true
+      )
+    end
+
+    it "preserves the aider runtime contract in the registry catalog" do
+      runtime = registry.provider_metadata_catalog.fetch(:aider).fetch(:runtime)
+      capabilities = registry.provider_metadata_catalog.fetch(:aider).fetch(:capabilities)
+
+      expect(runtime).to include(
+        output_format: :text,
+        supports_token_counting: true,
+        supports_dangerous_mode: false
+      )
+      expect(capabilities).to include(
+        tool_use: true,
+        dangerous_mode: false
+      )
+    end
+
     it "reuses cached fallback availability across catalog reads" do
       legacy_provider = Class.new do
         class << self
@@ -1283,6 +1319,7 @@ RSpec.describe AgentHarness::Providers::Registry do
                 uses_subcommand: nil,
                 supports_mcp: false,
                 supported_mcp_transports: [],
+                supports_token_counting: false,
                 supports_sessions: false,
                 supports_dangerous_mode: false
               },
