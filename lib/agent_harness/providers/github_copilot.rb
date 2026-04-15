@@ -2,11 +2,12 @@
 
 require "digest"
 require "json"
-require "rubygems"
 
 module AgentHarness
   module Providers
     class GithubCopilot < Base
+      include TokenUsageParsing
+
       MODEL_PATTERN = /^gpt-[\d.o-]+(?:-turbo)?(?:-mini)?$/i
       JSON_OUTPUT_MIN_VERSION = Gem::Version.new("0.0.422").freeze
 
@@ -320,17 +321,6 @@ module AgentHarness
         !version.nil? && version >= JSON_OUTPUT_MIN_VERSION
       end
 
-      def effective_model_name(runtime = nil)
-        normalized_model_name(runtime&.model) || normalized_model_name(@config.model)
-      end
-
-      def normalized_model_name(value)
-        return nil unless value.is_a?(String)
-
-        stripped = value.strip
-        stripped.empty? ? nil : stripped
-      end
-
       def copilot_cli_version(probe_timeout: nil, env: {})
         return nil if env.empty? && !copilot_cli_binary_available?
 
@@ -460,7 +450,7 @@ module AgentHarness
             existing_output.length == full_text.length ||
             full_text.start_with?(existing_output) ||
             existing_output.start_with?(full_text) ||
-            longest_common_substring_length(existing_output, full_text) >= 2
+            longest_common_substring_length(existing_output, full_text) >= [[existing_output.length, full_text.length].min / 2, 1].max
           )
       end
 
@@ -643,7 +633,9 @@ module AgentHarness
         metrics_usages
       end
 
-      def model_metrics_usages(metrics)
+      MAX_METRICS_DEPTH = 5
+
+      def model_metrics_usages(metrics, depth: 0)
         return [] unless metrics.is_a?(Hash)
 
         return [metrics] if usage_with_token_counts?(metrics)
@@ -656,32 +648,9 @@ module AgentHarness
         ].find { |value| usage_with_token_counts?(value) }
         return [direct_usage] if direct_usage
 
-        metrics.each_value.flat_map { |value| model_metrics_usages(value) }
-      end
+        return [] if depth >= MAX_METRICS_DEPTH
 
-      def normalize_token_count(value)
-        count = case value
-        when Integer
-          value
-        when String
-          Integer(value, exception: false)
-        end
-
-        count if count && count >= 0
-      end
-
-      def token_count_for(usage, *keys)
-        keys.each do |key|
-          value = normalize_token_count(usage[key])
-          return value unless value.nil?
-        end
-        nil
-      end
-
-      def select_best_usage_payload(candidates)
-        candidates
-          .select { |usage| usage_with_token_counts?(usage) }
-          .max_by { |usage| [usage_token_field_count(usage), usage_token_total(usage)] }
+        metrics.each_value.flat_map { |value| model_metrics_usages(value, depth: depth + 1) }
       end
 
       def aggregate_usage_payload(usages)
@@ -705,45 +674,6 @@ module AgentHarness
           [usage_token_field_count(candidate), usage_token_total(candidate)] <=>
             [usage_token_field_count(current), usage_token_total(current)]
         ) == 1
-      end
-
-      def usage_token_field_count(usage)
-        return 0 unless usage.is_a?(Hash)
-
-        [
-          token_count_for(usage, "input_tokens", "prompt_tokens", "inputTokens", "promptTokens"),
-          token_count_for(usage, "output_tokens", "completion_tokens", "outputTokens", "completionTokens")
-        ].count { |value| !value.nil? }
-      end
-
-      def usage_token_total(usage)
-        return 0 unless usage.is_a?(Hash)
-
-        [
-          token_count_for(usage, "input_tokens", "prompt_tokens", "inputTokens", "promptTokens"),
-          token_count_for(usage, "output_tokens", "completion_tokens", "outputTokens", "completionTokens")
-        ].compact.sum
-      end
-
-      def usage_with_token_counts?(usage)
-        return false unless usage_payload?(usage)
-        return false if negative_token_count_present?(usage)
-
-        token_count_for(usage, "input_tokens", "prompt_tokens", "inputTokens", "promptTokens") ||
-          token_count_for(usage, "output_tokens", "completion_tokens", "outputTokens", "completionTokens")
-      end
-
-      def negative_token_count_present?(usage)
-        token_count_keys.any? do |key|
-          count = case usage[key]
-          when Integer
-            usage[key]
-          when String
-            Integer(usage[key], exception: false)
-          end
-
-          count && count < 0
-        end
       end
 
       def extract_text_value(value)
@@ -804,29 +734,8 @@ module AgentHarness
         value.is_a?(Hash) && token_count_keys.any? { |key| value.key?(key) }
       end
 
-      def nested_hash_value(value, *keys)
-        keys.reduce(value) do |current, key|
-          break nil unless current.is_a?(Hash)
-
-          current[key]
-        end
-      end
-
       def hash_key_present?(value, key)
         value.is_a?(Hash) && value.key?(key)
-      end
-
-      def token_count_keys
-        %w[
-          input_tokens
-          prompt_tokens
-          output_tokens
-          completion_tokens
-          inputTokens
-          promptTokens
-          outputTokens
-          completionTokens
-        ]
       end
     end
   end

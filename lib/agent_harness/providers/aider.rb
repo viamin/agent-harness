@@ -11,6 +11,8 @@ module AgentHarness
     #
     # Provides integration with the Aider CLI tool.
     class Aider < Base
+      include TokenUsageParsing
+
       UV_VERSION = "0.8.17"
       SUPPORTED_CLI_VERSION = "0.86.2"
       SUPPORTED_CLI_REQUIREMENT = Gem::Requirement.new(">= #{SUPPORTED_CLI_VERSION}", "< 0.87.0").freeze
@@ -310,17 +312,6 @@ module AgentHarness
 
       private
 
-      def effective_model_name(runtime = nil)
-        normalized_model_name(runtime&.model) || normalized_model_name(@config.model)
-      end
-
-      def normalized_model_name(value)
-        return nil unless value.is_a?(String)
-
-        stripped = value.strip
-        stripped.empty? ? nil : stripped
-      end
-
       TOKEN_COUNT_PATTERN = /\d[\d,]*(?:\.\d+)?[kmb]?/i
 
       TOKEN_USAGE_PATTERN =
@@ -518,14 +509,6 @@ module AgentHarness
         end
       end
 
-      def nested_hash_value(value, *keys)
-        keys.reduce(value) do |current, key|
-          break nil unless current.is_a?(Hash)
-
-          current[key]
-        end
-      end
-
       def output_path_footer_line?(line)
         OUTPUT_PATH_PATTERN.match?(line) ||
           OUTPUT_DOTFILE_PATTERN.match?(line) ||
@@ -602,76 +585,6 @@ module AgentHarness
         normalized = normalized[0...-1] if multiplier > 1
 
         (normalized.to_f * multiplier).round
-      end
-
-      def normalize_token_count(value)
-        count = parse_integer_token_count(value)
-        count if count && count >= 0
-      end
-
-      def parse_integer_token_count(value)
-        case value
-        when Integer
-          value
-        when String
-          Integer(value, exception: false)
-        end
-      end
-
-      def token_count_for(usage, *keys)
-        keys.each do |key|
-          value = normalize_token_count(usage[key])
-          return value unless value.nil?
-        end
-        nil
-      end
-
-      def select_best_usage_payload(candidates)
-        candidates
-          .select { |usage| usage_with_token_counts?(usage) }
-          .max_by { |usage| [usage_token_field_count(usage), usage_token_total(usage)] }
-      end
-
-      def usage_token_field_count(usage)
-        return 0 unless usage.is_a?(Hash)
-
-        [
-          token_count_for(usage, "prompt_tokens", "input_tokens", "promptTokens", "inputTokens"),
-          token_count_for(usage, "completion_tokens", "output_tokens", "completionTokens", "outputTokens")
-        ].count { |value| !value.nil? }
-      end
-
-      def usage_token_total(usage)
-        return 0 unless usage.is_a?(Hash)
-
-        [
-          token_count_for(usage, "prompt_tokens", "input_tokens", "promptTokens", "inputTokens"),
-          token_count_for(usage, "completion_tokens", "output_tokens", "completionTokens", "outputTokens")
-        ].compact.sum
-      end
-
-      def usage_with_token_counts?(usage)
-        return false unless usage.is_a?(Hash)
-        return false if negative_token_count_present?(usage)
-
-        token_count_for(usage, "prompt_tokens", "input_tokens", "promptTokens", "inputTokens") ||
-          token_count_for(usage, "completion_tokens", "output_tokens", "completionTokens", "outputTokens")
-      end
-
-      def negative_token_count_present?(usage)
-        %w[
-          prompt_tokens
-          input_tokens
-          promptTokens
-          inputTokens
-          completion_tokens
-          output_tokens
-          completionTokens
-          outputTokens
-        ].any? do |key|
-          count = parse_integer_token_count(usage[key])
-          count && count < 0
-        end
       end
 
       def prepare_llm_history_file!
