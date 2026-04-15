@@ -1,5 +1,12 @@
 ## [Unreleased]
 
+## [0.7.2](https://github.com/viamin/agent-harness/compare/agent-harness/v0.7.1...agent-harness/v0.7.2) (2026-04-15)
+
+
+### Bug Fixes
+
+* 113: [P1] feat: support disabling tools for text-only send_message calls ([#115](https://github.com/viamin/agent-harness/issues/115)) ([62bc66a](https://github.com/viamin/agent-harness/commit/62bc66a3d34a889de65ba7c4951b8bdb1f388fa9))
+
 ## [0.7.1](https://github.com/viamin/agent-harness/compare/agent-harness/v0.7.0...agent-harness/v0.7.1) (2026-04-15)
 
 
