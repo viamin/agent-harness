@@ -328,4 +328,31 @@ RSpec.describe AgentHarness::Providers::Base, "#send_message" do
       )
     end
   end
+
+  describe "tools option on unsupported provider" do
+    let(:logger) { double("Logger", debug: nil, warn: nil, error: nil) }
+
+    subject(:provider) do
+      test_provider_class.new(config: config, executor: mock_executor, logger: logger)
+    end
+
+    it "emits a warning when tools option is passed" do
+      expect(logger).to receive(:warn).with(/tools option is not supported/)
+
+      provider.send_message(prompt: "Hello", tools: :none)
+    end
+
+    it "still returns a successful response" do
+      response = provider.send_message(prompt: "Hello", tools: :none)
+
+      expect(response).to be_a(AgentHarness::Response)
+      expect(response.output).to eq("response output")
+    end
+
+    it "does not warn when tools option is not provided" do
+      expect(logger).not_to receive(:warn)
+
+      provider.send_message(prompt: "Hello")
+    end
+  end
 end

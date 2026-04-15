@@ -104,6 +104,17 @@ module AgentHarness
       def send_message(prompt:, **options)
         log_debug("send_message_start", prompt_length: prompt.length, options: options.keys)
 
+        # Warn when tools option is passed to a provider that doesn't support it
+        if options[:tools] && !supports_tool_control?
+          log_debug("tools_option_unsupported",
+            provider: self.class.provider_name,
+            tools: options[:tools])
+          @logger&.warn(
+            "[AgentHarness::#{self.class.provider_name}] tools option is not supported " \
+            "by this provider and will be ignored"
+          )
+        end
+
         # Coerce provider_runtime from Hash if needed
         options = normalize_provider_runtime(options)
 

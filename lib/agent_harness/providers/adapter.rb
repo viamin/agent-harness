@@ -717,6 +717,13 @@ module AgentHarness
       # @option options [Integer] :timeout timeout in seconds
       # @option options [String] :session session identifier
       # @option options [Boolean] :dangerous_mode skip permission checks
+      # @option options [Symbol, Array<String>, nil] :tools tool access control.
+      #   Pass +:none+ to disable all tool access (pure text-in/text-out mode).
+      #   Pass an Array of tool name strings to selectively disable specific
+      #   tools via the provider's disallowed-tools mechanism. Defaults to +nil+
+      #   (tools enabled, provider default behavior).
+      #   Providers that do not support tool control will emit a warning and
+      #   ignore this option — it is never a hard failure.
       # @option options [ProviderRuntime, Hash, nil] :provider_runtime per-request
       #   runtime overrides (model, base_url, api_provider, env, flags, metadata).
       #   For providers that delegate to Providers::Base#send_message, a plain Hash
@@ -837,6 +844,13 @@ module AgentHarness
             provider: self.class.provider_name
           )
         end
+      end
+
+      # Check if provider supports tool access control (disabling tools)
+      #
+      # @return [Boolean] true if the provider supports the tools: option
+      def supports_tool_control?
+        false
       end
 
       # Check if provider supports dangerous mode
