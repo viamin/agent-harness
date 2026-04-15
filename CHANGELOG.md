@@ -1,5 +1,14 @@
 ## [Unreleased]
 
+## [0.7.1](https://github.com/viamin/agent-harness/compare/agent-harness/v0.7.0...agent-harness/v0.7.1) (2026-04-15)
+
+
+### Bug Fixes
+
+* **codex:** address remaining json output review feedback ([505e068](https://github.com/viamin/agent-harness/commit/505e068d63fbc5590112ba00faee0d1c62d997e3))
+* **codex:** address review feedback for token usage extraction ([398940e](https://github.com/viamin/agent-harness/commit/398940ecb356ec9e6978d42244ae26295823bb89))
+* **codex:** preserve output-last-message flag values ([7480778](https://github.com/viamin/agent-harness/commit/7480778d6a5d7b9227eec20889bc642eb399d1b5))
+
 ## [0.7.0](https://github.com/viamin/agent-harness/compare/agent-harness/v0.6.0...agent-harness/v0.7.0) (2026-04-13)
 
 
