@@ -1,5 +1,13 @@
 ## [Unreleased]
 
+## [0.7.3](https://github.com/viamin/agent-harness/compare/agent-harness/v0.7.2...agent-harness/v0.7.3) (2026-04-15)
+
+
+### Bug Fixes
+
+* 114: feat: add text-only transport that bypasses the CLI ([a6be68a](https://github.com/viamin/agent-harness/commit/a6be68aa03b0202492caeb24233104cd1b814d88))
+* 98: feat: add token usage extraction for remaining providers (cursor, gemini, aider, opencode, copilot, mistral_vibe) ([#105](https://github.com/viamin/agent-harness/issues/105)) ([b090748](https://github.com/viamin/agent-harness/commit/b090748b5d528ab864e94754c0992bc060669540))
+
 ## [0.7.2](https://github.com/viamin/agent-harness/compare/agent-harness/v0.7.1...agent-harness/v0.7.2) (2026-04-15)
 
 
