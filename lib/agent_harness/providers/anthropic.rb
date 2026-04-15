@@ -317,6 +317,10 @@ module AgentHarness
         ["--mcp-config", config_path]
       end
 
+      def supports_tool_control?
+        true
+      end
+
       def dangerous_mode_flags
         ["--dangerously-skip-permissions"]
       end
@@ -401,6 +405,21 @@ module AgentHarness
 
       protected
 
+      # All tools the Claude CLI exposes by default.
+      # Used to build the --disallowedTools list when tools: :none is requested.
+      ALL_CLI_TOOLS = %w[
+        Bash
+        Read
+        Edit
+        Write
+        Grep
+        Glob
+        WebFetch
+        WebSearch
+        TodoWrite
+        NotebookEdit
+      ].freeze
+
       def build_command(prompt, options)
         cmd = [self.class.binary_name]
 
@@ -409,6 +428,11 @@ module AgentHarness
         # Add model if specified
         if @config.model && !@config.model.empty?
           cmd += ["--model", @config.model]
+        end
+
+        # Add permission mode for tool-disabled requests (belt-and-suspenders)
+        if options[:tools]
+          cmd += build_tool_control_flags(options[:tools])
         end
 
         # Add dangerous mode if requested
@@ -610,6 +634,22 @@ module AgentHarness
           end
           @mcp_docker_config_paths = nil
         end
+      end
+
+      def build_tool_control_flags(tools_option)
+        tool_names = case tools_option
+        when :none
+          ALL_CLI_TOOLS
+        when Array
+          tools_option
+        else
+          return []
+        end
+
+        return [] if tool_names.empty?
+
+        ["--permission-mode", "plan"] +
+          tool_names.flat_map { |tool| ["--disallowedTools", tool] }
       end
 
       def log_debug(action, **context)

@@ -837,6 +837,109 @@ RSpec.describe AgentHarness::Providers::Anthropic do
       end
     end
 
+    describe "#supports_tool_control?" do
+      it "returns true" do
+        expect(provider.supports_tool_control?).to be true
+      end
+    end
+
+    describe "tool control via tools option" do
+      let(:success_result) do
+        AgentHarness::CommandExecutor::Result.new(
+          stdout: '{"result":"response","usage":{"input_tokens":10,"output_tokens":5}}',
+          stderr: "",
+          exit_code: 0,
+          duration: 1.0
+        )
+      end
+
+      before do
+        allow(mock_executor).to receive(:execute).and_return(success_result)
+      end
+
+      context "when tools: :none" do
+        it "includes --permission-mode plan flag" do
+          expect(mock_executor).to receive(:execute).with(
+            array_including("--permission-mode", "plan"),
+            anything
+          )
+
+          provider.send_message(prompt: "Summarize this", tools: :none)
+        end
+
+        it "includes --disallowedTools for all CLI tools" do
+          allow(mock_executor).to receive(:execute) do |cmd, **_opts|
+            AgentHarness::Providers::Anthropic::ALL_CLI_TOOLS.each do |tool|
+              expect(cmd).to include("--disallowedTools", tool),
+                "Expected command to include --disallowedTools #{tool}"
+            end
+            success_result
+          end
+
+          provider.send_message(prompt: "Summarize this", tools: :none)
+        end
+
+        it "disallows all known CLI tools" do
+          expected_tools = %w[Bash Read Edit Write Grep Glob WebFetch WebSearch TodoWrite NotebookEdit]
+
+          allow(mock_executor).to receive(:execute) do |cmd, **_opts|
+            expected_tools.each do |tool|
+              expect(cmd).to include(tool)
+            end
+            success_result
+          end
+
+          provider.send_message(prompt: "Summarize this", tools: :none)
+        end
+      end
+
+      context "when tools: is an explicit list" do
+        it "includes --disallowedTools only for the specified tools" do
+          allow(mock_executor).to receive(:execute) do |cmd, **_opts|
+            expect(cmd).to include("--disallowedTools", "Bash")
+            expect(cmd).to include("--disallowedTools", "Read")
+            expect(cmd).not_to include("Edit")
+            success_result
+          end
+
+          provider.send_message(prompt: "Hello", tools: %w[Bash Read])
+        end
+
+        it "includes --permission-mode plan flag" do
+          expect(mock_executor).to receive(:execute).with(
+            array_including("--permission-mode", "plan"),
+            anything
+          )
+
+          provider.send_message(prompt: "Hello", tools: %w[Bash])
+        end
+      end
+
+      context "when tools option is not provided" do
+        it "does not include --disallowedTools or --permission-mode" do
+          allow(mock_executor).to receive(:execute) do |cmd, **_opts|
+            expect(cmd).not_to include("--disallowedTools")
+            expect(cmd).not_to include("--permission-mode")
+            success_result
+          end
+
+          provider.send_message(prompt: "Hello")
+        end
+      end
+
+      context "when tools: is an empty array" do
+        it "does not include --disallowedTools or --permission-mode" do
+          allow(mock_executor).to receive(:execute) do |cmd, **_opts|
+            expect(cmd).not_to include("--disallowedTools")
+            expect(cmd).not_to include("--permission-mode")
+            success_result
+          end
+
+          provider.send_message(prompt: "Hello", tools: [])
+        end
+      end
+    end
+
     describe "#execution_semantics" do
       it "returns the full provider contract" do
         semantics = provider.execution_semantics
