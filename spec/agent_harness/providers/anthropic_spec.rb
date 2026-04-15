@@ -880,7 +880,7 @@ RSpec.describe AgentHarness::Providers::Anthropic do
         end
 
         it "disallows all known CLI tools" do
-          expected_tools = %w[Bash Read Edit Write Grep Glob WebFetch WebSearch TodoWrite NotebookEdit]
+          expected_tools = %w[Agent Bash Read Edit Write Grep Glob WebFetch WebSearch TodoWrite NotebookEdit]
 
           allow(mock_executor).to receive(:execute) do |cmd, **_opts|
             expected_tools.each do |tool|
@@ -936,6 +936,21 @@ RSpec.describe AgentHarness::Providers::Anthropic do
           end
 
           provider.send_message(prompt: "Hello", tools: [])
+        end
+      end
+
+      context "when tools: :none combined with dangerous_mode: true" do
+        it "includes --disallowedTools but omits --permission-mode plan" do
+          allow(mock_executor).to receive(:execute) do |cmd, **_opts|
+            AgentHarness::Providers::Anthropic::ALL_CLI_TOOLS.each do |tool|
+              expect(cmd).to include("--disallowedTools", tool)
+            end
+            expect(cmd).not_to include("--permission-mode")
+            expect(cmd).to include("--dangerously-skip-permissions")
+            success_result
+          end
+
+          provider.send_message(prompt: "Hello", tools: :none, dangerous_mode: true)
         end
       end
     end

@@ -408,6 +408,7 @@ module AgentHarness
       # All tools the Claude CLI exposes by default.
       # Used to build the --disallowedTools list when tools: :none is requested.
       ALL_CLI_TOOLS = %w[
+        Agent
         Bash
         Read
         Edit
@@ -432,7 +433,10 @@ module AgentHarness
 
         # Add permission mode for tool-disabled requests (belt-and-suspenders)
         if options[:tools]
-          cmd += build_tool_control_flags(options[:tools])
+          # Skip --permission-mode plan when dangerous_mode is active, since
+          # --dangerously-skip-permissions would override it anyway.
+          # The --disallowedTools flags still provide the primary protection.
+          cmd += build_tool_control_flags(options[:tools], skip_permission_mode: options[:dangerous_mode])
         end
 
         # Add dangerous mode if requested
@@ -636,7 +640,7 @@ module AgentHarness
         end
       end
 
-      def build_tool_control_flags(tools_option)
+      def build_tool_control_flags(tools_option, skip_permission_mode: false)
         tool_names = case tools_option
         when :none
           ALL_CLI_TOOLS
@@ -648,8 +652,9 @@ module AgentHarness
 
         return [] if tool_names.empty?
 
-        ["--permission-mode", "plan"] +
-          tool_names.flat_map { |tool| ["--disallowedTools", tool] }
+        flags = tool_names.flat_map { |tool| ["--disallowedTools", tool] }
+        flags = ["--permission-mode", "plan"] + flags unless skip_permission_mode
+        flags
       end
 
       def log_debug(action, **context)
