@@ -268,9 +268,8 @@ module AgentHarness
 
         model = effective_model_name(runtime)
         cmd += ["--model", model] if model
-        cmd += programmatic_tool_approval_flags
-
         if options[:dangerous_mode] && supports_dangerous_mode?
+          cmd += programmatic_tool_approval_flags
           cmd += dangerous_mode_flags(probe_timeout: options[:_version_probe_timeout], env: env)
         end
 
