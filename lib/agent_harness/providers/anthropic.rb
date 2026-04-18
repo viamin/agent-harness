@@ -161,7 +161,80 @@ module AgentHarness
           Base::DEFAULT_SMOKE_TEST_CONTRACT
         end
 
+        # Parse a raw Claude CLI --output-format=json envelope into its components.
+        #
+        # Downstream callers that capture Claude CLI stdout directly (e.g. container
+        # execution plans) can use this to extract the assistant text, error state,
+        # token usage, and structured metadata without re-implementing the parsing.
+        #
+        # @param json_string [String] raw JSON envelope from Claude CLI stdout
+        # @return [Hash, nil] parsed components or nil if not a valid envelope
+        #   - :output [String] the assistant's final text (the "result" field)
+        #   - :error [String, nil] error message if is_error was true
+        #   - :tokens [Hash, nil] {input:, output:, total:} token counts
+        #   - :metadata [Hash] structured metadata (cost_usd, session_id, etc.)
+        def parse_cli_json_envelope(json_string)
+          return nil if json_string.nil? || json_string.empty?
+
+          parsed = JSON.parse(json_string)
+          return nil unless parsed.is_a?(Hash) && parsed.key?("result")
+
+          output = parsed["result"]
+          error = nil
+
+          if parsed["is_error"]
+            error = classify_error_message(output || "Unknown Claude CLI error")
+          end
+
+          tokens = extract_tokens(parsed)
+          metadata = extract_envelope_metadata(parsed)
+
+          {output: output, error: error, tokens: tokens, metadata: metadata}
+        rescue JSON::ParserError
+          nil
+        end
+
         private
+
+        def classify_error_message(message)
+          msg_lower = message.downcase
+
+          if msg_lower.include?("rate limit") || msg_lower.include?("session limit")
+            "Rate limit exceeded"
+          elsif msg_lower.include?("deprecat") || msg_lower.include?("end-of-life")
+            "Model deprecated"
+          elsif msg_lower.include?("oauth token") || msg_lower.include?("authentication")
+            "Authentication error"
+          else
+            message
+          end
+        end
+
+        def extract_tokens(parsed)
+          usage = parsed["usage"]
+          return nil unless usage
+
+          input = usage["input_tokens"]
+          output = usage["output_tokens"]
+          return nil unless input || output
+
+          input ||= 0
+          output ||= 0
+
+          {input: input, output: output, total: input + output}
+        end
+
+        def extract_envelope_metadata(parsed)
+          meta = {}
+          meta[:cost_usd] = parsed["total_cost_usd"] if parsed.key?("total_cost_usd")
+          meta[:session_id] = parsed["session_id"] if parsed.key?("session_id")
+          meta[:stop_reason] = parsed["stop_reason"] if parsed.key?("stop_reason")
+          meta[:terminal_reason] = parsed["terminal_reason"] if parsed.key?("terminal_reason")
+          meta[:num_turns] = parsed["num_turns"] if parsed.key?("num_turns")
+          meta[:duration_ms] = parsed["duration_ms"] if parsed.key?("duration_ms")
+          meta[:duration_api_ms] = parsed["duration_api_ms"] if parsed.key?("duration_api_ms")
+          meta
+        end
 
         def validate_version!(version)
           unless version.is_a?(String) && !version.strip.empty?
@@ -473,17 +546,24 @@ module AgentHarness
         output = result.stdout
         error = nil
         tokens = nil
+        metadata = {}
 
         if result.failed?
           combined = [result.stdout, result.stderr].compact.join("\n")
           error = classify_error_message(combined)
         end
 
-        # Parse JSON output to extract result text and token usage
+        # Parse JSON output to extract result text, token usage, and metadata
         parsed = parse_json_output(output)
         if parsed
+          # Handle is_error envelopes as provider errors
+          if parsed["is_error"]
+            error ||= classify_error_message(parsed["result"] || "Unknown Claude CLI error")
+          end
+
           output = parsed["result"] || output
           tokens = extract_tokens(parsed)
+          metadata = extract_envelope_metadata(parsed)
         end
 
         Response.new(
@@ -493,6 +573,7 @@ module AgentHarness
           provider: self.class.provider_name,
           model: @config.model,
           tokens: tokens,
+          metadata: metadata,
           error: error
         )
       end
@@ -572,32 +653,18 @@ module AgentHarness
         nil
       end
 
+      # Delegate to class-level implementations so both instance and class
+      # methods share a single definition.
+      def extract_envelope_metadata(parsed)
+        self.class.send(:extract_envelope_metadata, parsed)
+      end
+
       def extract_tokens(parsed)
-        usage = parsed["usage"]
-        return nil unless usage
-
-        input = usage["input_tokens"]
-        output = usage["output_tokens"]
-        return nil unless input || output
-
-        input ||= 0
-        output ||= 0
-
-        {input: input, output: output, total: input + output}
+        self.class.send(:extract_tokens, parsed)
       end
 
       def classify_error_message(message)
-        msg_lower = message.downcase
-
-        if msg_lower.include?("rate limit") || msg_lower.include?("session limit")
-          "Rate limit exceeded"
-        elsif msg_lower.include?("deprecat") || msg_lower.include?("end-of-life")
-          "Model deprecated"
-        elsif msg_lower.include?("oauth token") || msg_lower.include?("authentication")
-          "Authentication error"
-        else
-          message
-        end
+        self.class.send(:classify_error_message, message)
       end
 
       def parse_claude_mcp_output(output)
