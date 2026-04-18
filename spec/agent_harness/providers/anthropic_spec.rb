@@ -13,6 +13,67 @@ RSpec.describe AgentHarness::Providers::Anthropic do
     end
   end
 
+  describe ".parse_cli_json_envelope" do
+    it "extracts output, tokens, and metadata from a success envelope" do
+      envelope = JSON.generate({
+        "type" => "result",
+        "subtype" => "success",
+        "is_error" => false,
+        "duration_ms" => 3588,
+        "duration_api_ms" => 388_349,
+        "num_turns" => 1,
+        "result" => "Hello! How can I help?",
+        "stop_reason" => "end_turn",
+        "session_id" => "sess-abc-123",
+        "total_cost_usd" => 2.28,
+        "terminal_reason" => "completed",
+        "usage" => {"input_tokens" => 100, "output_tokens" => 50}
+      })
+
+      parsed = described_class.parse_cli_json_envelope(envelope)
+
+      expect(parsed[:output]).to eq("Hello! How can I help?")
+      expect(parsed[:error]).to be_nil
+      expect(parsed[:tokens]).to eq({input: 100, output: 50, total: 150})
+      expect(parsed[:metadata][:cost_usd]).to eq(2.28)
+      expect(parsed[:metadata][:session_id]).to eq("sess-abc-123")
+      expect(parsed[:metadata][:stop_reason]).to eq("end_turn")
+      expect(parsed[:metadata][:terminal_reason]).to eq("completed")
+      expect(parsed[:metadata][:num_turns]).to eq(1)
+      expect(parsed[:metadata][:duration_ms]).to eq(3588)
+      expect(parsed[:metadata][:duration_api_ms]).to eq(388_349)
+    end
+
+    it "surfaces is_error envelopes as errors" do
+      envelope = JSON.generate({
+        "type" => "result",
+        "is_error" => true,
+        "result" => "Rate limit exceeded for this model"
+      })
+
+      parsed = described_class.parse_cli_json_envelope(envelope)
+
+      expect(parsed[:output]).to eq("Rate limit exceeded for this model")
+      expect(parsed[:error]).to eq("Rate limit exceeded")
+    end
+
+    it "returns nil for non-JSON input" do
+      expect(described_class.parse_cli_json_envelope("not json")).to be_nil
+    end
+
+    it "returns nil for nil input" do
+      expect(described_class.parse_cli_json_envelope(nil)).to be_nil
+    end
+
+    it "returns nil for empty input" do
+      expect(described_class.parse_cli_json_envelope("")).to be_nil
+    end
+
+    it "returns nil for JSON without a result field" do
+      expect(described_class.parse_cli_json_envelope('{"foo":"bar"}')).to be_nil
+    end
+  end
+
   describe ".install_contract" do
     it "exposes the official install contract" do
       contract = described_class.install_contract
@@ -839,6 +900,130 @@ RSpec.describe AgentHarness::Providers::Anthropic do
           expect(summary[:total_input_tokens]).to eq(50)
           expect(summary[:total_output_tokens]).to eq(25)
           expect(summary[:total_tokens]).to eq(75)
+        end
+      end
+
+      context "with is_error envelope" do
+        it "surfaces is_error as a provider error" do
+          json_output = JSON.generate({
+            "type" => "result",
+            "subtype" => "error",
+            "is_error" => true,
+            "result" => "Rate limit exceeded for this model",
+            "usage" => {"input_tokens" => 10, "output_tokens" => 0}
+          })
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: json_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.error).to eq("Rate limit exceeded")
+          expect(response.output).to eq("Rate limit exceeded for this model")
+        end
+
+        it "classifies authentication errors from is_error envelope" do
+          json_output = JSON.generate({
+            "type" => "result",
+            "is_error" => true,
+            "result" => "Authentication failed: oauth token expired"
+          })
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: json_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.error).to eq("Authentication error")
+        end
+
+        it "uses generic error for unclassified is_error envelopes" do
+          json_output = JSON.generate({
+            "type" => "result",
+            "is_error" => true,
+            "result" => "Something unexpected happened"
+          })
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: json_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.error).to eq("Something unexpected happened")
+        end
+      end
+
+      context "with envelope metadata extraction" do
+        it "extracts structured metadata from the JSON envelope" do
+          json_output = JSON.generate({
+            "type" => "result",
+            "subtype" => "success",
+            "is_error" => false,
+            "duration_ms" => 3588,
+            "duration_api_ms" => 388_349,
+            "num_turns" => 1,
+            "result" => "Hello! How can I help?",
+            "stop_reason" => "end_turn",
+            "session_id" => "abc-123",
+            "total_cost_usd" => 2.28,
+            "terminal_reason" => "completed",
+            "usage" => {"input_tokens" => 100, "output_tokens" => 50}
+          })
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: json_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 3.5
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq("Hello! How can I help?")
+          expect(response.metadata[:cost_usd]).to eq(2.28)
+          expect(response.metadata[:session_id]).to eq("abc-123")
+          expect(response.metadata[:stop_reason]).to eq("end_turn")
+          expect(response.metadata[:terminal_reason]).to eq("completed")
+          expect(response.metadata[:num_turns]).to eq(1)
+          expect(response.metadata[:duration_ms]).to eq(3588)
+          expect(response.metadata[:duration_api_ms]).to eq(388_349)
+        end
+
+        it "handles envelopes with partial metadata" do
+          json_output = JSON.generate({
+            "result" => "Hello!",
+            "session_id" => "xyz-456"
+          })
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: json_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq("Hello!")
+          expect(response.metadata[:session_id]).to eq("xyz-456")
+          expect(response.metadata[:cost_usd]).to be_nil
         end
       end
     end
