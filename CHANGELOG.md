@@ -1,5 +1,12 @@
 ## [Unreleased]
 
+## [0.7.4](https://github.com/viamin/agent-harness/compare/agent-harness/v0.7.3...agent-harness/v0.7.4) (2026-04-18)
+
+
+### Bug Fixes
+
+* 119: Claude provider leaks raw --output-format json envelope as response.output ([#120](https://github.com/viamin/agent-harness/issues/120)) ([602a5f9](https://github.com/viamin/agent-harness/commit/602a5f97e009ac59c798c7b1d7342cd43e2e8d4f))
+
 ## [0.7.3](https://github.com/viamin/agent-harness/compare/agent-harness/v0.7.2...agent-harness/v0.7.3) (2026-04-15)
 
 
