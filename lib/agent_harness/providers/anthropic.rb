@@ -379,6 +379,12 @@ module AgentHarness
         cleanup_mcp_tempfiles!
       end
 
+      def api_key_env_var_names = ["ANTHROPIC_API_KEY"]
+
+      def api_key_unset_vars = ["ANTHROPIC_BASE_URL", "ANTHROPIC_HEADER_X_AGENT_RUN_ID", "ANTHROPIC_HEADER_X_PROXY_TOKEN"]
+
+      def subscription_unset_vars = ["ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL"] + api_key_unset_vars
+
       def supports_mcp?
         true
       end

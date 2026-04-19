@@ -167,6 +167,14 @@ module AgentHarness
         }
       end
 
+      def api_key_env_var_names = ["OPENAI_API_KEY"]
+
+      def api_key_unset_vars = ["OPENAI_BASE_URL", "OPENAI_HEADER_X_AGENT_RUN_ID", "OPENAI_HEADER_X_PROXY_TOKEN"]
+
+      def subscription_unset_vars = ["OPENAI_API_KEY", "OPENAI_BASE_URL"] + api_key_unset_vars
+
+      def cli_env_overrides = {"PAID_CODEX_SUBSCRIPTION_AUTH" => "1"}
+
       def test_command_overrides
         ["--skip-git-repo-check", "--output-last-message"]
       end

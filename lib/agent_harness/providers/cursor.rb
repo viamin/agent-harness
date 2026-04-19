@@ -206,6 +206,10 @@ module AgentHarness
         fetch_mcp_servers_cli || fetch_mcp_servers_config
       end
 
+      def api_key_env_var_names = ["ANTHROPIC_API_KEY"]
+
+      def api_key_unset_vars = ["ANTHROPIC_BASE_URL", "ANTHROPIC_HEADER_X_AGENT_RUN_ID", "ANTHROPIC_HEADER_X_PROXY_TOKEN"]
+
       def auth_type
         :oauth
       end
