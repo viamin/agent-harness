@@ -205,6 +205,28 @@ module AgentHarness
         @executor.is_a?(DockerCommandExecutor)
       end
 
+      # Additional CLI flags for health-check/test invocations
+      #
+      # Providers override this to supply flags that should be appended
+      # when the CLI is invoked in a test or smoke-test context.
+      #
+      # @return [Array<String>] extra CLI flags (empty by default)
+      def test_command_overrides
+        []
+      end
+
+      # Parse provider-specific error information from test output
+      #
+      # Providers override this to extract structured error details from
+      # CLI output or sidecar files produced during a test invocation.
+      #
+      # @param output [String] the CLI stdout/stderr output
+      # @param files [Hash] mapping of logical names to file paths
+      # @return [Hash, nil] structured error hash or nil if no error detected
+      def parse_test_error(output:, files: {})
+        nil
+      end
+
       protected
 
       # Build CLI command - override in subclasses
