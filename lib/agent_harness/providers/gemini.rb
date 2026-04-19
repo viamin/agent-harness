@@ -204,6 +204,35 @@ module AgentHarness
         }
       end
 
+      def error_classification_patterns
+        super.merge(
+          authentication: [
+            /GEMINI_API_KEY/i,
+            /GOOGLE_GENAI_USE_VERTEXAI/i,
+            /GOOGLE_GENAI_USE_GCA/i,
+            /ValidationRequiredError/i,
+            /API key not configured for google/i,
+            /API key not valid/i
+          ]
+        )
+      end
+
+      def noisy_error_patterns
+        [
+          /Error when talking to Gemini API/i,
+          /service=.*status/i,
+          /loading\.\.\./i,
+          /subscribing/i
+        ]
+      end
+
+      def translate_error(message)
+        case message
+        when /API key not configured/i then "Gemini API key not set. Run: export GEMINI_API_KEY=..."
+        else message
+        end
+      end
+
       def auth_status
         api_key = [ENV["GEMINI_API_KEY"], ENV["GOOGLE_API_KEY"]].find { |key| key && !key.strip.empty? }
         if api_key
