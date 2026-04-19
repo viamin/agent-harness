@@ -51,7 +51,7 @@ module AgentHarness
             source: {
               type: :npm,
               package: PACKAGE_NAME
-            },
+            }.freeze,
             install_command_prefix: install_command_prefix,
             install_command: install_command,
             binary_name: binary_name,
