@@ -1075,6 +1075,35 @@ module AgentHarness
         nil
       end
 
+      # Generate provider-specific config file content.
+      #
+      # Providers that require a config file written before CLI execution
+      # (e.g. Codex TOML, Kilocode JSON) should override this method.
+      #
+      # @param options [Hash] provider-specific options for config generation
+      # @return [String, nil] config file content, or nil when no config is needed
+      def config_file_content(options = {})
+        nil
+      end
+
+      # Generate provider-specific notification hook content.
+      #
+      # Providers that support notification hooks appended to their config
+      # file should override this method.
+      #
+      # @return [String, nil] notify hook content, or nil when not applicable
+      def notify_hook_content
+        nil
+      end
+
+      # Auth lock configuration for providers that need file-based lock
+      # serialization (e.g. OAuth refresh token coordination).
+      #
+      # @return [Hash, nil] lock config with :path and :timeout keys, or nil
+      def auth_lock_config
+        nil
+      end
+
       private
 
       def classify_smoke_test_message(message)

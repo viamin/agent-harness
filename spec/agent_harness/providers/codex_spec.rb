@@ -5656,6 +5656,68 @@ RSpec.describe AgentHarness::Providers::Codex do
     end
   end
 
+  describe "#config_file_content" do
+    let(:executor) { instance_double(AgentHarness::CommandExecutor, which: "/usr/bin/codex") }
+    let(:provider) { described_class.new(executor: executor) }
+
+    it "returns TOML config with provided options" do
+      content = provider.config_file_content(
+        model_provider: "openai",
+        base_url: "https://api.openai.com",
+        env_key: "OPENAI_API_KEY",
+        wire_api: "openai"
+      )
+
+      expect(content).to include("[chatgpt]")
+      expect(content).to include('model_provider = "openai"')
+      expect(content).to include('base_url = "https://api.openai.com"')
+      expect(content).to include('env_key = "OPENAI_API_KEY"')
+      expect(content).to include('wire_api = "openai"')
+    end
+
+    it "returns TOML string with empty options" do
+      content = provider.config_file_content
+      expect(content).to include("[chatgpt]")
+      expect(content).to include('model_provider = ""')
+    end
+
+    it "escapes special characters in TOML values" do
+      content = provider.config_file_content(
+        model_provider: 'val"with"quotes',
+        base_url: "path\\to\\thing",
+        env_key: "line1\nline2",
+        wire_api: "safe"
+      )
+
+      expect(content).to include('model_provider = "val\"with\"quotes"')
+      expect(content).to include("base_url = \"path\\\\to\\\\thing\"")
+      expect(content).to include('env_key = "line1\nline2"')
+    end
+  end
+
+  describe "#notify_hook_content" do
+    let(:executor) { instance_double(AgentHarness::CommandExecutor, which: "/usr/bin/codex") }
+    let(:provider) { described_class.new(executor: executor) }
+
+    it "returns TOML notify hook section" do
+      content = provider.notify_hook_content
+
+      expect(content).to include("[notify]")
+      expect(content).to include("# Paid notification hook")
+    end
+  end
+
+  describe "#auth_lock_config" do
+    let(:executor) { instance_double(AgentHarness::CommandExecutor, which: "/usr/bin/codex") }
+    let(:provider) { described_class.new(executor: executor) }
+
+    it "returns lock config with path and timeout" do
+      config = provider.auth_lock_config
+
+      expect(config).to eq({path: "/tmp/codex-auth.lock", timeout: 30})
+    end
+  end
+
   describe "#test_command_overrides" do
     it "returns codex-specific test flags" do
       provider = described_class.new
