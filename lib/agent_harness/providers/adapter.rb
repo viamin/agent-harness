@@ -902,6 +902,17 @@ module AgentHarness
         []
       end
 
+      # Extract token usage from an API response body
+      #
+      # Parses the provider-specific API response shape and returns
+      # normalized token counts.
+      #
+      # @param body [Hash] the parsed JSON response body from the provider API
+      # @return [Hash] with :input_tokens and :output_tokens keys, or empty hash
+      def token_usage_from_api_response(body)
+        {}
+      end
+
       # Whether this provider can extract token usage from CLI output
       #
       # @return [Boolean] true if the provider returns token counts

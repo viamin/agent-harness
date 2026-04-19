@@ -167,6 +167,16 @@ module AgentHarness
         :oauth
       end
 
+      def token_usage_from_api_response(body)
+        usage = body&.dig("usageMetadata")
+        return {} unless usage
+
+        {
+          input_tokens: usage["promptTokenCount"].to_i,
+          output_tokens: usage["candidatesTokenCount"].to_i
+        }
+      end
+
       def execution_semantics
         {
           prompt_delivery: :flag,
