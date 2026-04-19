@@ -125,6 +125,13 @@ module AgentHarness
         }
       end
 
+      def config_file_content(options = {})
+        {
+          provider: options[:api_provider],
+          model: options[:model_id]
+        }.to_json
+      end
+
       def error_patterns
         COMMON_ERROR_PATTERNS
       end

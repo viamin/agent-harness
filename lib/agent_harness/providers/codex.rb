@@ -272,6 +272,28 @@ module AgentHarness
         {valid: errors.empty?, errors: errors}
       end
 
+      def config_file_content(options = {})
+        <<~TOML
+          [chatgpt]
+          model_provider = "#{options[:model_provider]}"
+          base_url = "#{options[:base_url]}"
+          env_key = "#{options[:env_key]}"
+          wire_api = "#{options[:wire_api]}"
+        TOML
+      end
+
+      def notify_hook_content
+        <<~TOML
+
+          [notify]
+          # Paid notification hook
+        TOML
+      end
+
+      def auth_lock_config
+        {path: "/tmp/codex-auth.lock", timeout: 30}
+      end
+
       protected
 
       def parse_response(result, duration:)

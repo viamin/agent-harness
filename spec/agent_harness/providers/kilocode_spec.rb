@@ -3577,4 +3577,47 @@ RSpec.describe AgentHarness::Providers::Kilocode do
       end
     end
   end
+
+  describe "#config_file_content" do
+    let(:executor) { instance_double(AgentHarness::CommandExecutor, which: "/usr/bin/kilo") }
+    let(:provider) { described_class.new(executor: executor) }
+
+    it "returns JSON config with provided options" do
+      content = provider.config_file_content(
+        api_provider: "anthropic",
+        model_id: "claude-sonnet-4-6"
+      )
+      parsed = JSON.parse(content)
+
+      expect(parsed["provider"]).to eq("anthropic")
+      expect(parsed["model"]).to eq("claude-sonnet-4-6")
+    end
+
+    it "returns valid JSON with empty options" do
+      content = provider.config_file_content
+      parsed = JSON.parse(content)
+
+      expect(parsed).to be_a(Hash)
+      expect(parsed["provider"]).to be_nil
+      expect(parsed["model"]).to be_nil
+    end
+  end
+
+  describe "#notify_hook_content" do
+    let(:executor) { instance_double(AgentHarness::CommandExecutor, which: "/usr/bin/kilo") }
+    let(:provider) { described_class.new(executor: executor) }
+
+    it "returns nil (not supported)" do
+      expect(provider.notify_hook_content).to be_nil
+    end
+  end
+
+  describe "#auth_lock_config" do
+    let(:executor) { instance_double(AgentHarness::CommandExecutor, which: "/usr/bin/kilo") }
+    let(:provider) { described_class.new(executor: executor) }
+
+    it "returns nil (not supported)" do
+      expect(provider.auth_lock_config).to be_nil
+    end
+  end
 end
