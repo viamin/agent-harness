@@ -183,4 +183,20 @@ RSpec.describe AgentHarness::Providers::Base do
       expect(docker_provider.sandboxed_environment?).to be true
     end
   end
+
+  describe "#test_command_overrides" do
+    it "returns an empty array by default" do
+      expect(provider.test_command_overrides).to eq([])
+    end
+  end
+
+  describe "#parse_test_error" do
+    it "returns nil by default" do
+      expect(provider.parse_test_error(output: "some output")).to be_nil
+    end
+
+    it "accepts a files keyword argument" do
+      expect(provider.parse_test_error(output: "err", files: {"log" => "/tmp/log.txt"})).to be_nil
+    end
+  end
 end

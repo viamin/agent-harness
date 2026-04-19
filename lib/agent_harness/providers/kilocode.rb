@@ -113,6 +113,10 @@ module AgentHarness
         "Kilocode CLI"
       end
 
+      def test_command_overrides
+        ["--auto", "--print-logs"]
+      end
+
       def capabilities
         {
           streaming: false,

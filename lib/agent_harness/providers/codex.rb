@@ -167,6 +167,10 @@ module AgentHarness
         }
       end
 
+      def test_command_overrides
+        ["--skip-git-repo-check", "--output-last-message"]
+      end
+
       def dangerous_mode_flags
         ["--full-auto"]
       end

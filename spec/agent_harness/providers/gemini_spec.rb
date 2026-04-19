@@ -659,4 +659,58 @@ RSpec.describe AgentHarness::Providers::Gemini do
       end
     end
   end
+
+  describe "#parse_test_error" do
+    let(:provider) { described_class.new }
+
+    it "returns nil when no matching error file is present" do
+      expect(provider.parse_test_error(output: "some output", files: {})).to be_nil
+    end
+
+    it "returns nil when error file does not match gemini pattern" do
+      files = {"log" => "/tmp/other-error.json"}
+      expect(provider.parse_test_error(output: "err", files: files)).to be_nil
+    end
+
+    it "parses a gemini client error JSON file" do
+      error_json = {"error" => {"message" => "Invalid API key"}}.to_json
+      error_path = File.join(Dir.tmpdir, "gemini-client-error-#{SecureRandom.hex(4)}.json")
+      File.write(error_path, error_json)
+
+      files = {"error" => error_path}
+      result = provider.parse_test_error(output: "failed", files: files)
+
+      expect(result).to eq({message: "Invalid API key", type: :configuration})
+    ensure
+      FileUtils.rm_f(error_path)
+    end
+
+    it "falls back to output when error message key is missing" do
+      error_json = {"error" => {}}.to_json
+      error_path = File.join(Dir.tmpdir, "gemini-client-error-#{SecureRandom.hex(4)}.json")
+      File.write(error_path, error_json)
+
+      files = {"error" => error_path}
+      result = provider.parse_test_error(output: "raw output", files: files)
+
+      expect(result).to eq({message: "raw output", type: :configuration})
+    ensure
+      FileUtils.rm_f(error_path)
+    end
+
+    it "returns nil when the error file contains invalid JSON" do
+      error_path = File.join(Dir.tmpdir, "gemini-client-error-#{SecureRandom.hex(4)}.json")
+      File.write(error_path, "not json")
+
+      files = {"error" => error_path}
+      expect(provider.parse_test_error(output: "err", files: files)).to be_nil
+    ensure
+      FileUtils.rm_f(error_path)
+    end
+
+    it "returns nil when the error file does not exist" do
+      files = {"error" => "/tmp/gemini-client-error-nonexistent.json"}
+      expect(provider.parse_test_error(output: "err", files: files)).to be_nil
+    end
+  end
 end

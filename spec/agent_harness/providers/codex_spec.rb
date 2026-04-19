@@ -5616,4 +5616,11 @@ RSpec.describe AgentHarness::Providers::Codex do
       end
     end
   end
+
+  describe "#test_command_overrides" do
+    it "returns codex-specific test flags" do
+      provider = described_class.new
+      expect(provider.test_command_overrides).to eq(["--skip-git-repo-check", "--output-last-message"])
+    end
+  end
 end

@@ -163,6 +163,20 @@ module AgentHarness
         }
       end
 
+      def parse_test_error(output:, files: {})
+        error_file = files.values.find { |path| path.match?(/gemini-client-error-.*\.json/) }
+        return nil unless error_file
+
+        error_data = begin
+          JSON.parse(File.read(error_file))
+        rescue JSON::ParserError, Errno::ENOENT
+          nil
+        end
+        return nil unless error_data
+
+        {message: error_data.dig("error", "message") || output, type: :configuration}
+      end
+
       def auth_type
         :oauth
       end
