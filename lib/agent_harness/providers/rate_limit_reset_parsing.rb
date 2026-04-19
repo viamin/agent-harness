@@ -67,7 +67,7 @@ module AgentHarness
         match = text.match(/resets\s+(\w{3})\s+(\d{1,2}),?\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)\s*\(UTC\)/i)
         return unless match
 
-        month = Date::ABBR_MONTHNAMES.index(match[1])
+        month = Date::ABBR_MONTHNAMES.index(match[1].capitalize)
         return unless month
 
         day = match[2].to_i

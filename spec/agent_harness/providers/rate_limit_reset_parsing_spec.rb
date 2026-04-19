@@ -127,6 +127,13 @@ RSpec.describe AgentHarness::Providers::RateLimitResetParsing do
         expect(result.hour).to eq(17)
       end
 
+      it "parses uppercase month abbreviation (case insensitive)" do
+        result = provider.parse_rate_limit_reset("resets JAN 15, 5pm (UTC)")
+        expect(result.month).to eq(1)
+        expect(result.day).to eq(15)
+        expect(result.hour).to eq(17)
+      end
+
       it "returns nil for invalid month abbreviation" do
         expect(provider.parse_rate_limit_reset("resets Xyz 15, 5pm (UTC)")).to be_nil
       end
