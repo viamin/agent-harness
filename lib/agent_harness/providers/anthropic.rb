@@ -14,6 +14,8 @@ module AgentHarness
     #   provider = AgentHarness::Providers::Anthropic.new
     #   response = provider.send_message(prompt: "Hello!")
     class Anthropic < Base
+      include RateLimitResetParsing
+
       # Model name pattern for Anthropic Claude models
       MODEL_PATTERN = /^claude-[\d.-]+-(?:opus|sonnet|haiku)(?:-\d{8})?$/i
       SUPPORTED_CLI_VERSION = "2.1.92"

@@ -234,4 +234,14 @@ RSpec.describe AgentHarness::Providers::Base do
       expect(provider.parse_test_error(output: "err", files: {"log" => "/tmp/log.txt"})).to be_nil
     end
   end
+
+  describe "#parse_rate_limit_reset" do
+    it "returns nil by default" do
+      expect(provider.parse_rate_limit_reset("retry after 60s")).to be_nil
+    end
+
+    it "returns nil for nil input" do
+      expect(provider.parse_rate_limit_reset(nil)).to be_nil
+    end
+  end
 end

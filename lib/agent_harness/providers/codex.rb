@@ -8,6 +8,8 @@ module AgentHarness
     #
     # Provides integration with the OpenAI Codex CLI tool.
     class Codex < Base
+      include RateLimitResetParsing
+
       SUPPORTED_CLI_VERSION = "0.116.0"
       SUPPORTED_CLI_REQUIREMENT = Gem::Requirement.new(">= #{SUPPORTED_CLI_VERSION}", "< 0.117.0").freeze
       OAUTH_REFRESH_FAILURE_PATTERNS = [
