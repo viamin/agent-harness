@@ -1,5 +1,17 @@
 ## [Unreleased]
 
+## [0.9.0](https://github.com/viamin/agent-harness/compare/agent-harness/v0.8.0...agent-harness/v0.9.0) (2026-04-19)
+
+
+### Features
+
+* **installers:** make Github Copilot CLI installation/version support a first-class provider contract ([#135](https://github.com/viamin/agent-harness/issues/135)) ([5120d44](https://github.com/viamin/agent-harness/commit/5120d44cf8405d0f7ef5fbb036f6d44ffdb701f6))
+
+
+### Dependencies
+
+* **deps:** bump rake from 13.3.1 to 13.4.2 in the minor-updates group ([f9189f1](https://github.com/viamin/agent-harness/commit/f9189f1d78cd2348fb792d22156ecce6cefdd3a8))
+
 ## [0.8.0](https://github.com/viamin/agent-harness/compare/agent-harness/v0.7.4...agent-harness/v0.8.0) (2026-04-19)
 
 
