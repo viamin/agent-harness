@@ -414,6 +414,16 @@ module AgentHarness
         true
       end
 
+      def token_usage_from_api_response(body)
+        usage = body&.dig("usage")
+        return {} unless usage
+
+        {
+          input_tokens: usage["input_tokens"].to_i,
+          output_tokens: usage["output_tokens"].to_i
+        }
+      end
+
       def execution_semantics
         {
           prompt_delivery: :arg,
