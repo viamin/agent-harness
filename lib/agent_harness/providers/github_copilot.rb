@@ -8,6 +8,10 @@ module AgentHarness
     class GithubCopilot < Base
       include TokenUsageParsing
 
+      PACKAGE_NAME = "@githubnext/github-copilot-cli"
+      SUPPORTED_CLI_VERSION = "0.1.36"
+      SUPPORTED_CLI_REQUIREMENT = Gem::Requirement.new(">= #{SUPPORTED_CLI_VERSION}", "< 0.2.0").freeze
+
       MODEL_PATTERN = /^gpt-[\d.o-]+(?:-turbo)?(?:-mini)?$/i
       JSON_OUTPUT_MIN_VERSION = Gem::Version.new("0.0.422").freeze
 
@@ -31,6 +35,40 @@ module AgentHarness
         def available?
           executor = AgentHarness.configuration.command_executor
           !!executor.which(binary_name)
+        end
+
+        def installation_contract(version: SUPPORTED_CLI_VERSION)
+          version = version.strip if version.respond_to?(:strip)
+          validate_install_version!(version)
+          package_spec = "#{PACKAGE_NAME}@#{version}".freeze
+          install_command_prefix = ["npm", "install", "-g", "--ignore-scripts"].freeze
+          install_command = (install_command_prefix + [package_spec]).freeze
+          version_requirement = SUPPORTED_CLI_REQUIREMENT.requirements
+            .map { |op, ver| "#{op} #{ver}".freeze }
+            .freeze
+
+          contract = {
+            source: {
+              type: :npm,
+              package: PACKAGE_NAME
+            },
+            install_command_prefix: install_command_prefix,
+            install_command: install_command,
+            binary_name: binary_name,
+            default_version: SUPPORTED_CLI_VERSION,
+            version: version,
+            version_requirement: version_requirement,
+            supported_version_requirement: SUPPORTED_CLI_REQUIREMENT.to_s
+          }
+
+          contract.each_value do |value|
+            value.freeze if value.is_a?(String)
+          end
+          contract.freeze
+        end
+
+        def install_command(version: SUPPORTED_CLI_VERSION)
+          installation_contract(version: version)[:install_command]
         end
 
         def provider_metadata_overrides
@@ -92,6 +130,30 @@ module AgentHarness
 
         def supports_model_family?(family_name)
           MODEL_PATTERN.match?(family_name)
+        end
+
+        private
+
+        def validate_install_version!(version)
+          unless version.is_a?(String) && !version.strip.empty?
+            raise ArgumentError,
+              "Unsupported GitHub Copilot CLI version #{version.inspect}; " \
+              "supported versions must satisfy #{SUPPORTED_CLI_REQUIREMENT}"
+          end
+
+          parsed_version = begin
+            Gem::Version.new(version)
+          rescue ArgumentError
+            raise ArgumentError,
+              "Unsupported GitHub Copilot CLI version #{version.inspect}; " \
+              "supported versions must satisfy #{SUPPORTED_CLI_REQUIREMENT}"
+          end
+
+          return if SUPPORTED_CLI_REQUIREMENT.satisfied_by?(parsed_version)
+
+          raise ArgumentError,
+            "Unsupported GitHub Copilot CLI version #{version.inspect}; " \
+            "supported versions must satisfy #{SUPPORTED_CLI_REQUIREMENT}"
         end
       end
 
