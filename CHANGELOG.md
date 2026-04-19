@@ -1,5 +1,17 @@
 ## [Unreleased]
 
+## [0.8.0](https://github.com/viamin/agent-harness/compare/agent-harness/v0.7.4...agent-harness/v0.8.0) (2026-04-19)
+
+
+### Features
+
+* **providers:** add config_file_content, notify_hook_content, and auth_lock_config ([#131](https://github.com/viamin/agent-harness/issues/131)) ([e95117e](https://github.com/viamin/agent-harness/commit/e95117e8000002972ca0fb31cb90dec035aa88fd))
+* **providers:** add env var name mappings to provider classes ([#122](https://github.com/viamin/agent-harness/issues/122)) ([#133](https://github.com/viamin/agent-harness/issues/133)) ([6be9015](https://github.com/viamin/agent-harness/commit/6be901592afb02337eb2a5269f08e3025c7511c1))
+* **providers:** add error_classification_patterns, noisy_error_patterns, and translate_error to provider classes ([#128](https://github.com/viamin/agent-harness/issues/128)) ([e2dfbed](https://github.com/viamin/agent-harness/commit/e2dfbed064fa26b2cae5691e6586e79900d19d28))
+* **providers:** add parse_rate_limit_reset to provider base class ([#134](https://github.com/viamin/agent-harness/issues/134)) ([c16a6f8](https://github.com/viamin/agent-harness/commit/c16a6f8de312e137e5c3431f32d42b8c65126e0e))
+* **providers:** add test_command_overrides and parse_test_error methods ([#129](https://github.com/viamin/agent-harness/issues/129)) ([a18102d](https://github.com/viamin/agent-harness/commit/a18102d1ee333a1db37f711c65e16dc20d4a0a11)), closes [#125](https://github.com/viamin/agent-harness/issues/125)
+* **providers:** add token_usage_from_api_response to provider classes ([#130](https://github.com/viamin/agent-harness/issues/130)) ([f2c095d](https://github.com/viamin/agent-harness/commit/f2c095dcc0ae0d7822da90f98704597f08e4ed04)), closes [#126](https://github.com/viamin/agent-harness/issues/126)
+
 ## [0.7.4](https://github.com/viamin/agent-harness/compare/agent-harness/v0.7.3...agent-harness/v0.7.4) (2026-04-18)
 
 
