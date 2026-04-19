@@ -250,6 +250,17 @@ module AgentHarness
         nil
       end
 
+      # Parse rate-limit reset time from provider error output.
+      #
+      # Providers that emit rate-limit reset times should override this
+      # method (or include RateLimitResetParsing for the common format).
+      #
+      # @param text [String, nil] error output text
+      # @return [Time, nil] UTC reset time, or nil if not parseable
+      def parse_rate_limit_reset(text)
+        nil
+      end
+
       protected
 
       # Build CLI command - override in subclasses

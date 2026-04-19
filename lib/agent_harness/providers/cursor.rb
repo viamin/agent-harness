@@ -12,6 +12,8 @@ module AgentHarness
     #   provider = AgentHarness::Providers::Cursor.new
     #   response = provider.send_message(prompt: "Hello!")
     class Cursor < Base
+      include RateLimitResetParsing
+
       INSTALL_SCRIPT_URL = "https://cursor.com/install"
       INSTALL_TARGET_LATEST = "latest"
       INSTALL_BUILD = "2026.03.30-a5d3e17"
