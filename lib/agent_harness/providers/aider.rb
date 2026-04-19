@@ -170,6 +170,10 @@ module AgentHarness
         }
       end
 
+      def api_key_env_var_names = ["ANTHROPIC_API_KEY"]
+
+      def api_key_unset_vars = ["ANTHROPIC_BASE_URL", "ANTHROPIC_HEADER_X_AGENT_RUN_ID", "ANTHROPIC_HEADER_X_PROXY_TOKEN"]
+
       def error_patterns
         COMMON_ERROR_PATTERNS.merge(
           auth_expired: COMMON_ERROR_PATTERNS[:auth_expired] + [/incorrect.*api.*key/i],

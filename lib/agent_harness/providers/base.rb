@@ -205,6 +205,29 @@ module AgentHarness
         @executor.is_a?(DockerCommandExecutor)
       end
 
+      # Environment variable names that the provider's CLI reads for API key authentication.
+      #
+      # @return [Array<String>] env var names (empty by default)
+      def api_key_env_var_names = []
+
+      # Environment variable names to unset when the caller supplies its own API key,
+      # preventing the CLI from reading stale or conflicting proxy/header variables.
+      #
+      # @return [Array<String>] env var names (empty by default)
+      def api_key_unset_vars = []
+
+      # Environment variable names to unset when the caller uses subscription-based auth,
+      # ensuring the CLI does not pick up API-key or proxy variables that would conflict.
+      #
+      # @return [Array<String>] env var names (empty by default)
+      def subscription_unset_vars = []
+
+      # Provider-specific environment variable overrides that the caller should set
+      # when invoking the CLI (e.g. feature flags or sandbox controls).
+      #
+      # @return [Hash{String => String}] env var name => value (empty by default)
+      def cli_env_overrides = {}
+
       # Additional CLI flags for health-check/test invocations
       #
       # Providers override this to supply flags that should be appended

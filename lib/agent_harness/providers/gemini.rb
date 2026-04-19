@@ -177,6 +177,19 @@ module AgentHarness
         {message: error_data.dig("error", "message") || output, type: :configuration}
       end
 
+      def api_key_env_var_names = ["GEMINI_API_KEY", "GOOGLE_API_KEY"]
+
+      def api_key_unset_vars = ["GOOGLE_GEMINI_BASE_URL", "GOOGLE_GENAI_BASE_URL", "GEMINI_CLI_CUSTOM_HEADERS"]
+
+      def subscription_unset_vars = ["GEMINI_API_KEY", "GOOGLE_GEMINI_BASE_URL", "GOOGLE_GENAI_BASE_URL", "GEMINI_CLI_CUSTOM_HEADERS"]
+
+      def cli_env_overrides
+        {
+          "GEMINI_SANDBOX" => "false",
+          "GEMINI_CLI_DISABLE_RETRIES" => "true"
+        }
+      end
+
       def auth_type
         :oauth
       end
