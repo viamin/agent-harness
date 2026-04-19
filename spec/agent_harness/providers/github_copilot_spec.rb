@@ -13,6 +13,90 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
     end
   end
 
+  describe ".installation_contract" do
+    it "returns the upstream install contract" do
+      contract = described_class.installation_contract
+
+      expect(contract[:source]).to eq({
+        type: :npm,
+        package: "@githubnext/github-copilot-cli"
+      })
+      expect(contract[:binary_name]).to eq("github-copilot-cli")
+      expect(contract[:default_version]).to eq("0.1.36")
+      expect(contract[:install_command]).to eq(
+        ["npm", "install", "-g", "--ignore-scripts", "@githubnext/github-copilot-cli@0.1.36"]
+      )
+    end
+
+    it "keeps the runtime binary aligned with the install contract" do
+      contract = described_class.installation_contract
+
+      expect(contract[:binary_name]).to eq(described_class.binary_name)
+    end
+
+    it "can render an install command for an explicitly supported target" do
+      contract = described_class.installation_contract(version: "0.1.36")
+
+      expect(contract[:install_command]).to eq(
+        ["npm", "install", "-g", "--ignore-scripts", "@githubnext/github-copilot-cli@0.1.36"]
+      )
+    end
+
+    it "deep-freezes the contract" do
+      contract = described_class.installation_contract
+
+      expect(contract).to be_frozen
+      expect { contract[:install_command] << "extra" }.to raise_error(FrozenError)
+      expect { contract[:install_command_prefix] << "extra" }.to raise_error(FrozenError)
+    end
+
+    it "rejects unsupported versions" do
+      expect {
+        described_class.installation_contract(version: "0.0.1")
+      }.to raise_error(ArgumentError, /Unsupported GitHub Copilot CLI version/)
+    end
+
+    it "rejects malformed version strings with a provider-specific message" do
+      expect {
+        described_class.installation_contract(version: "not-a-version")
+      }.to raise_error(ArgumentError, /Unsupported GitHub Copilot CLI version/)
+    end
+
+    it "rejects nil version" do
+      expect {
+        described_class.installation_contract(version: nil)
+      }.to raise_error(ArgumentError, /Unsupported GitHub Copilot CLI version/)
+    end
+
+    it "rejects empty version" do
+      expect {
+        described_class.installation_contract(version: "")
+      }.to raise_error(ArgumentError, /Unsupported GitHub Copilot CLI version/)
+    end
+
+    it "preserves non-String version in error message" do
+      expect {
+        described_class.installation_contract(version: 42)
+      }.to raise_error(ArgumentError, /Unsupported GitHub Copilot CLI version 42/)
+    end
+
+    it "normalizes padded version strings in the install command" do
+      contract = described_class.installation_contract(version: " 0.1.36 ")
+
+      expect(contract[:install_command]).to eq(
+        ["npm", "install", "-g", "--ignore-scripts", "@githubnext/github-copilot-cli@0.1.36"]
+      )
+    end
+  end
+
+  describe ".install_command" do
+    it "returns the install command array" do
+      expect(described_class.install_command).to eq(
+        ["npm", "install", "-g", "--ignore-scripts", "@githubnext/github-copilot-cli@0.1.36"]
+      )
+    end
+  end
+
   describe ".firewall_requirements" do
     it "returns required domains" do
       requirements = described_class.firewall_requirements
