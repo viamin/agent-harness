@@ -216,6 +216,31 @@ module AgentHarness
         }
       end
 
+      def error_classification_patterns
+        super.merge(
+          auth_expired: [
+            /refresh_token_reused/i,
+            /refresh token has already been used/i,
+            /Please log out and sign in again/i,
+            /authentication_error/i,
+            /invalid_grant/i,
+            /Token is expired or invalid/i
+          ],
+          abort: [
+            /free tier limit reached/i,
+            /please upgrade to a paid plan/i
+          ]
+        )
+      end
+
+      def translate_error(message)
+        case message
+        when /refresh_token_reused/i then "Codex authentication expired. Please re-authenticate."
+        when /free tier limit/i then "Codex free tier limit reached."
+        else message
+        end
+      end
+
       def auth_status
         api_key = ENV["OPENAI_API_KEY"]
         if api_key && !api_key.strip.empty?

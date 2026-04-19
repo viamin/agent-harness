@@ -474,6 +474,15 @@ module AgentHarness
         }
       end
 
+      def error_classification_patterns
+        super.merge(
+          abort: [
+            /free tier limit reached/i,
+            /please upgrade to a paid plan/i
+          ]
+        )
+      end
+
       def fetch_mcp_servers
         return [] unless self.class.available?
 

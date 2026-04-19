@@ -191,6 +191,13 @@ module AgentHarness
         }
       end
 
+      def translate_error(message)
+        case message
+        when /github-copilot-cli.*not found/i then "GitHub Copilot CLI not installed."
+        else message
+        end
+      end
+
       def supports_token_counting?
         supports_json_output_format?
       end

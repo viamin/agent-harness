@@ -266,6 +266,41 @@ RSpec.describe AgentHarness::Providers::Gemini do
       end
     end
 
+    describe "#error_classification_patterns" do
+      it "includes authentication patterns for Gemini-specific errors" do
+        patterns = provider.error_classification_patterns
+        expect(patterns[:authentication]).not_to be_empty
+        expect(patterns[:authentication].any? { |p| "GEMINI_API_KEY" =~ p }).to be true
+        expect(patterns[:authentication].any? { |p| "ValidationRequiredError" =~ p }).to be true
+        expect(patterns[:authentication].any? { |p| "API key not configured for google" =~ p }).to be true
+        expect(patterns[:authentication].any? { |p| "API key not valid" =~ p }).to be true
+      end
+
+      it "inherits shared quota patterns from base" do
+        patterns = provider.error_classification_patterns
+        expect(patterns[:quota]).not_to be_empty
+      end
+    end
+
+    describe "#noisy_error_patterns" do
+      it "returns Gemini-specific noisy patterns" do
+        patterns = provider.noisy_error_patterns
+        expect(patterns).not_to be_empty
+        expect(patterns.any? { |p| "Error when talking to Gemini API" =~ p }).to be true
+        expect(patterns.any? { |p| "loading..." =~ p }).to be true
+      end
+    end
+
+    describe "#translate_error" do
+      it "translates API key not configured" do
+        expect(provider.translate_error("API key not configured for google")).to eq("Gemini API key not set. Run: export GEMINI_API_KEY=...")
+      end
+
+      it "returns unknown messages unchanged" do
+        expect(provider.translate_error("something else")).to eq("something else")
+      end
+    end
+
     describe "#send_message" do
       it "includes model when configured" do
         allow(mock_executor).to receive(:execute).and_return(

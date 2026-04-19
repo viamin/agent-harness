@@ -550,6 +550,26 @@ RSpec.describe AgentHarness::Providers::Anthropic do
       end
     end
 
+    describe "#error_classification_patterns" do
+      it "includes abort patterns for free tier" do
+        patterns = provider.error_classification_patterns
+        expect(patterns[:abort]).not_to be_empty
+        expect(patterns[:abort].any? { |p| "free tier limit reached" =~ p }).to be true
+        expect(patterns[:abort].any? { |p| "please upgrade to a paid plan" =~ p }).to be true
+      end
+
+      it "inherits shared quota patterns from base" do
+        patterns = provider.error_classification_patterns
+        expect(patterns[:quota]).not_to be_empty
+      end
+
+      it "has empty auth_expired and authentication arrays" do
+        patterns = provider.error_classification_patterns
+        expect(patterns[:auth_expired]).to eq([])
+        expect(patterns[:authentication]).to eq([])
+      end
+    end
+
     describe "#fetch_mcp_servers" do
       before do
         allow(AgentHarness.configuration).to receive(:command_executor).and_return(mock_executor)

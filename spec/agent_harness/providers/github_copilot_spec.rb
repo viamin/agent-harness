@@ -404,6 +404,16 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
       end
     end
 
+    describe "#translate_error" do
+      it "translates CLI not found" do
+        expect(provider.translate_error("github-copilot-cli was not found")).to eq("GitHub Copilot CLI not installed.")
+      end
+
+      it "returns unknown messages unchanged" do
+        expect(provider.translate_error("something else")).to eq("something else")
+      end
+    end
+
     describe "#execution_semantics" do
       it "returns the full provider contract" do
         semantics = provider.execution_semantics

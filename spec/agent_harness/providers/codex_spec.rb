@@ -4966,6 +4966,45 @@ RSpec.describe AgentHarness::Providers::Codex do
       end
     end
 
+    describe "#error_classification_patterns" do
+      it "includes auth_expired patterns for OAuth refresh failures" do
+        patterns = provider.error_classification_patterns
+        expect(patterns[:auth_expired]).not_to be_empty
+        expect(patterns[:auth_expired].any? { |p| "refresh_token_reused" =~ p }).to be true
+        expect(patterns[:auth_expired].any? { |p| "Please log out and sign in again" =~ p }).to be true
+        expect(patterns[:auth_expired].any? { |p| "authentication_error" =~ p }).to be true
+        expect(patterns[:auth_expired].any? { |p| "invalid_grant" =~ p }).to be true
+        expect(patterns[:auth_expired].any? { |p| "Token is expired or invalid" =~ p }).to be true
+      end
+
+      it "includes abort patterns for free tier" do
+        patterns = provider.error_classification_patterns
+        expect(patterns[:abort]).not_to be_empty
+        expect(patterns[:abort].any? { |p| "free tier limit reached" =~ p }).to be true
+        expect(patterns[:abort].any? { |p| "please upgrade to a paid plan" =~ p }).to be true
+      end
+
+      it "inherits shared quota patterns from base" do
+        patterns = provider.error_classification_patterns
+        expect(patterns[:quota]).not_to be_empty
+        expect(patterns[:quota].any? { |p| "insufficient credits" =~ p }).to be true
+      end
+    end
+
+    describe "#translate_error" do
+      it "translates refresh_token_reused" do
+        expect(provider.translate_error("refresh_token_reused error")).to eq("Codex authentication expired. Please re-authenticate.")
+      end
+
+      it "translates free tier limit" do
+        expect(provider.translate_error("free tier limit reached")).to eq("Codex free tier limit reached.")
+      end
+
+      it "returns unknown messages unchanged" do
+        expect(provider.translate_error("something else")).to eq("something else")
+      end
+    end
+
     describe "#smoke_test" do
       let(:mock_executor) { instance_double(AgentHarness::CommandExecutor) }
       subject(:provider) { described_class.new(executor: mock_executor) }
