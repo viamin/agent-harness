@@ -3620,4 +3620,11 @@ RSpec.describe AgentHarness::Providers::Kilocode do
       expect(provider.auth_lock_config).to be_nil
     end
   end
+
+  describe "#test_command_overrides" do
+    it "returns kilocode-specific test flags" do
+      provider = described_class.new
+      expect(provider.test_command_overrides).to eq(["--auto", "--print-logs"])
+    end
+  end
 end

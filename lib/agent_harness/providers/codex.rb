@@ -167,6 +167,10 @@ module AgentHarness
         }
       end
 
+      def test_command_overrides
+        ["--skip-git-repo-check", "--output-last-message"]
+      end
+
       def dangerous_mode_flags
         ["--full-auto"]
       end
@@ -214,6 +218,31 @@ module AgentHarness
             /unprivileged.*namespace/i
           ]
         }
+      end
+
+      def error_classification_patterns
+        super.merge(
+          auth_expired: [
+            /refresh_token_reused/i,
+            /refresh token has already been used/i,
+            /Please log out and sign in again/i,
+            /authentication_error/i,
+            /invalid_grant/i,
+            /Token is expired or invalid/i
+          ],
+          abort: [
+            /free tier limit reached/i,
+            /please upgrade to a paid plan/i
+          ]
+        )
+      end
+
+      def translate_error(message)
+        case message
+        when /refresh_token_reused/i then "Codex authentication expired. Please re-authenticate."
+        when /free tier limit/i then "Codex free tier limit reached."
+        else message
+        end
       end
 
       def auth_status
@@ -275,10 +304,10 @@ module AgentHarness
       def config_file_content(options = {})
         <<~TOML
           [chatgpt]
-          model_provider = "#{options[:model_provider]}"
-          base_url = "#{options[:base_url]}"
-          env_key = "#{options[:env_key]}"
-          wire_api = "#{options[:wire_api]}"
+          model_provider = "#{escape_toml_string(options[:model_provider])}"
+          base_url = "#{escape_toml_string(options[:base_url])}"
+          env_key = "#{escape_toml_string(options[:env_key])}"
+          wire_api = "#{escape_toml_string(options[:wire_api])}"
         TOML
       end
 
@@ -408,6 +437,10 @@ module AgentHarness
       end
 
       private
+
+      def escape_toml_string(val)
+        val.to_s.gsub("\\") { "\\\\" }.gsub('"') { "\\\"" }.gsub("\n") { "\\n" }
+      end
 
       def parse_jsonl_output(raw_output)
         return nil if raw_output.nil? || raw_output.strip.empty?

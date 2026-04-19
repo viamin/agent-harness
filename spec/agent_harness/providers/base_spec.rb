@@ -88,6 +88,41 @@ RSpec.describe AgentHarness::Providers::Base do
     end
   end
 
+  describe "#error_classification_patterns" do
+    it "returns a hash with default categories" do
+      patterns = provider.error_classification_patterns
+      expect(patterns).to be_a(Hash)
+      expect(patterns.keys).to contain_exactly(:auth_expired, :abort, :authentication, :quota)
+    end
+
+    it "has empty arrays for auth_expired, abort, and authentication" do
+      patterns = provider.error_classification_patterns
+      expect(patterns[:auth_expired]).to eq([])
+      expect(patterns[:abort]).to eq([])
+      expect(patterns[:authentication]).to eq([])
+    end
+
+    it "includes shared quota patterns" do
+      patterns = provider.error_classification_patterns
+      expect(patterns[:quota]).not_to be_empty
+      expect(patterns[:quota].any? { |p| "insufficient credits" =~ p }).to be true
+      expect(patterns[:quota].any? { |p| "spend limit reached" =~ p }).to be true
+      expect(patterns[:quota].any? { |p| "billing limit" =~ p }).to be true
+    end
+  end
+
+  describe "#noisy_error_patterns" do
+    it "returns an empty array by default" do
+      expect(provider.noisy_error_patterns).to eq([])
+    end
+  end
+
+  describe "#translate_error" do
+    it "returns the message unchanged by default" do
+      expect(provider.translate_error("some error")).to eq("some error")
+    end
+  end
+
   describe "COMMON_ERROR_PATTERNS" do
     it "is defined on the Base class" do
       expect(described_class::COMMON_ERROR_PATTERNS).to be_a(Hash)
@@ -181,6 +216,22 @@ RSpec.describe AgentHarness::Providers::Base do
       allow(docker_executor).to receive(:is_a?).with(AgentHarness::DockerCommandExecutor).and_return(true)
       docker_provider = test_provider_class.new(executor: docker_executor)
       expect(docker_provider.sandboxed_environment?).to be true
+    end
+  end
+
+  describe "#test_command_overrides" do
+    it "returns an empty array by default" do
+      expect(provider.test_command_overrides).to eq([])
+    end
+  end
+
+  describe "#parse_test_error" do
+    it "returns nil by default" do
+      expect(provider.parse_test_error(output: "some output")).to be_nil
+    end
+
+    it "accepts a files keyword argument" do
+      expect(provider.parse_test_error(output: "err", files: {"log" => "/tmp/log.txt"})).to be_nil
     end
   end
 end

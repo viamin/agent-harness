@@ -163,6 +163,20 @@ module AgentHarness
         }
       end
 
+      def parse_test_error(output:, files: {})
+        error_file = files.values.find { |path| path.match?(/gemini-client-error-.*\.json/) }
+        return nil unless error_file
+
+        error_data = begin
+          JSON.parse(File.read(error_file))
+        rescue JSON::ParserError, Errno::ENOENT
+          nil
+        end
+        return nil unless error_data
+
+        {message: error_data.dig("error", "message") || output, type: :configuration}
+      end
+
       def auth_type
         :oauth
       end
@@ -202,6 +216,35 @@ module AgentHarness
             /\b503\b/
           ]
         }
+      end
+
+      def error_classification_patterns
+        super.merge(
+          authentication: [
+            /GEMINI_API_KEY/i,
+            /GOOGLE_GENAI_USE_VERTEXAI/i,
+            /GOOGLE_GENAI_USE_GCA/i,
+            /ValidationRequiredError/i,
+            /API key not configured for google/i,
+            /API key not valid/i
+          ]
+        )
+      end
+
+      def noisy_error_patterns
+        [
+          /Error when talking to Gemini API/i,
+          /service=.*status/i,
+          /loading\.\.\./i,
+          /subscribing/i
+        ]
+      end
+
+      def translate_error(message)
+        case message
+        when /API key not configured/i then "Gemini API key not set. Run: export GEMINI_API_KEY=..."
+        else message
+        end
       end
 
       def auth_status

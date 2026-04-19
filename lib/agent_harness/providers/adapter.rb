@@ -781,6 +781,50 @@ module AgentHarness
         {}
       end
 
+      # Error classification patterns for downstream consumers
+      #
+      # Returns patterns grouped by classification category. These patterns
+      # encode provider-specific knowledge about how each CLI reports errors
+      # and are intended for use by callers outside agent-harness.
+      #
+      # @return [Hash<Symbol, Array<Regexp>>] patterns by category
+      #   (:auth_expired, :abort, :authentication, :quota)
+      def error_classification_patterns
+        {
+          auth_expired: [],
+          abort: [],
+          authentication: [],
+          quota: [
+            /requires more credits/i,
+            /insufficient credits/i,
+            /credit.*exceeded/i,
+            /spend limit.*reached/i,
+            /billing.*limit/i
+          ]
+        }
+      end
+
+      # Patterns matching noisy/non-actionable error output
+      #
+      # Downstream consumers can use these to filter out log noise
+      # from provider stderr/stdout that is not meaningful for users.
+      #
+      # @return [Array<Regexp>] noisy error patterns
+      def noisy_error_patterns
+        []
+      end
+
+      # Translate a raw error message into a user-friendly string
+      #
+      # Providers override this to map CLI-specific error output
+      # into concise, actionable messages.
+      #
+      # @param message [String] raw error message
+      # @return [String] translated message (or the original if no match)
+      def translate_error(message)
+        message
+      end
+
       # Authentication type for this provider
       #
       # @return [Symbol] :oauth for token-based auth that can expire,

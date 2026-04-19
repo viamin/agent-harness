@@ -1983,6 +1983,31 @@ RSpec.describe AgentHarness::Providers::Adapter do
       end
     end
 
+    describe "#error_classification_patterns" do
+      it "returns a hash with default categories" do
+        patterns = adapter.error_classification_patterns
+        expect(patterns).to be_a(Hash)
+        expect(patterns.keys).to contain_exactly(:auth_expired, :abort, :authentication, :quota)
+      end
+
+      it "includes shared quota patterns" do
+        patterns = adapter.error_classification_patterns
+        expect(patterns[:quota]).not_to be_empty
+      end
+    end
+
+    describe "#noisy_error_patterns" do
+      it "returns an empty array by default" do
+        expect(adapter.noisy_error_patterns).to eq([])
+      end
+    end
+
+    describe "#translate_error" do
+      it "returns the message unchanged by default" do
+        expect(adapter.translate_error("some error")).to eq("some error")
+      end
+    end
+
     describe "#auth_type" do
       it "returns :api_key by default" do
         expect(adapter.auth_type).to eq(:api_key)
