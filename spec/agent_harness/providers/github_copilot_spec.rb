@@ -13,6 +13,60 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
     end
   end
 
+  describe ".available?" do
+    let(:availability_executor) do
+      instance_double(
+        AgentHarness::CommandExecutor,
+        which: "/usr/bin/github-copilot-cli"
+      )
+    end
+
+    before do
+      allow(AgentHarness.configuration).to receive(:command_executor).and_return(availability_executor)
+    end
+
+    it "returns true for legacy prompt-mode CLIs" do
+      allow(availability_executor).to receive(:execute).with(
+        ["github-copilot-cli", "--version"],
+        timeout: 5,
+        env: {}
+      ).and_return(
+        AgentHarness::CommandExecutor::Result.new(
+          stdout: "github-copilot-cli 0.0.422",
+          stderr: "",
+          exit_code: 0,
+          duration: 0.1
+        )
+      )
+
+      expect(described_class.available?).to be true
+    end
+
+    it "returns false when the CLI is missing" do
+      allow(availability_executor).to receive(:which).with("github-copilot-cli").and_return(nil)
+      expect(availability_executor).not_to receive(:execute)
+
+      expect(described_class.available?).to be false
+    end
+
+    it "returns false for the interactive-only 0.1.x CLI" do
+      allow(availability_executor).to receive(:execute).with(
+        ["github-copilot-cli", "--version"],
+        timeout: 5,
+        env: {}
+      ).and_return(
+        AgentHarness::CommandExecutor::Result.new(
+          stdout: "github-copilot-cli 0.1.36",
+          stderr: "",
+          exit_code: 0,
+          duration: 0.1
+        )
+      )
+
+      expect(described_class.available?).to be false
+    end
+  end
+
   describe ".installation_contract" do
     it "does not advertise an install contract for the interactive-only npm CLI" do
       expect(described_class.installation_contract).to be_nil
@@ -142,6 +196,60 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         tool_use: true,
         dangerous_mode: true
       )
+    end
+
+    it "reports the interactive-only 0.1.x CLI as unavailable for sends" do
+      allow(metadata_executor).to receive(:execute).with(
+        ["github-copilot-cli", "--version"],
+        timeout: 5,
+        env: {}
+      ).and_return(
+        AgentHarness::CommandExecutor::Result.new(
+          stdout: "github-copilot-cli 0.1.36",
+          stderr: "",
+          exit_code: 0,
+          duration: 0.1
+        )
+      )
+
+      metadata = described_class.provider_metadata(refresh: true)
+
+      expect(metadata[:runtime]).to include(
+        available: false,
+        installable: false,
+        installation: nil,
+        supports_token_counting: false,
+        supports_sessions: false
+      )
+    end
+  end
+
+  describe ".discover_models" do
+    let(:discovery_executor) do
+      instance_double(
+        AgentHarness::CommandExecutor,
+        which: "/usr/bin/github-copilot-cli"
+      )
+    end
+
+    before do
+      allow(AgentHarness.configuration).to receive(:command_executor).and_return(discovery_executor)
+      allow(discovery_executor).to receive(:execute).with(
+        ["github-copilot-cli", "--version"],
+        timeout: 5,
+        env: {}
+      ).and_return(
+        AgentHarness::CommandExecutor::Result.new(
+          stdout: "github-copilot-cli 0.1.36",
+          stderr: "",
+          exit_code: 0,
+          duration: 0.1
+        )
+      )
+    end
+
+    it "does not discover models for the interactive-only 0.1.x CLI" do
+      expect(described_class.discover_models).to eq([])
     end
   end
 

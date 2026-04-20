@@ -34,7 +34,11 @@ module AgentHarness
 
         def available?
           executor = AgentHarness.configuration.command_executor
-          !!executor.which(binary_name)
+          return false unless executor.which(binary_name)
+
+          !subcommand_cli_version?(copilot_cli_version(executor: executor))
+        rescue
+          false
         end
 
         def installation_contract(version: nil)
@@ -110,6 +114,28 @@ module AgentHarness
         end
 
         private
+
+        def copilot_cli_version(executor:)
+          result = executor.execute([binary_name, "--version"], timeout: 5, env: {})
+          extract_version(result)
+        rescue
+          nil
+        end
+
+        def subcommand_cli_version?(version)
+          !version.nil? && version >= SUBCOMMAND_CLI_MIN_VERSION
+        end
+
+        def extract_version(result)
+          return nil unless result.success?
+
+          version_string = [result.stdout, result.stderr].compact.join("\n")[/\d+\.\d+\.\d+(?:[-+][A-Za-z0-9.-]+)?/]
+          return nil if version_string.nil? || version_string.empty?
+
+          Gem::Version.new(version_string)
+        rescue ArgumentError
+          nil
+        end
       end
 
       def name
@@ -359,7 +385,7 @@ module AgentHarness
       end
 
       def subcommand_cli_version?(version)
-        !version.nil? && version >= SUBCOMMAND_CLI_MIN_VERSION
+        self.class.send(:subcommand_cli_version?, version)
       end
 
       def unsupported_subcommand_cli_error
@@ -419,14 +445,7 @@ module AgentHarness
       end
 
       def extract_version(result)
-        return nil unless result.success?
-
-        version_string = [result.stdout, result.stderr].compact.join("\n")[/\d+\.\d+\.\d+(?:[-+][A-Za-z0-9.-]+)?/]
-        return nil if version_string.nil? || version_string.empty?
-
-        Gem::Version.new(version_string)
-      rescue ArgumentError
-        nil
+        self.class.send(:extract_version, result)
       end
 
       def parse_jsonl_output(output)
