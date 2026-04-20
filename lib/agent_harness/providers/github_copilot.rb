@@ -14,6 +14,7 @@ module AgentHarness
 
       MODEL_PATTERN = /^gpt-[\d.o-]+(?:-turbo)?(?:-mini)?$/i
       JSON_OUTPUT_MIN_VERSION = Gem::Version.new("0.0.422").freeze
+      SUBCOMMAND_CLI_MIN_VERSION = Gem::Version.new("0.1.0").freeze
 
       SMOKE_TEST_CONTRACT = {
         prompt: "Reply with exactly OK.",
@@ -195,17 +196,21 @@ module AgentHarness
       end
 
       def dangerous_mode_flags(probe_timeout: nil, env: {})
-        return [] unless supports_json_output_format?(probe_timeout: probe_timeout, env: env)
+        version = copilot_cli_version(probe_timeout: probe_timeout, env: env)
+        return [] if subcommand_cli_version?(version)
+        return [] unless supports_json_output_format?(version: version)
 
         ["--allow-all"]
       end
 
       def supports_sessions?
-        true
+        false
       end
 
       def session_flags(session_id)
+        return [] unless legacy_prompt_cli?
         return [] unless session_id && !session_id.empty?
+
         ["--resume", session_id]
       end
 
@@ -220,8 +225,8 @@ module AgentHarness
           # must not claim JSON-only output even though newer versions support it.
           output_format: :text,
           sandbox_aware: false,
-          uses_subcommand: false,
-          non_interactive_flag: "-p",
+          uses_subcommand: true,
+          non_interactive_flag: nil,
           legitimate_exit_codes: [0],
           stderr_is_diagnostic: true,
           parses_rate_limit_reset: false
@@ -324,11 +329,17 @@ module AgentHarness
       protected
 
       def build_command(prompt, options)
-        cmd = [self.class.binary_name, "-p", prompt]
         env = options.fetch(:_command_env) { build_env(options) }
         runtime = options[:provider_runtime]
+        version = copilot_cli_version(probe_timeout: options[:_version_probe_timeout], env: env)
 
-        if supports_json_output_format?(probe_timeout: options[:_version_probe_timeout], env: env)
+        if subcommand_cli_version?(version) || version.nil?
+          return [self.class.binary_name, "what-the-shell", prompt]
+        end
+
+        cmd = [self.class.binary_name, "-p", prompt]
+
+        if supports_json_output_format?(version: version)
           cmd += ["--output-format", "json"]
         else
           # Silent mode suppresses the model/stats decoration older CLIs print in
@@ -385,9 +396,18 @@ module AgentHarness
         ["--allow-all-tools"]
       end
 
-      def supports_json_output_format?(probe_timeout: nil, env: {})
-        version = copilot_cli_version(probe_timeout: probe_timeout, env: env)
-        !version.nil? && version >= JSON_OUTPUT_MIN_VERSION
+      def supports_json_output_format?(probe_timeout: nil, env: {}, version: nil)
+        version ||= copilot_cli_version(probe_timeout: probe_timeout, env: env)
+        !version.nil? && !subcommand_cli_version?(version) && version >= JSON_OUTPUT_MIN_VERSION
+      end
+
+      def legacy_prompt_cli?
+        version = copilot_cli_version
+        !version.nil? && !subcommand_cli_version?(version)
+      end
+
+      def subcommand_cli_version?(version)
+        !version.nil? && version >= SUBCOMMAND_CLI_MIN_VERSION
       end
 
       def copilot_cli_version(probe_timeout: nil, env: {})
