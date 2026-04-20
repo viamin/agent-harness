@@ -137,6 +137,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         installation: nil,
         output_format: :text,
         supports_token_counting: true,
+        supports_sessions: true,
         supports_dangerous_mode: true
       )
       expect(metadata[:runtime]).not_to have_key(:non_interactive_flag)
@@ -158,6 +159,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         installation: nil,
         output_format: :text,
         supports_token_counting: false,
+        supports_sessions: false,
         supports_dangerous_mode: true
       )
       expect(metadata[:runtime]).not_to have_key(:non_interactive_flag)
@@ -189,6 +191,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         installation: nil,
         output_format: :text,
         supports_token_counting: false,
+        supports_sessions: true,
         supports_dangerous_mode: true
       )
       expect(metadata[:runtime]).not_to have_key(:non_interactive_flag)
@@ -369,7 +372,24 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
     end
 
     describe "#supports_sessions?" do
-      it "returns false for the pinned 0.1.x CLI" do
+      it "returns true for legacy prompt-mode CLIs" do
+        expect(provider.supports_sessions?).to be true
+      end
+
+      it "returns false for the interactive-only 0.1.x CLI" do
+        allow(mock_executor).to receive(:execute).with(
+          ["github-copilot-cli", "--version"],
+          timeout: 5,
+          env: {}
+        ).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "github-copilot-cli 0.1.36",
+            stderr: "",
+            exit_code: 0,
+            duration: 0.1
+          )
+        )
+
         expect(provider.supports_sessions?).to be false
       end
     end

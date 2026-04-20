@@ -183,8 +183,8 @@ module AgentHarness
         ["--allow-all"]
       end
 
-      def supports_sessions?
-        false
+      def supports_sessions?(probe_timeout: nil, env: {}, version: nil)
+        legacy_prompt_cli?(version: version, probe_timeout: probe_timeout, env: env)
       end
 
       def session_flags(session_id, version: nil, probe_timeout: nil, env: {})
