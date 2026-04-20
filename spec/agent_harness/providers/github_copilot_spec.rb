@@ -322,7 +322,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
     end
 
     describe "#supports_sessions?" do
-      it "returns false for the supported subcommand CLI" do
+      it "returns false for the pinned 0.1.x CLI" do
         expect(provider.supports_sessions?).to be false
       end
     end
@@ -333,7 +333,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         expect(flags).to eq(["--resume", "session-123"])
       end
 
-      it "returns empty flags for the supported subcommand CLI" do
+      it "returns empty flags for the pinned 0.1.x CLI" do
         allow(mock_executor).to receive(:execute).with(
           ["github-copilot-cli", "--version"],
           timeout: 5,
@@ -521,8 +521,8 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         expect(semantics[:prompt_delivery]).to eq(:arg)
         expect(semantics[:output_format]).to eq(:text)
         expect(semantics[:sandbox_aware]).to be false
-        expect(semantics[:uses_subcommand]).to be true
-        expect(semantics[:non_interactive_flag]).to be_nil
+        expect(semantics[:uses_subcommand]).to be false
+        expect(semantics[:non_interactive_flag]).to eq("-p")
         expect(semantics[:legitimate_exit_codes]).to eq([0])
         expect(semantics[:stderr_is_diagnostic]).to be true
         expect(semantics[:parses_rate_limit_reset]).to be false
@@ -540,20 +540,22 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         first_command = provider.send(:build_command, "Hello", {})
         expect(first_command).to eq([
           "github-copilot-cli",
-          "what-the-shell",
-          "Hello"
+          "-p",
+          "Hello",
+          "-s"
         ])
 
         # Second call should use cached nil without retrying the probe
         second_command = provider.send(:build_command, "Hello", {})
         expect(second_command).to eq([
           "github-copilot-cli",
-          "what-the-shell",
-          "Hello"
+          "-p",
+          "Hello",
+          "-s"
         ])
       end
 
-      it "uses the supported subcommand interface for the pinned CLI" do
+      it "fails fast for the pinned CLI because its available send flow is interactive" do
         allow(mock_executor).to receive(:execute).with(
           ["github-copilot-cli", "--version"],
           timeout: 5,
@@ -567,13 +569,9 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
           )
         )
 
-        command = provider.send(:build_command, "Hello", {dangerous_mode: true, session: "session-123"})
-
-        expect(command).to eq([
-          "github-copilot-cli",
-          "what-the-shell",
-          "Hello"
-        ])
+        expect do
+          provider.send(:build_command, "Hello", {dangerous_mode: true, session: "session-123"})
+        end.to raise_error(AgentHarness::ProviderError, /does not expose a non-interactive send interface/)
       end
 
       it "includes --output-format json for legacy JSON-capable CLIs" do
@@ -664,7 +662,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         ])
       end
 
-      it "falls back to the supported subcommand interface without probing when the CLI is unavailable" do
+      it "falls back to prompt mode without probing when the CLI is unavailable" do
         allow(mock_executor).to receive(:which).with("github-copilot-cli").and_return(nil)
         expect(mock_executor).not_to receive(:execute).with(["github-copilot-cli", "--version"], any_args)
 
@@ -672,8 +670,9 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
 
         expect(command).to eq([
           "github-copilot-cli",
-          "what-the-shell",
-          "Hello"
+          "-p",
+          "Hello",
+          "-s"
         ])
       end
 
@@ -918,8 +917,9 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
 
         fallback_command = [
           "github-copilot-cli",
-          "what-the-shell",
-          "Hello"
+          "-p",
+          "Hello",
+          "-s"
         ]
         expect(first_command).to eq(fallback_command)
         expect(second_command).to eq(fallback_command)
@@ -1259,7 +1259,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         expect(mock_executor).not_to receive(:execute).with(["github-copilot-cli", "--version"], any_args)
 
         allow(mock_executor).to receive(:execute).with(
-          ["github-copilot-cli", "what-the-shell", "Hello"],
+          ["github-copilot-cli", "-p", "Hello", "-s"],
           anything
         ).and_return(
           AgentHarness::CommandExecutor::Result.new(
@@ -1273,6 +1273,30 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         response = provider.send_message(prompt: "Hello")
         expect(response.output).to eq("plain text response")
         expect(response.tokens).to be_nil
+      end
+
+      it "fails fast for 0.1.x instead of invoking the interactive what-the-shell flow" do
+        allow(mock_executor).to receive(:execute).with(
+          ["github-copilot-cli", "--version"],
+          timeout: 5,
+          env: {}
+        ).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "github-copilot-cli 0.1.36",
+            stderr: "",
+            exit_code: 0,
+            duration: 0.1
+          )
+        )
+
+        expect(mock_executor).not_to receive(:execute).with(
+          ["github-copilot-cli", "what-the-shell", "Hello"],
+          anything
+        )
+
+        expect do
+          provider.send_message(prompt: "Hello")
+        end.to raise_error(AgentHarness::ProviderError, /what-the-shell subcommand is interactive/)
       end
 
       it "does not decode plain-text fallback output that happens to be valid JSON" do

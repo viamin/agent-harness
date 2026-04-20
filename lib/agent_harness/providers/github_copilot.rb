@@ -15,6 +15,9 @@ module AgentHarness
       MODEL_PATTERN = /^gpt-[\d.o-]+(?:-turbo)?(?:-mini)?$/i
       JSON_OUTPUT_MIN_VERSION = Gem::Version.new("0.0.422").freeze
       SUBCOMMAND_CLI_MIN_VERSION = Gem::Version.new("0.1.0").freeze
+      UNSUPPORTED_SUBCOMMAND_CLI_MESSAGE =
+        "github-copilot-cli 0.1.x does not expose a non-interactive send interface; " \
+        "the what-the-shell subcommand is interactive and cannot be used by AgentHarness."
 
       SMOKE_TEST_CONTRACT = {
         prompt: "Reply with exactly OK.",
@@ -225,8 +228,8 @@ module AgentHarness
           # must not claim JSON-only output even though newer versions support it.
           output_format: :text,
           sandbox_aware: false,
-          uses_subcommand: true,
-          non_interactive_flag: nil,
+          uses_subcommand: false,
+          non_interactive_flag: "-p",
           legitimate_exit_codes: [0],
           stderr_is_diagnostic: true,
           parses_rate_limit_reset: false
@@ -333,9 +336,7 @@ module AgentHarness
         runtime = options[:provider_runtime]
         version = copilot_cli_version(probe_timeout: options[:_version_probe_timeout], env: env)
 
-        if subcommand_cli_version?(version) || version.nil?
-          return [self.class.binary_name, "what-the-shell", prompt]
-        end
+        raise unsupported_subcommand_cli_error if subcommand_cli_version?(version)
 
         cmd = [self.class.binary_name, "-p", prompt]
 
@@ -408,6 +409,10 @@ module AgentHarness
 
       def subcommand_cli_version?(version)
         !version.nil? && version >= SUBCOMMAND_CLI_MIN_VERSION
+      end
+
+      def unsupported_subcommand_cli_error
+        ProviderError.new(UNSUPPORTED_SUBCOMMAND_CLI_MESSAGE)
       end
 
       def copilot_cli_version(probe_timeout: nil, env: {})
