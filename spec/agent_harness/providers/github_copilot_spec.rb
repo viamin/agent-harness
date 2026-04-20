@@ -13,87 +13,71 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
     end
   end
 
+  describe ".available?" do
+    let(:availability_executor) do
+      instance_double(
+        AgentHarness::CommandExecutor,
+        which: "/usr/bin/github-copilot-cli"
+      )
+    end
+
+    before do
+      allow(AgentHarness.configuration).to receive(:command_executor).and_return(availability_executor)
+    end
+
+    it "returns true for legacy prompt-mode CLIs" do
+      allow(availability_executor).to receive(:execute).with(
+        ["github-copilot-cli", "--version"],
+        timeout: 5,
+        env: {}
+      ).and_return(
+        AgentHarness::CommandExecutor::Result.new(
+          stdout: "github-copilot-cli 0.0.422",
+          stderr: "",
+          exit_code: 0,
+          duration: 0.1
+        )
+      )
+
+      expect(described_class.available?).to be true
+    end
+
+    it "returns false when the CLI is missing" do
+      allow(availability_executor).to receive(:which).with("github-copilot-cli").and_return(nil)
+      expect(availability_executor).not_to receive(:execute)
+
+      expect(described_class.available?).to be false
+    end
+
+    it "returns false for the interactive-only 0.1.x CLI" do
+      allow(availability_executor).to receive(:execute).with(
+        ["github-copilot-cli", "--version"],
+        timeout: 5,
+        env: {}
+      ).and_return(
+        AgentHarness::CommandExecutor::Result.new(
+          stdout: "github-copilot-cli 0.1.36",
+          stderr: "",
+          exit_code: 0,
+          duration: 0.1
+        )
+      )
+
+      expect(described_class.available?).to be false
+    end
+  end
+
   describe ".installation_contract" do
-    it "returns the upstream install contract" do
-      contract = described_class.installation_contract
-
-      expect(contract[:source]).to eq({
-        type: :npm,
-        package: "@githubnext/github-copilot-cli"
-      })
-      expect(contract[:binary_name]).to eq("github-copilot-cli")
-      expect(contract[:default_version]).to eq("0.1.36")
-      expect(contract[:install_command]).to eq(
-        ["npm", "install", "-g", "--ignore-scripts", "@githubnext/github-copilot-cli@0.1.36"]
-      )
-    end
-
-    it "keeps the runtime binary aligned with the install contract" do
-      contract = described_class.installation_contract
-
-      expect(contract[:binary_name]).to eq(described_class.binary_name)
-    end
-
-    it "can render an install command for an explicitly supported target" do
-      contract = described_class.installation_contract(version: "0.1.36")
-
-      expect(contract[:install_command]).to eq(
-        ["npm", "install", "-g", "--ignore-scripts", "@githubnext/github-copilot-cli@0.1.36"]
-      )
-    end
-
-    it "deep-freezes the contract" do
-      contract = described_class.installation_contract
-
-      expect(contract).to be_frozen
-      expect { contract[:install_command] << "extra" }.to raise_error(FrozenError)
-      expect { contract[:install_command_prefix] << "extra" }.to raise_error(FrozenError)
-    end
-
-    it "rejects unsupported versions" do
-      expect {
-        described_class.installation_contract(version: "0.0.1")
-      }.to raise_error(ArgumentError, /Unsupported GitHub Copilot CLI version/)
-    end
-
-    it "rejects malformed version strings with a provider-specific message" do
-      expect {
-        described_class.installation_contract(version: "not-a-version")
-      }.to raise_error(ArgumentError, /Unsupported GitHub Copilot CLI version/)
-    end
-
-    it "rejects nil version" do
-      expect {
-        described_class.installation_contract(version: nil)
-      }.to raise_error(ArgumentError, /Unsupported GitHub Copilot CLI version/)
-    end
-
-    it "rejects empty version" do
-      expect {
-        described_class.installation_contract(version: "")
-      }.to raise_error(ArgumentError, /Unsupported GitHub Copilot CLI version/)
-    end
-
-    it "preserves non-String version in error message" do
-      expect {
-        described_class.installation_contract(version: 42)
-      }.to raise_error(ArgumentError, /Unsupported GitHub Copilot CLI version 42/)
-    end
-
-    it "normalizes padded version strings in the install command" do
-      contract = described_class.installation_contract(version: " 0.1.36 ")
-
-      expect(contract[:install_command]).to eq(
-        ["npm", "install", "-g", "--ignore-scripts", "@githubnext/github-copilot-cli@0.1.36"]
-      )
+    it "does not advertise an install contract for the interactive-only npm CLI" do
+      expect(described_class.installation_contract).to be_nil
+      expect(described_class.installation_contract(version: "0.1.36")).to be_nil
     end
   end
 
   describe ".install_command" do
-    it "returns the install command array" do
-      expect(described_class.install_command).to eq(
-        ["npm", "install", "-g", "--ignore-scripts", "@githubnext/github-copilot-cli@0.1.36"]
-      )
+    it "returns nil when no non-interactive install target is available" do
+      expect(described_class.install_command).to be_nil
+      expect(described_class.install_command(version: "0.1.36")).to be_nil
     end
   end
 
@@ -149,10 +133,14 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
       metadata = described_class.provider_metadata
 
       expect(metadata[:runtime]).to include(
+        installable: false,
+        installation: nil,
         output_format: :text,
         supports_token_counting: true,
+        supports_sessions: true,
         supports_dangerous_mode: true
       )
+      expect(metadata[:runtime]).not_to have_key(:non_interactive_flag)
       expect(metadata[:capabilities]).to include(
         tool_use: true,
         dangerous_mode: true
@@ -167,10 +155,14 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
 
       expect(metadata[:runtime]).to include(
         available: false,
+        installable: false,
+        installation: nil,
         output_format: :text,
         supports_token_counting: false,
+        supports_sessions: false,
         supports_dangerous_mode: true
       )
+      expect(metadata[:runtime]).not_to have_key(:non_interactive_flag)
       expect(metadata[:capabilities]).to include(
         tool_use: true,
         dangerous_mode: true
@@ -195,14 +187,72 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
 
       expect(metadata[:runtime]).to include(
         available: true,
+        installable: false,
+        installation: nil,
         output_format: :text,
         supports_token_counting: false,
+        supports_sessions: true,
         supports_dangerous_mode: true
       )
+      expect(metadata[:runtime]).not_to have_key(:non_interactive_flag)
       expect(metadata[:capabilities]).to include(
         tool_use: true,
         dangerous_mode: true
       )
+    end
+
+    it "reports the interactive-only 0.1.x CLI as unavailable for sends" do
+      allow(metadata_executor).to receive(:execute).with(
+        ["github-copilot-cli", "--version"],
+        timeout: 5,
+        env: {}
+      ).and_return(
+        AgentHarness::CommandExecutor::Result.new(
+          stdout: "github-copilot-cli 0.1.36",
+          stderr: "",
+          exit_code: 0,
+          duration: 0.1
+        )
+      )
+
+      metadata = described_class.provider_metadata(refresh: true)
+
+      expect(metadata[:runtime]).to include(
+        available: false,
+        installable: false,
+        installation: nil,
+        supports_token_counting: false,
+        supports_sessions: false
+      )
+    end
+  end
+
+  describe ".discover_models" do
+    let(:discovery_executor) do
+      instance_double(
+        AgentHarness::CommandExecutor,
+        which: "/usr/bin/github-copilot-cli"
+      )
+    end
+
+    before do
+      allow(AgentHarness.configuration).to receive(:command_executor).and_return(discovery_executor)
+      allow(discovery_executor).to receive(:execute).with(
+        ["github-copilot-cli", "--version"],
+        timeout: 5,
+        env: {}
+      ).and_return(
+        AgentHarness::CommandExecutor::Result.new(
+          stdout: "github-copilot-cli 0.1.36",
+          stderr: "",
+          exit_code: 0,
+          duration: 0.1
+        )
+      )
+    end
+
+    it "does not discover models for the interactive-only 0.1.x CLI" do
+      expect(described_class.discover_models).to eq([])
     end
   end
 
@@ -322,15 +372,49 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
     end
 
     describe "#supports_sessions?" do
-      it "returns true" do
+      it "returns true for legacy prompt-mode CLIs" do
         expect(provider.supports_sessions?).to be true
+      end
+
+      it "returns false for the interactive-only 0.1.x CLI" do
+        allow(mock_executor).to receive(:execute).with(
+          ["github-copilot-cli", "--version"],
+          timeout: 5,
+          env: {}
+        ).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "github-copilot-cli 0.1.36",
+            stderr: "",
+            exit_code: 0,
+            duration: 0.1
+          )
+        )
+
+        expect(provider.supports_sessions?).to be false
       end
     end
 
     describe "#session_flags" do
-      it "returns resume flags when session provided" do
+      it "returns legacy resume flags when the prompt-mode CLI is installed" do
         flags = provider.session_flags("session-123")
         expect(flags).to eq(["--resume", "session-123"])
+      end
+
+      it "returns empty flags for the pinned 0.1.x CLI" do
+        allow(mock_executor).to receive(:execute).with(
+          ["github-copilot-cli", "--version"],
+          timeout: 5,
+          env: {}
+        ).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "github-copilot-cli 0.1.36",
+            stderr: "",
+            exit_code: 0,
+            duration: 0.1
+          )
+        )
+
+        expect(provider.session_flags("session-123")).to eq([])
       end
 
       it "returns empty when no session" do
@@ -505,7 +589,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         expect(semantics[:output_format]).to eq(:text)
         expect(semantics[:sandbox_aware]).to be false
         expect(semantics[:uses_subcommand]).to be false
-        expect(semantics[:non_interactive_flag]).to eq("-p")
+        expect(semantics[:non_interactive_flag]).to be_nil
         expect(semantics[:legitimate_exit_codes]).to eq([0])
         expect(semantics[:stderr_is_diagnostic]).to be true
         expect(semantics[:parses_rate_limit_reset]).to be false
@@ -538,7 +622,26 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         ])
       end
 
-      it "includes --output-format json by default" do
+      it "fails fast for the pinned CLI because its available send flow is interactive" do
+        allow(mock_executor).to receive(:execute).with(
+          ["github-copilot-cli", "--version"],
+          timeout: 5,
+          env: {}
+        ).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "github-copilot-cli 0.1.36",
+            stderr: "",
+            exit_code: 0,
+            duration: 0.1
+          )
+        )
+
+        expect do
+          provider.send(:build_command, "Hello", {dangerous_mode: true, session: "session-123"})
+        end.to raise_error(AgentHarness::ProviderError, /does not expose a non-interactive send interface/)
+      end
+
+      it "includes --output-format json for legacy JSON-capable CLIs" do
         command = provider.send(:build_command, "Hello", {})
 
         expect(command).to eq([
@@ -626,7 +729,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         ])
       end
 
-      it "falls back to silent prompt mode without probing when the CLI is unavailable" do
+      it "falls back to prompt mode without probing when the CLI is unavailable" do
         allow(mock_executor).to receive(:which).with("github-copilot-cli").and_return(nil)
         expect(mock_executor).not_to receive(:execute).with(["github-copilot-cli", "--version"], any_args)
 
@@ -779,6 +882,39 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
           "Hello",
           "--output-format",
           "json"
+        ])
+      end
+
+      it "decides session support from the already-probed runtime CLI version" do
+        runtime = AgentHarness::ProviderRuntime.new(env: {"PATH" => "/legacy/copilot/bin"})
+
+        allow(mock_executor).to receive(:execute).with(
+          ["github-copilot-cli", "--version"],
+          timeout: 5,
+          env: {"PATH" => "/legacy/copilot/bin"}
+        ).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "github-copilot-cli 0.0.421",
+            stderr: "",
+            exit_code: 0,
+            duration: 0.1
+          )
+        )
+        expect(mock_executor).not_to receive(:execute).with(
+          ["github-copilot-cli", "--version"],
+          timeout: 5,
+          env: {}
+        )
+
+        command = provider.send(:build_command, "Hello", {provider_runtime: runtime, session: "session-123"})
+
+        expect(command).to eq([
+          "github-copilot-cli",
+          "-p",
+          "Hello",
+          "-s",
+          "--resume",
+          "session-123"
         ])
       end
 
@@ -1237,6 +1373,30 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         response = provider.send_message(prompt: "Hello")
         expect(response.output).to eq("plain text response")
         expect(response.tokens).to be_nil
+      end
+
+      it "fails fast for 0.1.x instead of invoking the interactive what-the-shell flow" do
+        allow(mock_executor).to receive(:execute).with(
+          ["github-copilot-cli", "--version"],
+          timeout: 5,
+          env: {}
+        ).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "github-copilot-cli 0.1.36",
+            stderr: "",
+            exit_code: 0,
+            duration: 0.1
+          )
+        )
+
+        expect(mock_executor).not_to receive(:execute).with(
+          ["github-copilot-cli", "what-the-shell", "Hello"],
+          anything
+        )
+
+        expect do
+          provider.send_message(prompt: "Hello")
+        end.to raise_error(AgentHarness::ProviderError, /what-the-shell subcommand is interactive/)
       end
 
       it "does not decode plain-text fallback output that happens to be valid JSON" do

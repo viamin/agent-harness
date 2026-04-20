@@ -8,12 +8,12 @@ module AgentHarness
     class GithubCopilot < Base
       include TokenUsageParsing
 
-      PACKAGE_NAME = "@githubnext/github-copilot-cli"
-      SUPPORTED_CLI_VERSION = "0.1.36"
-      SUPPORTED_CLI_REQUIREMENT = Gem::Requirement.new(">= #{SUPPORTED_CLI_VERSION}", "< 0.2.0").freeze
-
       MODEL_PATTERN = /^gpt-[\d.o-]+(?:-turbo)?(?:-mini)?$/i
       JSON_OUTPUT_MIN_VERSION = Gem::Version.new("0.0.422").freeze
+      SUBCOMMAND_CLI_MIN_VERSION = Gem::Version.new("0.1.0").freeze
+      UNSUPPORTED_SUBCOMMAND_CLI_MESSAGE =
+        "github-copilot-cli 0.1.x does not expose a non-interactive send interface; " \
+        "the what-the-shell subcommand is interactive and cannot be used by AgentHarness."
 
       SMOKE_TEST_CONTRACT = {
         prompt: "Reply with exactly OK.",
@@ -34,41 +34,22 @@ module AgentHarness
 
         def available?
           executor = AgentHarness.configuration.command_executor
-          !!executor.which(binary_name)
+          return false unless executor.which(binary_name)
+
+          !subcommand_cli_version?(copilot_cli_version(executor: executor))
+        rescue
+          false
         end
 
-        def installation_contract(version: SUPPORTED_CLI_VERSION)
-          version = version.strip if version.respond_to?(:strip)
-          validate_install_version!(version)
-          package_spec = "#{PACKAGE_NAME}@#{version}".freeze
-          install_command_prefix = ["npm", "install", "-g", "--ignore-scripts"].freeze
-          install_command = (install_command_prefix + [package_spec]).freeze
-          version_requirement = SUPPORTED_CLI_REQUIREMENT.requirements
-            .map { |op, ver| "#{op} #{ver}".freeze }
-            .freeze
-
-          contract = {
-            source: {
-              type: :npm,
-              package: PACKAGE_NAME
-            }.freeze,
-            install_command_prefix: install_command_prefix,
-            install_command: install_command,
-            binary_name: binary_name,
-            default_version: SUPPORTED_CLI_VERSION,
-            version: version,
-            version_requirement: version_requirement,
-            supported_version_requirement: SUPPORTED_CLI_REQUIREMENT.to_s
-          }
-
-          contract.each_value do |value|
-            value.freeze if value.is_a?(String)
-          end
-          contract.freeze
+        def installation_contract(version: nil)
+          # The published @githubnext/github-copilot-cli package only has
+          # 0.1.x releases, and those expose an interactive subcommand instead
+          # of the non-interactive -p prompt path AgentHarness uses.
+          nil
         end
 
-        def install_command(version: SUPPORTED_CLI_VERSION)
-          installation_contract(version: version)[:install_command]
+        def install_command(version: nil)
+          installation_contract(version: version)&.fetch(:install_command)
         end
 
         def provider_metadata_overrides
@@ -134,26 +115,26 @@ module AgentHarness
 
         private
 
-        def validate_install_version!(version)
-          unless version.is_a?(String) && !version.strip.empty?
-            raise ArgumentError,
-              "Unsupported GitHub Copilot CLI version #{version.inspect}; " \
-              "supported versions must satisfy #{SUPPORTED_CLI_REQUIREMENT}"
-          end
+        def copilot_cli_version(executor:)
+          result = executor.execute([binary_name, "--version"], timeout: 5, env: {})
+          extract_version(result)
+        rescue
+          nil
+        end
 
-          parsed_version = begin
-            Gem::Version.new(version)
-          rescue ArgumentError
-            raise ArgumentError,
-              "Unsupported GitHub Copilot CLI version #{version.inspect}; " \
-              "supported versions must satisfy #{SUPPORTED_CLI_REQUIREMENT}"
-          end
+        def subcommand_cli_version?(version)
+          !version.nil? && version >= SUBCOMMAND_CLI_MIN_VERSION
+        end
 
-          return if SUPPORTED_CLI_REQUIREMENT.satisfied_by?(parsed_version)
+        def extract_version(result)
+          return nil unless result.success?
 
-          raise ArgumentError,
-            "Unsupported GitHub Copilot CLI version #{version.inspect}; " \
-            "supported versions must satisfy #{SUPPORTED_CLI_REQUIREMENT}"
+          version_string = [result.stdout, result.stderr].compact.join("\n")[/\d+\.\d+\.\d+(?:[-+][A-Za-z0-9.-]+)?/]
+          return nil if version_string.nil? || version_string.empty?
+
+          Gem::Version.new(version_string)
+        rescue ArgumentError
+          nil
         end
       end
 
@@ -194,18 +175,22 @@ module AgentHarness
         }
       end
 
-      def dangerous_mode_flags(probe_timeout: nil, env: {})
-        return [] unless supports_json_output_format?(probe_timeout: probe_timeout, env: env)
+      def dangerous_mode_flags(probe_timeout: nil, env: {}, version: nil)
+        version ||= copilot_cli_version(probe_timeout: probe_timeout, env: env)
+        return [] if subcommand_cli_version?(version)
+        return [] unless supports_json_output_format?(version: version)
 
         ["--allow-all"]
       end
 
-      def supports_sessions?
-        true
+      def supports_sessions?(probe_timeout: nil, env: {}, version: nil)
+        legacy_prompt_cli?(version: version, probe_timeout: probe_timeout, env: env)
       end
 
-      def session_flags(session_id)
+      def session_flags(session_id, version: nil, probe_timeout: nil, env: {})
         return [] unless session_id && !session_id.empty?
+        return [] unless legacy_prompt_cli?(version: version, probe_timeout: probe_timeout, env: env)
+
         ["--resume", session_id]
       end
 
@@ -221,7 +206,7 @@ module AgentHarness
           output_format: :text,
           sandbox_aware: false,
           uses_subcommand: false,
-          non_interactive_flag: "-p",
+          non_interactive_flag: nil,
           legitimate_exit_codes: [0],
           stderr_is_diagnostic: true,
           parses_rate_limit_reset: false
@@ -324,11 +309,15 @@ module AgentHarness
       protected
 
       def build_command(prompt, options)
-        cmd = [self.class.binary_name, "-p", prompt]
         env = options.fetch(:_command_env) { build_env(options) }
         runtime = options[:provider_runtime]
+        version = copilot_cli_version(probe_timeout: options[:_version_probe_timeout], env: env)
 
-        if supports_json_output_format?(probe_timeout: options[:_version_probe_timeout], env: env)
+        raise unsupported_subcommand_cli_error if subcommand_cli_version?(version)
+
+        cmd = [self.class.binary_name, "-p", prompt]
+
+        if supports_json_output_format?(version: version)
           cmd += ["--output-format", "json"]
         else
           # Silent mode suppresses the model/stats decoration older CLIs print in
@@ -340,11 +329,11 @@ module AgentHarness
         cmd += ["--model", model] if model
         if options[:dangerous_mode] && supports_dangerous_mode?
           cmd += programmatic_tool_approval_flags
-          cmd += dangerous_mode_flags(probe_timeout: options[:_version_probe_timeout], env: env)
+          cmd += dangerous_mode_flags(version: version)
         end
 
         if options[:session] && !options[:session].empty?
-          cmd += session_flags(options[:session])
+          cmd += session_flags(options[:session], version: version)
         end
 
         cmd
@@ -385,9 +374,22 @@ module AgentHarness
         ["--allow-all-tools"]
       end
 
-      def supports_json_output_format?(probe_timeout: nil, env: {})
-        version = copilot_cli_version(probe_timeout: probe_timeout, env: env)
-        !version.nil? && version >= JSON_OUTPUT_MIN_VERSION
+      def supports_json_output_format?(probe_timeout: nil, env: {}, version: nil)
+        version ||= copilot_cli_version(probe_timeout: probe_timeout, env: env)
+        !version.nil? && !subcommand_cli_version?(version) && version >= JSON_OUTPUT_MIN_VERSION
+      end
+
+      def legacy_prompt_cli?(probe_timeout: nil, env: {}, version: nil)
+        version ||= copilot_cli_version(probe_timeout: probe_timeout, env: env)
+        !version.nil? && !subcommand_cli_version?(version)
+      end
+
+      def subcommand_cli_version?(version)
+        self.class.send(:subcommand_cli_version?, version)
+      end
+
+      def unsupported_subcommand_cli_error
+        ProviderError.new(UNSUPPORTED_SUBCOMMAND_CLI_MESSAGE)
       end
 
       def copilot_cli_version(probe_timeout: nil, env: {})
@@ -443,14 +445,7 @@ module AgentHarness
       end
 
       def extract_version(result)
-        return nil unless result.success?
-
-        version_string = [result.stdout, result.stderr].compact.join("\n")[/\d+\.\d+\.\d+(?:[-+][A-Za-z0-9.-]+)?/]
-        return nil if version_string.nil? || version_string.empty?
-
-        Gem::Version.new(version_string)
-      rescue ArgumentError
-        nil
+        self.class.send(:extract_version, result)
       end
 
       def parse_jsonl_output(output)
