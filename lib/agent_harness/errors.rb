@@ -66,6 +66,9 @@ module AgentHarness
   # subscription to API-metered usage.
   class AuthMismatchError < AuthenticationError; end
 
+  # Raised when a provider does not support the requested authentication flow.
+  class UnsupportedAuthFlowError < Error; end
+
   # Configuration errors
   class ConfigurationError < Error; end
 

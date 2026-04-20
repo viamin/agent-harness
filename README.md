@@ -524,7 +524,7 @@ AgentHarness.auth_url(:claude)
 # => "https://claude.ai/oauth/authorize"
 ```
 
-This raises `NotImplementedError` for `:api_key` providers.
+This raises `AgentHarness::UnsupportedAuthFlowError` for `:api_key` providers or providers whose OAuth URL flow is not implemented. The exception inherits from `AgentHarness::Error` and `StandardError`, so host applications can rescue it with their normal app-level error handling.
 
 ### Credential Refresh
 
@@ -537,7 +537,9 @@ AgentHarness.refresh_auth(:claude, token: "new-oauth-token")
 
 Any existing expiry metadata in the credentials file is cleared on refresh so that `auth_valid?` returns `true` immediately after a successful refresh.
 
-This raises `NotImplementedError` for `:api_key` providers. Credential file paths respect the `CLAUDE_CONFIG_DIR` environment variable.
+This raises `AgentHarness::UnsupportedAuthFlowError` for `:api_key` providers or providers whose credential refresh flow is not implemented. Credential file paths respect the `CLAUDE_CONFIG_DIR` environment variable.
+
+If you currently rescue `NotImplementedError` for unsupported auth URL generation or credential refresh, update that code to rescue `AgentHarness::UnsupportedAuthFlowError` or the broader `AgentHarness::Error` instead.
 
 ## Provider Health Checks
 
