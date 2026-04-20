@@ -229,7 +229,7 @@ module AgentHarness
           output_format: :text,
           sandbox_aware: false,
           uses_subcommand: false,
-          non_interactive_flag: "-p",
+          non_interactive_flag: nil,
           legitimate_exit_codes: [0],
           stderr_is_diagnostic: true,
           parses_rate_limit_reset: false

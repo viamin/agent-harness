@@ -153,6 +153,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         supports_token_counting: true,
         supports_dangerous_mode: true
       )
+      expect(metadata[:runtime]).not_to have_key(:non_interactive_flag)
       expect(metadata[:capabilities]).to include(
         tool_use: true,
         dangerous_mode: true
@@ -171,6 +172,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         supports_token_counting: false,
         supports_dangerous_mode: true
       )
+      expect(metadata[:runtime]).not_to have_key(:non_interactive_flag)
       expect(metadata[:capabilities]).to include(
         tool_use: true,
         dangerous_mode: true
@@ -199,6 +201,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         supports_token_counting: false,
         supports_dangerous_mode: true
       )
+      expect(metadata[:runtime]).not_to have_key(:non_interactive_flag)
       expect(metadata[:capabilities]).to include(
         tool_use: true,
         dangerous_mode: true
@@ -522,7 +525,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         expect(semantics[:output_format]).to eq(:text)
         expect(semantics[:sandbox_aware]).to be false
         expect(semantics[:uses_subcommand]).to be false
-        expect(semantics[:non_interactive_flag]).to eq("-p")
+        expect(semantics[:non_interactive_flag]).to be_nil
         expect(semantics[:legitimate_exit_codes]).to eq([0])
         expect(semantics[:stderr_is_diagnostic]).to be true
         expect(semantics[:parses_rate_limit_reset]).to be false
