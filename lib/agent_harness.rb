@@ -184,12 +184,36 @@ module AgentHarness
       Authentication.auth_status(provider_name)
     end
 
+    # Get authentication flow capabilities for a provider
+    # @param provider_name [Symbol] the provider name
+    # @return [Hash] capabilities with :auth_type, :auth_url, :refresh keys
+    # @raise [ProviderNotFoundError] if provider is unknown
+    def auth_capabilities(provider_name)
+      Authentication.auth_capabilities(provider_name)
+    end
+
+    # Check whether OAuth URL generation is supported for a provider
+    # @param provider_name [Symbol] the provider name
+    # @return [Boolean] true if auth_url can be called for the provider
+    # @raise [ProviderNotFoundError] if provider is unknown
+    def auth_url_supported?(provider_name)
+      Authentication.auth_url_supported?(provider_name)
+    end
+
     # Generate an OAuth URL for a provider
     # @param provider_name [Symbol] the provider name
     # @return [String] the OAuth authorization URL
     # @raise [NotImplementedError] if provider doesn't support OAuth
     def auth_url(provider_name)
       Authentication.auth_url(provider_name)
+    end
+
+    # Check whether credential refresh is supported for a provider
+    # @param provider_name [Symbol] the provider name
+    # @return [Boolean] true if refresh_auth can be called for the provider
+    # @raise [ProviderNotFoundError] if provider is unknown
+    def refresh_auth_supported?(provider_name)
+      Authentication.refresh_auth_supported?(provider_name)
     end
 
     # Refresh authentication credentials for a provider
