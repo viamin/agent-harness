@@ -149,8 +149,8 @@ module AgentHarness
         }
       end
 
-      def dangerous_mode_flags(probe_timeout: nil, env: {})
-        version = copilot_cli_version(probe_timeout: probe_timeout, env: env)
+      def dangerous_mode_flags(probe_timeout: nil, env: {}, version: nil)
+        version ||= copilot_cli_version(probe_timeout: probe_timeout, env: env)
         return [] if subcommand_cli_version?(version)
         return [] unless supports_json_output_format?(version: version)
 
@@ -161,9 +161,9 @@ module AgentHarness
         false
       end
 
-      def session_flags(session_id)
-        return [] unless legacy_prompt_cli?
+      def session_flags(session_id, version: nil, probe_timeout: nil, env: {})
         return [] unless session_id && !session_id.empty?
+        return [] unless legacy_prompt_cli?(version: version, probe_timeout: probe_timeout, env: env)
 
         ["--resume", session_id]
       end
@@ -303,11 +303,11 @@ module AgentHarness
         cmd += ["--model", model] if model
         if options[:dangerous_mode] && supports_dangerous_mode?
           cmd += programmatic_tool_approval_flags
-          cmd += dangerous_mode_flags(probe_timeout: options[:_version_probe_timeout], env: env)
+          cmd += dangerous_mode_flags(version: version)
         end
 
         if options[:session] && !options[:session].empty?
-          cmd += session_flags(options[:session])
+          cmd += session_flags(options[:session], version: version)
         end
 
         cmd
@@ -353,8 +353,8 @@ module AgentHarness
         !version.nil? && !subcommand_cli_version?(version) && version >= JSON_OUTPUT_MIN_VERSION
       end
 
-      def legacy_prompt_cli?
-        version = copilot_cli_version
+      def legacy_prompt_cli?(probe_timeout: nil, env: {}, version: nil)
+        version ||= copilot_cli_version(probe_timeout: probe_timeout, env: env)
         !version.nil? && !subcommand_cli_version?(version)
       end
 

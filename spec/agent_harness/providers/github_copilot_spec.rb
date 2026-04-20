@@ -757,6 +757,39 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         ])
       end
 
+      it "decides session support from the already-probed runtime CLI version" do
+        runtime = AgentHarness::ProviderRuntime.new(env: {"PATH" => "/legacy/copilot/bin"})
+
+        allow(mock_executor).to receive(:execute).with(
+          ["github-copilot-cli", "--version"],
+          timeout: 5,
+          env: {"PATH" => "/legacy/copilot/bin"}
+        ).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "github-copilot-cli 0.0.421",
+            stderr: "",
+            exit_code: 0,
+            duration: 0.1
+          )
+        )
+        expect(mock_executor).not_to receive(:execute).with(
+          ["github-copilot-cli", "--version"],
+          timeout: 5,
+          env: {}
+        )
+
+        command = provider.send(:build_command, "Hello", {provider_runtime: runtime, session: "session-123"})
+
+        expect(command).to eq([
+          "github-copilot-cli",
+          "-p",
+          "Hello",
+          "-s",
+          "--resume",
+          "session-123"
+        ])
+      end
+
       it "caches CLI versions per effective runtime env" do
         legacy_runtime = AgentHarness::ProviderRuntime.new(env: {"PATH" => "/legacy/copilot/bin"})
         json_runtime = AgentHarness::ProviderRuntime.new(env: {"PATH" => "/json/copilot/bin"})
