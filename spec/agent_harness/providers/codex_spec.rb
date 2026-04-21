@@ -156,6 +156,32 @@ RSpec.describe AgentHarness::Providers::Codex do
       expect(parsed[:text]).to be_nil
       expect(parsed_inputs).not_to include(stale_line)
     end
+
+    it "does not parse JSONL events when max_events is zero" do
+      output = JSON.generate({
+        "type" => "turn.completed",
+        "result" => "Ignored output"
+      })
+
+      expect(JSON).not_to receive(:parse)
+
+      parsed = described_class.parse_cli_jsonl_transcript(output, max_events: 0)
+
+      expect(parsed).to be_nil
+    end
+
+    it "does not parse JSONL events when max_events is negative" do
+      output = JSON.generate({
+        "type" => "turn.completed",
+        "result" => "Ignored output"
+      })
+
+      expect(JSON).not_to receive(:parse)
+
+      parsed = described_class.parse_cli_jsonl_transcript(output, max_events: -1)
+
+      expect(parsed).to be_nil
+    end
   end
 
   describe ".firewall_requirements" do

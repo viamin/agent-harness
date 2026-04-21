@@ -141,6 +141,8 @@ module AgentHarness
         end
 
         def parse_cli_jsonl_transcript(raw_output, max_events: nil)
+          return new.send(:parse_jsonl_output, "") if max_events && max_events <= 0
+
           output = max_events ? tail_nonempty_lines(raw_output, limit: max_events).join("\n") : raw_output
 
           new.send(:parse_jsonl_output, output)
@@ -149,6 +151,8 @@ module AgentHarness
         private
 
         def tail_nonempty_lines(text, limit:)
+          return [] if limit <= 0
+
           text.to_s.each_line.each_with_object([]) do |line, lines|
             stripped = line.strip
             next if stripped.empty?
