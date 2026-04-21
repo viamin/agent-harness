@@ -139,6 +139,28 @@ module AgentHarness
         def smoke_test_contract
           Base::DEFAULT_SMOKE_TEST_CONTRACT
         end
+
+        def parse_cli_jsonl_transcript(raw_output, max_events: nil)
+          return new.send(:parse_jsonl_output, "") if max_events && max_events <= 0
+
+          output = max_events ? tail_nonempty_lines(raw_output, limit: max_events).join("\n") : raw_output
+
+          new.send(:parse_jsonl_output, output)
+        end
+
+        private
+
+        def tail_nonempty_lines(text, limit:)
+          return [] if limit <= 0
+
+          text.to_s.each_line.each_with_object([]) do |line, lines|
+            stripped = line.strip
+            next if stripped.empty?
+
+            lines.shift if lines.size >= limit
+            lines << stripped
+          end
+        end
       end
 
       def name
@@ -603,10 +625,11 @@ module AgentHarness
           when "turn.completed"
             turn_usage = build_token_usage(event["usage"])
             result = event["result"]
+            result_parts = result.is_a?(String) ? [result] : extract_task_complete_parts(event)
             wrapped_completion_without_new_output =
               pending_turn_usage_source == :wrapped &&
               pending_turn_usage &&
-              !result.is_a?(String) &&
+              result_parts.nil? &&
               (turn_usage.nil? || current_turn_parts.empty? || current_turn_parts.equal?(pending_wrapped_output_parts))
 
             if wrapped_completion_without_new_output
@@ -663,8 +686,8 @@ module AgentHarness
               pending_wrapped_same_turn_finalization = false
             end
 
-            if result.is_a?(String)
-              current_turn_parts = [result]
+            if result_parts
+              current_turn_parts = result_parts
               saw_assistant_output = true
               current_turn_finalized_output = true
             end

@@ -110,6 +110,80 @@ RSpec.describe AgentHarness::Providers::Codex do
     end
   end
 
+  describe ".parse_cli_jsonl_transcript" do
+    it "extracts final assistant text from a single JSONL event" do
+      output = JSON.generate({
+        "type" => "turn.completed",
+        "result" => "Final answer from Codex"
+      })
+
+      parsed = described_class.parse_cli_jsonl_transcript(output)
+
+      expect(parsed[:text]).to eq("Final answer from Codex")
+    end
+
+    it "extracts final assistant text from turn.completed last_agent_message" do
+      output = JSON.generate({
+        "type" => "turn.completed",
+        "last_agent_message" => "Final answer from last_agent_message"
+      })
+
+      parsed = described_class.parse_cli_jsonl_transcript(output)
+
+      expect(parsed[:text]).to eq("Final answer from last_agent_message")
+    end
+
+    it "applies max_events before parsing JSONL events" do
+      stale_line = JSON.generate({
+        "type" => "agent_message",
+        "role" => "assistant",
+        "text" => "Stale output"
+      })
+      output = [
+        stale_line,
+        *500.times.map { |i| JSON.generate({"type" => "message.delta", "delta" => {"index" => i}}) }
+      ].join("\n")
+
+      parsed_inputs = []
+      original_parse = JSON.method(:parse)
+      allow(JSON).to receive(:parse) do |input, *args|
+        parsed_inputs << input
+        original_parse.call(input, *args)
+      end
+
+      parsed = described_class.parse_cli_jsonl_transcript(output, max_events: 500)
+
+      expect(parsed[:text]).to be_nil
+      expect(parsed_inputs).not_to include(stale_line)
+    end
+
+    it "does not parse JSONL events when max_events is zero" do
+      output = JSON.generate({
+        "type" => "turn.completed",
+        "result" => "Ignored output"
+      })
+
+      expect(JSON).not_to receive(:parse)
+
+      parsed = described_class.parse_cli_jsonl_transcript(output, max_events: 0)
+
+      expect(parsed).to be_nil
+    end
+
+    it "does not parse JSONL events when max_events is negative" do
+      output = JSON.generate({
+        "type" => "turn.completed",
+        "result" => "Ignored output"
+      })
+
+      expect(JSON).not_to receive(:parse)
+
+      parsed = described_class.parse_cli_jsonl_transcript(output, max_events: -1)
+
+      expect(parsed).to be_nil
+    end
+  end
+
   describe ".firewall_requirements" do
     it "returns required domains" do
       requirements = described_class.firewall_requirements
