@@ -471,6 +471,95 @@ RSpec.describe AgentHarness::Authentication do
     end
   end
 
+  describe ".auth_capabilities" do
+    it "returns supported OAuth flows for Claude" do
+      expect(described_class.auth_capabilities(:claude)).to eq(
+        auth_type: :oauth,
+        auth_url: true,
+        refresh: true
+      )
+    end
+
+    it "returns supported OAuth flows for the Anthropic alias" do
+      expect(described_class.auth_capabilities(:anthropic)).to eq(
+        auth_type: :oauth,
+        auth_url: true,
+        refresh: true
+      )
+    end
+
+    it "returns unsupported OAuth flows for API key providers" do
+      expect(described_class.auth_capabilities(:codex)).to eq(
+        auth_type: :api_key,
+        auth_url: false,
+        refresh: false
+      )
+    end
+
+    it "returns unsupported OAuth flows for OAuth providers without flow implementations" do
+      expect(described_class.auth_capabilities(:cursor)).to eq(
+        auth_type: :oauth,
+        auth_url: false,
+        refresh: false
+      )
+    end
+
+    it "raises ProviderNotFoundError for unknown providers" do
+      expect { described_class.auth_capabilities(:unknown_provider) }
+        .to raise_error(AgentHarness::ProviderNotFoundError, "Unknown provider: unknown_provider")
+    end
+  end
+
+  describe ".auth_url_supported?" do
+    it "returns true for Claude without invoking auth_url" do
+      expect(described_class).not_to receive(:auth_url)
+
+      expect(described_class.auth_url_supported?(:claude)).to be true
+    end
+
+    it "returns true for the Anthropic alias" do
+      expect(described_class.auth_url_supported?(:anthropic)).to be true
+    end
+
+    it "returns false for API key providers" do
+      expect(described_class.auth_url_supported?(:codex)).to be false
+    end
+
+    it "returns false for OAuth providers without URL generation implementations" do
+      expect(described_class.auth_url_supported?(:cursor)).to be false
+    end
+
+    it "raises ProviderNotFoundError for unknown providers" do
+      expect { described_class.auth_url_supported?(:unknown_provider) }
+        .to raise_error(AgentHarness::ProviderNotFoundError, "Unknown provider: unknown_provider")
+    end
+  end
+
+  describe ".refresh_auth_supported?" do
+    it "returns true for Claude without invoking refresh_auth" do
+      expect(described_class).not_to receive(:refresh_auth)
+
+      expect(described_class.refresh_auth_supported?(:claude)).to be true
+    end
+
+    it "returns true for the Anthropic alias" do
+      expect(described_class.refresh_auth_supported?(:anthropic)).to be true
+    end
+
+    it "returns false for API key providers" do
+      expect(described_class.refresh_auth_supported?(:codex)).to be false
+    end
+
+    it "returns false for OAuth providers without refresh implementations" do
+      expect(described_class.refresh_auth_supported?(:cursor)).to be false
+    end
+
+    it "raises ProviderNotFoundError for unknown providers" do
+      expect { described_class.refresh_auth_supported?(:unknown_provider) }
+        .to raise_error(AgentHarness::ProviderNotFoundError, "Unknown provider: unknown_provider")
+    end
+  end
+
   describe ".refresh_auth" do
     context "for Claude provider" do
       it "stores a token in credentials" do

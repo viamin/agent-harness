@@ -501,6 +501,29 @@ AgentHarness.auth_status(:claude)
 
 For providers without a built-in auth check (including `:api_key` providers), `auth_valid?` returns `false` and `auth_status` returns an error indicating the check is not implemented. Custom providers can implement an `auth_status` instance method to provide their own check.
 
+### Auth Flow Capabilities
+
+Before rendering provider-specific auth controls, check whether the flow is supported:
+
+```ruby
+AgentHarness.auth_url_supported?(:claude)
+# => true
+
+AgentHarness.auth_url_supported?(:codex)
+# => false
+
+AgentHarness.refresh_auth_supported?(:claude)
+# => true
+
+AgentHarness.refresh_auth_supported?(:codex)
+# => false
+
+AgentHarness.auth_capabilities(:codex)
+# => { auth_type: :api_key, auth_url: false, refresh: false }
+```
+
+Provider aliases are resolved the same way as other auth APIs, so `:anthropic` reports the same capabilities as `:claude`. Unknown providers raise `AgentHarness::ProviderNotFoundError`, matching `auth_url` and `refresh_auth` provider lookup behavior.
+
 ### Auth Error Detection
 
 When a CLI agent fails due to expired or invalid authentication, `send_message` raises `AuthenticationError` with the provider name. Authentication errors are always surfaced directly to the caller (never auto-switched to another provider) so your application can trigger the appropriate re-auth flow:
@@ -509,9 +532,15 @@ When a CLI agent fails due to expired or invalid authentication, `send_message` 
 begin
   AgentHarness.send_message("Hello", provider: :claude)
 rescue AgentHarness::AuthenticationError => e
-  puts e.provider  # => :claude
-  puts e.message   # => "oauth token expired"
-  # Trigger re-authentication flow for the specific provider
+  provider = e.provider
+
+  if AgentHarness.auth_url_supported?(provider)
+    redirect_to AgentHarness.auth_url(provider)
+  elsif AgentHarness.refresh_auth_supported?(provider)
+    render :reauth_token_form, locals: { provider: provider }
+  else
+    render :auth_expired_without_refresh, locals: { provider: provider, message: e.message }
+  end
 end
 ```
 

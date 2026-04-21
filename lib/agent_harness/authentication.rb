@@ -35,6 +35,33 @@ module AgentHarness
         end
       end
 
+      # Get authentication flow capabilities for a provider.
+      #
+      # @param provider_name [Symbol] the provider name
+      # @return [Hash] capabilities with :auth_type, :auth_url, :refresh keys
+      # @raise [ProviderNotFoundError] if provider is unknown
+      def auth_capabilities(provider_name)
+        provider_name = provider_name.to_sym
+        provider = resolve_provider(provider_name)
+        canonical_name = Providers::Registry.instance.canonical_name(provider_name)
+        flow_supported = claude_oauth_flow_provider?(provider_name, canonical_name)
+
+        {
+          auth_type: provider.auth_type,
+          auth_url: flow_supported,
+          refresh: flow_supported
+        }
+      end
+
+      # Check whether OAuth URL generation is supported for a provider.
+      #
+      # @param provider_name [Symbol] the provider name
+      # @return [Boolean] true if auth_url can be called for the provider
+      # @raise [ProviderNotFoundError] if provider is unknown
+      def auth_url_supported?(provider_name)
+        auth_capabilities(provider_name)[:auth_url]
+      end
+
       # Generate an OAuth URL for a provider
       #
       # Only supported for :oauth auth type providers.
@@ -58,6 +85,15 @@ module AgentHarness
           raise NotImplementedError,
             "OAuth URL generation is not yet implemented for provider #{provider_name}"
         end
+      end
+
+      # Check whether credential refresh is supported for a provider.
+      #
+      # @param provider_name [Symbol] the provider name
+      # @return [Boolean] true if refresh_auth can be called for the provider
+      # @raise [ProviderNotFoundError] if provider is unknown
+      def refresh_auth_supported?(provider_name)
+        auth_capabilities(provider_name)[:refresh]
       end
 
       # Refresh authentication credentials for a provider
@@ -91,6 +127,10 @@ module AgentHarness
       end
 
       private
+
+      def claude_oauth_flow_provider?(requested_name, canonical_name)
+        [:claude, :anthropic].include?(requested_name) || canonical_name == :claude
+      end
 
       def resolve_provider(provider_name)
         klass = Providers::Registry.instance.get(provider_name)

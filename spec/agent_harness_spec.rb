@@ -267,10 +267,32 @@ RSpec.describe AgentHarness do
     end
   end
 
+  describe ".auth_capabilities" do
+    it "delegates to Authentication module" do
+      capabilities = {auth_type: :oauth, auth_url: true, refresh: true}
+      expect(AgentHarness::Authentication).to receive(:auth_capabilities).with(:claude).and_return(capabilities)
+      expect(AgentHarness.auth_capabilities(:claude)).to eq(capabilities)
+    end
+  end
+
+  describe ".auth_url_supported?" do
+    it "delegates to Authentication module" do
+      expect(AgentHarness::Authentication).to receive(:auth_url_supported?).with(:claude).and_return(true)
+      expect(AgentHarness.auth_url_supported?(:claude)).to be true
+    end
+  end
+
   describe ".auth_url" do
     it "delegates to Authentication module" do
       expect(AgentHarness::Authentication).to receive(:auth_url).with(:claude).and_return("https://example.com")
       expect(AgentHarness.auth_url(:claude)).to eq("https://example.com")
+    end
+  end
+
+  describe ".refresh_auth_supported?" do
+    it "delegates to Authentication module" do
+      expect(AgentHarness::Authentication).to receive(:refresh_auth_supported?).with(:claude).and_return(true)
+      expect(AgentHarness.refresh_auth_supported?(:claude)).to be true
     end
   end
 
