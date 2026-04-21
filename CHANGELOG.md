@@ -1,5 +1,17 @@
 ## [Unreleased]
 
+## [0.10.0](https://github.com/viamin/agent-harness/compare/agent-harness/v0.9.0...agent-harness/v0.10.0) (2026-04-21)
+
+
+### Features
+
+* **codex:** expose JSONL transcript parser ([#148](https://github.com/viamin/agent-harness/issues/148)) ([05312ea](https://github.com/viamin/agent-harness/commit/05312eaf9c11fff50931e511ee6e534838eb8746))
+
+
+### Bug Fixes
+
+* **copilot:** github-copilot-cli does not support the -p flag used by build_command ([#141](https://github.com/viamin/agent-harness/issues/141)) ([d06fbc4](https://github.com/viamin/agent-harness/commit/d06fbc414489d6c3bc93a122d0eb2a5771ddbb26))
+
 ## [0.9.0](https://github.com/viamin/agent-harness/compare/agent-harness/v0.8.0...agent-harness/v0.9.0) (2026-04-19)
 
 
