@@ -203,7 +203,7 @@ module AgentHarness
     # Generate an OAuth URL for a provider
     # @param provider_name [Symbol] the provider name
     # @return [String] the OAuth authorization URL
-    # @raise [NotImplementedError] if provider doesn't support OAuth
+    # @raise [UnsupportedAuthFlowError] if provider doesn't support OAuth
     def auth_url(provider_name)
       Authentication.auth_url(provider_name)
     end
@@ -220,7 +220,7 @@ module AgentHarness
     # @param provider_name [Symbol] the provider name
     # @param token [String, nil] OAuth token to store
     # @return [Hash] result with :success key
-    # @raise [NotImplementedError] if provider doesn't support credential refresh
+    # @raise [UnsupportedAuthFlowError] if provider doesn't support credential refresh
     def refresh_auth(provider_name, token: nil)
       Authentication.refresh_auth(provider_name, token: token)
     end

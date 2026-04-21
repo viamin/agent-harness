@@ -94,6 +94,16 @@ RSpec.describe AgentHarness do
       end
     end
 
+    describe AgentHarness::UnsupportedAuthFlowError do
+      it "inherits from Error" do
+        expect(described_class.new).to be_a(AgentHarness::Error)
+      end
+
+      it "is rescuable as StandardError" do
+        expect(described_class.new).to be_a(StandardError)
+      end
+    end
+
     describe AgentHarness::ConfigurationError do
       it "inherits from Error" do
         expect(described_class.new).to be_a(AgentHarness::Error)

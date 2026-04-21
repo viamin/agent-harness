@@ -68,13 +68,13 @@ module AgentHarness
       #
       # @param provider_name [Symbol] the provider name
       # @return [String] the OAuth authorization URL
-      # @raise [NotImplementedError] if provider doesn't support OAuth
+      # @raise [UnsupportedAuthFlowError] if provider doesn't support OAuth
       def auth_url(provider_name)
         provider_name = provider_name.to_sym
         provider = resolve_provider(provider_name)
 
         unless provider.auth_type == :oauth
-          raise NotImplementedError,
+          raise UnsupportedAuthFlowError,
             "Provider #{provider_name} uses #{provider.auth_type} auth and does not support OAuth URL generation"
         end
 
@@ -82,7 +82,7 @@ module AgentHarness
         when :claude, :anthropic
           claude_auth_url
         else
-          raise NotImplementedError,
+          raise UnsupportedAuthFlowError,
             "OAuth URL generation is not yet implemented for provider #{provider_name}"
         end
       end
@@ -102,18 +102,18 @@ module AgentHarness
       # This method accepts a token (not an authorization code) because
       # the OAuth code-exchange flow is provider-specific and should be
       # handled by the caller or a CLI login command before calling this.
-      # For API key providers, raises NotImplementedError.
+      # For API key providers, raises UnsupportedAuthFlowError.
       #
       # @param provider_name [Symbol] the provider name
       # @param token [String] OAuth token to store (must be non-blank)
       # @return [Hash] result with :success key
-      # @raise [NotImplementedError] if provider doesn't support credential refresh
+      # @raise [UnsupportedAuthFlowError] if provider doesn't support credential refresh
       def refresh_auth(provider_name, token: nil)
         provider_name = provider_name.to_sym
         provider = resolve_provider(provider_name)
 
         unless provider.auth_type == :oauth
-          raise NotImplementedError,
+          raise UnsupportedAuthFlowError,
             "Provider #{provider_name} uses #{provider.auth_type} auth and does not support credential refresh"
         end
 
@@ -121,7 +121,7 @@ module AgentHarness
         when :claude, :anthropic
           refresh_claude_auth(token: token)
         else
-          raise NotImplementedError,
+          raise UnsupportedAuthFlowError,
             "Credential refresh is not yet implemented for provider #{provider_name}"
         end
       end

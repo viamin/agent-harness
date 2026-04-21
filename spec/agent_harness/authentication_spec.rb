@@ -465,8 +465,20 @@ RSpec.describe AgentHarness::Authentication do
     end
 
     context "for API key provider" do
-      it "raises NotImplementedError" do
-        expect { described_class.auth_url(:aider) }.to raise_error(NotImplementedError, /api_key/)
+      it "raises UnsupportedAuthFlowError with provider auth details" do
+        expect { described_class.auth_url(:aider) }
+          .to raise_error(AgentHarness::UnsupportedAuthFlowError, /Provider aider uses api_key auth/)
+      end
+
+      it "raises an AgentHarness::Error subclass" do
+        expect { described_class.auth_url(:aider) }.to raise_error(AgentHarness::Error)
+      end
+    end
+
+    context "for OAuth provider without URL generation support" do
+      it "raises UnsupportedAuthFlowError with implementation details" do
+        expect { described_class.auth_url(:cursor) }
+          .to raise_error(AgentHarness::UnsupportedAuthFlowError, /OAuth URL generation is not yet implemented/)
       end
     end
   end
@@ -640,8 +652,20 @@ RSpec.describe AgentHarness::Authentication do
     end
 
     context "for API key provider" do
-      it "raises NotImplementedError" do
-        expect { described_class.refresh_auth(:aider, token: "key") }.to raise_error(NotImplementedError, /api_key/)
+      it "raises UnsupportedAuthFlowError with provider auth details" do
+        expect { described_class.refresh_auth(:aider, token: "key") }
+          .to raise_error(AgentHarness::UnsupportedAuthFlowError, /Provider aider uses api_key auth/)
+      end
+
+      it "raises an AgentHarness::Error subclass" do
+        expect { described_class.refresh_auth(:aider, token: "key") }.to raise_error(AgentHarness::Error)
+      end
+    end
+
+    context "for OAuth provider without credential refresh support" do
+      it "raises UnsupportedAuthFlowError with implementation details" do
+        expect { described_class.refresh_auth(:cursor, token: "key") }
+          .to raise_error(AgentHarness::UnsupportedAuthFlowError, /Credential refresh is not yet implemented/)
       end
     end
   end
