@@ -144,7 +144,7 @@ module AgentHarness
 
       @logger&.debug("[AgentHarness::TextTransport] POST #{uri} model=#{body[:model]} stream=true")
 
-      accumulated = {content: +"", model: nil, usage: nil}
+      accumulated = {content: +"", model: nil, usage: nil, tool_calls: []}
 
       http.request(request) do |http_response|
         status_code = http_response.code.to_i
@@ -222,11 +222,11 @@ module AgentHarness
         accumulated[:model] ||= message["model"]
         merge_usage!(accumulated, message["usage"])
       when "content_block_start"
-        content_block = payload["content_block"] || {}
-        emit_text_delta(content_block["text"], accumulated, &on_chunk) if content_block["type"] == "text"
+        process_content_block_start(payload, accumulated, &on_chunk)
       when "content_block_delta"
-        delta = payload["delta"] || {}
-        emit_text_delta(delta["text"], accumulated, &on_chunk) if delta["type"] == "text_delta"
+        process_content_block_delta(payload, accumulated, &on_chunk)
+      when "content_block_stop"
+        process_content_block_stop(payload, accumulated, &on_chunk)
       when "message_delta"
         merge_usage!(accumulated, payload["usage"])
       when "message_stop"
@@ -278,6 +278,10 @@ module AgentHarness
       body = JSON.parse(http_response.body)
       output = extract_text_content(body)
       tokens = extract_tokens(body)
+      tool_calls = extract_tool_calls(body)
+
+      metadata = {transport: :http}
+      metadata[:tool_calls] = tool_calls if tool_calls
 
       Response.new(
         output: output,
@@ -286,7 +290,7 @@ module AgentHarness
         provider: :claude,
         model: body["model"] || model,
         tokens: tokens,
-        metadata: {transport: :http}
+        metadata: metadata
       )
     rescue JSON::ParserError => e
       raise ProviderError.new(
@@ -296,6 +300,10 @@ module AgentHarness
     end
 
     def build_streaming_response(accumulated, duration:, model:)
+      tool_calls = accumulated[:tool_calls].compact
+      metadata = {transport: :http, stream: true}
+      metadata[:tool_calls] = tool_calls unless tool_calls.empty?
+
       Response.new(
         output: accumulated[:content],
         exit_code: 0,
@@ -303,7 +311,7 @@ module AgentHarness
         provider: :claude,
         model: accumulated[:model] || model,
         tokens: accumulated[:usage],
-        metadata: {transport: :http, stream: true}
+        metadata: metadata
       )
     end
 
@@ -315,6 +323,23 @@ module AgentHarness
         .select { |block| block["type"] == "text" }
         .map { |block| block["text"] }
         .join
+    end
+
+    def extract_tool_calls(body)
+      content = body["content"]
+      return nil unless content.is_a?(Array)
+
+      tool_calls = content.filter_map do |block|
+        next unless block["type"] == "tool_use"
+
+        {
+          id: block["id"],
+          name: block["name"],
+          arguments: JSON.generate(block["input"] || {})
+        }
+      end
+
+      tool_calls.empty? ? nil : tool_calls
     end
 
     def extract_tokens(body)
@@ -370,6 +395,77 @@ module AgentHarness
         on_chat_chunk&.call(chunk)
         observer.on_chat_chunk(chunk) if observer_responds_to?(observer, :on_chat_chunk)
       end
+    end
+
+    def process_content_block_start(payload, accumulated, &on_chunk)
+      content_block = payload["content_block"] || {}
+
+      case content_block["type"]
+      when "text"
+        emit_text_delta(content_block["text"], accumulated, &on_chunk)
+      when "tool_use"
+        index = payload["index"] || 0
+        accumulated[:tool_calls][index] = {
+          id: content_block["id"],
+          name: content_block["name"],
+          arguments: +"",
+          structured_input: content_block["input"],
+          saw_delta: false
+        }
+        on_chunk.call({
+          type: :tool_call_start,
+          id: content_block["id"],
+          name: content_block["name"]
+        })
+      end
+    end
+
+    def process_content_block_delta(payload, accumulated, &on_chunk)
+      delta = payload["delta"] || {}
+
+      case delta["type"]
+      when "text_delta"
+        emit_text_delta(delta["text"], accumulated, &on_chunk)
+      when "input_json_delta"
+        index = payload["index"] || 0
+        tool_call = accumulated[:tool_calls][index]
+        return unless tool_call
+
+        partial_json = delta["partial_json"]
+        return if partial_json.nil? || partial_json.empty?
+
+        tool_call[:saw_delta] = true
+        tool_call[:arguments] << partial_json
+        on_chunk.call({
+          type: :tool_call_delta,
+          id: tool_call[:id],
+          arguments: partial_json
+        })
+      end
+    end
+
+    def process_content_block_stop(payload, accumulated, &on_chunk)
+      index = payload["index"] || 0
+      tool_call = accumulated[:tool_calls][index]
+      return unless tool_call
+
+      arguments = finalized_tool_call_arguments(tool_call)
+      tool_call[:arguments] = arguments
+      tool_call.delete(:structured_input)
+      tool_call.delete(:saw_delta)
+
+      on_chunk.call({
+        type: :tool_call_complete,
+        id: tool_call[:id],
+        name: tool_call[:name],
+        arguments: arguments
+      })
+    end
+
+    def finalized_tool_call_arguments(tool_call)
+      return tool_call[:arguments] if tool_call[:saw_delta]
+
+      JSON.generate(tool_call[:structured_input] || {})
     end
 
     def observer_responds_to?(observer, method_name)

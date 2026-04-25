@@ -109,6 +109,23 @@ RSpec.describe AgentHarness::TextTransport do
         expect(response.output).to eq("Part 1. Part 2.")
       end
 
+      it "preserves Anthropic tool calls in response metadata" do
+        stub_api_response(status: 200, body: {
+          "content" => [
+            {"type" => "text", "text" => "I'll check."},
+            {"type" => "tool_use", "id" => "toolu_123", "name" => "get_weather", "input" => {"location" => "NYC"}}
+          ],
+          "usage" => {"input_tokens" => 10, "output_tokens" => 4}
+        })
+
+        response = transport.chat(messages: [{role: "user", content: "What's the weather?"}])
+
+        expect(response.output).to eq("I'll check.")
+        expect(response.metadata[:tool_calls]).to eq([
+          {id: "toolu_123", name: "get_weather", arguments: '{"location":"NYC"}'}
+        ])
+      end
+
       it "handles empty content array" do
         stub_api_response(status: 200, body: {
           "content" => [],
@@ -386,6 +403,40 @@ RSpec.describe AgentHarness::TextTransport do
         expect(response.model).to eq("claude-sonnet-4-20250514")
         expect(response.tokens).to eq({input: 9, output: 3, total: 12})
         expect(response.metadata).to include(transport: :http, stream: true)
+      end
+
+      it "yields Anthropic tool call chunks and stores the completed tool call" do
+        chunks = [
+          "event: content_block_start\n",
+          "data: #{JSON.generate({"type" => "content_block_start", "index" => 0, "content_block" => {"type" => "tool_use", "id" => "toolu_123", "name" => "get_weather", "input" => {}}})}\n\n",
+          "event: content_block_delta\n",
+          "data: #{JSON.generate({"type" => "content_block_delta", "index" => 0, "delta" => {"type" => "input_json_delta", "partial_json" => "{\"loc"}})}\n\n",
+          "event: content_block_delta\n",
+          "data: #{JSON.generate({"type" => "content_block_delta", "index" => 0, "delta" => {"type" => "input_json_delta", "partial_json" => "ation\":\"NYC\"}"}})}\n\n",
+          "event: content_block_stop\n",
+          "data: #{JSON.generate({"type" => "content_block_stop", "index" => 0})}\n\n",
+          "event: message_stop\n",
+          "data: #{JSON.generate({"type" => "message_stop"})}\n\n"
+        ]
+
+        stub_streaming_response(status: 200, chunks: chunks)
+
+        received = []
+        response = transport.chat(
+          messages: [{role: "user", content: "What's the weather?"}],
+          stream: true
+        ) { |chunk| received << chunk }
+
+        expect(received).to include(
+          {type: :tool_call_start, id: "toolu_123", name: "get_weather"},
+          {type: :tool_call_delta, id: "toolu_123", arguments: "{\"loc"},
+          {type: :tool_call_delta, id: "toolu_123", arguments: "ation\":\"NYC\"}"},
+          {type: :tool_call_complete, id: "toolu_123", name: "get_weather", arguments: '{"location":"NYC"}'},
+          {type: :done}
+        )
+        expect(response.metadata[:tool_calls]).to eq([
+          {id: "toolu_123", name: "get_weather", arguments: '{"location":"NYC"}'}
+        ])
       end
 
       it "delivers chunks to on_chat_chunk and observer" do

@@ -553,9 +553,14 @@ module AgentHarness
           "#{name} does not support chat_base_url/chat_api_key overrides on ProviderRuntime"
       end
 
-      def format_messages_for_transport(conversation, transport)
+      def format_messages_for_transport(conversation, _transport)
         conversation.map do |msg|
-          {role: (msg[:role] || msg["role"]).to_s, content: (msg[:content] || msg["content"]).to_s}
+          normalized = msg.each_with_object({}) do |(key, value), memo|
+            memo[key.is_a?(String) ? key.to_sym : key] = value
+          end
+
+          normalized[:role] = normalized[:role].to_s if normalized.key?(:role)
+          normalized
         end
       end
 

@@ -145,6 +145,22 @@ RSpec.describe "Provider chat capability" do
         )
       end
 
+      it "preserves assistant tool calls and tool replies in transport messages" do
+        conversation = [
+          {role: "user", content: "What's the weather?"},
+          {role: "assistant", content: nil, tool_calls: [
+            {id: "call_1", type: "function", function: {name: "get_weather", arguments: '{"location":"NYC"}'}}
+          ]},
+          {role: "tool", tool_call_id: "call_1", content: '{"temp":72}'}
+        ]
+
+        expect(mock_transport).to receive(:chat).with(
+          hash_including(messages: conversation)
+        ).and_return(response)
+
+        provider.send_chat_message(conversation: conversation)
+      end
+
       it "supports streaming mode" do
         chunks = []
         expect(mock_transport).to receive(:chat).with(
@@ -360,6 +376,23 @@ RSpec.describe "Provider chat capability" do
           conversation: [{role: "user", content: "Calculate 2+2"}],
           tools: tools
         )
+      end
+
+      it "preserves structured Anthropic content blocks in transport messages" do
+        conversation = [
+          {role: "assistant", content: [
+            {type: "tool_use", id: "toolu_123", name: "calculator", input: {"expression" => "2+2"}}
+          ]},
+          {role: "user", content: [
+            {type: "tool_result", tool_use_id: "toolu_123", content: "4"}
+          ]}
+        ]
+
+        expect(mock_transport).to receive(:chat).with(
+          hash_including(messages: conversation)
+        ).and_return(response)
+
+        provider.send_chat_message(conversation: conversation)
       end
 
       it "passes runtime model override to the transport" do
