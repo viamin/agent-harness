@@ -247,6 +247,15 @@ RSpec.describe "Provider chat capability" do
 
         expect(provider.send(:resolve_chat_api_key)).to eq("ghp_fallback")
       end
+
+      it "falls back to the Copilot CLI access token file" do
+        allow(ENV).to receive(:[]).and_call_original
+        allow(ENV).to receive(:[]).with("GITHUB_TOKEN").and_return(nil)
+        allow(ENV).to receive(:[]).with("GH_TOKEN").and_return(nil)
+        allow(provider).to receive(:read_copilot_cli_access_token).and_return("ghu_copilot_oauth")
+
+        expect(provider.send(:resolve_chat_api_key)).to eq("ghu_copilot_oauth")
+      end
     end
   end
 
@@ -516,13 +525,49 @@ RSpec.describe "Provider chat capability" do
         transport.chat(messages: [{role: "user", content: "Hi"}], tools: tools)
       end
 
-      it "raises when streaming is requested" do
-        expect {
-          transport.chat(
-            messages: [{role: "user", content: "Hello"}],
-            stream: true
-          ) { |_chunk| nil }
-        }.to raise_error(AgentHarness::ProviderError, /streaming is not implemented/)
+      it "streams Anthropic SSE chat responses" do
+        http = instance_double(Net::HTTP)
+        allow(Net::HTTP).to receive(:new).and_return(http)
+        allow(http).to receive(:use_ssl=)
+        allow(http).to receive(:open_timeout=)
+        allow(http).to receive(:read_timeout=)
+
+        chunks = [
+          "event: message_start\n",
+          "data: #{JSON.generate({"type" => "message_start", "message" => {"model" => "claude-sonnet-4-20250514", "usage" => {"input_tokens" => 12}}})}\n\n",
+          "event: content_block_delta\n",
+          "data: #{JSON.generate({"type" => "content_block_delta", "delta" => {"type" => "text_delta", "text" => "Hello"}})}\n\n",
+          "event: content_block_delta\n",
+          "data: #{JSON.generate({"type" => "content_block_delta", "delta" => {"type" => "text_delta", "text" => " there"}})}\n\n",
+          "event: message_delta\n",
+          "data: #{JSON.generate({"type" => "message_delta", "usage" => {"output_tokens" => 4}})}\n\n",
+          "event: message_stop\n",
+          "data: #{JSON.generate({"type" => "message_stop"})}\n\n"
+        ]
+
+        allow(http).to receive(:request) do |_req, &block|
+          http_response = instance_double(Net::HTTPOK, code: "200")
+          allow(http_response).to receive(:read_body) do |&body_block|
+            chunks.each { |chunk| body_block.call(chunk) }
+          end
+          block.call(http_response)
+        end
+
+        received = []
+        response = transport.chat(
+          messages: [{role: "user", content: "Hello"}],
+          stream: true
+        ) { |chunk| received << chunk }
+
+        expect(received).to eq([
+          {type: :text, content: "Hello"},
+          {type: :text, content: " there"},
+          {type: :usage, input_tokens: 12, output_tokens: 4},
+          {type: :done}
+        ])
+        expect(response.output).to eq("Hello there")
+        expect(response.tokens).to eq({input: 12, output: 4, total: 16})
+        expect(response.metadata).to include(transport: :http, stream: true)
       end
     end
   end

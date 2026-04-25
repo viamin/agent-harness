@@ -68,16 +68,17 @@ module AgentHarness
       model ||= @model
       uri = URI("#{@base_url}/chat/completions")
 
+      has_stream_receiver = on_chunk || on_chat_chunk || observer_responds_to?(observer, :on_chat_chunk)
+      request_stream = stream && has_stream_receiver
+
       body = build_request_body(
-        messages: messages, tools: tools, stream: stream,
+        messages: messages, tools: tools, stream: request_stream,
         max_tokens: max_tokens, temperature: temperature, model: model
       )
 
       start_time = Time.now
 
-      has_stream_receiver = on_chunk || on_chat_chunk || observer_responds_to?(observer, :on_chat_chunk)
-
-      if stream && has_stream_receiver
+      if request_stream
         combined = build_chat_chunk_callback(on_chunk, on_chat_chunk, observer)
         result = make_streaming_request(uri, body, &combined)
         duration = Time.now - start_time

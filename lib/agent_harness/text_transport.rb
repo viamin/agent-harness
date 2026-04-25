@@ -43,11 +43,8 @@ module AgentHarness
     # @param temperature [Float, nil] sampling temperature
     # @yield [Hash] streaming chunks when stream: true
     # @return [Response] the response
-    def chat(messages:, tools: nil, stream: false, max_tokens: nil, temperature: nil, model: nil, &on_chunk)
-      if stream
-        raise ProviderError, "Anthropic chat streaming is not implemented for TextTransport"
-      end
-
+    def chat(messages:, tools: nil, stream: false, max_tokens: nil, temperature: nil,
+      model: nil, on_chat_chunk: nil, observer: nil, &on_chunk)
       model ||= DEFAULT_MODEL
       timeout = DEFAULT_TIMEOUT
       max_tokens ||= DEFAULT_MAX_TOKENS
@@ -56,21 +53,31 @@ module AgentHarness
 
       system_messages = messages.select { |m| m[:role] == "system" || m["role"] == "system" }
       non_system = messages.reject { |m| m[:role] == "system" || m["role"] == "system" }
+      has_stream_receiver = on_chunk || on_chat_chunk || observer_responds_to?(observer, :on_chat_chunk)
+      request_stream = stream && has_stream_receiver
 
-      body = {
+      body = build_chat_request_body(
         model: model,
         max_tokens: max_tokens,
-        messages: non_system.map { |m| {role: m[:role] || m["role"], content: m[:content] || m["content"]} }
-      }
-      body[:system] = system_messages.map { |m| m[:content] || m["content"] }.join("\n") if system_messages.any?
-      body[:tools] = tools if tools
-      body[:temperature] = temperature if temperature
+        messages: non_system,
+        system_messages: system_messages,
+        tools: tools,
+        temperature: temperature,
+        stream: request_stream
+      )
 
       start_time = Time.now
-      http_response = make_request(uri, body, timeout: timeout)
-      duration = Time.now - start_time
 
-      parse_response(http_response, duration: duration, model: model)
+      if request_stream
+        combined = build_chat_chunk_callback(on_chunk, on_chat_chunk, observer)
+        result = make_streaming_request(uri, body, timeout: timeout, &combined)
+        duration = Time.now - start_time
+        build_streaming_response(result, duration: duration, model: model)
+      else
+        http_response = make_request(uri, body, timeout: timeout)
+        duration = Time.now - start_time
+        parse_response(http_response, duration: duration, model: model)
+      end
     end
 
     # Send a text-only message via the Anthropic Messages API.
@@ -105,17 +112,22 @@ module AgentHarness
 
     private
 
-    def make_request(uri, body, timeout:)
-      http = Net::HTTP.new(uri.host, uri.port)
-      http.use_ssl = true
-      http.open_timeout = [timeout, 30].min
-      http.read_timeout = timeout
+    def build_chat_request_body(model:, max_tokens:, messages:, system_messages:, tools:, temperature:, stream:)
+      body = {
+        model: model,
+        max_tokens: max_tokens,
+        messages: messages.map { |m| {role: m[:role] || m["role"], content: m[:content] || m["content"]} }
+      }
+      body[:system] = system_messages.map { |m| m[:content] || m["content"] }.join("\n") if system_messages.any?
+      body[:tools] = tools if tools
+      body[:temperature] = temperature if temperature
+      body[:stream] = true if stream
+      body
+    end
 
-      request = Net::HTTP::Post.new(uri)
-      request["Content-Type"] = "application/json"
-      request["x-api-key"] = @api_key
-      request["anthropic-version"] = ANTHROPIC_API_VERSION
-      request.body = JSON.generate(body)
+    def make_request(uri, body, timeout:)
+      http = build_http(uri, timeout: timeout)
+      request = build_post_request(uri, body)
 
       @logger&.debug("[AgentHarness::TextTransport] POST #{uri} model=#{body[:model]}")
 
@@ -124,6 +136,136 @@ module AgentHarness
       raise TimeoutError.new(e.message, original_error: e)
     rescue SocketError, Errno::ECONNREFUSED, Errno::ECONNRESET, IOError => e
       raise ProviderError.new("HTTP connection error: #{e.message}", original_error: e)
+    end
+
+    def make_streaming_request(uri, body, timeout:, &on_chunk)
+      http = build_http(uri, timeout: timeout)
+      request = build_post_request(uri, body)
+
+      @logger&.debug("[AgentHarness::TextTransport] POST #{uri} model=#{body[:model]} stream=true")
+
+      accumulated = {content: +"", model: nil, usage: nil}
+
+      http.request(request) do |http_response|
+        status_code = http_response.code.to_i
+        unless status_code == 200
+          response_body = http_response.read_body
+          handle_error_response_raw(response_body, status_code)
+        end
+
+        parse_sse_stream(http_response, accumulated, &on_chunk)
+      end
+
+      accumulated
+    rescue Net::OpenTimeout, Net::ReadTimeout => e
+      raise TimeoutError.new(e.message, original_error: e)
+    rescue SocketError, Errno::ECONNREFUSED, Errno::ECONNRESET, IOError => e
+      raise ProviderError.new("HTTP connection error: #{e.message}", original_error: e)
+    end
+
+    def build_http(uri, timeout:)
+      http = Net::HTTP.new(uri.host, uri.port)
+      http.use_ssl = (uri.scheme == "https")
+      http.open_timeout = [timeout, 30].min
+      http.read_timeout = timeout
+      http
+    end
+
+    def build_post_request(uri, body)
+      request = Net::HTTP::Post.new(uri)
+      request["Content-Type"] = "application/json"
+      request["x-api-key"] = @api_key
+      request["anthropic-version"] = ANTHROPIC_API_VERSION
+      request.body = JSON.generate(body)
+      request
+    end
+
+    def parse_sse_stream(http_response, accumulated, &on_chunk)
+      buffer = +""
+      event_name = nil
+      data_lines = []
+
+      http_response.read_body do |chunk|
+        buffer << chunk.delete("\r")
+
+        while (line_end = buffer.index("\n"))
+          line = buffer.slice!(0, line_end + 1).chomp("\n")
+
+          if line.empty?
+            process_sse_event(event_name, data_lines.join("\n"), accumulated, &on_chunk)
+            event_name = nil
+            data_lines = []
+            next
+          end
+
+          if line.start_with?("event:")
+            event_name = line[6..].strip
+          elsif line.start_with?("data:")
+            data_lines << line[5..].lstrip
+          end
+        end
+      end
+
+      process_sse_event(event_name, data_lines.join("\n"), accumulated, &on_chunk) unless data_lines.empty?
+    end
+
+    def process_sse_event(event_name, raw_data, accumulated, &on_chunk)
+      return if raw_data.nil? || raw_data.empty?
+      return if event_name == "ping"
+
+      payload = JSON.parse(raw_data)
+      type = payload["type"] || event_name
+
+      case type
+      when "message_start"
+        message = payload["message"] || {}
+        accumulated[:model] ||= message["model"]
+        merge_usage!(accumulated, message["usage"])
+      when "content_block_start"
+        content_block = payload["content_block"] || {}
+        emit_text_delta(content_block["text"], accumulated, &on_chunk) if content_block["type"] == "text"
+      when "content_block_delta"
+        delta = payload["delta"] || {}
+        emit_text_delta(delta["text"], accumulated, &on_chunk) if delta["type"] == "text_delta"
+      when "message_delta"
+        merge_usage!(accumulated, payload["usage"])
+      when "message_stop"
+        emit_usage_and_done(accumulated, &on_chunk)
+      when "error"
+        message = payload.dig("error", "message") || payload.dig("error", "type") || raw_data
+        raise ProviderError, message
+      end
+    rescue JSON::ParserError => e
+      @logger&.warn("[AgentHarness::TextTransport] Skipping malformed SSE event: #{e.message}")
+    end
+
+    def emit_text_delta(text, accumulated, &on_chunk)
+      return if text.nil? || text.empty?
+
+      accumulated[:content] << text
+      on_chunk.call({type: :text, content: text})
+    end
+
+    def merge_usage!(accumulated, usage)
+      return unless usage
+
+      current = accumulated[:usage] || {input: 0, output: 0, total: 0}
+      current[:input] = usage["input_tokens"] unless usage["input_tokens"].nil?
+      current[:output] = usage["output_tokens"] unless usage["output_tokens"].nil?
+      current[:total] = current[:input].to_i + current[:output].to_i
+      accumulated[:usage] = current
+    end
+
+    def emit_usage_and_done(accumulated, &on_chunk)
+      usage = accumulated[:usage]
+      if usage
+        on_chunk.call({
+          type: :usage,
+          input_tokens: usage[:input],
+          output_tokens: usage[:output]
+        })
+      end
+      on_chunk.call({type: :done})
     end
 
     def parse_response(http_response, duration:, model:)
@@ -153,6 +295,18 @@ module AgentHarness
       )
     end
 
+    def build_streaming_response(accumulated, duration:, model:)
+      Response.new(
+        output: accumulated[:content],
+        exit_code: 0,
+        duration: duration,
+        provider: :claude,
+        model: accumulated[:model] || model,
+        tokens: accumulated[:usage],
+        metadata: {transport: :http, stream: true}
+      )
+    end
+
     def extract_text_content(body)
       content = body["content"]
       return "" unless content.is_a?(Array)
@@ -174,11 +328,15 @@ module AgentHarness
     end
 
     def handle_error_response(http_response, status_code)
+      handle_error_response_raw(http_response.body, status_code)
+    end
+
+    def handle_error_response_raw(body_string, status_code)
       message = begin
-        body = JSON.parse(http_response.body)
-        body.dig("error", "message") || body.dig("error", "type") || http_response.body
+        body = JSON.parse(body_string)
+        body.dig("error", "message") || body.dig("error", "type") || body_string
       rescue JSON::ParserError
-        http_response.body
+        body_string
       end
 
       case status_code
@@ -204,6 +362,18 @@ module AgentHarness
       else
         raise ProviderError.new("HTTP #{status_code}: #{message}")
       end
+    end
+
+    def build_chat_chunk_callback(on_chunk, on_chat_chunk, observer)
+      proc do |chunk|
+        on_chunk&.call(chunk)
+        on_chat_chunk&.call(chunk)
+        observer.on_chat_chunk(chunk) if observer_responds_to?(observer, :on_chat_chunk)
+      end
+    end
+
+    def observer_responds_to?(observer, method_name)
+      observer&.respond_to?(method_name)
     end
   end
 end

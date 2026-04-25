@@ -2,6 +2,7 @@
 
 require "digest"
 require "json"
+require "pathname"
 
 module AgentHarness
   module Providers
@@ -841,16 +842,25 @@ module AgentHarness
       end
 
       def resolve_chat_api_key
-        key = ENV["GITHUB_TOKEN"] || ENV["GH_TOKEN"]
+        key = ENV["GITHUB_TOKEN"] || ENV["GH_TOKEN"] || read_copilot_cli_access_token
 
         if key.nil? || key.strip.empty?
           raise AuthenticationError.new(
-            "Chat mode requires a GitHub token. Set GITHUB_TOKEN or GH_TOKEN.",
+            "Chat mode requires a GitHub token. Set GITHUB_TOKEN or GH_TOKEN, or authenticate the Copilot CLI.",
             provider: :github_copilot
           )
         end
 
         key.strip
+      end
+
+      def read_copilot_cli_access_token
+        path = Pathname.new(File.join(Dir.home, ".copilot-cli-access-token"))
+        return nil unless path.file?
+
+        path.read
+      rescue Errno::ENOENT, Errno::EACCES, IOError
+        nil
       end
     end
   end
