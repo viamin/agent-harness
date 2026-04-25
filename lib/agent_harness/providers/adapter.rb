@@ -290,7 +290,8 @@ module AgentHarness
                 canonical_name: canonical_provider_name,
                 aliases: normalized_aliases
               )
-            }
+            },
+            chat: build_chat_metadata(provider)
           }
 
           deep_merge_metadata(metadata, sanitized_provider_metadata_overrides)
@@ -534,6 +535,32 @@ module AgentHarness
             "[AgentHarness::Providers::Adapter] Falling back to default #{method_name} metadata for #{provider_name}: #{e.class}"
           )
           default
+        end
+
+        def build_chat_metadata(provider)
+          supported = provider_metadata_value(provider, :supports_chat?, default: false)
+          return {supported: false} unless supported
+
+          chat_meta = {supported: true}
+
+          if provider.respond_to?(:chat_models, true)
+            models = provider.chat_models
+            chat_meta[:models] = models if models.is_a?(Array)
+            chat_meta[:default_model] = models.first if models.is_a?(Array) && !models.empty?
+          end
+
+          transport = provider_metadata_value(provider, :chat_transport, default: nil)
+          chat_meta[:transport] = case transport
+          when OpenAICompatibleTransport then :openai_compatible
+          when TextTransport then :anthropic
+          end
+
+          chat_meta
+        rescue => e
+          AgentHarness.logger&.debug(
+            "[AgentHarness::Providers::Adapter] chat metadata failed for #{provider_name}: #{e.class}"
+          )
+          {supported: false}
         end
 
         def provider_display_name(provider, canonical_name: provider_name)
@@ -918,6 +945,26 @@ module AgentHarness
       # @return [Boolean] true if the provider has an HTTP text transport
       def supports_text_mode?
         false
+      end
+
+      # Check if provider supports multi-turn chat mode.
+      #
+      # Providers that return +true+ can accept conversation history
+      # and return streaming multi-turn responses via +send_chat_message+.
+      #
+      # @return [Boolean] true if the provider supports chat
+      def supports_chat?
+        false
+      end
+
+      # Returns the transport instance used for chat mode.
+      #
+      # Providers that support chat override this to return an appropriate
+      # transport (e.g. OpenAICompatibleTransport or TextTransport).
+      #
+      # @return [Object, nil] transport instance or nil if unsupported
+      def chat_transport
+        nil
       end
 
       # Check if provider supports dangerous mode

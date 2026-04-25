@@ -159,6 +159,10 @@ module AgentHarness
           MODEL_PATTERN.match?(family_name)
         end
 
+        def supports_chat?
+          true
+        end
+
         def smoke_test_contract
           Base::DEFAULT_SMOKE_TEST_CONTRACT
         end
@@ -408,6 +412,20 @@ module AgentHarness
 
       def supports_text_mode?
         true
+      end
+
+      CHAT_MODELS = %w[claude-sonnet-4-20250514 claude-haiku-4-20250414 claude-opus-4-20250514].freeze
+
+      def supports_chat?
+        true
+      end
+
+      def chat_models
+        CHAT_MODELS
+      end
+
+      def chat_transport
+        @chat_transport ||= TextTransport.new(api_key: resolve_text_mode_api_key, logger: @logger)
       end
 
       def dangerous_mode_flags

@@ -32,6 +32,41 @@ module AgentHarness
       @logger = logger
     end
 
+    # Send a multi-turn chat completion request via the Anthropic Messages API.
+    #
+    # @param messages [Array<Hash>] conversation messages with :role and :content
+    # @param tools [Array<Hash>, nil] tool definitions (Anthropic tool format)
+    # @param stream [Boolean] whether to stream the response (not yet implemented)
+    # @param max_tokens [Integer, nil] maximum tokens in the response
+    # @param temperature [Float, nil] sampling temperature
+    # @yield [Hash] streaming chunks when stream: true
+    # @return [Response] the response
+    def chat(messages:, tools: nil, stream: false, max_tokens: nil, temperature: nil, &on_chunk)
+      model = DEFAULT_MODEL
+      timeout = DEFAULT_TIMEOUT
+      max_tokens ||= DEFAULT_MAX_TOKENS
+
+      uri = URI(ANTHROPIC_API_URL)
+
+      system_messages = messages.select { |m| m[:role] == "system" || m["role"] == "system" }
+      non_system = messages.reject { |m| m[:role] == "system" || m["role"] == "system" }
+
+      body = {
+        model: model,
+        max_tokens: max_tokens,
+        messages: non_system.map { |m| {role: m[:role] || m["role"], content: m[:content] || m["content"]} }
+      }
+      body[:system] = system_messages.map { |m| m[:content] || m["content"] }.join("\n") if system_messages.any?
+      body[:tools] = tools if tools
+      body[:temperature] = temperature if temperature
+
+      start_time = Time.now
+      http_response = make_request(uri, body, timeout: timeout)
+      duration = Time.now - start_time
+
+      parse_response(http_response, duration: duration, model: model)
+    end
+
     # Send a text-only message via the Anthropic Messages API.
     #
     # @param prompt [String] the user prompt

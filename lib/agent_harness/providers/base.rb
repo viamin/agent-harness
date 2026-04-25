@@ -181,6 +181,59 @@ module AgentHarness
         handle_error(e, prompt: prompt, options: options)
       end
 
+      # Send a multi-turn chat message via the provider's chat transport.
+      #
+      # @param conversation [Array<Hash>] message history
+      #   Each element should have :role ("user", "assistant", "system") and :content keys.
+      # @param tools [Array<Hash>, nil] tool/function definitions
+      # @param stream [Boolean] whether to stream the response
+      # @param options [Hash] additional options
+      # @yield [Hash] streaming chunks when stream: true
+      # @return [Response] the response
+      # @raise [ProviderError] if the provider does not support chat mode
+      def send_chat_message(conversation:, tools: nil, stream: false, **options, &on_chunk)
+        unless supports_chat?
+          raise ProviderError, "#{name} does not support chat mode"
+        end
+
+        options = normalize_provider_runtime(options)
+        runtime = options[:provider_runtime]
+
+        transport = resolve_chat_transport(options)
+        messages = format_messages_for_transport(conversation, transport)
+        transport_opts = chat_transport_options(runtime, options)
+
+        response = transport.chat(
+          messages: messages,
+          tools: tools,
+          stream: stream,
+          **transport_opts,
+          &on_chunk
+        )
+
+        if runtime&.model
+          response = Response.new(
+            output: response.output,
+            exit_code: response.exit_code,
+            duration: response.duration,
+            provider: response.provider,
+            model: runtime.model,
+            tokens: response.tokens,
+            metadata: response.metadata,
+            error: response.error
+          )
+        end
+
+        track_tokens(response) if response.tokens
+        log_debug("send_chat_message_complete", duration: response.duration, tokens: response.tokens)
+
+        response
+      rescue ProviderError, AuthenticationError, RateLimitError, TimeoutError
+        raise
+      rescue => e
+        handle_error(e, prompt: conversation.last&.dig(:content).to_s, options: options)
+      end
+
       # Provider name for display
       #
       # @return [String] display name
@@ -464,6 +517,26 @@ module AgentHarness
         else
           ProviderError.new(original_error.message, original_error: original_error)
         end
+      end
+
+      def resolve_chat_transport(_options)
+        transport = chat_transport
+        raise ProviderError, "#{name} chat_transport returned nil" unless transport
+
+        transport
+      end
+
+      def format_messages_for_transport(conversation, transport)
+        conversation.map do |msg|
+          {role: msg[:role].to_s, content: msg[:content].to_s}
+        end
+      end
+
+      def chat_transport_options(runtime, options)
+        opts = {}
+        opts[:max_tokens] = options[:chat_max_tokens] || options[:max_tokens] if options[:chat_max_tokens] || options[:max_tokens]
+        opts[:temperature] = options[:temperature] if options[:temperature]
+        opts
       end
 
       def log_debug(action, **context)

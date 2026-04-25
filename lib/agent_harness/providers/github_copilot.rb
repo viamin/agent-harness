@@ -97,6 +97,10 @@ module AgentHarness
           ]
         end
 
+        def supports_chat?
+          true
+        end
+
         def smoke_test_contract
           SMOKE_TEST_CONTRACT
         end
@@ -192,6 +196,27 @@ module AgentHarness
         return [] unless legacy_prompt_cli?(version: version, probe_timeout: probe_timeout, env: env)
 
         ["--resume", session_id]
+      end
+
+      GITHUB_MODELS_BASE_URL = "https://models.inference.ai.azure.com"
+      CHAT_DEFAULT_MODEL = "gpt-4o"
+      CHAT_MODELS = %w[gpt-4o gpt-4o-mini gpt-4-turbo].freeze
+
+      def supports_chat?
+        true
+      end
+
+      def chat_models
+        CHAT_MODELS
+      end
+
+      def chat_transport
+        @chat_transport ||= OpenAICompatibleTransport.new(
+          base_url: GITHUB_MODELS_BASE_URL,
+          api_key: resolve_chat_api_key,
+          model: CHAT_DEFAULT_MODEL,
+          logger: @logger
+        )
       end
 
       def auth_type
@@ -800,6 +825,19 @@ module AgentHarness
 
       def hash_key_present?(value, key)
         value.is_a?(Hash) && value.key?(key)
+      end
+
+      def resolve_chat_api_key
+        key = ENV["GITHUB_TOKEN"] || ENV["GH_TOKEN"]
+
+        if key.nil? || key.strip.empty?
+          raise AuthenticationError.new(
+            "Chat mode requires a GitHub token. Set GITHUB_TOKEN or GH_TOKEN.",
+            provider: :github_copilot
+          )
+        end
+
+        key.strip
       end
     end
   end
