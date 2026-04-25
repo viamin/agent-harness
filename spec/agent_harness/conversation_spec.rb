@@ -70,6 +70,17 @@ RSpec.describe AgentHarness::Conversation do
       expect(msg[:tool_result]).to eq("found")
       expect(msg[:model]).to eq("gpt-4o")
     end
+
+    it "returns a defensive copy of the stored message" do
+      msg = conversation.add_message(:assistant, "Hi!", tokens: {input: 10, output: 5})
+
+      msg[:content] = "Mutated"
+      msg[:tokens][:input] = 999
+
+      stored_message = conversation.messages.first
+      expect(stored_message[:content]).to eq("Hi!")
+      expect(stored_message[:tokens]).to eq({input: 10, output: 5})
+    end
   end
 
   describe "#messages" do
@@ -78,6 +89,22 @@ RSpec.describe AgentHarness::Conversation do
       msgs = conversation.messages
       msgs.clear
       expect(conversation.message_count).to eq(1)
+    end
+
+    it "returns deep-copied messages" do
+      conversation.add_message(:assistant, "Hi!", tool_calls: [
+        {id: "call_1", name: "search", arguments: {q: "test"}}
+      ])
+
+      msgs = conversation.messages
+      msgs.first[:content] = "Mutated"
+      msgs.first[:tool_calls].first[:arguments][:q] = "changed"
+
+      stored_message = conversation.messages.first
+      expect(stored_message[:content]).to eq("Hi!")
+      expect(stored_message[:tool_calls]).to eq([
+        {id: "call_1", name: "search", arguments: {q: "test"}}
+      ])
     end
   end
 
@@ -377,6 +404,22 @@ RSpec.describe AgentHarness::Conversation do
 
       msg = conversation.last_assistant_message
       expect(msg[:content]).to eq("Second")
+    end
+
+    it "returns a defensive copy" do
+      conversation.add_message(:assistant, "Second", tool_calls: [
+        {id: "call_1", name: "search", arguments: {q: "test"}}
+      ])
+
+      msg = conversation.last_assistant_message
+      msg[:content] = "Mutated"
+      msg[:tool_calls].first[:arguments][:q] = "changed"
+
+      stored_message = conversation.messages.first
+      expect(stored_message[:content]).to eq("Second")
+      expect(stored_message[:tool_calls]).to eq([
+        {id: "call_1", name: "search", arguments: {q: "test"}}
+      ])
     end
   end
 

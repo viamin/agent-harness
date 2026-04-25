@@ -65,14 +65,14 @@ module AgentHarness
       message[:tokens] = metadata[:tokens] if metadata[:tokens]
 
       @messages << message
-      message
+      deep_copy(message)
     end
 
     # Returns the full message history.
     #
     # @return [Array<Hash>] all messages in chronological order
     def messages
-      @messages.dup
+      deep_copy(@messages)
     end
 
     # @return [Integer] the number of messages in the conversation
@@ -212,7 +212,7 @@ module AgentHarness
     # @return [Hash, nil]
     def last_assistant_message
       @messages.reverse_each do |msg|
-        return msg if msg[:role] == :assistant
+        return deep_copy(msg) if msg[:role] == :assistant
       end
       nil
     end
@@ -263,6 +263,23 @@ module AgentHarness
         formatted
       else
         {role: msg[:role].to_s, content: msg[:content]}
+      end
+    end
+
+    def deep_copy(value)
+      case value
+      when Array
+        value.map { |item| deep_copy(item) }
+      when Hash
+        value.each_with_object({}) do |(key, nested_value), copy|
+          copy[key] = deep_copy(nested_value)
+        end
+      else
+        begin
+          value.dup
+        rescue TypeError
+          value
+        end
       end
     end
   end
