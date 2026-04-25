@@ -54,13 +54,14 @@ module AgentHarness
     # @raise [RateLimitError] on 429 responses
     # @raise [TimeoutError] on network timeouts
     # @raise [ProviderError] on other HTTP errors
-    def chat(messages:, tools: nil, stream: false, max_tokens: nil, temperature: nil, &on_chunk)
+    def chat(messages:, tools: nil, stream: false, max_tokens: nil, temperature: nil, model: nil, &on_chunk)
       max_tokens ||= DEFAULT_MAX_TOKENS
+      model ||= @model
       uri = URI("#{@base_url}/chat/completions")
 
       body = build_request_body(
         messages: messages, tools: tools, stream: stream,
-        max_tokens: max_tokens, temperature: temperature
+        max_tokens: max_tokens, temperature: temperature, model: model
       )
 
       start_time = Time.now
@@ -78,9 +79,9 @@ module AgentHarness
 
     private
 
-    def build_request_body(messages:, tools:, stream:, max_tokens:, temperature:)
+    def build_request_body(messages:, tools:, stream:, max_tokens:, temperature:, model: nil)
       body = {
-        model: @model,
+        model: model || @model,
         max_tokens: max_tokens,
         messages: messages
       }
