@@ -208,6 +208,31 @@ RSpec.describe AgentHarness::TextTransport do
         expect(response.duration).to be_a(Float)
         expect(response.duration).to be >= 0
       end
+
+      it "uses the configured base_url for text requests" do
+        custom_transport = described_class.new(
+          api_key: api_key,
+          base_url: "https://anthropic.example.test/v1/messages",
+          logger: logger
+        )
+        http = stub_api_response(status: 200, body: {
+          "content" => [{"type" => "text", "text" => "ok"}],
+          "usage" => {"input_tokens" => 1, "output_tokens" => 1}
+        })
+
+        expect(http).to receive(:request) do |req|
+          expect(req.uri.to_s).to eq("https://anthropic.example.test/v1/messages")
+
+          instance_double(Net::HTTPOK,
+            code: "200",
+            body: JSON.generate({
+              "content" => [{"type" => "text", "text" => "ok"}],
+              "usage" => {"input_tokens" => 1, "output_tokens" => 1}
+            }))
+        end
+
+        custom_transport.send_message("test prompt")
+      end
     end
 
     context "error responses" do

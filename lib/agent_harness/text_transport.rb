@@ -96,7 +96,7 @@ module AgentHarness
       timeout ||= DEFAULT_TIMEOUT
       max_tokens ||= DEFAULT_MAX_TOKENS
 
-      uri = URI(ANTHROPIC_API_URL)
+      uri = URI(@base_url)
       body = {
         model: model,
         max_tokens: max_tokens,

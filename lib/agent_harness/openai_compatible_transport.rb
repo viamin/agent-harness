@@ -82,11 +82,11 @@ module AgentHarness
         combined = build_chat_chunk_callback(on_chunk, on_chat_chunk, observer)
         result = make_streaming_request(uri, body, &combined)
         duration = Time.now - start_time
-        build_streaming_response(result, duration: duration)
+        build_streaming_response(result, duration: duration, model: model)
       else
         http_response = make_request(uri, body)
         duration = Time.now - start_time
-        parse_response(http_response, duration: duration)
+        parse_response(http_response, duration: duration, model: model)
       end
     end
 
@@ -262,7 +262,7 @@ module AgentHarness
       request
     end
 
-    def parse_response(http_response, duration:)
+    def parse_response(http_response, duration:, model:)
       status_code = http_response.code.to_i
 
       unless status_code == 200
@@ -282,7 +282,7 @@ module AgentHarness
         exit_code: 0,
         duration: duration,
         provider: :openai_compatible,
-        model: body["model"] || @model,
+        model: body["model"] || model,
         tokens: tokens,
         metadata: metadata
       )
@@ -293,7 +293,7 @@ module AgentHarness
       )
     end
 
-    def build_streaming_response(accumulated, duration:)
+    def build_streaming_response(accumulated, duration:, model:)
       tool_calls = accumulated[:tool_calls].compact
       metadata = {transport: :http, stream: true}
       metadata[:tool_calls] = tool_calls unless tool_calls.empty?
@@ -303,7 +303,7 @@ module AgentHarness
         exit_code: 0,
         duration: duration,
         provider: :openai_compatible,
-        model: accumulated[:model] || @model,
+        model: accumulated[:model] || model,
         tokens: accumulated[:usage],
         metadata: metadata
       )
