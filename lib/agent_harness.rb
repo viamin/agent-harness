@@ -271,6 +271,7 @@ require_relative "agent_harness/token_tracker"
 require_relative "agent_harness/error_taxonomy"
 require_relative "agent_harness/text_transport"
 require_relative "agent_harness/openai_compatible_transport"
+require_relative "agent_harness/conversation"
 require_relative "agent_harness/authentication"
 require_relative "agent_harness/provider_health_check"
 
