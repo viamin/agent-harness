@@ -22,7 +22,8 @@ module AgentHarness
   #   transport.chat(messages: msgs, stream: true) do |chunk|
   #     case chunk[:type]
   #     when :text    then print chunk[:content]
-  #     when :done    then puts "\nTokens: #{chunk[:usage]}"
+  #     when :usage   then puts "\nTokens: #{chunk[:input_tokens]}+#{chunk[:output_tokens]}"
+  #     when :done    then puts "Stream complete"
   #     end
   #   end
   class OpenAICompatibleTransport
@@ -41,19 +42,6 @@ module AgentHarness
       @logger = logger
     end
 
-    # Send a chat completion request.
-    #
-    # @param messages [Array<Hash>] conversation messages
-    # @param tools [Array<Hash>, nil] tool/function definitions
-    # @param stream [Boolean] whether to stream the response
-    # @param max_tokens [Integer, nil] maximum tokens in the response
-    # @param temperature [Float, nil] sampling temperature
-    # @yield [Hash] streaming chunks when stream: true
-    # @return [Response] the response
-    # @raise [AuthenticationError] on 401/403 responses
-    # @raise [RateLimitError] on 429 responses
-    # @raise [TimeoutError] on network timeouts
-    # @raise [ProviderError] on other HTTP errors
     # Send a chat completion request.
     #
     # Streaming chunks can be received via block, +on_chat_chunk+ proc,
