@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "json"
+
 module AgentHarness
   # Manages multi-turn conversation history with token tracking and
   # transport-specific message formatting.
@@ -180,14 +182,20 @@ module AgentHarness
 
           result_messages << {role: "assistant", content: content_blocks}
         when :tool
-          result_messages << {
-            role: "user",
-            content: [{
-              type: "tool_result",
-              tool_use_id: msg[:tool_call_id],
-              content: msg[:content]
-            }]
+          tool_result_block = {
+            type: "tool_result",
+            tool_use_id: msg[:tool_call_id],
+            content: msg[:content]
           }
+          prev = result_messages.last
+          if prev && prev[:role] == "user" && prev[:content]&.first&.dig(:type) == "tool_result"
+            prev[:content] << tool_result_block
+          else
+            result_messages << {
+              role: "user",
+              content: [tool_result_block]
+            }
+          end
         end
       end
 

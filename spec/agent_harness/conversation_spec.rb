@@ -294,6 +294,25 @@ RSpec.describe AgentHarness::Conversation do
       expect(assistant[:content].first[:type]).to eq("tool_use")
     end
 
+    it "merges consecutive tool results into a single user message" do
+      tool_calls = [
+        {id: "call_1", name: "search", arguments: '{"q":"ruby"}'},
+        {id: "call_2", name: "search", arguments: '{"q":"python"}'}
+      ]
+      conversation.add_message(:assistant, nil, tool_calls: tool_calls)
+      conversation.add_message(:tool, "ruby result", tool_call_id: "call_1")
+      conversation.add_message(:tool, "python result", tool_call_id: "call_2")
+
+      result = conversation.to_anthropic_messages
+      # Two tool results should be merged into one user message
+      expect(result[:messages].size).to eq(2) # assistant + single user
+      user_msg = result[:messages].last
+      expect(user_msg[:role]).to eq("user")
+      expect(user_msg[:content].size).to eq(2)
+      expect(user_msg[:content][0][:tool_use_id]).to eq("call_1")
+      expect(user_msg[:content][1][:tool_use_id]).to eq("call_2")
+    end
+
     it "handles hash arguments in tool_calls" do
       tool_calls = [{id: "call_1", name: "search", arguments: {q: "test"}}]
       conversation.add_message(:assistant, nil, tool_calls: tool_calls)
