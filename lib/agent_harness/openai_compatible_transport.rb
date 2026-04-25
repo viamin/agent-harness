@@ -142,7 +142,12 @@ module AgentHarness
           data = line[6..]
           next if data == "[DONE]"
 
-          event = JSON.parse(data)
+          begin
+            event = JSON.parse(data)
+          rescue JSON::ParserError => e
+            @logger&.warn("[AgentHarness::OpenAICompatibleTransport] Skipping malformed SSE event: #{e.message}")
+            next
+          end
           process_stream_event(event, accumulated, &on_chunk)
         end
       end
