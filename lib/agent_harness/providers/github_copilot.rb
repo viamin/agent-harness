@@ -2,6 +2,7 @@
 
 require "digest"
 require "json"
+require "pathname"
 
 module AgentHarness
   module Providers
@@ -95,6 +96,10 @@ module AgentHarness
             {name: "gpt-4o-mini", family: "gpt-4o-mini", tier: "mini", provider: "github_copilot"},
             {name: "gpt-4-turbo", family: "gpt-4-turbo", tier: "advanced", provider: "github_copilot"}
           ]
+        end
+
+        def supports_chat?
+          true
         end
 
         def smoke_test_contract
@@ -192,6 +197,40 @@ module AgentHarness
         return [] unless legacy_prompt_cli?(version: version, probe_timeout: probe_timeout, env: env)
 
         ["--resume", session_id]
+      end
+
+      GITHUB_MODELS_BASE_URL = "https://models.inference.ai.azure.com"
+      CHAT_DEFAULT_MODEL = "gpt-4o"
+      CHAT_MODELS = %w[gpt-4o gpt-4o-mini gpt-4-turbo].freeze
+
+      def supports_chat?
+        true
+      end
+
+      def chat_models
+        CHAT_MODELS
+      end
+
+      def chat_transport
+        @chat_transport ||= OpenAICompatibleTransport.new(
+          base_url: GITHUB_MODELS_BASE_URL,
+          api_key: resolve_chat_api_key,
+          model: CHAT_DEFAULT_MODEL,
+          logger: @logger
+        )
+      end
+
+      def build_runtime_chat_transport(runtime)
+        OpenAICompatibleTransport.new(
+          base_url: runtime.chat_base_url || GITHUB_MODELS_BASE_URL,
+          api_key: runtime.chat_api_key || resolve_chat_api_key,
+          model: runtime.chat_model || runtime.model || CHAT_DEFAULT_MODEL,
+          logger: @logger
+        )
+      end
+
+      def chat_transport_type
+        :openai_compatible
       end
 
       def auth_type
@@ -800,6 +839,28 @@ module AgentHarness
 
       def hash_key_present?(value, key)
         value.is_a?(Hash) && value.key?(key)
+      end
+
+      def resolve_chat_api_key
+        key = ENV["GITHUB_TOKEN"] || ENV["GH_TOKEN"] || read_copilot_cli_access_token
+
+        if key.nil? || key.strip.empty?
+          raise AuthenticationError.new(
+            "Chat mode requires a GitHub token. Set GITHUB_TOKEN or GH_TOKEN, or authenticate the Copilot CLI.",
+            provider: :github_copilot
+          )
+        end
+
+        key.strip
+      end
+
+      def read_copilot_cli_access_token
+        path = Pathname.new(File.join(Dir.home, ".copilot-cli-access-token"))
+        return nil unless path.file?
+
+        path.read
+      rescue Errno::ENOENT, Errno::EACCES, IOError
+        nil
       end
     end
   end

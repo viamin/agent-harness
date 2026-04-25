@@ -47,9 +47,9 @@ RSpec.describe AgentHarness::Providers::Base, "#send_chat_message" do
 
   subject(:provider) { test_provider_class.new(config: config, executor: mock_executor) }
 
-  it "raises NotImplementedError by default" do
+  it "raises ProviderError by default when chat is unsupported" do
     expect {
       provider.send_chat_message(messages: [{role: "user", content: "Hello"}])
-    }.to raise_error(NotImplementedError, /test_provider does not support chat messages/)
+    }.to raise_error(AgentHarness::ProviderError, /does not support chat mode/)
   end
 end

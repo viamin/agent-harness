@@ -25,7 +25,8 @@ module AgentHarness
   #     }
   #   )
   class ProviderRuntime
-    attr_reader :model, :base_url, :api_provider, :env, :flags, :metadata, :unset_env
+    attr_reader :model, :base_url, :api_provider, :env, :flags, :metadata, :unset_env,
+      :chat_base_url, :chat_model, :chat_api_key, :chat_max_tokens, :chat_tools
 
     # @param model [String, nil] model identifier override
     # @param base_url [String, nil] upstream API base URL override
@@ -34,7 +35,13 @@ module AgentHarness
     # @param flags [Array<String>] extra CLI flags to append
     # @param unset_env [Array<String>] environment variable names to remove from inherited env
     # @param metadata [Hash] arbitrary provider-specific data
-    def initialize(model: nil, base_url: nil, api_provider: nil, env: {}, flags: [], unset_env: [], metadata: {})
+    # @param chat_base_url [String, nil] override transport base URL for chat
+    # @param chat_model [String, nil] override model for chat
+    # @param chat_api_key [String, nil] override API key for chat
+    # @param chat_max_tokens [Integer, nil] max tokens for chat response
+    # @param chat_tools [Array<Hash>, nil] default tool definitions for chat requests
+    def initialize(model: nil, base_url: nil, api_provider: nil, env: {}, flags: [], unset_env: [], metadata: {},
+      chat_base_url: nil, chat_model: nil, chat_api_key: nil, chat_max_tokens: nil, chat_tools: nil)
       validate_optional_string!(:model, model)
       validate_optional_string!(:base_url, base_url)
       validate_optional_string!(:api_provider, api_provider)
@@ -90,6 +97,28 @@ module AgentHarness
       end
       @unset_env = normalized_unset_env.freeze
 
+      validate_optional_string!(:chat_base_url, chat_base_url)
+      validate_optional_string!(:chat_model, chat_model)
+      validate_optional_string!(:chat_api_key, chat_api_key)
+      unless chat_max_tokens.nil? || chat_max_tokens.is_a?(Integer)
+        raise ArgumentError, "chat_max_tokens must be an Integer or nil (got #{chat_max_tokens.class})"
+      end
+      unless chat_tools.nil? || chat_tools.is_a?(Array)
+        raise ArgumentError, "chat_tools must be an Array or nil (got #{chat_tools.class})"
+      end
+      normalized_chat_tools = chat_tools&.dup
+      normalized_chat_tools&.each_with_index do |tool, index|
+        unless tool.is_a?(Hash)
+          raise ArgumentError,
+            "chat_tools must be an Array of Hashes; invalid element at index #{index}: #{tool.inspect} (#{tool.class})"
+        end
+      end
+      @chat_base_url = chat_base_url
+      @chat_model = chat_model
+      @chat_api_key = chat_api_key
+      @chat_max_tokens = chat_max_tokens
+      @chat_tools = normalized_chat_tools&.freeze
+
       freeze
     end
 
@@ -112,7 +141,12 @@ module AgentHarness
         env: env_val.nil? ? {} : env_val,
         flags: flags_val.nil? ? [] : flags_val,
         unset_env: unset_env_val.nil? ? [] : unset_env_val,
-        metadata: metadata_val.nil? ? {} : metadata_val
+        metadata: metadata_val.nil? ? {} : metadata_val,
+        chat_base_url: hash_value(hash, :chat_base_url),
+        chat_model: hash_value(hash, :chat_model),
+        chat_api_key: hash_value(hash, :chat_api_key),
+        chat_max_tokens: hash_value(hash, :chat_max_tokens),
+        chat_tools: hash_value(hash, :chat_tools)
       )
     end
 
@@ -135,7 +169,9 @@ module AgentHarness
     # @return [Boolean]
     def empty?
       model.nil? && base_url.nil? && api_provider.nil? &&
-        env.empty? && flags.empty? && metadata.empty? && unset_env.empty?
+        env.empty? && flags.empty? && metadata.empty? && unset_env.empty? &&
+        chat_base_url.nil? && chat_model.nil? && chat_api_key.nil? && chat_max_tokens.nil? &&
+        chat_tools.nil?
     end
 
     private_class_method def self.hash_value(hash, key)

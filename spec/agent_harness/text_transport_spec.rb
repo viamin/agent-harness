@@ -34,6 +34,25 @@ RSpec.describe AgentHarness::TextTransport do
     http
   end
 
+  def stub_streaming_response(status:, chunks:)
+    http = instance_double(Net::HTTP)
+    allow(Net::HTTP).to receive(:new).and_return(http)
+    allow(http).to receive(:use_ssl=)
+    allow(http).to receive(:open_timeout=)
+    allow(http).to receive(:read_timeout=)
+
+    http_response = instance_double(Net::HTTPOK, code: status.to_s)
+
+    allow(http).to receive(:request) do |_req, &block|
+      allow(http_response).to receive(:read_body) do |&body_block|
+        chunks.each { |chunk| body_block.call(chunk) }
+      end
+      block.call(http_response)
+    end
+
+    http
+  end
+
   describe "#send_message" do
     context "successful response" do
       it "returns a Response with extracted text content" do
@@ -88,6 +107,23 @@ RSpec.describe AgentHarness::TextTransport do
         response = transport.send_message("prompt")
 
         expect(response.output).to eq("Part 1. Part 2.")
+      end
+
+      it "preserves Anthropic tool calls in response metadata" do
+        stub_api_response(status: 200, body: {
+          "content" => [
+            {"type" => "text", "text" => "I'll check."},
+            {"type" => "tool_use", "id" => "toolu_123", "name" => "get_weather", "input" => {"location" => "NYC"}}
+          ],
+          "usage" => {"input_tokens" => 10, "output_tokens" => 4}
+        })
+
+        response = transport.chat(messages: [{role: "user", content: "What's the weather?"}])
+
+        expect(response.output).to eq("I'll check.")
+        expect(response.metadata[:tool_calls]).to eq([
+          {id: "toolu_123", name: "get_weather", arguments: '{"location":"NYC"}'}
+        ])
       end
 
       it "handles empty content array" do
@@ -171,6 +207,31 @@ RSpec.describe AgentHarness::TextTransport do
 
         expect(response.duration).to be_a(Float)
         expect(response.duration).to be >= 0
+      end
+
+      it "uses the configured base_url for text requests" do
+        custom_transport = described_class.new(
+          api_key: api_key,
+          base_url: "https://anthropic.example.test/v1/messages",
+          logger: logger
+        )
+        http = stub_api_response(status: 200, body: {
+          "content" => [{"type" => "text", "text" => "ok"}],
+          "usage" => {"input_tokens" => 1, "output_tokens" => 1}
+        })
+
+        expect(http).to receive(:request) do |req|
+          expect(req.uri.to_s).to eq("https://anthropic.example.test/v1/messages")
+
+          instance_double(Net::HTTPOK,
+            code: "200",
+            body: JSON.generate({
+              "content" => [{"type" => "text", "text" => "ok"}],
+              "usage" => {"input_tokens" => 1, "output_tokens" => 1}
+            }))
+        end
+
+        custom_transport.send_message("test prompt")
       end
     end
 
@@ -329,6 +390,136 @@ RSpec.describe AgentHarness::TextTransport do
         expect(http).to receive(:open_timeout=).with(10)
 
         transport.send_message("prompt", timeout: 10)
+      end
+    end
+  end
+
+  describe "#chat" do
+    context "streaming" do
+      it "yields text and usage chunks and returns the accumulated response" do
+        chunks = [
+          "event: message_start\n",
+          "data: #{JSON.generate({"type" => "message_start", "message" => {"model" => "claude-sonnet-4-20250514", "usage" => {"input_tokens" => 9}}})}\n\n",
+          "event: content_block_delta\n",
+          "data: #{JSON.generate({"type" => "content_block_delta", "delta" => {"type" => "text_delta", "text" => "Hi"}})}\n\n",
+          "event: content_block_delta\n",
+          "data: #{JSON.generate({"type" => "content_block_delta", "delta" => {"type" => "text_delta", "text" => " there"}})}\n\n",
+          "event: message_delta\n",
+          "data: #{JSON.generate({"type" => "message_delta", "usage" => {"output_tokens" => 3}})}\n\n",
+          "event: message_stop\n",
+          "data: #{JSON.generate({"type" => "message_stop"})}\n\n"
+        ]
+
+        stub_streaming_response(status: 200, chunks: chunks)
+
+        received = []
+        response = transport.chat(
+          messages: [{role: "user", content: "Hello"}],
+          stream: true
+        ) { |chunk| received << chunk }
+
+        expect(received).to eq([
+          {type: :text, content: "Hi"},
+          {type: :text, content: " there"},
+          {type: :usage, input_tokens: 9, output_tokens: 3},
+          {type: :done}
+        ])
+        expect(response.output).to eq("Hi there")
+        expect(response.model).to eq("claude-sonnet-4-20250514")
+        expect(response.tokens).to eq({input: 9, output: 3, total: 12})
+        expect(response.metadata).to include(transport: :http, stream: true)
+      end
+
+      it "yields Anthropic tool call chunks and stores the completed tool call" do
+        chunks = [
+          "event: content_block_start\n",
+          "data: #{JSON.generate({"type" => "content_block_start", "index" => 0, "content_block" => {"type" => "tool_use", "id" => "toolu_123", "name" => "get_weather", "input" => {}}})}\n\n",
+          "event: content_block_delta\n",
+          "data: #{JSON.generate({"type" => "content_block_delta", "index" => 0, "delta" => {"type" => "input_json_delta", "partial_json" => "{\"loc"}})}\n\n",
+          "event: content_block_delta\n",
+          "data: #{JSON.generate({"type" => "content_block_delta", "index" => 0, "delta" => {"type" => "input_json_delta", "partial_json" => "ation\":\"NYC\"}"}})}\n\n",
+          "event: content_block_stop\n",
+          "data: #{JSON.generate({"type" => "content_block_stop", "index" => 0})}\n\n",
+          "event: message_stop\n",
+          "data: #{JSON.generate({"type" => "message_stop"})}\n\n"
+        ]
+
+        stub_streaming_response(status: 200, chunks: chunks)
+
+        received = []
+        response = transport.chat(
+          messages: [{role: "user", content: "What's the weather?"}],
+          stream: true
+        ) { |chunk| received << chunk }
+
+        expect(received).to include(
+          {type: :tool_call_start, id: "toolu_123", name: "get_weather"},
+          {type: :tool_call_delta, id: "toolu_123", arguments: "{\"loc"},
+          {type: :tool_call_delta, id: "toolu_123", arguments: "ation\":\"NYC\"}"},
+          {type: :tool_call_complete, id: "toolu_123", name: "get_weather", arguments: '{"location":"NYC"}'},
+          {type: :done}
+        )
+        expect(response.metadata[:tool_calls]).to eq([
+          {id: "toolu_123", name: "get_weather", arguments: '{"location":"NYC"}'}
+        ])
+      end
+
+      it "delivers chunks to on_chat_chunk and observer" do
+        chunks = [
+          "event: content_block_delta\n",
+          "data: #{JSON.generate({"type" => "content_block_delta", "delta" => {"type" => "text_delta", "text" => "Hi"}})}\n\n",
+          "event: message_stop\n",
+          "data: #{JSON.generate({"type" => "message_stop"})}\n\n"
+        ]
+
+        stub_streaming_response(status: 200, chunks: chunks)
+
+        proc_received = []
+        observer = double("observer")
+        allow(observer).to receive(:respond_to?).and_return(false)
+        allow(observer).to receive(:respond_to?).with(:on_chat_chunk).and_return(true)
+        allow(observer).to receive(:on_chat_chunk)
+
+        transport.chat(
+          messages: [{role: "user", content: "Hello"}],
+          stream: true,
+          on_chat_chunk: proc { |chunk| proc_received << chunk },
+          observer: observer
+        )
+
+        expect(proc_received.map { |chunk| chunk[:type] }).to eq([:text, :done])
+        expect(observer).to have_received(:on_chat_chunk).with({type: :text, content: "Hi"})
+        expect(observer).to have_received(:on_chat_chunk).with({type: :done})
+      end
+
+      it "falls back to a non-streaming request when no stream receiver is attached" do
+        http = stub_api_response(status: 200, body: {
+          "content" => [{"type" => "text", "text" => "ok"}],
+          "model" => "claude-sonnet-4-20250514",
+          "usage" => {"input_tokens" => 1, "output_tokens" => 1}
+        })
+
+        expect(http).to receive(:request) do |req|
+          body = JSON.parse(req.body)
+          expect(body).not_to have_key("stream")
+
+          instance_double(Net::HTTPOK,
+            code: "200",
+            body: JSON.generate({
+              "content" => [{"type" => "text", "text" => "ok"}],
+              "model" => "claude-sonnet-4-20250514",
+              "usage" => {"input_tokens" => 1, "output_tokens" => 1}
+            }))
+        end
+
+        response = transport.chat(
+          messages: [{role: "user", content: "Hello"}],
+          stream: true
+        )
+
+        expect(response.output).to eq("ok")
+        expect(response.metadata[:transport]).to eq(:http)
+        expect(response.metadata[:stream]).to be_nil
       end
     end
   end

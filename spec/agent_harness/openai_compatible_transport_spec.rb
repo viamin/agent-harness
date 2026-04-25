@@ -185,6 +185,20 @@ RSpec.describe AgentHarness::OpenAICompatibleTransport do
         expect(response.duration).to be_a(Float)
         expect(response.duration).to be >= 0
       end
+
+      it "preserves a per-request model override when the response omits model" do
+        stub_api_response(status: 200, body: {
+          "choices" => [{"message" => {"content" => "ok"}}],
+          "usage" => {"prompt_tokens" => 1, "completion_tokens" => 1}
+        })
+
+        response = transport.chat(
+          messages: [{role: "user", content: "prompt"}],
+          model: "gpt-4.1-mini"
+        )
+
+        expect(response.model).to eq("gpt-4.1-mini")
+      end
     end
 
     context "tool calling" do
@@ -284,6 +298,24 @@ RSpec.describe AgentHarness::OpenAICompatibleTransport do
         expect(response.success?).to be true
         expect(response.metadata[:stream]).to be true
         expect(response.tokens).to eq({input: 10, output: 5, total: 15})
+      end
+
+      it "preserves a per-request model override when streamed events omit model" do
+        chunks = [
+          "data: #{JSON.generate({"choices" => [{"delta" => {"content" => "Hello"}}]})}\n\n",
+          "data: #{JSON.generate({"usage" => {"prompt_tokens" => 10, "completion_tokens" => 5}})}\n\n",
+          "data: [DONE]\n\n"
+        ]
+
+        stub_streaming_response(status: 200, chunks: chunks)
+
+        response = transport.chat(
+          messages: [{role: "user", content: "Say hello"}],
+          model: "gpt-4.1-mini",
+          stream: true
+        ) { |_chunk| }
+
+        expect(response.model).to eq("gpt-4.1-mini")
       end
 
       it "handles streamed tool calls with structured chunk types" do
@@ -431,6 +463,34 @@ RSpec.describe AgentHarness::OpenAICompatibleTransport do
         expect(block_received.length).to eq(3)
         expect(proc_received.length).to eq(3)
         expect(observer).to have_received(:on_chat_chunk).exactly(3).times
+      end
+
+      it "falls back to a non-streaming request when no stream receiver is attached" do
+        http = stub_api_response(status: 200, body: {
+          "choices" => [{"message" => {"content" => "ok"}}],
+          "usage" => {"prompt_tokens" => 1, "completion_tokens" => 1}
+        })
+
+        expect(http).to receive(:request) do |req|
+          body = JSON.parse(req.body)
+          expect(body).not_to have_key("stream")
+          expect(body).not_to have_key("stream_options")
+
+          instance_double(Net::HTTPOK,
+            code: "200",
+            body: JSON.generate({
+              "choices" => [{"message" => {"content" => "ok"}}],
+              "usage" => {"prompt_tokens" => 1, "completion_tokens" => 1}
+            }))
+        end
+
+        response = transport.chat(
+          messages: [{role: "user", content: "prompt"}],
+          stream: true
+        )
+
+        expect(response.output).to eq("ok")
+        expect(response.metadata[:stream]).to be false
       end
     end
 

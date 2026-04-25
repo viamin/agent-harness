@@ -9,7 +9,8 @@ RSpec.describe AgentHarness::ProviderRuntime do
         api_provider: "openrouter",
         env: {"API_KEY" => "sk-123"},
         flags: ["--verbose"],
-        metadata: {tier: "premium"}
+        metadata: {tier: "premium"},
+        chat_tools: [{type: "function", function: {name: "lookup_weather"}}]
       )
 
       expect(runtime.model).to eq("gpt-5")
@@ -18,6 +19,7 @@ RSpec.describe AgentHarness::ProviderRuntime do
       expect(runtime.env).to eq("API_KEY" => "sk-123")
       expect(runtime.flags).to eq(["--verbose"])
       expect(runtime.metadata).to eq(tier: "premium")
+      expect(runtime.chat_tools).to eq([{type: "function", function: {name: "lookup_weather"}}])
     end
 
     it "defaults optional fields" do
@@ -59,6 +61,11 @@ RSpec.describe AgentHarness::ProviderRuntime do
     it "coerces nil metadata to empty hash" do
       runtime = described_class.new(metadata: nil)
       expect(runtime.metadata).to eq({})
+    end
+
+    it "accepts nil chat_tools" do
+      runtime = described_class.new(chat_tools: nil)
+      expect(runtime.chat_tools).to be_nil
     end
 
     it "coerces nil unset_env to empty array" do
@@ -126,6 +133,16 @@ RSpec.describe AgentHarness::ProviderRuntime do
         .to raise_error(ArgumentError, /metadata must be a Hash/)
     end
 
+    it "raises ArgumentError when chat_tools is not an Array" do
+      expect { described_class.new(chat_tools: {type: "function"}) }
+        .to raise_error(ArgumentError, /chat_tools must be an Array or nil/)
+    end
+
+    it "raises ArgumentError when chat_tools contain a non-Hash" do
+      expect { described_class.new(chat_tools: ["bad"]) }
+        .to raise_error(ArgumentError, /chat_tools must be an Array of Hashes/)
+    end
+
     it "raises ArgumentError when unset_env is not an Array" do
       expect { described_class.new(unset_env: "OPENAI_BASE_URL") }
         .to raise_error(ArgumentError, /unset_env must be an Array/)
@@ -175,6 +192,7 @@ RSpec.describe AgentHarness::ProviderRuntime do
       expect(runtime.model).to be_nil
       expect(runtime.env).to eq({})
       expect(runtime.flags).to eq([])
+      expect(runtime.chat_tools).to be_nil
     end
 
     it "raises ArgumentError when given a non-Hash" do
@@ -261,6 +279,12 @@ RSpec.describe AgentHarness::ProviderRuntime do
 
     it "returns false when unset_env is set" do
       expect(described_class.new(unset_env: ["OPENAI_BASE_URL"])).not_to be_empty
+    end
+
+    it "returns false when chat_tools is set" do
+      runtime = described_class.new(chat_tools: [{type: "function", function: {name: "lookup_weather"}}])
+
+      expect(runtime).not_to be_empty
     end
   end
 end

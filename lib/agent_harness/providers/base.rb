@@ -181,10 +181,10 @@ module AgentHarness
         handle_error(e, prompt: prompt, options: options)
       end
 
-      # Send a multi-turn chat message via an HTTP transport.
+      # Send a multi-turn chat message via the provider's chat transport.
       #
-      # Providers that support OpenAI-compatible chat should override this
-      # to wire up their transport. The default raises NotImplementedError.
+      # Providers that support chat mode can accept either +conversation:+
+      # or +messages:+ as the conversation history payload.
       #
       # Structured streaming events are delivered through three channels:
       # - +on_chat_chunk+ proc (keyword argument)
@@ -193,16 +193,51 @@ module AgentHarness
       #
       # When multiple receivers are provided, all receive every event.
       #
-      # @param messages [Array<Hash>] conversation messages
+      # @param conversation [Array<Hash>, nil] message history
+      # @param messages [Array<Hash>, nil] alias for +conversation+
+      # @param tools [Array<Hash>, nil] tool/function definitions
       # @param stream [Boolean] whether to stream the response
       # @param on_chat_chunk [Proc, nil] callback for structured streaming events
       # @param observer [#on_chat_chunk, nil] observer receiving streaming events
-      # @param options [Hash] additional options forwarded to the transport
+      # @param options [Hash] additional options
+      # @yield [Hash] streaming chunks when stream: true
       # @return [Response] the response
-      def send_chat_message(messages:, stream: false, on_chat_chunk: nil, observer: nil, **options, &on_chunk)
-        raise NotImplementedError,
-          "#{self.class.provider_name} does not support chat messages. " \
-          "Override send_chat_message or configure an OpenAI-compatible transport."
+      # @raise [ProviderError] if the provider does not support chat mode
+      def send_chat_message(conversation: nil, messages: nil, tools: nil, stream: false,
+        on_chat_chunk: nil, observer: nil, **options, &on_chunk)
+        unless supports_chat?
+          raise ProviderError, "#{name} does not support chat mode"
+        end
+
+        options = normalize_provider_runtime(options)
+        runtime = options[:provider_runtime]
+        conversation ||= messages
+        raise ArgumentError, "conversation or messages is required" unless conversation
+        tools = runtime.chat_tools if tools.nil? && runtime&.chat_tools
+
+        transport = resolve_chat_transport(options)
+        messages = format_messages_for_transport(conversation, transport)
+        transport_opts = chat_transport_options(runtime, options)
+        transport_opts[:on_chat_chunk] = on_chat_chunk if on_chat_chunk
+        transport_opts[:observer] = observer if observer
+
+        response = transport.chat(
+          messages: messages,
+          tools: tools,
+          stream: stream,
+          **transport_opts,
+          &on_chunk
+        )
+
+        track_tokens(response) if response.tokens
+        log_debug("send_chat_message_complete", duration: response.duration, tokens: response.tokens)
+
+        response
+      rescue ProviderError, AuthenticationError, RateLimitError, TimeoutError
+        raise
+      rescue => e
+        last_msg = conversation&.last || messages&.last
+        handle_error(e, prompt: (last_msg&.dig(:content) || last_msg&.dig("content")).to_s, options: options)
       end
 
       # Provider name for display
@@ -488,6 +523,89 @@ module AgentHarness
         else
           ProviderError.new(original_error.message, original_error: original_error)
         end
+      end
+
+      def resolve_chat_transport(options)
+        runtime = options[:provider_runtime]
+
+        # When the runtime specifies chat-specific overrides (base_url, api_key),
+        # build a fresh transport instead of reusing the memoized default.
+        if runtime && (runtime.chat_base_url || runtime.chat_api_key)
+          transport = build_runtime_chat_transport(runtime)
+          if transport
+            return transport
+          end
+        end
+
+        transport = chat_transport
+        raise ProviderError, "#{name} chat_transport returned nil" unless transport
+
+        transport
+      end
+
+      # Build a one-off chat transport from ProviderRuntime overrides.
+      #
+      # Subclasses that support chat must override this when the runtime
+      # carries chat_base_url or chat_api_key so those overrides are
+      # actually applied. The base implementation raises to surface the
+      # misconfiguration early rather than silently ignoring the overrides.
+      def build_runtime_chat_transport(_runtime)
+        raise ProviderError,
+          "#{name} does not support chat_base_url/chat_api_key overrides on ProviderRuntime"
+      end
+
+      def format_messages_for_transport(conversation, transport)
+        normalized = conversation.map { |msg| normalize_transport_message(msg) }
+        return normalized unless anthropic_transport?(transport)
+        return normalized unless anthropic_conversion_required?(normalized)
+
+        anthropic = anthropic_conversation(normalized)
+        system_messages = anthropic[:system] ? [{role: "system", content: anthropic[:system]}] : []
+
+        system_messages + anthropic[:messages]
+      end
+
+      def normalize_transport_message(message)
+        message.each_with_object({}) do |(key, value), memo|
+          memo[key.is_a?(String) ? key.to_sym : key] = value
+        end.tap do |normalized|
+          normalized[:role] = normalized[:role].to_s if normalized.key?(:role)
+        end
+      end
+
+      def anthropic_transport?(transport)
+        chat_transport_type == :anthropic || transport.is_a?(TextTransport)
+      end
+
+      def anthropic_conversion_required?(messages)
+        messages.any? do |msg|
+          msg[:role] == "tool" || msg.key?(:tool_calls)
+        end
+      end
+
+      def anthropic_conversation(messages)
+        conversation = Conversation.new
+
+        messages.each do |msg|
+          conversation.add_message(
+            msg.fetch(:role).to_sym,
+            msg[:content],
+            tool_calls: msg[:tool_calls],
+            tool_call_id: msg[:tool_call_id]
+          )
+        end
+
+        conversation.to_anthropic_messages
+      end
+
+      def chat_transport_options(runtime, options)
+        opts = {}
+        max_tok = options[:chat_max_tokens] || options[:max_tokens] || runtime&.chat_max_tokens
+        opts[:max_tokens] = max_tok if max_tok
+        model = runtime&.chat_model || runtime&.model
+        opts[:model] = model if model
+        opts[:temperature] = options[:temperature] if options[:temperature]
+        opts
       end
 
       def log_debug(action, **context)

@@ -53,6 +53,7 @@ module AgentHarness
     # @param stream [Boolean] whether to stream the response
     # @param max_tokens [Integer, nil] maximum tokens in the response
     # @param temperature [Float, nil] sampling temperature
+    # @param model [String, nil] model override for this request
     # @param on_chat_chunk [Proc, nil] callback for structured streaming events
     # @param observer [#on_chat_chunk, nil] observer receiving streaming events
     # @yield [Hash] streaming chunks when stream: true
@@ -62,36 +63,38 @@ module AgentHarness
     # @raise [TimeoutError] on network timeouts
     # @raise [ProviderError] on other HTTP errors
     def chat(messages:, tools: nil, stream: false, max_tokens: nil, temperature: nil,
-      on_chat_chunk: nil, observer: nil, &on_chunk)
+      model: nil, on_chat_chunk: nil, observer: nil, &on_chunk)
       max_tokens ||= DEFAULT_MAX_TOKENS
+      model ||= @model
       uri = URI("#{@base_url}/chat/completions")
 
+      has_stream_receiver = on_chunk || on_chat_chunk || observer_responds_to?(observer, :on_chat_chunk)
+      request_stream = stream && has_stream_receiver
+
       body = build_request_body(
-        messages: messages, tools: tools, stream: stream,
-        max_tokens: max_tokens, temperature: temperature
+        messages: messages, tools: tools, stream: request_stream,
+        max_tokens: max_tokens, temperature: temperature, model: model
       )
 
       start_time = Time.now
 
-      has_stream_receiver = on_chunk || on_chat_chunk || observer_responds_to?(observer, :on_chat_chunk)
-
-      if stream && has_stream_receiver
+      if request_stream
         combined = build_chat_chunk_callback(on_chunk, on_chat_chunk, observer)
         result = make_streaming_request(uri, body, &combined)
         duration = Time.now - start_time
-        build_streaming_response(result, duration: duration)
+        build_streaming_response(result, duration: duration, model: model)
       else
         http_response = make_request(uri, body)
         duration = Time.now - start_time
-        parse_response(http_response, duration: duration)
+        parse_response(http_response, duration: duration, model: model)
       end
     end
 
     private
 
-    def build_request_body(messages:, tools:, stream:, max_tokens:, temperature:)
+    def build_request_body(messages:, tools:, stream:, max_tokens:, temperature:, model: nil)
       body = {
-        model: @model,
+        model: model || @model,
         max_tokens: max_tokens,
         messages: messages
       }
@@ -259,7 +262,7 @@ module AgentHarness
       request
     end
 
-    def parse_response(http_response, duration:)
+    def parse_response(http_response, duration:, model:)
       status_code = http_response.code.to_i
 
       unless status_code == 200
@@ -279,7 +282,7 @@ module AgentHarness
         exit_code: 0,
         duration: duration,
         provider: :openai_compatible,
-        model: body["model"] || @model,
+        model: body["model"] || model,
         tokens: tokens,
         metadata: metadata
       )
@@ -290,7 +293,7 @@ module AgentHarness
       )
     end
 
-    def build_streaming_response(accumulated, duration:)
+    def build_streaming_response(accumulated, duration:, model:)
       tool_calls = accumulated[:tool_calls].compact
       metadata = {transport: :http, stream: true}
       metadata[:tool_calls] = tool_calls unless tool_calls.empty?
@@ -300,7 +303,7 @@ module AgentHarness
         exit_code: 0,
         duration: duration,
         provider: :openai_compatible,
-        model: accumulated[:model] || @model,
+        model: accumulated[:model] || model,
         tokens: accumulated[:usage],
         metadata: metadata
       )
