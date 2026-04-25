@@ -549,11 +549,11 @@ module AgentHarness
             chat_meta[:default_model] = models.first if models.is_a?(Array) && !models.empty?
           end
 
-          transport = provider_metadata_value(provider, :chat_transport, default: nil)
-          chat_meta[:transport] = case transport
-          when OpenAICompatibleTransport then :openai_compatible
-          when TextTransport then :anthropic
-          end
+          # Use lightweight chat_transport_type to avoid instantiating the
+          # transport (which may trigger API key resolution / authentication
+          # as a side effect).
+          transport_type = provider_metadata_value(provider, :chat_transport_type, default: nil)
+          chat_meta[:transport] = transport_type
 
           chat_meta
         rescue => e
@@ -964,6 +964,15 @@ module AgentHarness
       #
       # @return [Object, nil] transport instance or nil if unsupported
       def chat_transport
+        nil
+      end
+
+      # Returns the symbolic transport type for chat without instantiating
+      # the transport object. This avoids triggering API key resolution or
+      # other authentication side effects during metadata collection.
+      #
+      # @return [Symbol, nil] :openai_compatible, :anthropic, or nil
+      def chat_transport_type
         nil
       end
 

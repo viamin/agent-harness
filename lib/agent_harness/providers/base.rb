@@ -519,11 +519,31 @@ module AgentHarness
         end
       end
 
-      def resolve_chat_transport(_options)
+      def resolve_chat_transport(options)
+        runtime = options[:provider_runtime]
+
+        # When the runtime specifies chat-specific overrides (base_url, api_key),
+        # build a fresh transport instead of reusing the memoized default.
+        if runtime && (runtime.chat_base_url || runtime.chat_api_key)
+          transport = build_runtime_chat_transport(runtime)
+          if transport
+            return transport
+          end
+        end
+
         transport = chat_transport
         raise ProviderError, "#{name} chat_transport returned nil" unless transport
 
         transport
+      end
+
+      # Build a one-off chat transport from ProviderRuntime overrides.
+      #
+      # Subclasses that support chat should override this when the default
+      # transport constructor needs provider-specific customization.
+      # Returns nil to fall back to the memoized chat_transport.
+      def build_runtime_chat_transport(_runtime)
+        nil
       end
 
       def format_messages_for_transport(conversation, transport)
@@ -534,7 +554,9 @@ module AgentHarness
 
       def chat_transport_options(runtime, options)
         opts = {}
-        opts[:max_tokens] = options[:chat_max_tokens] || options[:max_tokens] if options[:chat_max_tokens] || options[:max_tokens]
+        max_tok = options[:chat_max_tokens] || options[:max_tokens] || runtime&.chat_max_tokens
+        opts[:max_tokens] = max_tok if max_tok
+        opts[:model] = runtime.chat_model if runtime&.chat_model
         opts[:temperature] = options[:temperature] if options[:temperature]
         opts
       end

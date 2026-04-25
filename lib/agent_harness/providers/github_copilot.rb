@@ -219,6 +219,10 @@ module AgentHarness
         )
       end
 
+      def chat_transport_type
+        :openai_compatible
+      end
+
       def auth_type
         :oauth
       end

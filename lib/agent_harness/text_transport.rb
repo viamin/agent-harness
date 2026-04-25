@@ -41,8 +41,8 @@ module AgentHarness
     # @param temperature [Float, nil] sampling temperature
     # @yield [Hash] streaming chunks when stream: true
     # @return [Response] the response
-    def chat(messages:, tools: nil, stream: false, max_tokens: nil, temperature: nil, &on_chunk)
-      model = DEFAULT_MODEL
+    def chat(messages:, tools: nil, stream: false, max_tokens: nil, temperature: nil, model: nil, &on_chunk)
+      model ||= DEFAULT_MODEL
       timeout = DEFAULT_TIMEOUT
       max_tokens ||= DEFAULT_MAX_TOKENS
 

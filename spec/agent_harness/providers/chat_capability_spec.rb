@@ -84,6 +84,12 @@ RSpec.describe "Provider chat capability" do
       end
     end
 
+    describe "#chat_transport_type" do
+      it "returns :openai_compatible without triggering authentication" do
+        expect(provider.chat_transport_type).to eq(:openai_compatible)
+      end
+    end
+
     describe "#send_chat_message" do
       let(:mock_transport) { instance_double(AgentHarness::OpenAICompatibleTransport) }
       let(:response) do
@@ -158,6 +164,32 @@ RSpec.describe "Provider chat capability" do
 
         provider.send_chat_message(conversation: [{role: "user", content: "Hello"}])
       end
+
+      it "passes runtime chat_max_tokens to the transport" do
+        runtime = AgentHarness::ProviderRuntime.new(chat_max_tokens: 512)
+
+        expect(mock_transport).to receive(:chat).with(
+          hash_including(max_tokens: 512)
+        ).and_return(response)
+
+        provider.send_chat_message(
+          conversation: [{role: "user", content: "Hello"}],
+          provider_runtime: runtime
+        )
+      end
+
+      it "passes runtime chat_model to the transport" do
+        runtime = AgentHarness::ProviderRuntime.new(chat_model: "gpt-4o-mini")
+
+        expect(mock_transport).to receive(:chat).with(
+          hash_including(model: "gpt-4o-mini")
+        ).and_return(response)
+
+        provider.send_chat_message(
+          conversation: [{role: "user", content: "Hello"}],
+          provider_runtime: runtime
+        )
+      end
     end
 
     describe "#resolve_chat_api_key" do
@@ -225,6 +257,12 @@ RSpec.describe "Provider chat capability" do
         transport1 = provider.chat_transport
         transport2 = provider.chat_transport
         expect(transport1).to be(transport2)
+      end
+    end
+
+    describe "#chat_transport_type" do
+      it "returns :anthropic without triggering authentication" do
+        expect(provider.chat_transport_type).to eq(:anthropic)
       end
     end
 
@@ -373,6 +411,33 @@ RSpec.describe "Provider chat capability" do
           {role: "system", content: "Be helpful."},
           {role: "user", content: "Hello"}
         ])
+      end
+
+      it "uses model override when provided" do
+        http = stub_api_response(status: 200, body: {
+          "content" => [{"type" => "text", "text" => "OK"}],
+          "model" => "claude-opus-4-20250514",
+          "usage" => {"input_tokens" => 10, "output_tokens" => 2}
+        })
+
+        allow(http).to receive(:request) do |req|
+          body = JSON.parse(req.body)
+          expect(body["model"]).to eq("claude-opus-4-20250514")
+
+          instance_double(Net::HTTPOK,
+            code: "200",
+            body: JSON.generate({
+              "content" => [{"type" => "text", "text" => "OK"}],
+              "model" => "claude-opus-4-20250514",
+              "usage" => {"input_tokens" => 10, "output_tokens" => 2}
+            }))
+        end
+
+        response = transport.chat(
+          messages: [{role: "user", content: "Hello"}],
+          model: "claude-opus-4-20250514"
+        )
+        expect(response.model).to eq("claude-opus-4-20250514")
       end
 
       it "includes tools in the request body when provided" do

@@ -428,6 +428,10 @@ module AgentHarness
         @chat_transport ||= TextTransport.new(api_key: resolve_text_mode_api_key, logger: @logger)
       end
 
+      def chat_transport_type
+        :anthropic
+      end
+
       def dangerous_mode_flags
         ["--dangerously-skip-permissions"]
       end
