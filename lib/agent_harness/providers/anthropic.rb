@@ -428,6 +428,14 @@ module AgentHarness
         @chat_transport ||= TextTransport.new(api_key: resolve_text_mode_api_key, logger: @logger)
       end
 
+      def build_runtime_chat_transport(runtime)
+        TextTransport.new(
+          base_url: runtime.chat_base_url || TextTransport::ANTHROPIC_API_URL,
+          api_key: runtime.chat_api_key || resolve_text_mode_api_key,
+          logger: @logger
+        )
+      end
+
       def chat_transport_type
         :anthropic
       end

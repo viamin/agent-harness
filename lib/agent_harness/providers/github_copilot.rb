@@ -219,6 +219,15 @@ module AgentHarness
         )
       end
 
+      def build_runtime_chat_transport(runtime)
+        OpenAICompatibleTransport.new(
+          base_url: runtime.chat_base_url || GITHUB_MODELS_BASE_URL,
+          api_key: runtime.chat_api_key || resolve_chat_api_key,
+          model: runtime.chat_model || runtime.model || CHAT_DEFAULT_MODEL,
+          logger: @logger
+        )
+      end
+
       def chat_transport_type
         :openai_compatible
       end

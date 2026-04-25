@@ -190,6 +190,36 @@ RSpec.describe "Provider chat capability" do
           provider_runtime: runtime
         )
       end
+
+      it "passes runtime model to the transport when chat_model is not set" do
+        runtime = AgentHarness::ProviderRuntime.new(model: "gpt-4-turbo")
+
+        expect(mock_transport).to receive(:chat).with(
+          hash_including(model: "gpt-4-turbo")
+        ).and_return(response)
+
+        provider.send_chat_message(
+          conversation: [{role: "user", content: "Hello"}],
+          provider_runtime: runtime
+        )
+      end
+
+      it "uses a runtime chat transport when chat overrides are provided" do
+        runtime = AgentHarness::ProviderRuntime.new(
+          chat_base_url: "https://example.test/v1",
+          chat_api_key: "ghp_runtime"
+        )
+        runtime_transport = instance_double(AgentHarness::OpenAICompatibleTransport)
+
+        expect(provider).to receive(:build_runtime_chat_transport).with(runtime).and_return(runtime_transport)
+        expect(runtime_transport).to receive(:chat).and_return(response)
+        expect(provider).not_to receive(:chat_transport)
+
+        provider.send_chat_message(
+          conversation: [{role: "user", content: "Hello"}],
+          provider_runtime: runtime
+        )
+      end
     end
 
     describe "#resolve_chat_api_key" do
@@ -323,17 +353,36 @@ RSpec.describe "Provider chat capability" do
         )
       end
 
-      it "applies runtime model override" do
+      it "passes runtime model override to the transport" do
         runtime = AgentHarness::ProviderRuntime.new(model: "claude-opus-4-20250514")
 
-        allow(mock_transport).to receive(:chat).and_return(response)
+        expect(mock_transport).to receive(:chat).with(
+          hash_including(model: "claude-opus-4-20250514")
+        ).and_return(response)
 
         result = provider.send_chat_message(
           conversation: [{role: "user", content: "Hello"}],
           provider_runtime: runtime
         )
 
-        expect(result.model).to eq("claude-opus-4-20250514")
+        expect(result.model).to eq("claude-sonnet-4-20250514")
+      end
+
+      it "uses a runtime chat transport when chat overrides are provided" do
+        runtime = AgentHarness::ProviderRuntime.new(
+          chat_base_url: "https://anthropic.example.test/v1/messages",
+          chat_api_key: "sk-runtime"
+        )
+        runtime_transport = instance_double(AgentHarness::TextTransport)
+
+        expect(provider).to receive(:build_runtime_chat_transport).with(runtime).and_return(runtime_transport)
+        expect(runtime_transport).to receive(:chat).and_return(response)
+        expect(provider).not_to receive(:chat_transport)
+
+        provider.send_chat_message(
+          conversation: [{role: "user", content: "Hello"}],
+          provider_runtime: runtime
+        )
       end
 
       it "raises AuthenticationError when no API key" do
@@ -465,6 +514,15 @@ RSpec.describe "Provider chat capability" do
         end
 
         transport.chat(messages: [{role: "user", content: "Hi"}], tools: tools)
+      end
+
+      it "raises when streaming is requested" do
+        expect {
+          transport.chat(
+            messages: [{role: "user", content: "Hello"}],
+            stream: true
+          ) { |_chunk| nil }
+        }.to raise_error(AgentHarness::ProviderError, /streaming is not implemented/)
       end
     end
   end

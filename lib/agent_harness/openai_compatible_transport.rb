@@ -22,7 +22,8 @@ module AgentHarness
   #   transport.chat(messages: msgs, stream: true) do |chunk|
   #     case chunk[:type]
   #     when :text    then print chunk[:content]
-  #     when :done    then puts "\nTokens: #{chunk[:usage]}"
+  #     when :usage   then puts "\nTokens: #{chunk[:input_tokens]}+#{chunk[:output_tokens]}"
+  #     when :done    then puts "Stream complete"
   #     end
   #   end
   class OpenAICompatibleTransport
@@ -43,18 +44,26 @@ module AgentHarness
 
     # Send a chat completion request.
     #
+    # Streaming chunks can be received via block, +on_chat_chunk+ proc,
+    # or an observer that responds to +on_chat_chunk+. When multiple
+    # receivers are provided, all receive every event.
+    #
     # @param messages [Array<Hash>] conversation messages
     # @param tools [Array<Hash>, nil] tool/function definitions
     # @param stream [Boolean] whether to stream the response
     # @param max_tokens [Integer, nil] maximum tokens in the response
     # @param temperature [Float, nil] sampling temperature
+    # @param model [String, nil] model override for this request
+    # @param on_chat_chunk [Proc, nil] callback for structured streaming events
+    # @param observer [#on_chat_chunk, nil] observer receiving streaming events
     # @yield [Hash] streaming chunks when stream: true
     # @return [Response] the response
     # @raise [AuthenticationError] on 401/403 responses
     # @raise [RateLimitError] on 429 responses
     # @raise [TimeoutError] on network timeouts
     # @raise [ProviderError] on other HTTP errors
-    def chat(messages:, tools: nil, stream: false, max_tokens: nil, temperature: nil, model: nil, &on_chunk)
+    def chat(messages:, tools: nil, stream: false, max_tokens: nil, temperature: nil,
+      model: nil, on_chat_chunk: nil, observer: nil, &on_chunk)
       max_tokens ||= DEFAULT_MAX_TOKENS
       model ||= @model
       uri = URI("#{@base_url}/chat/completions")
@@ -66,8 +75,11 @@ module AgentHarness
 
       start_time = Time.now
 
-      if stream && on_chunk
-        result = make_streaming_request(uri, body, &on_chunk)
+      has_stream_receiver = on_chunk || on_chat_chunk || observer_responds_to?(observer, :on_chat_chunk)
+
+      if stream && has_stream_receiver
+        combined = build_chat_chunk_callback(on_chunk, on_chat_chunk, observer)
+        result = make_streaming_request(uri, body, &combined)
         duration = Time.now - start_time
         build_streaming_response(result, duration: duration)
       else
@@ -160,7 +172,8 @@ module AgentHarness
       if event["usage"]
         usage = extract_usage(event)
         accumulated[:usage] = usage
-        on_chunk.call({type: :done, usage: usage})
+        on_chunk.call({type: :usage, input_tokens: usage[:input], output_tokens: usage[:output]})
+        on_chunk.call({type: :done})
         return
       end
 
@@ -175,6 +188,8 @@ module AgentHarness
       end
 
       process_tool_call_delta(delta, accumulated, &on_chunk)
+
+      emit_tool_call_completions(choice, accumulated, &on_chunk)
     end
 
     def process_tool_call_delta(delta, accumulated, &on_chunk)
@@ -200,19 +215,32 @@ module AgentHarness
 
         if tc_delta["id"]
           on_chunk.call({
-            type: :tool_call,
+            type: :tool_call_start,
             id: tc_delta["id"],
-            name: tc_delta.dig("function", "name") || "",
-            arguments: ""
+            name: tc_delta.dig("function", "name") || ""
           })
         elsif tc_delta.dig("function", "arguments")
           on_chunk.call({
-            type: :tool_call,
+            type: :tool_call_delta,
             id: tc[:id],
-            name: tc[:name],
             arguments: tc_delta.dig("function", "arguments")
           })
         end
+      end
+    end
+
+    def emit_tool_call_completions(choice, accumulated, &on_chunk)
+      return unless choice["finish_reason"] == "tool_calls"
+
+      accumulated[:tool_calls].each do |tc|
+        next unless tc
+
+        on_chunk.call({
+          type: :tool_call_complete,
+          id: tc[:id],
+          name: tc[:name],
+          arguments: tc[:arguments]
+        })
       end
     end
 
@@ -308,6 +336,18 @@ module AgentHarness
           arguments: tc.dig("function", "arguments")
         }
       end
+    end
+
+    def build_chat_chunk_callback(on_chunk, on_chat_chunk, observer)
+      proc do |chunk|
+        on_chunk&.call(chunk)
+        on_chat_chunk&.call(chunk)
+        observer.on_chat_chunk(chunk) if observer_responds_to?(observer, :on_chat_chunk)
+      end
+    end
+
+    def observer_responds_to?(observer, method_name)
+      observer&.respond_to?(method_name)
     end
 
     def handle_error_response(http_response, status_code)

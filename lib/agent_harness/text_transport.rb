@@ -25,9 +25,11 @@ module AgentHarness
     DEFAULT_MAX_TOKENS = 4096
     DEFAULT_TIMEOUT = 300
 
+    # @param base_url [String] Anthropic Messages API URL
     # @param api_key [String] Anthropic API key
     # @param logger [Logger, nil] optional logger
-    def initialize(api_key:, logger: nil)
+    def initialize(api_key:, base_url: ANTHROPIC_API_URL, logger: nil)
+      @base_url = base_url
       @api_key = api_key
       @logger = logger
     end
@@ -36,17 +38,21 @@ module AgentHarness
     #
     # @param messages [Array<Hash>] conversation messages with :role and :content
     # @param tools [Array<Hash>, nil] tool definitions (Anthropic tool format)
-    # @param stream [Boolean] whether to stream the response (not yet implemented)
+    # @param stream [Boolean] whether to stream the response
     # @param max_tokens [Integer, nil] maximum tokens in the response
     # @param temperature [Float, nil] sampling temperature
     # @yield [Hash] streaming chunks when stream: true
     # @return [Response] the response
     def chat(messages:, tools: nil, stream: false, max_tokens: nil, temperature: nil, model: nil, &on_chunk)
+      if stream
+        raise ProviderError, "Anthropic chat streaming is not implemented for TextTransport"
+      end
+
       model ||= DEFAULT_MODEL
       timeout = DEFAULT_TIMEOUT
       max_tokens ||= DEFAULT_MAX_TOKENS
 
-      uri = URI(ANTHROPIC_API_URL)
+      uri = URI(@base_url)
 
       system_messages = messages.select { |m| m[:role] == "system" || m["role"] == "system" }
       non_system = messages.reject { |m| m[:role] == "system" || m["role"] == "system" }

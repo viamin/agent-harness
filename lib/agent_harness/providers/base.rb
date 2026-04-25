@@ -183,25 +183,42 @@ module AgentHarness
 
       # Send a multi-turn chat message via the provider's chat transport.
       #
-      # @param conversation [Array<Hash>] message history
-      #   Each element should have :role ("user", "assistant", "system") and :content keys.
+      # Providers that support chat mode can accept either +conversation:+
+      # or +messages:+ as the conversation history payload.
+      #
+      # Structured streaming events are delivered through three channels:
+      # - +on_chat_chunk+ proc (keyword argument)
+      # - +observer+ object responding to +on_chat_chunk+
+      # - block (yield)
+      #
+      # When multiple receivers are provided, all receive every event.
+      #
+      # @param conversation [Array<Hash>, nil] message history
+      # @param messages [Array<Hash>, nil] alias for +conversation+
       # @param tools [Array<Hash>, nil] tool/function definitions
       # @param stream [Boolean] whether to stream the response
+      # @param on_chat_chunk [Proc, nil] callback for structured streaming events
+      # @param observer [#on_chat_chunk, nil] observer receiving streaming events
       # @param options [Hash] additional options
       # @yield [Hash] streaming chunks when stream: true
       # @return [Response] the response
       # @raise [ProviderError] if the provider does not support chat mode
-      def send_chat_message(conversation:, tools: nil, stream: false, **options, &on_chunk)
+      def send_chat_message(conversation: nil, messages: nil, tools: nil, stream: false,
+        on_chat_chunk: nil, observer: nil, **options, &on_chunk)
         unless supports_chat?
           raise ProviderError, "#{name} does not support chat mode"
         end
 
         options = normalize_provider_runtime(options)
         runtime = options[:provider_runtime]
+        conversation ||= messages
+        raise ArgumentError, "conversation or messages is required" unless conversation
 
         transport = resolve_chat_transport(options)
         messages = format_messages_for_transport(conversation, transport)
         transport_opts = chat_transport_options(runtime, options)
+        transport_opts[:on_chat_chunk] = on_chat_chunk if on_chat_chunk
+        transport_opts[:observer] = observer if observer
 
         response = transport.chat(
           messages: messages,
@@ -211,19 +228,6 @@ module AgentHarness
           &on_chunk
         )
 
-        if runtime&.model
-          response = Response.new(
-            output: response.output,
-            exit_code: response.exit_code,
-            duration: response.duration,
-            provider: response.provider,
-            model: runtime.model,
-            tokens: response.tokens,
-            metadata: response.metadata,
-            error: response.error
-          )
-        end
-
         track_tokens(response) if response.tokens
         log_debug("send_chat_message_complete", duration: response.duration, tokens: response.tokens)
 
@@ -231,7 +235,7 @@ module AgentHarness
       rescue ProviderError, AuthenticationError, RateLimitError, TimeoutError
         raise
       rescue => e
-        last_msg = conversation.last
+        last_msg = conversation&.last || messages&.last
         handle_error(e, prompt: (last_msg&.dig(:content) || last_msg&.dig("content")).to_s, options: options)
       end
 
@@ -545,9 +549,8 @@ module AgentHarness
       # actually applied. The base implementation raises to surface the
       # misconfiguration early rather than silently ignoring the overrides.
       def build_runtime_chat_transport(_runtime)
-        raise NotImplementedError,
-          "#{name} does not implement build_runtime_chat_transport; " \
-          "chat_base_url/chat_api_key on ProviderRuntime will be ignored"
+        raise ProviderError,
+          "#{name} does not support chat_base_url/chat_api_key overrides on ProviderRuntime"
       end
 
       def format_messages_for_transport(conversation, transport)
@@ -560,7 +563,8 @@ module AgentHarness
         opts = {}
         max_tok = options[:chat_max_tokens] || options[:max_tokens] || runtime&.chat_max_tokens
         opts[:max_tokens] = max_tok if max_tok
-        opts[:model] = runtime.chat_model if runtime&.chat_model
+        model = runtime&.chat_model || runtime&.model
+        opts[:model] = model if model
         opts[:temperature] = options[:temperature] if options[:temperature]
         opts
       end
