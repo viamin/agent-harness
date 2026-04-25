@@ -250,4 +250,86 @@ RSpec.describe AgentHarness::McpServer do
       expect(h).not_to have_key(:args)
     end
   end
+
+  describe "#reachable?" do
+    context "with stdio transport" do
+      it "returns true when command is present" do
+        server = described_class.new(
+          name: "fs",
+          transport: "stdio",
+          command: ["npx", "server"]
+        )
+        expect(server.reachable?).to be true
+      end
+    end
+
+    context "with http transport" do
+      it "returns true when url is present and server responds" do
+        server = described_class.new(
+          name: "web",
+          transport: "http",
+          url: "http://localhost:9999/mcp"
+        )
+
+        http_double = instance_double(Net::HTTP)
+        allow(Net::HTTP).to receive(:new).and_return(http_double)
+        allow(http_double).to receive(:use_ssl=)
+        allow(http_double).to receive(:open_timeout=)
+        allow(http_double).to receive(:read_timeout=)
+        allow(http_double).to receive(:head).and_return(Net::HTTPOK.new("1.1", "200", "OK"))
+
+        expect(server.reachable?).to be true
+      end
+
+      it "returns false when HTTP request fails" do
+        server = described_class.new(
+          name: "web",
+          transport: "http",
+          url: "http://localhost:9999/mcp"
+        )
+
+        allow(Net::HTTP).to receive(:new).and_raise(Errno::ECONNREFUSED)
+
+        expect(server.reachable?).to be false
+      end
+
+      it "returns false when server returns error status" do
+        server = described_class.new(
+          name: "web",
+          transport: "http",
+          url: "http://localhost:9999/mcp"
+        )
+
+        http_double = instance_double(Net::HTTP)
+        allow(Net::HTTP).to receive(:new).and_return(http_double)
+        allow(http_double).to receive(:use_ssl=)
+        allow(http_double).to receive(:open_timeout=)
+        allow(http_double).to receive(:read_timeout=)
+        allow(http_double).to receive(:head).and_return(
+          Net::HTTPInternalServerError.new("1.1", "500", "Internal Server Error")
+        )
+
+        expect(server.reachable?).to be false
+      end
+    end
+
+    context "with sse transport" do
+      it "returns true when url is present and server responds" do
+        server = described_class.new(
+          name: "events",
+          transport: "sse",
+          url: "http://localhost:8080/sse"
+        )
+
+        http_double = instance_double(Net::HTTP)
+        allow(Net::HTTP).to receive(:new).and_return(http_double)
+        allow(http_double).to receive(:use_ssl=)
+        allow(http_double).to receive(:open_timeout=)
+        allow(http_double).to receive(:read_timeout=)
+        allow(http_double).to receive(:head).and_return(Net::HTTPOK.new("1.1", "200", "OK"))
+
+        expect(server.reachable?).to be true
+      end
+    end
+  end
 end

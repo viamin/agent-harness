@@ -599,7 +599,7 @@ module AgentHarness
         end
 
         def default_supported_mcp_transports
-          []
+          %w[stdio]
         end
 
         def default_supports_sessions
@@ -849,9 +849,12 @@ module AgentHarness
 
       # Supported MCP transport types for this provider
       #
+      # Defaults to ["stdio"]. Providers that support HTTP/SSE transports
+      # should override this to include those transports.
+      #
       # @return [Array<String>] supported transports (e.g. ["stdio", "http"])
       def supported_mcp_transports
-        []
+        %w[stdio]
       end
 
       # Build provider-specific MCP flags/arguments for CLI invocation

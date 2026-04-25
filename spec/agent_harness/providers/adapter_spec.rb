@@ -857,7 +857,7 @@ RSpec.describe AgentHarness::Providers::Adapter do
           supports_sessions: false,
           supports_dangerous_mode: false
         )
-        expect(metadata[:runtime][:supported_mcp_transports]).to eq([])
+        expect(metadata[:runtime][:supported_mcp_transports]).to eq(%w[stdio])
         expect(metadata[:configuration]).to include(
           fields: [],
           auth_modes: [:api_key],
