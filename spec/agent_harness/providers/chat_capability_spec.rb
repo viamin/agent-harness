@@ -426,6 +426,30 @@ RSpec.describe "Provider chat capability" do
         provider.send_chat_message(conversation: conversation)
       end
 
+      it "converts canonical tool-call history into Anthropic message blocks" do
+        conversation = [
+          {role: "user", content: "What's the weather?"},
+          {role: "assistant", content: nil, tool_calls: [
+            {id: "call_1", type: "function", function: {name: "get_weather", arguments: '{"location":"NYC"}'}}
+          ]},
+          {role: "tool", tool_call_id: "call_1", content: '{"temp":72}'}
+        ]
+
+        expect(mock_transport).to receive(:chat).with(
+          hash_including(messages: [
+            {role: "user", content: [{type: "text", text: "What's the weather?"}]},
+            {role: "assistant", content: [
+              {type: "tool_use", id: "call_1", name: "get_weather", input: {"location" => "NYC"}}
+            ]},
+            {role: "user", content: [
+              {type: "tool_result", tool_use_id: "call_1", content: '{"temp":72}'}
+            ]}
+          ])
+        ).and_return(response)
+
+        provider.send_chat_message(conversation: conversation)
+      end
+
       it "passes runtime model override to the transport" do
         runtime = AgentHarness::ProviderRuntime.new(model: "claude-opus-4-20250514")
 

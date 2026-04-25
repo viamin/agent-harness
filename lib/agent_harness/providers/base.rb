@@ -554,15 +554,48 @@ module AgentHarness
           "#{name} does not support chat_base_url/chat_api_key overrides on ProviderRuntime"
       end
 
-      def format_messages_for_transport(conversation, _transport)
-        conversation.map do |msg|
-          normalized = msg.each_with_object({}) do |(key, value), memo|
-            memo[key.is_a?(String) ? key.to_sym : key] = value
-          end
+      def format_messages_for_transport(conversation, transport)
+        normalized = conversation.map { |msg| normalize_transport_message(msg) }
+        return normalized unless anthropic_transport?(transport)
+        return normalized unless anthropic_conversion_required?(normalized)
 
+        anthropic = anthropic_conversation(normalized)
+        system_messages = anthropic[:system] ? [{role: "system", content: anthropic[:system]}] : []
+
+        system_messages + anthropic[:messages]
+      end
+
+      def normalize_transport_message(message)
+        message.each_with_object({}) do |(key, value), memo|
+          memo[key.is_a?(String) ? key.to_sym : key] = value
+        end.tap do |normalized|
           normalized[:role] = normalized[:role].to_s if normalized.key?(:role)
-          normalized
         end
+      end
+
+      def anthropic_transport?(transport)
+        chat_transport_type == :anthropic || transport.is_a?(TextTransport)
+      end
+
+      def anthropic_conversion_required?(messages)
+        messages.any? do |msg|
+          msg[:role] == "tool" || msg.key?(:tool_calls)
+        end
+      end
+
+      def anthropic_conversation(messages)
+        conversation = Conversation.new
+
+        messages.each do |msg|
+          conversation.add_message(
+            msg.fetch(:role).to_sym,
+            msg[:content],
+            tool_calls: msg[:tool_calls],
+            tool_call_id: msg[:tool_call_id]
+          )
+        end
+
+        conversation.to_anthropic_messages
       end
 
       def chat_transport_options(runtime, options)
