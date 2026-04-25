@@ -231,7 +231,8 @@ module AgentHarness
       rescue ProviderError, AuthenticationError, RateLimitError, TimeoutError
         raise
       rescue => e
-        handle_error(e, prompt: conversation.last&.dig(:content).to_s, options: options)
+        last_msg = conversation.last
+        handle_error(e, prompt: (last_msg&.dig(:content) || last_msg&.dig("content")).to_s, options: options)
       end
 
       # Provider name for display
@@ -539,16 +540,19 @@ module AgentHarness
 
       # Build a one-off chat transport from ProviderRuntime overrides.
       #
-      # Subclasses that support chat should override this when the default
-      # transport constructor needs provider-specific customization.
-      # Returns nil to fall back to the memoized chat_transport.
+      # Subclasses that support chat must override this when the runtime
+      # carries chat_base_url or chat_api_key so those overrides are
+      # actually applied. The base implementation raises to surface the
+      # misconfiguration early rather than silently ignoring the overrides.
       def build_runtime_chat_transport(_runtime)
-        nil
+        raise NotImplementedError,
+          "#{name} does not implement build_runtime_chat_transport; " \
+          "chat_base_url/chat_api_key on ProviderRuntime will be ignored"
       end
 
       def format_messages_for_transport(conversation, transport)
         conversation.map do |msg|
-          {role: msg[:role].to_s, content: msg[:content].to_s}
+          {role: (msg[:role] || msg["role"]).to_s, content: (msg[:content] || msg["content"]).to_s}
         end
       end
 
