@@ -273,6 +273,22 @@ RSpec.describe AgentHarness::Conversation do
       }])
     end
 
+    it "preserves native OpenAI tool_call shape when re-serializing" do
+      tool_calls = [{
+        id: "call_1",
+        type: "function",
+        function: {name: "search", arguments: '{"q":"test"}'}
+      }]
+      conversation.add_message(:assistant, nil, tool_calls: tool_calls)
+
+      result = conversation.to_openai_messages
+      expect(result.first[:tool_calls]).to eq([{
+        id: "call_1",
+        type: "function",
+        function: {name: "search", arguments: '{"q":"test"}'}
+      }])
+    end
+
     it "formats tool result messages" do
       conversation.add_message(:tool, "result text", tool_call_id: "call_1")
 
@@ -336,6 +352,24 @@ RSpec.describe AgentHarness::Conversation do
       assistant = result[:messages].first
       expect(assistant[:content].size).to eq(2)
       expect(assistant[:content][0]).to eq({type: "text", text: "Let me search."})
+      expect(assistant[:content][1]).to eq({
+        type: "tool_use",
+        id: "call_1",
+        name: "search",
+        input: {"q" => "test"}
+      })
+    end
+
+    it "formats native OpenAI tool_calls as tool_use blocks" do
+      tool_calls = [{
+        "id" => "call_1",
+        "type" => "function",
+        "function" => {"name" => "search", "arguments" => '{"q":"test"}'}
+      }]
+      conversation.add_message(:assistant, "Let me search.", tool_calls: tool_calls)
+
+      result = conversation.to_anthropic_messages
+      assistant = result[:messages].first
       expect(assistant[:content][1]).to eq({
         type: "tool_use",
         id: "call_1",

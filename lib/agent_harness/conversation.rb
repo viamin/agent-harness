@@ -169,7 +169,7 @@ module AgentHarness
           content_blocks << {type: "text", text: msg[:content]} if msg[:content]
 
           msg[:tool_calls]&.each do |tc|
-            arguments = tc[:arguments]
+            arguments = tool_call_arguments(tc)
             parsed_arguments = if arguments.is_a?(String)
               begin
                 JSON.parse(arguments)
@@ -182,8 +182,8 @@ module AgentHarness
 
             content_blocks << {
               type: "tool_use",
-              id: tc[:id],
-              name: tc[:name],
+              id: tool_call_value(tc, :id),
+              name: tool_call_name(tc),
               input: parsed_arguments
             }
           end
@@ -259,11 +259,11 @@ module AgentHarness
         if msg[:tool_calls]
           formatted[:tool_calls] = msg[:tool_calls].map do |tc|
             {
-              id: tc[:id],
+              id: tool_call_value(tc, :id),
               type: "function",
               function: {
-                name: tc[:name],
-                arguments: tc[:arguments].is_a?(Hash) ? JSON.generate(tc[:arguments]) : tc[:arguments]
+                name: tool_call_name(tc),
+                arguments: serialize_tool_call_arguments(tc)
               }
             }
           end
@@ -289,6 +289,38 @@ module AgentHarness
           value
         end
       end
+    end
+
+    def serialize_tool_call_arguments(tool_call)
+      arguments = tool_call_arguments(tool_call)
+      arguments.is_a?(Hash) ? JSON.generate(arguments) : arguments
+    end
+
+    def tool_call_name(tool_call)
+      tool_call_value(tool_call, :name) || nested_tool_call_value(tool_call, :function, :name)
+    end
+
+    def tool_call_arguments(tool_call)
+      tool_call_value(tool_call, :arguments) || nested_tool_call_value(tool_call, :function, :arguments)
+    end
+
+    def nested_tool_call_value(tool_call, *keys)
+      value = tool_call
+      keys.each do |key|
+        value = hash_value(value, key)
+        return nil if value.nil?
+      end
+      value
+    end
+
+    def tool_call_value(tool_call, key)
+      hash_value(tool_call, key)
+    end
+
+    def hash_value(hash, key)
+      return nil unless hash.is_a?(Hash)
+
+      hash[key] || hash[key.to_s]
     end
   end
 end
