@@ -213,6 +213,7 @@ module AgentHarness
         runtime = options[:provider_runtime]
         conversation ||= messages
         raise ArgumentError, "conversation or messages is required" unless conversation
+        tools = runtime.chat_tools if tools.nil? && runtime&.chat_tools
 
         transport = resolve_chat_transport(options)
         messages = format_messages_for_transport(conversation, transport)

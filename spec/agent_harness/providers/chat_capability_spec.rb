@@ -145,6 +145,37 @@ RSpec.describe "Provider chat capability" do
         )
       end
 
+      it "uses runtime chat_tools when tools are not passed" do
+        runtime_tools = [{type: "function", function: {name: "get_weather"}}]
+        runtime = AgentHarness::ProviderRuntime.new(chat_tools: runtime_tools)
+
+        expect(mock_transport).to receive(:chat).with(
+          hash_including(tools: runtime_tools)
+        ).and_return(response)
+
+        provider.send_chat_message(
+          conversation: [{role: "user", content: "What's the weather?"}],
+          provider_runtime: runtime
+        )
+      end
+
+      it "prefers explicit tools over runtime chat_tools" do
+        runtime = AgentHarness::ProviderRuntime.new(
+          chat_tools: [{type: "function", function: {name: "runtime_tool"}}]
+        )
+        explicit_tools = [{type: "function", function: {name: "explicit_tool"}}]
+
+        expect(mock_transport).to receive(:chat).with(
+          hash_including(tools: explicit_tools)
+        ).and_return(response)
+
+        provider.send_chat_message(
+          conversation: [{role: "user", content: "What's the weather?"}],
+          tools: explicit_tools,
+          provider_runtime: runtime
+        )
+      end
+
       it "preserves assistant tool calls and tool replies in transport messages" do
         conversation = [
           {role: "user", content: "What's the weather?"},
@@ -611,13 +642,15 @@ RSpec.describe "Provider chat capability" do
         chat_base_url: "https://custom.api.com",
         chat_model: "gpt-4o",
         chat_api_key: "sk-test",
-        chat_max_tokens: 2048
+        chat_max_tokens: 2048,
+        chat_tools: [{type: "function", function: {name: "lookup_weather"}}]
       )
 
       expect(runtime.chat_base_url).to eq("https://custom.api.com")
       expect(runtime.chat_model).to eq("gpt-4o")
       expect(runtime.chat_api_key).to eq("sk-test")
       expect(runtime.chat_max_tokens).to eq(2048)
+      expect(runtime.chat_tools).to eq([{type: "function", function: {name: "lookup_weather"}}])
     end
 
     it "defaults chat fields to nil" do
@@ -626,10 +659,16 @@ RSpec.describe "Provider chat capability" do
       expect(runtime.chat_model).to be_nil
       expect(runtime.chat_api_key).to be_nil
       expect(runtime.chat_max_tokens).to be_nil
+      expect(runtime.chat_tools).to be_nil
     end
 
     it "includes chat fields in empty? check" do
       runtime = described_class.new(chat_model: "gpt-4o")
+      expect(runtime.empty?).to be false
+    end
+
+    it "includes chat_tools in empty? check" do
+      runtime = described_class.new(chat_tools: [{type: "function", function: {name: "lookup_weather"}}])
       expect(runtime.empty?).to be false
     end
 
@@ -638,19 +677,27 @@ RSpec.describe "Provider chat capability" do
         chat_base_url: "https://api.example.com",
         chat_model: "gpt-4o",
         chat_api_key: "key",
-        chat_max_tokens: 1024
+        chat_max_tokens: 1024,
+        chat_tools: [{type: "function", function: {name: "lookup_weather"}}]
       )
 
       expect(runtime.chat_base_url).to eq("https://api.example.com")
       expect(runtime.chat_model).to eq("gpt-4o")
       expect(runtime.chat_api_key).to eq("key")
       expect(runtime.chat_max_tokens).to eq(1024)
+      expect(runtime.chat_tools).to eq([{type: "function", function: {name: "lookup_weather"}}])
     end
 
     it "validates chat_max_tokens is Integer or nil" do
       expect {
         described_class.new(chat_max_tokens: "not_a_number")
       }.to raise_error(ArgumentError, /chat_max_tokens/)
+    end
+
+    it "validates chat_tools is an Array of Hashes or nil" do
+      expect {
+        described_class.new(chat_tools: ["not_a_hash"])
+      }.to raise_error(ArgumentError, /chat_tools/)
     end
   end
 end
