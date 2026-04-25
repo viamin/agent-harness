@@ -181,6 +181,30 @@ module AgentHarness
         handle_error(e, prompt: prompt, options: options)
       end
 
+      # Send a multi-turn chat message via an HTTP transport.
+      #
+      # Providers that support OpenAI-compatible chat should override this
+      # to wire up their transport. The default raises NotImplementedError.
+      #
+      # Structured streaming events are delivered through three channels:
+      # - +on_chat_chunk+ proc (keyword argument)
+      # - +observer+ object responding to +on_chat_chunk+
+      # - block (yield)
+      #
+      # When multiple receivers are provided, all receive every event.
+      #
+      # @param messages [Array<Hash>] conversation messages
+      # @param stream [Boolean] whether to stream the response
+      # @param on_chat_chunk [Proc, nil] callback for structured streaming events
+      # @param observer [#on_chat_chunk, nil] observer receiving streaming events
+      # @param options [Hash] additional options forwarded to the transport
+      # @return [Response] the response
+      def send_chat_message(messages:, stream: false, on_chat_chunk: nil, observer: nil, **options, &on_chunk)
+        raise NotImplementedError,
+          "#{self.class.provider_name} does not support chat messages. " \
+          "Override send_chat_message or configure an OpenAI-compatible transport."
+      end
+
       # Provider name for display
       #
       # @return [String] display name

@@ -272,9 +272,13 @@ RSpec.describe AgentHarness::OpenAICompatibleTransport do
         text_chunks = received_chunks.select { |c| c[:type] == :text }
         expect(text_chunks.map { |c| c[:content] }).to eq(["Hello", ", world!"])
 
+        usage_chunks = received_chunks.select { |c| c[:type] == :usage }
+        expect(usage_chunks.length).to eq(1)
+        expect(usage_chunks[0]).to eq({type: :usage, input_tokens: 10, output_tokens: 5})
+
         done_chunks = received_chunks.select { |c| c[:type] == :done }
         expect(done_chunks.length).to eq(1)
-        expect(done_chunks[0][:usage]).to eq({input: 10, output: 5, total: 15})
+        expect(done_chunks[0]).to eq({type: :done})
 
         expect(response.output).to eq("Hello, world!")
         expect(response.success?).to be true
@@ -282,7 +286,7 @@ RSpec.describe AgentHarness::OpenAICompatibleTransport do
         expect(response.tokens).to eq({input: 10, output: 5, total: 15})
       end
 
-      it "handles streamed tool calls" do
+      it "handles streamed tool calls with structured chunk types" do
         chunks = [
           "data: #{JSON.generate({
             "choices" => [{"delta" => {"role" => "assistant", "tool_calls" => [{"index" => 0, "id" => "call_abc", "function" => {"name" => "get_weather", "arguments" => ""}}]}}]
@@ -292,6 +296,9 @@ RSpec.describe AgentHarness::OpenAICompatibleTransport do
           })}\n\n",
           "data: #{JSON.generate({
             "choices" => [{"delta" => {"tool_calls" => [{"index" => 0, "function" => {"arguments" => 'ation":"NYC"}'}}]}}]
+          })}\n\n",
+          "data: #{JSON.generate({
+            "choices" => [{"delta" => {}, "finish_reason" => "tool_calls"}]
           })}\n\n",
           "data: #{JSON.generate({"usage" => {"prompt_tokens" => 15, "completion_tokens" => 10}})}\n\n",
           "data: [DONE]\n\n"
@@ -305,10 +312,21 @@ RSpec.describe AgentHarness::OpenAICompatibleTransport do
           stream: true
         ) { |chunk| received_chunks << chunk }
 
-        tool_chunks = received_chunks.select { |c| c[:type] == :tool_call }
-        expect(tool_chunks.length).to eq(3)
-        expect(tool_chunks[0][:id]).to eq("call_abc")
-        expect(tool_chunks[0][:name]).to eq("get_weather")
+        start_chunks = received_chunks.select { |c| c[:type] == :tool_call_start }
+        expect(start_chunks.length).to eq(1)
+        expect(start_chunks[0]).to eq({type: :tool_call_start, id: "call_abc", name: "get_weather"})
+
+        delta_chunks = received_chunks.select { |c| c[:type] == :tool_call_delta }
+        expect(delta_chunks.length).to eq(2)
+        expect(delta_chunks[0]).to eq({type: :tool_call_delta, id: "call_abc", arguments: '{"loc'})
+        expect(delta_chunks[1]).to eq({type: :tool_call_delta, id: "call_abc", arguments: 'ation":"NYC"}'})
+
+        complete_chunks = received_chunks.select { |c| c[:type] == :tool_call_complete }
+        expect(complete_chunks.length).to eq(1)
+        expect(complete_chunks[0]).to eq({
+          type: :tool_call_complete, id: "call_abc",
+          name: "get_weather", arguments: '{"location":"NYC"}'
+        })
 
         expect(response.metadata[:tool_calls]).to eq([
           {id: "call_abc", name: "get_weather", arguments: '{"location":"NYC"}'}
@@ -340,6 +358,79 @@ RSpec.describe AgentHarness::OpenAICompatibleTransport do
           messages: [{role: "user", content: "prompt"}],
           stream: true
         ) { |_chunk| }
+      end
+
+      it "delivers events to on_chat_chunk proc" do
+        chunks = [
+          "data: #{JSON.generate({"choices" => [{"delta" => {"content" => "Hi"}}]})}\n\n",
+          "data: #{JSON.generate({"usage" => {"prompt_tokens" => 5, "completion_tokens" => 2}})}\n\n",
+          "data: [DONE]\n\n"
+        ]
+
+        stub_streaming_response(status: 200, chunks: chunks)
+
+        received = []
+        transport.chat(
+          messages: [{role: "user", content: "prompt"}],
+          stream: true,
+          on_chat_chunk: proc { |chunk| received << chunk }
+        )
+
+        expect(received.map { |c| c[:type] }).to eq([:text, :usage, :done])
+        expect(received[0][:content]).to eq("Hi")
+      end
+
+      it "delivers events to observer responding to on_chat_chunk" do
+        chunks = [
+          "data: #{JSON.generate({"choices" => [{"delta" => {"content" => "Hi"}}]})}\n\n",
+          "data: #{JSON.generate({"usage" => {"prompt_tokens" => 5, "completion_tokens" => 2}})}\n\n",
+          "data: [DONE]\n\n"
+        ]
+
+        stub_streaming_response(status: 200, chunks: chunks)
+
+        observer = double("observer")
+        allow(observer).to receive(:respond_to?).and_return(false)
+        allow(observer).to receive(:respond_to?).with(:on_chat_chunk).and_return(true)
+        allow(observer).to receive(:on_chat_chunk)
+
+        transport.chat(
+          messages: [{role: "user", content: "prompt"}],
+          stream: true,
+          observer: observer
+        )
+
+        expect(observer).to have_received(:on_chat_chunk).with({type: :text, content: "Hi"})
+        expect(observer).to have_received(:on_chat_chunk).with({type: :usage, input_tokens: 5, output_tokens: 2})
+        expect(observer).to have_received(:on_chat_chunk).with({type: :done})
+      end
+
+      it "delivers events to block, on_chat_chunk, and observer simultaneously" do
+        chunks = [
+          "data: #{JSON.generate({"choices" => [{"delta" => {"content" => "Hi"}}]})}\n\n",
+          "data: #{JSON.generate({"usage" => {"prompt_tokens" => 5, "completion_tokens" => 2}})}\n\n",
+          "data: [DONE]\n\n"
+        ]
+
+        stub_streaming_response(status: 200, chunks: chunks)
+
+        block_received = []
+        proc_received = []
+        observer = double("observer")
+        allow(observer).to receive(:respond_to?).and_return(false)
+        allow(observer).to receive(:respond_to?).with(:on_chat_chunk).and_return(true)
+        allow(observer).to receive(:on_chat_chunk)
+
+        transport.chat(
+          messages: [{role: "user", content: "prompt"}],
+          stream: true,
+          on_chat_chunk: proc { |chunk| proc_received << chunk },
+          observer: observer
+        ) { |chunk| block_received << chunk }
+
+        expect(block_received.length).to eq(3)
+        expect(proc_received.length).to eq(3)
+        expect(observer).to have_received(:on_chat_chunk).exactly(3).times
       end
     end
 
