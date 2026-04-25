@@ -75,6 +75,25 @@ module AgentHarness
       %w[http sse].include?(@transport)
     end
 
+    # Check if the MCP server is reachable based on its transport type.
+    #
+    # For stdio servers, checks that a command is present.
+    # For HTTP/SSE servers, checks that a URL is present and the server
+    # responds to an HTTP HEAD request.
+    #
+    # @param timeout [Integer] HTTP request timeout in seconds (default: 5)
+    # @return [Boolean]
+    def reachable?(timeout: 5)
+      case transport
+      when "stdio"
+        !command.nil? && !command.empty?
+      when "http", "sse"
+        !url.nil? && !url.to_s.strip.empty? && http_ping_ok?(timeout: timeout)
+      else
+        false
+      end
+    end
+
     def to_h
       h = {name: @name, transport: @transport}
       if stdio?
@@ -152,6 +171,19 @@ module AgentHarness
 
       raise McpConfigurationError,
         "MCP server '#{@name}' with #{@transport} transport should not have args (args are only valid for stdio)"
+    end
+
+    def http_ping_ok?(timeout: 5)
+      require "net/http"
+      uri = URI.parse(@url)
+      http = Net::HTTP.new(uri.host, uri.port)
+      http.use_ssl = (uri.scheme == "https")
+      http.open_timeout = timeout
+      http.read_timeout = timeout
+      response = http.head(uri.request_uri)
+      response.is_a?(Net::HTTPSuccess) || response.is_a?(Net::HTTPRedirection)
+    rescue
+      false
     end
   end
 end
