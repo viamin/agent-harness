@@ -169,8 +169,24 @@ RSpec.describe AgentHarness::Conversation do
 
     it "removes system prompt when keep_system_prompt is false" do
       removed = convo.truncate(keep_recent: 2, keep_system_prompt: false)
-      expect(removed).to eq(4)
+      expect(removed).to eq(5)
       expect(convo.message_count).to eq(2)
+      expect(convo.messages.none? { |m| m[:role] == :system }).to be true
+    end
+
+    it "removes only the system prompt when keep_recent is nil" do
+      removed = convo.truncate(keep_system_prompt: false)
+
+      expect(removed).to eq(1)
+      expect(convo.message_count).to eq(6)
+      expect(convo.messages.none? { |m| m[:role] == :system }).to be true
+    end
+
+    it "removes only the system prompt when keep_recent covers all non-system messages" do
+      removed = convo.truncate(keep_recent: 10, keep_system_prompt: false)
+
+      expect(removed).to eq(1)
+      expect(convo.message_count).to eq(6)
       expect(convo.messages.none? { |m| m[:role] == :system }).to be true
     end
   end

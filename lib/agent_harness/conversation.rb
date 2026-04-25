@@ -117,17 +117,18 @@ module AgentHarness
     # @param keep_system_prompt [Boolean] whether to preserve the system prompt
     # @return [Integer] number of messages removed
     def truncate(keep_recent: nil, keep_system_prompt: true)
+      original_size = @messages.size
       system_messages = keep_system_prompt ? @messages.select { |m| m[:role] == :system } : []
       non_system = @messages.reject { |m| m[:role] == :system }
 
-      if keep_recent && keep_recent < non_system.size
-        kept = non_system.last(keep_recent)
-        removed_count = non_system.size - kept.size
-        @messages = system_messages + kept
-        removed_count
+      kept = if keep_recent && keep_recent < non_system.size
+        non_system.last(keep_recent)
       else
-        0
+        non_system
       end
+
+      @messages = system_messages + kept
+      original_size - @messages.size
     end
 
     # Format messages for OpenAI-compatible chat completions APIs.
