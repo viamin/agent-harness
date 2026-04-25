@@ -49,6 +49,9 @@ module AgentHarness
       unless VALID_ROLES.include?(role)
         raise ArgumentError, "Invalid role: #{role}. Must be one of #{VALID_ROLES.join(", ")}"
       end
+      if role == :system && !@messages.empty?
+        raise ArgumentError, "System messages are only allowed as the first message"
+      end
 
       message = {
         role: role,
@@ -122,8 +125,9 @@ module AgentHarness
     # @return [Integer] number of messages removed
     def truncate(keep_recent: nil, keep_system_prompt: true)
       original_size = @messages.size
-      system_messages = keep_system_prompt ? @messages.select { |m| m[:role] == :system } : []
-      non_system = @messages.reject { |m| m[:role] == :system }
+      system_message = initial_system_message
+      system_messages = (keep_system_prompt && system_message) ? [system_message] : []
+      non_system = system_message ? @messages.drop(1) : @messages
 
       kept = if keep_recent
         recent_turns(non_system, keep_recent).flatten
@@ -149,13 +153,12 @@ module AgentHarness
     #
     # @return [Hash] :system [String, nil] and :messages [Array<Hash>]
     def to_anthropic_messages
-      system_messages = []
+      system_prompt = initial_system_message&.dig(:content)
       result_messages = []
 
-      @messages.each do |msg|
+      start_index = system_prompt ? 1 : 0
+      @messages.drop(start_index).each do |msg|
         case msg[:role]
-        when :system
-          system_messages << msg[:content]
         when :user
           result_messages << {
             role: "user",
@@ -204,7 +207,7 @@ module AgentHarness
         end
       end
 
-      {system: system_messages.empty? ? nil : system_messages.join("\n\n"), messages: result_messages}
+      {system: system_prompt, messages: result_messages}
     end
 
     # Returns the most recent assistant message, or nil.
@@ -221,10 +224,15 @@ module AgentHarness
     #
     # @return [void]
     def clear!
-      @messages.select! { |m| m[:role] == :system }
+      system_message = initial_system_message
+      @messages = system_message ? [system_message] : []
     end
 
     private
+
+    def initial_system_message
+      @messages.first if @messages.first&.dig(:role) == :system
+    end
 
     def recent_turns(non_system_messages, keep_recent)
       turns = non_system_messages.each_with_object([]) do |msg, grouped_turns|

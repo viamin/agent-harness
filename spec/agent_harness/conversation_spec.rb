@@ -53,6 +53,13 @@ RSpec.describe AgentHarness::Conversation do
       expect(msg[:role]).to eq(:user)
     end
 
+    it "allows a system message only as the first message" do
+      conversation.add_message(:user, "Hello")
+
+      expect { conversation.add_message(:system, "Late instruction") }
+        .to raise_error(ArgumentError, /only allowed as the first message/)
+    end
+
     it "raises ArgumentError for invalid roles" do
       expect { conversation.add_message(:invalid, "Hello") }
         .to raise_error(ArgumentError, /Invalid role/)
@@ -303,14 +310,12 @@ RSpec.describe AgentHarness::Conversation do
       expect(result[:system]).to be_nil
     end
 
-    it "preserves multiple system messages in order" do
+    it "rejects non-leading system messages" do
       conversation.add_message(:system, "First instruction")
       conversation.add_message(:user, "Hello")
-      conversation.add_message(:system, "Second instruction")
 
-      result = conversation.to_anthropic_messages
-
-      expect(result[:system]).to eq("First instruction\n\nSecond instruction")
+      expect { conversation.add_message(:system, "Second instruction") }
+        .to raise_error(ArgumentError, /only allowed as the first message/)
     end
 
     it "wraps user content in text blocks" do
