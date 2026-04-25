@@ -150,10 +150,26 @@ RSpec.describe AgentHarness::Conversation do
 
     it "preserves system prompt and keeps recent messages" do
       removed = convo.truncate(keep_recent: 2)
-      expect(removed).to eq(4)
-      expect(convo.message_count).to eq(3) # system + 2 recent
+      expect(removed).to eq(2)
+      expect(convo.message_count).to eq(5) # system + 2 recent turns
       expect(convo.messages.first[:role]).to eq(:system)
+      expect(convo.messages[1..].map { |msg| msg[:content] }).to eq(%w[msg2 resp2 msg3 resp3])
       expect(convo.messages.last[:content]).to eq("resp3")
+    end
+
+    it "keeps complete recent turns when assistant tool activity follows a user prompt" do
+      convo.add_message(:user, "msg4")
+      convo.add_message(:assistant, "thinking", tool_calls: [
+        {id: "call_1", name: "search", arguments: '{"q":"msg4"}'}
+      ])
+      convo.add_message(:tool, "tool result", tool_call_id: "call_1")
+      convo.add_message(:assistant, "final answer")
+
+      removed = convo.truncate(keep_recent: 1)
+
+      expect(removed).to eq(6)
+      expect(convo.messages.map { |msg| msg[:role] }).to eq([:system, :user, :assistant, :tool, :assistant])
+      expect(convo.messages[1][:content]).to eq("msg4")
     end
 
     it "returns 0 when keep_recent covers all messages" do
@@ -169,8 +185,8 @@ RSpec.describe AgentHarness::Conversation do
 
     it "removes system prompt when keep_system_prompt is false" do
       removed = convo.truncate(keep_recent: 2, keep_system_prompt: false)
-      expect(removed).to eq(5)
-      expect(convo.message_count).to eq(2)
+      expect(removed).to eq(3)
+      expect(convo.message_count).to eq(4)
       expect(convo.messages.none? { |m| m[:role] == :system }).to be true
     end
 
@@ -258,6 +274,16 @@ RSpec.describe AgentHarness::Conversation do
 
       result = conversation.to_anthropic_messages
       expect(result[:system]).to be_nil
+    end
+
+    it "preserves multiple system messages in order" do
+      conversation.add_message(:system, "First instruction")
+      conversation.add_message(:user, "Hello")
+      conversation.add_message(:system, "Second instruction")
+
+      result = conversation.to_anthropic_messages
+
+      expect(result[:system]).to eq("First instruction\n\nSecond instruction")
     end
 
     it "wraps user content in text blocks" do

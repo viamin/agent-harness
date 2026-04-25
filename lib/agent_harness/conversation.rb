@@ -113,7 +113,11 @@ module AgentHarness
 
     # Remove oldest non-system messages to free context window.
     #
-    # @param keep_recent [Integer, nil] minimum number of recent messages to preserve
+    # keep_recent counts conversational turns, not individual messages. A turn is
+    # anchored by a user message and includes any following assistant/tool
+    # messages up to the next user message.
+    #
+    # @param keep_recent [Integer, nil] minimum number of recent turns to preserve
     # @param keep_system_prompt [Boolean] whether to preserve the system prompt
     # @return [Integer] number of messages removed
     def truncate(keep_recent: nil, keep_system_prompt: true)
@@ -121,8 +125,8 @@ module AgentHarness
       system_messages = keep_system_prompt ? @messages.select { |m| m[:role] == :system } : []
       non_system = @messages.reject { |m| m[:role] == :system }
 
-      kept = if keep_recent && keep_recent < non_system.size
-        non_system.last(keep_recent)
+      kept = if keep_recent
+        recent_turns(non_system, keep_recent).flatten
       else
         non_system
       end
@@ -145,13 +149,13 @@ module AgentHarness
     #
     # @return [Hash] :system [String, nil] and :messages [Array<Hash>]
     def to_anthropic_messages
-      system_text = nil
+      system_messages = []
       result_messages = []
 
       @messages.each do |msg|
         case msg[:role]
         when :system
-          system_text = msg[:content]
+          system_messages << msg[:content]
         when :user
           result_messages << {
             role: "user",
@@ -200,7 +204,7 @@ module AgentHarness
         end
       end
 
-      {system: system_text, messages: result_messages}
+      {system: system_messages.empty? ? nil : system_messages.join("\n\n"), messages: result_messages}
     end
 
     # Returns the most recent assistant message, or nil.
@@ -221,6 +225,18 @@ module AgentHarness
     end
 
     private
+
+    def recent_turns(non_system_messages, keep_recent)
+      turns = non_system_messages.each_with_object([]) do |msg, grouped_turns|
+        if msg[:role] == :user || grouped_turns.empty?
+          grouped_turns << [msg]
+        else
+          grouped_turns.last << msg
+        end
+      end
+
+      (keep_recent < turns.size) ? turns.last(keep_recent) : turns
+    end
 
     def openai_format(msg)
       case msg[:role]
