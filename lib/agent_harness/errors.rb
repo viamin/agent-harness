@@ -72,6 +72,17 @@ module AgentHarness
   # Configuration errors
   class ConfigurationError < Error; end
 
+  class ExtensionCompatibilityError < ConfigurationError
+    attr_reader :provider, :extension, :report
+
+    def initialize(message = nil, provider: nil, extension: nil, report: nil, **kwargs)
+      @provider = provider
+      @extension = extension
+      @report = report
+      super(message, **kwargs)
+    end
+  end
+
   # MCP-specific errors
   class McpConfigurationError < ConfigurationError; end
 

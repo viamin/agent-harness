@@ -55,6 +55,32 @@ RSpec.describe AgentHarness::Providers::Base, "#send_message" do
     end
   end
 
+  let(:prompt_extension_class) do
+    Class.new(AgentHarness::Extensions::Base) do
+      def name
+        :prompt_extension
+      end
+
+      def system_prompt_additions
+        ["Research before answering."]
+      end
+
+      def on_message_after(context)
+        response = context.response
+        context.response = AgentHarness::Response.new(
+          output: "#{response.output} [extended]",
+          exit_code: response.exit_code,
+          duration: response.duration,
+          provider: response.provider,
+          model: response.model,
+          tokens: response.tokens,
+          metadata: response.metadata,
+          error: response.error
+        )
+      end
+    end
+  end
+
   subject(:provider) { test_provider_class.new(config: config, executor: mock_executor) }
 
   describe "successful execution" do
@@ -109,6 +135,25 @@ RSpec.describe AgentHarness::Providers::Base, "#send_message" do
       end
 
       provider.send_message(prompt: "Hello", sub_agent: :code_reviewer)
+    end
+
+    it "applies extension prompt additions and response hooks" do
+      extension = prompt_extension_class.new
+      AgentHarness.configuration.register_extension(extension)
+
+      expect(mock_executor).to receive(:execute) do |command, **|
+        expect(command).to include("Research before answering.\n\nHello")
+
+        AgentHarness::CommandExecutor::Result.new(
+          stdout: "response output",
+          stderr: "",
+          exit_code: 0,
+          duration: 1.0
+        )
+      end
+
+      response = provider.send_message(prompt: "Hello", extensions: [:prompt_extension])
+      expect(response.output).to eq("response output [extended]")
     end
   end
 

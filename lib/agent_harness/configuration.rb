@@ -23,7 +23,7 @@ module AgentHarness
     attr_writer :command_executor
 
     attr_reader :providers, :orchestration_config, :callbacks, :custom_provider_classes
-    attr_reader :sub_agents, :tool_registry, :mcp_servers
+    attr_reader :sub_agents, :tool_registry, :mcp_servers, :extension_registry
 
     def initialize
       @logger = nil # Will use null logger if not set
@@ -40,6 +40,7 @@ module AgentHarness
       @sub_agents = {}
       @tool_registry = ToolRegistry.new
       @mcp_servers = {}
+      @extension_registry = Extensions::Registry.new
     end
 
     # Get or lazily initialize the command executor
@@ -145,6 +146,42 @@ module AgentHarness
       end
 
       @mcp_servers[name.to_sym] = server
+    end
+
+    # Register a provider-agnostic runtime extension.
+    #
+    # @param extension [Extensions::Base] extension instance
+    # @param as [Symbol, String, nil] optional registry key override
+    # @return [Extensions::Base]
+    def register_extension(extension, as: nil)
+      @extension_registry.register(extension, as: as)
+      extension
+    end
+
+    # Load one or more extensions from disk through an adapter.
+    #
+    # @param path [String] extension file, directory, or package root
+    # @param adapter [Symbol, String, nil] optional explicit adapter name
+    # @return [Array<Extensions::Base>]
+    def load_extensions(path, adapter: nil)
+      Extensions::Loader.load(path, adapter: adapter).each do |extension|
+        register_extension(extension)
+      end
+    end
+
+    # Resolve a registered or inline extension reference.
+    #
+    # @param reference [Symbol, String, Extensions::Base, nil]
+    # @return [Extensions::Base, nil]
+    def resolve_extension(reference)
+      case reference
+      when nil
+        nil
+      when Extensions::Base
+        reference
+      else
+        @extension_registry.fetch(reference)
+      end
     end
 
     # Resolve a named or inline sub-agent definition.

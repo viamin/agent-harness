@@ -126,6 +126,9 @@ module AgentHarness
 
         # Coerce provider_runtime from Hash if needed
         options = normalize_provider_runtime(options)
+        extension_context = apply_extensions_to_prompt(prompt, options)
+        prompt = extension_context.prompt
+        options = extension_context.options
         options = normalize_sub_agent(options)
         prompt = apply_sub_agent_to_prompt(prompt, options[:translated_sub_agent])
 
@@ -171,13 +174,15 @@ module AgentHarness
           )
         end
 
+        response = apply_extensions_after_response(extension_context, response)
+
         # Track tokens
         track_tokens(response) if response.tokens
 
         log_debug("send_message_complete", duration: duration, tokens: response.tokens)
 
         response
-      rescue McpConfigurationError, McpUnsupportedError, McpTransportUnsupportedError
+      rescue ExtensionCompatibilityError, McpConfigurationError, McpUnsupportedError, McpTransportUnsupportedError
         raise
       rescue => e
         handle_error(e, prompt: prompt, options: options)
@@ -220,6 +225,10 @@ module AgentHarness
 
         transport = resolve_chat_transport(options)
         messages = format_messages_for_transport(conversation, transport)
+        extension_context = apply_extensions_to_chat(messages, tools, options)
+        messages = extension_context.messages
+        tools = extension_context.tools
+        options = extension_context.options
         messages = apply_sub_agent_to_messages(messages, options[:translated_sub_agent])
         transport_opts = chat_transport_options(runtime, options)
         transport_opts[:on_chat_chunk] = on_chat_chunk if on_chat_chunk
@@ -233,11 +242,13 @@ module AgentHarness
           &on_chunk
         )
 
+        response = apply_extensions_after_response(extension_context, response)
+
         track_tokens(response) if response.tokens
         log_debug("send_chat_message_complete", duration: response.duration, tokens: response.tokens)
 
         response
-      rescue ProviderError, AuthenticationError, RateLimitError, TimeoutError
+      rescue ExtensionCompatibilityError, ProviderError, AuthenticationError, RateLimitError, TimeoutError
         raise
       rescue => e
         last_msg = conversation&.last || messages&.last
@@ -481,6 +492,111 @@ module AgentHarness
         return messages unless translated_sub_agent
 
         [{role: "system", content: translated_sub_agent[:runtime_instructions]}] + messages
+      end
+
+      def resolve_extensions(options)
+        Array(options[:extensions]).map do |reference|
+          AgentHarness.configuration.resolve_extension(reference)
+        end
+      end
+
+      def apply_extensions_to_prompt(prompt, options)
+        extensions = resolve_extensions(options)
+        context = Extensions::MessageContext.new(
+          provider: self,
+          extensions: extensions,
+          mode: :message,
+          prompt: prompt,
+          options: options.dup,
+          metadata: {}
+        )
+
+        validate_extensions!(extensions)
+        merge_extension_mcp_servers!(context)
+        apply_extension_system_prompt!(context)
+        extensions.each { |extension| extension.on_message_before(context) }
+        context
+      end
+
+      def apply_extensions_to_chat(messages, tools, options)
+        extensions = resolve_extensions(options)
+        context = Extensions::MessageContext.new(
+          provider: self,
+          extensions: extensions,
+          mode: :chat,
+          messages: deep_dup(messages),
+          tools: merge_extension_tools(tools, extensions),
+          options: options.dup,
+          metadata: {}
+        )
+
+        validate_extensions!(extensions)
+        merge_extension_mcp_servers!(context)
+        apply_extension_system_messages!(context)
+        extensions.each { |extension| extension.on_message_before(context) }
+        extensions.each { |extension| extension.on_tool_call(context) } if context.tools&.any?
+        context
+      end
+
+      def apply_extensions_after_response(context, response)
+        return response unless context
+
+        context.response = response
+        context.extensions.each { |extension| extension.on_message_after(context) }
+        context.response
+      end
+
+      def validate_extensions!(extensions)
+        extensions.each do |extension|
+          Extensions::Compatibility.check!(provider: self, extension: extension)
+        end
+      end
+
+      def merge_extension_mcp_servers!(context)
+        extension_servers = context.extensions.flat_map(&:mcp_servers)
+        return if extension_servers.empty?
+
+        merged = Array(context.options[:mcp_servers]) + extension_servers
+        context.options = context.options.merge(mcp_servers: merged)
+      end
+
+      def merge_extension_tools(tools, extensions)
+        extension_tools = extensions.flat_map(&:tools)
+        return tools unless extension_tools.any?
+
+        Array(tools) + extension_tools
+      end
+
+      def apply_extension_system_prompt!(context)
+        additions = context.extensions.flat_map(&:system_prompt_additions).reject do |addition|
+          addition.nil? || addition.empty?
+        end
+        return if additions.empty?
+
+        context.prompt = [additions.join("\n\n"), context.prompt].join("\n\n")
+      end
+
+      def apply_extension_system_messages!(context)
+        additions = context.extensions.flat_map(&:system_prompt_additions).reject do |addition|
+          addition.nil? || addition.empty?
+        end
+        return if additions.empty?
+
+        system_messages = additions.map { |addition| {role: "system", content: addition} }
+        context.messages = system_messages + context.messages
+      end
+
+      def deep_dup(value)
+        case value
+        when Array
+          value.map { |entry| deep_dup(entry) }
+        when Hash
+          value.each_with_object({}) { |(key, entry), copy| copy[key] = deep_dup(entry) }
+        else
+          value.dup
+        end
+      rescue TypeError
+        value
       end
 
       def command_execution_options(options)
