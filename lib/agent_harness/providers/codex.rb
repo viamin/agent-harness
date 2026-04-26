@@ -186,7 +186,7 @@ module AgentHarness
           vision: false,
           tool_use: true,
           json_mode: false,
-          mcp: false,
+          mcp: true,
           dangerous_mode: true
         }
       end
@@ -198,6 +198,27 @@ module AgentHarness
       def subscription_unset_vars = ["OPENAI_API_KEY", "OPENAI_BASE_URL"] + api_key_unset_vars
 
       def cli_env_overrides = {"PAID_CODEX_SUBSCRIPTION_AUTH" => "1"}
+
+      def send_message(prompt:, **options)
+        super
+      ensure
+        cleanup_mcp_tempfiles!
+      end
+
+      def supports_mcp?
+        true
+      end
+
+      def supported_mcp_transports
+        %w[stdio http sse]
+      end
+
+      def build_mcp_flags(mcp_servers, working_dir: nil)
+        return [] if mcp_servers.empty?
+
+        config_path = write_mcp_config_file(mcp_servers, working_dir: working_dir)
+        ["--mcp-config", config_path]
+      end
 
       def test_command_overrides
         ["--skip-git-repo-check", "--output-last-message"]
@@ -447,6 +468,11 @@ module AgentHarness
 
         if externally_sandboxed
           cmd += sandbox_bypass_flags
+        end
+
+        # Add MCP server flags (validated/normalized by Base#send_message)
+        if options[:mcp_servers]&.any?
+          cmd += build_mcp_flags(options[:mcp_servers])
         end
 
         if options[:session]
@@ -1258,6 +1284,64 @@ module AgentHarness
       def codex_config_path
         config_dir = ENV["CODEX_CONFIG_DIR"] || File.expand_path("~/.codex")
         File.join(config_dir, "config.json")
+      end
+
+      def write_mcp_config_file(mcp_servers, working_dir: nil)
+        require "tempfile"
+        require "tmpdir"
+        require "securerandom"
+
+        config = McpConfigTranslator.for_provider(:codex, mcp_servers)
+        config_json = JSON.generate(config)
+
+        if @executor.is_a?(DockerCommandExecutor)
+          container_path = "/tmp/agent_harness_mcp_#{SecureRandom.hex(8)}.json"
+          result = @executor.execute(
+            ["sh", "-c", "cat > #{container_path}"],
+            stdin_data: config_json,
+            timeout: 5
+          )
+          unless result.success?
+            raise McpConfigurationError,
+              "Failed to write MCP config inside container: #{result.stderr}"
+          end
+
+          @mcp_docker_config_paths ||= []
+          @mcp_docker_config_paths << container_path
+
+          container_path
+        else
+          dir = working_dir || Dir.tmpdir
+          file = Tempfile.new(["agent_harness_mcp_", ".json"], dir)
+          file.write(config_json)
+          file.close
+
+          @mcp_config_tempfiles ||= []
+          @mcp_config_tempfiles << file
+
+          file.path
+        end
+      end
+
+      def cleanup_mcp_tempfiles!
+        if @mcp_config_tempfiles
+          @mcp_config_tempfiles.each do |file|
+            file.close unless file.closed?
+            file.unlink
+          rescue
+            nil
+          end
+          @mcp_config_tempfiles = nil
+        end
+
+        if @mcp_docker_config_paths
+          @mcp_docker_config_paths.each do |path|
+            @executor.execute(["rm", "-f", path], timeout: 5)
+          rescue
+            nil
+          end
+          @mcp_docker_config_paths = nil
+        end
       end
     end
   end

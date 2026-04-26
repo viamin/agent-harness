@@ -236,32 +236,152 @@ RSpec.describe "MCP Server Integration" do
     end
   end
 
-  describe "unsupported provider with MCP servers" do
+  describe "Codex provider with MCP servers" do
     let(:config) { AgentHarness::ProviderConfig.new(:codex) }
     let(:mock_executor) { instance_double(AgentHarness::CommandExecutor) }
     let(:provider) { AgentHarness::Providers::Codex.new(config: config, executor: mock_executor) }
 
-    let(:mcp_servers) do
-      [
-        {
-          name: "filesystem",
-          transport: "stdio",
-          command: ["npx", "server"]
-        }
-      ]
+    let(:success_result) do
+      AgentHarness::CommandExecutor::Result.new(
+        stdout: '{"type":"turn.completed","result":"response"}',
+        stderr: "",
+        exit_code: 0,
+        duration: 1.0
+      )
     end
 
-    it "raises McpUnsupportedError" do
-      expect {
+    context "with stdio MCP servers" do
+      let(:mcp_servers) do
+        [
+          {
+            name: "filesystem",
+            transport: "stdio",
+            command: ["npx", "-y", "@modelcontextprotocol/server-filesystem", "/workspace"],
+            env: {"DEBUG" => "0"}
+          }
+        ]
+      end
+
+      it "includes --mcp-config flag in the command" do
+        allow(mock_executor).to receive(:execute).and_return(success_result)
+
+        expect(mock_executor).to receive(:execute).with(
+          array_including("--mcp-config"),
+          anything
+        )
+
         provider.send_message(prompt: "Hello", mcp_servers: mcp_servers)
-      }.to raise_error(AgentHarness::McpUnsupportedError, /does not support MCP/)
+      end
+
+      it "generates a valid MCP config file with codex format" do
+        config_content = nil
+        allow(mock_executor).to receive(:execute) do |cmd, **_opts|
+          idx = cmd.index("--mcp-config")
+          if idx
+            config_content = JSON.parse(File.read(cmd[idx + 1]))
+          end
+          success_result
+        end
+
+        provider.send_message(prompt: "Hello", mcp_servers: mcp_servers)
+
+        expect(config_content).not_to be_nil
+        expect(config_content).to have_key("mcp_servers")
+        expect(config_content["mcp_servers"]).to have_key("filesystem")
+
+        fs_config = config_content["mcp_servers"]["filesystem"]
+        expect(fs_config["command"]).to eq("npx")
+        expect(fs_config["args"]).to eq(["-y", "@modelcontextprotocol/server-filesystem", "/workspace"])
+        expect(fs_config["env"]).to eq({"DEBUG" => "0"})
+        expect(fs_config["transport"]).to eq("stdio")
+      end
     end
 
-    it "includes provider name in error" do
-      expect {
+    context "with HTTP MCP servers" do
+      let(:mcp_servers) do
+        [
+          {
+            name: "remote-db",
+            transport: "http",
+            url: "https://mcp.example.com/db",
+            headers: {"Authorization" => "Bearer token123"}
+          }
+        ]
+      end
+
+      it "generates config with url and transport for HTTP servers" do
+        config_content = nil
+        allow(mock_executor).to receive(:execute) do |cmd, **_opts|
+          idx = cmd.index("--mcp-config")
+          if idx
+            config_content = JSON.parse(File.read(cmd[idx + 1]))
+          end
+          success_result
+        end
+
         provider.send_message(prompt: "Hello", mcp_servers: mcp_servers)
-      }.to raise_error(AgentHarness::McpUnsupportedError) do |error|
-        expect(error.provider).to eq(:codex)
+
+        expect(config_content).not_to be_nil
+        db_config = config_content["mcp_servers"]["remote-db"]
+        expect(db_config["url"]).to eq("https://mcp.example.com/db")
+        expect(db_config["transport"]).to eq("http")
+        expect(db_config["headers"]).to eq({"Authorization" => "Bearer token123"})
+        expect(db_config).not_to have_key("command")
+      end
+    end
+
+    context "tempfile cleanup" do
+      let(:mcp_servers) do
+        [
+          {
+            name: "filesystem",
+            transport: "stdio",
+            command: ["npx", "server"]
+          }
+        ]
+      end
+
+      it "cleans up MCP config tempfiles after execution" do
+        config_path = nil
+        allow(mock_executor).to receive(:execute) do |cmd, **_opts|
+          idx = cmd.index("--mcp-config")
+          config_path = cmd[idx + 1] if idx
+          success_result
+        end
+
+        provider.send_message(prompt: "Hello", mcp_servers: mcp_servers)
+
+        expect(config_path).not_to be_nil
+        expect(File.exist?(config_path)).to be false
+      end
+
+      it "cleans up tempfiles even when execution raises" do
+        config_path = nil
+        allow(mock_executor).to receive(:execute) do |cmd, **_opts|
+          idx = cmd.index("--mcp-config")
+          config_path = cmd[idx + 1] if idx
+          raise StandardError, "execution failed"
+        end
+
+        expect {
+          provider.send_message(prompt: "Hello", mcp_servers: mcp_servers)
+        }.to raise_error(AgentHarness::ProviderError)
+
+        expect(config_path).not_to be_nil
+        expect(File.exist?(config_path)).to be false
+      end
+    end
+
+    context "without MCP servers" do
+      it "does not include --mcp-config flag" do
+        allow(mock_executor).to receive(:execute).and_return(success_result)
+
+        expect(mock_executor).to receive(:execute).with(
+          satisfy { |cmd| !cmd.include?("--mcp-config") },
+          anything
+        )
+
+        provider.send_message(prompt: "Hello")
       end
     end
   end
