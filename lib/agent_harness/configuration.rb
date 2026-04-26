@@ -169,6 +169,20 @@ module AgentHarness
       end
     end
 
+    # Discover and register all extensions found in a directory.
+    #
+    # Each child entry (subdirectory or file) is loaded through the
+    # appropriate adapter; entries that cannot be parsed are silently
+    # skipped.
+    #
+    # @param directory [String] directory to scan
+    # @return [Array<Extensions::Base>]
+    def discover_extensions(directory)
+      Extensions::Loader.discover(directory).each do |extension|
+        register_extension(extension)
+      end
+    end
+
     # Resolve a registered or inline extension reference.
     #
     # @param reference [Symbol, String, Extensions::Base, nil]

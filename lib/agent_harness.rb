@@ -94,6 +94,14 @@ module AgentHarness
       configuration.load_extensions(path, adapter: adapter)
     end
 
+    # Discover and register all extensions found in a directory.
+    #
+    # @param directory [String] directory to scan
+    # @return [Array<Extensions::Base>]
+    def discover_extensions(directory)
+      configuration.discover_extensions(directory)
+    end
+
     # Build a compatibility report for extensions against a provider.
     #
     # @param provider [Symbol, String, Providers::Base] target provider

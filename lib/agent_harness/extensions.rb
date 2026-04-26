@@ -114,9 +114,10 @@ module AgentHarness
         )
       end
 
-      def check!(provider:, extension:)
+      def check!(provider:, extension:, strict: true)
         compatibility = report(provider: provider, extension: extension)
         return compatibility if compatibility.compatible?
+        return compatibility unless strict
 
         raise ExtensionCompatibilityError.new(
           "Extension '#{extension.name}' is not compatible with provider '#{provider.class.provider_name}'",
@@ -151,6 +152,57 @@ module AgentHarness
         else
           false
         end
+      end
+    end
+
+    module Composition
+      module_function
+
+      def compose(extensions)
+        return [] if extensions.nil? || extensions.empty?
+
+        detect_tool_conflicts(extensions)
+        extensions
+      end
+
+      def detect_tool_conflicts(extensions)
+        tool_owners = {}
+
+        extensions.each do |extension|
+          extension.tools.each do |tool|
+            tool_name = tool[:name] || tool["name"]
+            next unless tool_name
+
+            if tool_owners.key?(tool_name)
+              raise ConfigurationError,
+                "Tool name conflict: '#{tool_name}' is provided by both " \
+                "'#{tool_owners[tool_name]}' and '#{extension.name}'"
+            end
+
+            tool_owners[tool_name] = extension.name
+          end
+        end
+      end
+
+      def merge_system_prompts(extensions)
+        extensions.flat_map(&:system_prompt_additions).reject { |a| a.nil? || a.empty? }
+      end
+
+      def merge_tools(extensions)
+        extensions.flat_map(&:tools)
+      end
+
+      def merge_mcp_servers(extensions)
+        servers = extensions.flat_map(&:mcp_servers)
+        names = servers.map { |s| s[:name] || s["name"] }.compact
+        duplicates = names.group_by { |n| n }.select { |_, v| v.size > 1 }.keys
+
+        unless duplicates.empty?
+          raise ConfigurationError,
+            "MCP server name conflict across extensions: #{duplicates.join(", ")}"
+        end
+
+        servers
       end
     end
 
@@ -193,6 +245,8 @@ module AgentHarness
         case adapter_name
         when :pi
           Adapters::Pi.load(resolved_path)
+        when :skill
+          Adapters::Skill.load(resolved_path)
         else
           raise ConfigurationError, "Unknown extension adapter: #{adapter_name.inspect}"
         end
@@ -200,9 +254,31 @@ module AgentHarness
 
       def normalize_adapter(adapter, path)
         return adapter.to_sym if adapter
-        return :pi if File.directory?(path) || File.extname(path).match?(/\A\.(?:[jt]s|json)\z/i)
+        return :pi if File.directory?(path) && File.exist?(File.join(path, "package.json"))
+        return :pi if File.file?(path) && File.extname(path).match?(/\A\.(?:[jt]s|json)\z/i)
+        return :skill if File.file?(path) && File.extname(path) == ".md"
+        return :directory if File.directory?(path)
 
         raise ConfigurationError, "Could not infer adapter for extension source: #{path}"
+      end
+
+      def discover(directory)
+        resolved = File.expand_path(directory)
+        return [] unless File.directory?(resolved)
+
+        extensions = []
+
+        Dir.glob(File.join(resolved, "*")).sort.each do |child|
+          next unless File.directory?(child) || File.file?(child)
+
+          begin
+            extensions.concat(load(child))
+          rescue ConfigurationError
+            next
+          end
+        end
+
+        extensions
       end
     end
 
@@ -414,6 +490,122 @@ module AgentHarness
             server.transform_keys(&:to_sym)
           else
             raise ConfigurationError, "Unsupported MCP server definition in pi adapter: #{server.inspect}"
+          end
+        end
+      end
+
+      class SkillExtension < Base
+        attr_reader :name, :description, :version, :source_path
+
+        def initialize(name:, source_path:, description: nil, version: nil, tools: [],
+          system_prompt_additions: [], mcp_servers: [], required_provider_capabilities: [])
+          @name = name.to_s.strip.gsub(/[^a-zA-Z0-9]+/, "_").gsub(/\A_+|_+\z/, "").downcase.to_sym
+          @description = description
+          @version = version
+          @tools = tools.freeze
+          @system_prompt_additions = system_prompt_additions.freeze
+          @mcp_servers = mcp_servers.freeze
+          @required_provider_capabilities = required_provider_capabilities.freeze
+          @source_path = source_path
+        end
+
+        def tools
+          @tools.map(&:dup)
+        end
+
+        def mcp_servers
+          @mcp_servers.map { |server| deep_dup(server) }
+        end
+
+        def system_prompt_additions
+          @system_prompt_additions.dup
+        end
+
+        def required_provider_capabilities
+          inferred = []
+          inferred << :tool_use if @tools.any?
+          inferred << :mcp if @mcp_servers.any?
+          (@required_provider_capabilities + inferred).uniq
+        end
+
+        private
+
+        def deep_dup(value)
+          case value
+          when Array
+            value.map { |entry| deep_dup(entry) }
+          when Hash
+            value.each_with_object({}) { |(key, entry), copy| copy[key] = deep_dup(entry) }
+          else
+            value.dup
+          end
+        rescue TypeError
+          value
+        end
+      end
+
+      module Skill
+        module_function
+
+        def load(path)
+          resolved = File.expand_path(path)
+          raise ConfigurationError, "Skill file not found: #{resolved}" unless File.file?(resolved)
+          raise ConfigurationError, "Skill file must be a Markdown file: #{resolved}" unless File.extname(resolved) == ".md"
+
+          content = File.read(resolved)
+          frontmatter, body = parse_frontmatter(content)
+
+          tools = Array(frontmatter["tools"]).map { |tool| normalize_tool(tool) }
+          mcp_servers = Array(frontmatter["mcp_servers"]).map { |server| normalize_mcp_server(server) }
+          instructions = extract_instructions(body)
+          system_prompt_additions = instructions.empty? ? [] : [instructions]
+
+          [
+            SkillExtension.new(
+              name: frontmatter["name"] || File.basename(resolved, ".md"),
+              description: frontmatter["description"],
+              version: frontmatter["version"],
+              tools: tools,
+              system_prompt_additions: system_prompt_additions,
+              mcp_servers: mcp_servers,
+              required_provider_capabilities: Array(frontmatter["required_provider_capabilities"]).map(&:to_sym),
+              source_path: resolved
+            )
+          ]
+        end
+
+        def parse_frontmatter(content)
+          match = content.match(/\A---\s*\n(.*?\n)---\s*\n(.*)\z/m)
+          return [{}, content] unless match
+
+          require "yaml"
+          frontmatter = YAML.safe_load(match[1], permitted_classes: [Symbol]) || {}
+          [frontmatter, match[2]]
+        rescue Psych::SyntaxError => e
+          raise ConfigurationError, "Invalid YAML frontmatter in skill file: #{e.message}"
+        end
+
+        def extract_instructions(body)
+          body.to_s.strip
+        end
+
+        def normalize_tool(tool)
+          case tool
+          when Hash
+            tool.transform_keys(&:to_sym)
+          when String, Symbol
+            {name: tool.to_s}
+          else
+            raise ConfigurationError, "Unsupported tool definition in skill adapter: #{tool.inspect}"
+          end
+        end
+
+        def normalize_mcp_server(server)
+          case server
+          when Hash
+            server.transform_keys(&:to_sym)
+          else
+            raise ConfigurationError, "Unsupported MCP server definition in skill adapter: #{server.inspect}"
           end
         end
       end

@@ -502,6 +502,8 @@ module AgentHarness
 
       def apply_extensions_to_prompt(prompt, options)
         extensions = resolve_extensions(options)
+        strict = options.fetch(:extensions_strict, true)
+        Extensions::Composition.compose(extensions) if extensions.size > 1
         context = Extensions::MessageContext.new(
           provider: self,
           extensions: extensions,
@@ -511,7 +513,7 @@ module AgentHarness
           metadata: {}
         )
 
-        validate_extensions!(extensions)
+        validate_extensions!(extensions, strict: strict)
         merge_extension_mcp_servers!(context)
         apply_extension_system_prompt!(context)
         extensions.each { |extension| extension.on_message_before(context) }
@@ -520,6 +522,8 @@ module AgentHarness
 
       def apply_extensions_to_chat(messages, tools, options)
         extensions = resolve_extensions(options)
+        strict = options.fetch(:extensions_strict, true)
+        Extensions::Composition.compose(extensions) if extensions.size > 1
         context = Extensions::MessageContext.new(
           provider: self,
           extensions: extensions,
@@ -530,7 +534,7 @@ module AgentHarness
           metadata: {}
         )
 
-        validate_extensions!(extensions)
+        validate_extensions!(extensions, strict: strict)
         merge_extension_mcp_servers!(context)
         apply_extension_system_messages!(context)
         extensions.each { |extension| extension.on_message_before(context) }
@@ -546,9 +550,16 @@ module AgentHarness
         context.response
       end
 
-      def validate_extensions!(extensions)
+      def validate_extensions!(extensions, strict: true)
         extensions.each do |extension|
-          Extensions::Compatibility.check!(provider: self, extension: extension)
+          report = Extensions::Compatibility.check!(provider: self, extension: extension, strict: strict)
+          next if report.compatible?
+
+          @logger&.warn(
+            "[AgentHarness::#{self.class.provider_name}] Extension '#{extension.name}' has " \
+            "compatibility issues: missing=#{report.missing_provider_capabilities.inspect}, " \
+            "unsupported=#{report.unsupported_features.inspect}"
+          )
         end
       end
 
