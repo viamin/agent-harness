@@ -1,5 +1,16 @@
 ## [Unreleased]
 
+## [0.11.0](https://github.com/viamin/agent-harness/compare/agent-harness/v0.10.0...agent-harness/v0.11.0) (2026-04-25)
+
+
+### Features
+
+* add conversation manager for multi-turn chat ([#159](https://github.com/viamin/agent-harness/issues/159)) ([14f1d55](https://github.com/viamin/agent-harness/commit/14f1d551008c2d52a0aee7c2a7e2e0273f254578))
+* add MCP HTTP transport support for servers ([#153](https://github.com/viamin/agent-harness/issues/153)) ([#155](https://github.com/viamin/agent-harness/issues/155)) ([8ea631a](https://github.com/viamin/agent-harness/commit/8ea631a3274ca4331ce42e8d63fc972cd48fbb12))
+* add OpenAI-compatible chat transport ([#154](https://github.com/viamin/agent-harness/issues/154)) ([6005702](https://github.com/viamin/agent-harness/commit/60057029ba6eaaf81f65d42e487e6f0ca8cd159f))
+* add provider chat capability with GitHub Models and Anthropic support ([#158](https://github.com/viamin/agent-harness/issues/158)) ([4188fa5](https://github.com/viamin/agent-harness/commit/4188fa542e6c4d330e5b230e54b1c1a5a55f4e8a))
+* add structured streaming response observer for chat ([#157](https://github.com/viamin/agent-harness/issues/157)) ([225f4d9](https://github.com/viamin/agent-harness/commit/225f4d99b2b89d8eb030018236050672d3e47ba2))
+
 ## [0.10.0](https://github.com/viamin/agent-harness/compare/agent-harness/v0.9.0...agent-harness/v0.10.0) (2026-04-21)
 
 
