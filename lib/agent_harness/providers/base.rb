@@ -474,7 +474,7 @@ module AgentHarness
       def apply_sub_agent_to_messages(messages, translated_sub_agent)
         return messages unless translated_sub_agent
 
-        [{"role" => "system", "content" => translated_sub_agent[:runtime_instructions]}] + messages
+        [{role: "system", content: translated_sub_agent[:runtime_instructions]}] + messages
       end
 
       def command_execution_options(options)
