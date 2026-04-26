@@ -1,5 +1,12 @@
 ## [Unreleased]
 
+## [0.11.1](https://github.com/viamin/agent-harness/compare/agent-harness/v0.11.0...agent-harness/v0.11.1) (2026-04-26)
+
+
+### Bug Fixes
+
+* 163: Support provider-agnostic sub-agent definitions ([#166](https://github.com/viamin/agent-harness/issues/166)) ([1a00c35](https://github.com/viamin/agent-harness/commit/1a00c35f61c624b23f8d37b0d1b41e007d007ad3))
+
 ## [0.11.0](https://github.com/viamin/agent-harness/compare/agent-harness/v0.10.0...agent-harness/v0.11.0) (2026-04-25)
 
 
