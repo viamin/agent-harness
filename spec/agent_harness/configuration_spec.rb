@@ -73,6 +73,36 @@ RSpec.describe AgentHarness::Configuration do
       expect(sub_agent.model).to eq("fast")
       expect(sub_agent.tools).to eq([:read_file])
     end
+
+    it "accepts a block to modify attributes" do
+      config.sub_agent(:flexible) do |attrs|
+        attrs[:description] = "Flexible agent"
+        attrs[:instructions] = "Be flexible"
+        attrs[:tools] = [:read_file, :write_file]
+      end
+
+      sub_agent = config.sub_agents[:flexible]
+      expect(sub_agent.description).to eq("Flexible agent")
+      expect(sub_agent.tools).to eq([:read_file, :write_file])
+    end
+  end
+
+  describe "#load_sub_agents" do
+    it "loads sub-agents from a YAML file" do
+      Dir.mktmpdir do |dir|
+        path = File.join(dir, "agents.yml")
+        File.write(path, <<~YAML)
+          agents:
+            - name: loaded_agent
+              description: Loaded from file
+              instructions: Follow instructions
+        YAML
+
+        config.load_sub_agents(path)
+        expect(config.sub_agents[:loaded_agent]).to be_a(AgentHarness::SubAgentConfig)
+        expect(config.sub_agents[:loaded_agent].description).to eq("Loaded from file")
+      end
+    end
   end
 
   describe "#register_tool" do
@@ -103,6 +133,14 @@ RSpec.describe AgentHarness::Configuration do
       expect(config.resolve_sub_agent(:test_writer).name).to eq(:test_writer)
     end
 
+    it "resolves by string name" do
+      config.sub_agent(:test_writer,
+        description: "Writes tests",
+        instructions: "Write tests for the code")
+
+      expect(config.resolve_sub_agent("test_writer").name).to eq(:test_writer)
+    end
+
     it "accepts inline hash definitions" do
       sub_agent = config.resolve_sub_agent(
         name: "docs_generator",
@@ -112,6 +150,26 @@ RSpec.describe AgentHarness::Configuration do
 
       expect(sub_agent).to be_a(AgentHarness::SubAgentConfig)
       expect(sub_agent.name).to eq(:docs_generator)
+    end
+
+    it "passes through SubAgentConfig objects" do
+      original = AgentHarness::SubAgentConfig.new(
+        name: "passthrough",
+        description: "Passthrough",
+        instructions: "Pass through"
+      )
+
+      expect(config.resolve_sub_agent(original)).to be(original)
+    end
+
+    it "returns nil for nil reference" do
+      expect(config.resolve_sub_agent(nil)).to be_nil
+    end
+
+    it "raises on unknown sub-agent name" do
+      expect {
+        config.resolve_sub_agent(:nonexistent)
+      }.to raise_error(AgentHarness::ConfigurationError, /Unknown sub-agent/)
     end
   end
 
