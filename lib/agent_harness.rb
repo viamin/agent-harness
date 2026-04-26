@@ -77,6 +77,23 @@ module AgentHarness
       conductor.send_message(prompt, provider: provider, executor: executor, **options)
     end
 
+    # Resolve a canonical sub-agent definition by name or inline payload.
+    #
+    # @param reference [Symbol, String, Hash, SubAgentConfig]
+    # @return [SubAgentConfig]
+    def sub_agent(reference)
+      configuration.resolve_sub_agent(reference)
+    end
+
+    # Translate a canonical sub-agent definition into a provider-specific format.
+    #
+    # @param reference [Symbol, String, Hash, SubAgentConfig] sub-agent reference
+    # @param provider [Symbol, String] target provider
+    # @return [Hash] provider-specific sub-agent definition
+    def translate_sub_agent(reference, provider:)
+      SubAgentTranslator.for_provider(provider, sub_agent(reference))
+    end
+
     # Get a provider instance
     # @param name [Symbol] the provider name
     # @return [Providers::Base] the provider instance
@@ -261,6 +278,9 @@ end
 # Core components
 require_relative "agent_harness/errors"
 require_relative "agent_harness/mcp_server"
+require_relative "agent_harness/sub_agent_config"
+require_relative "agent_harness/sub_agent_file_loader"
+require_relative "agent_harness/sub_agent_translator"
 require_relative "agent_harness/provider_runtime"
 require_relative "agent_harness/execution_preparation"
 require_relative "agent_harness/configuration"
