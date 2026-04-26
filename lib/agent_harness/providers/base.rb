@@ -415,7 +415,7 @@ module AgentHarness
       end
 
       def normalize_mcp_servers(options)
-        servers = options[:mcp_servers]
+        servers = options.key?(:mcp_servers) ? options[:mcp_servers] : AgentHarness.configuration.mcp_servers
         return options if servers.nil?
 
         unless servers.is_a?(Array)

@@ -261,6 +261,8 @@ end
 # Core components
 require_relative "agent_harness/errors"
 require_relative "agent_harness/mcp_server"
+require_relative "agent_harness/mcp_config_loader"
+require_relative "agent_harness/mcp_config_translator"
 require_relative "agent_harness/provider_runtime"
 require_relative "agent_harness/execution_preparation"
 require_relative "agent_harness/configuration"

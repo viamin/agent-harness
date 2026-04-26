@@ -800,20 +800,7 @@ module AgentHarness
       end
 
       def build_claude_mcp_config(mcp_servers)
-        servers = {}
-        mcp_servers.each do |server|
-          h = if server.stdio?
-            entry = {command: server.command.first}
-            remaining_args = server.command[1..] + server.args
-            entry[:args] = remaining_args unless remaining_args.empty?
-            entry
-          else
-            {url: server.url}
-          end
-          h[:env] = server.env unless server.env.empty?
-          servers[server.name] = h
-        end
-        {mcpServers: servers}
+        McpConfigTranslator.for_provider(:anthropic, mcp_servers)
       end
 
       def cleanup_mcp_tempfiles!

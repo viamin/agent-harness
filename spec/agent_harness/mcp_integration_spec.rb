@@ -146,7 +146,8 @@ RSpec.describe "MCP Server Integration" do
           AgentHarness::McpServer.new(
             name: "fs",
             transport: "stdio",
-            command: ["npx", "server"]
+            command: "npx",
+            args: ["server"]
           )
         ]
 
@@ -209,6 +210,28 @@ RSpec.describe "MCP Server Integration" do
         )
 
         provider.send_message(prompt: "Hello")
+      end
+
+      it "uses globally configured MCP servers when request options omit them" do
+        AgentHarness.configuration.mcp_servers = [
+          {
+            name: "filesystem",
+            transport: "stdio",
+            command: "npx",
+            args: ["-y", "@modelcontextprotocol/server-filesystem", "/workspace"]
+          }
+        ]
+
+        config_content = nil
+        allow(mock_executor).to receive(:execute) do |cmd, **_opts|
+          idx = cmd.index("--mcp-config")
+          config_content = JSON.parse(File.read(cmd[idx + 1])) if idx
+          success_result
+        end
+
+        provider.send_message(prompt: "Hello")
+
+        expect(config_content.dig("mcpServers", "filesystem", "command")).to eq("npx")
       end
     end
   end
@@ -413,7 +436,8 @@ RSpec.describe "MCP Server Integration" do
         AgentHarness::McpServer.new(
           name: "filesystem",
           transport: "stdio",
-          command: ["npx", "-y", "@modelcontextprotocol/server-filesystem", "/workspace"]
+          command: "npx",
+          args: ["-y", "@modelcontextprotocol/server-filesystem", "/workspace"]
         )
       ]
     end
@@ -424,7 +448,7 @@ RSpec.describe "MCP Server Integration" do
 
       expect(restored.first.name).to eq("filesystem")
       expect(restored.first.transport).to eq("stdio")
-      expect(restored.first.command).to eq(["npx", "-y", "@modelcontextprotocol/server-filesystem", "/workspace"])
+      expect(restored.first.command_argv).to eq(["npx", "-y", "@modelcontextprotocol/server-filesystem", "/workspace"])
     end
   end
 end

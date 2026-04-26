@@ -22,7 +22,7 @@ module AgentHarness
     attr_accessor :config_file_path, :default_timeout
     attr_writer :command_executor
 
-    attr_reader :providers, :orchestration_config, :callbacks, :custom_provider_classes
+    attr_reader :providers, :orchestration_config, :callbacks, :custom_provider_classes, :mcp_servers
 
     def initialize
       @logger = nil # Will use null logger if not set
@@ -33,6 +33,7 @@ module AgentHarness
       @config_file_path = nil
       @default_timeout = 300
       @providers = {}
+      @mcp_servers = []
       @orchestration_config = OrchestrationConfig.new
       @callbacks = CallbackRegistry.new
       @custom_provider_classes = {}
@@ -72,6 +73,14 @@ module AgentHarness
     # @return [void]
     def register_provider(name, klass)
       @custom_provider_classes[name.to_sym] = klass
+    end
+
+    def mcp_servers=(servers)
+      @mcp_servers = McpConfigTranslator.normalize_servers(servers)
+    end
+
+    def load_mcp_servers_file(path)
+      @mcp_servers = McpConfigLoader.load_file(path)
     end
 
     # Register callback for token usage events
