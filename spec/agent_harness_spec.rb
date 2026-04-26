@@ -47,6 +47,33 @@ RSpec.describe AgentHarness do
     end
   end
 
+  describe ".sub_agent" do
+    it "resolves configured sub-agents" do
+      AgentHarness.configure do |config|
+        config.sub_agent(:code_reviewer,
+          description: "Reviews code",
+          instructions: "Review the provided changes")
+      end
+
+      expect(AgentHarness.sub_agent(:code_reviewer).name).to eq(:code_reviewer)
+    end
+  end
+
+  describe ".translate_sub_agent" do
+    it "translates configured sub-agents for a provider" do
+      AgentHarness.configure do |config|
+        config.register_tool(:read_file, anthropic: "Read")
+        config.sub_agent(:code_reviewer,
+          description: "Reviews code",
+          instructions: "Review the provided changes",
+          tools: [:read_file])
+      end
+
+      translated = AgentHarness.translate_sub_agent(:code_reviewer, provider: :anthropic)
+      expect(translated[:agent][:tools]).to eq(["Read"])
+    end
+  end
+
   describe ".install_contract" do
     it "delegates to the provider registry" do
       contract = {provider: :claude}

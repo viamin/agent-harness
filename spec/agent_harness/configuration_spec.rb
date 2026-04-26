@@ -60,6 +60,119 @@ RSpec.describe AgentHarness::Configuration do
     end
   end
 
+  describe "#sub_agent" do
+    it "registers a canonical sub-agent config" do
+      config.sub_agent(:code_reviewer,
+        description: "Reviews code",
+        instructions: "Review the provided changes",
+        model: "fast",
+        tools: [:read_file])
+
+      sub_agent = config.sub_agents[:code_reviewer]
+      expect(sub_agent).to be_a(AgentHarness::SubAgentConfig)
+      expect(sub_agent.model).to eq("fast")
+      expect(sub_agent.tools).to eq([:read_file])
+    end
+
+    it "accepts a block to modify attributes" do
+      config.sub_agent(:flexible) do |attrs|
+        attrs[:description] = "Flexible agent"
+        attrs[:instructions] = "Be flexible"
+        attrs[:tools] = [:read_file, :write_file]
+      end
+
+      sub_agent = config.sub_agents[:flexible]
+      expect(sub_agent.description).to eq("Flexible agent")
+      expect(sub_agent.tools).to eq([:read_file, :write_file])
+    end
+  end
+
+  describe "#load_sub_agents" do
+    it "loads sub-agents from a YAML file" do
+      Dir.mktmpdir do |dir|
+        path = File.join(dir, "agents.yml")
+        File.write(path, <<~YAML)
+          agents:
+            - name: loaded_agent
+              description: Loaded from file
+              instructions: Follow instructions
+        YAML
+
+        config.load_sub_agents(path)
+        expect(config.sub_agents[:loaded_agent]).to be_a(AgentHarness::SubAgentConfig)
+        expect(config.sub_agents[:loaded_agent].description).to eq("Loaded from file")
+      end
+    end
+  end
+
+  describe "#register_tool" do
+    it "stores provider-specific tool mappings" do
+      config.register_tool(:read_file, anthropic: "Read", openai: {type: "function", name: "read_file"})
+
+      tool = config.tool_registry.fetch(:read_file)
+      expect(tool.mapping_for(:anthropic)).to eq("Read")
+      expect(tool.mapping_for(:openai)).to eq({type: "function", name: "read_file"})
+    end
+  end
+
+  describe "#register_mcp_server" do
+    it "stores named MCP servers" do
+      config.register_mcp_server(:github, transport: "http", url: "https://example.test/mcp")
+
+      expect(config.mcp_servers[:github]).to be_a(AgentHarness::McpServer)
+      expect(config.mcp_servers[:github].url).to eq("https://example.test/mcp")
+    end
+  end
+
+  describe "#resolve_sub_agent" do
+    it "resolves registered sub-agents by name" do
+      config.sub_agent(:test_writer,
+        description: "Writes tests",
+        instructions: "Write tests for the code")
+
+      expect(config.resolve_sub_agent(:test_writer).name).to eq(:test_writer)
+    end
+
+    it "resolves by string name" do
+      config.sub_agent(:test_writer,
+        description: "Writes tests",
+        instructions: "Write tests for the code")
+
+      expect(config.resolve_sub_agent("test_writer").name).to eq(:test_writer)
+    end
+
+    it "accepts inline hash definitions" do
+      sub_agent = config.resolve_sub_agent(
+        name: "docs_generator",
+        description: "Writes docs",
+        instructions: "Document the code"
+      )
+
+      expect(sub_agent).to be_a(AgentHarness::SubAgentConfig)
+      expect(sub_agent.name).to eq(:docs_generator)
+    end
+
+    it "passes through SubAgentConfig objects" do
+      original = AgentHarness::SubAgentConfig.new(
+        name: "passthrough",
+        description: "Passthrough",
+        instructions: "Pass through"
+      )
+
+      expect(config.resolve_sub_agent(original)).to be(original)
+    end
+
+    it "returns nil for nil reference" do
+      expect(config.resolve_sub_agent(nil)).to be_nil
+    end
+
+    it "raises on unknown sub-agent name" do
+      expect {
+        config.resolve_sub_agent(:nonexistent)
+      }.to raise_error(AgentHarness::ConfigurationError, /Unknown sub-agent/)
+    end
+  end
+
   describe "#on_tokens_used" do
     it "registers a callback" do
       callback_called = false

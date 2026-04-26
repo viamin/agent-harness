@@ -87,6 +87,29 @@ RSpec.describe AgentHarness::Providers::Base, "#send_message" do
       response = provider.send_message(prompt: "Hello")
       expect(response.success?).to be true
     end
+
+    it "injects translated sub-agent instructions into the prompt" do
+      AgentHarness.configuration.register_tool(:read_file, test_provider: "read_file")
+      AgentHarness.configure do |config|
+        config.sub_agent(:code_reviewer,
+          description: "Reviews code",
+          instructions: "Review the provided changes",
+          tools: [:read_file])
+      end
+
+      expect(mock_executor).to receive(:execute) do |command, **|
+        expect(command).to include("Sub-agent role: code_reviewer\nDescription: Reviews code\n\nFollow these sub-agent instructions exactly:\nReview the provided changes\n\nUser task:\nHello")
+
+        AgentHarness::CommandExecutor::Result.new(
+          stdout: "response output",
+          stderr: "",
+          exit_code: 0,
+          duration: 1.0
+        )
+      end
+
+      provider.send_message(prompt: "Hello", sub_agent: :code_reviewer)
+    end
   end
 
   describe "failed execution" do

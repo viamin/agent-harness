@@ -126,6 +126,8 @@ module AgentHarness
 
         # Coerce provider_runtime from Hash if needed
         options = normalize_provider_runtime(options)
+        options = normalize_sub_agent(options)
+        prompt = apply_sub_agent_to_prompt(prompt, options[:translated_sub_agent])
 
         # Normalize and validate MCP servers
         options = normalize_mcp_servers(options)
@@ -210,6 +212,7 @@ module AgentHarness
         end
 
         options = normalize_provider_runtime(options)
+        options = normalize_sub_agent(options)
         runtime = options[:provider_runtime]
         conversation ||= messages
         raise ArgumentError, "conversation or messages is required" unless conversation
@@ -217,6 +220,7 @@ module AgentHarness
 
         transport = resolve_chat_transport(options)
         messages = format_messages_for_transport(conversation, transport)
+        messages = apply_sub_agent_to_messages(messages, options[:translated_sub_agent])
         transport_opts = chat_transport_options(runtime, options)
         transport_opts[:on_chat_chunk] = on_chat_chunk if on_chat_chunk
         transport_opts[:observer] = observer if observer
@@ -444,6 +448,33 @@ module AgentHarness
         end
 
         options.merge(mcp_servers: normalized)
+      end
+
+      def normalize_sub_agent(options)
+        sub_agent = options[:sub_agent]
+        return options unless sub_agent
+
+        resolved = AgentHarness.configuration.resolve_sub_agent(sub_agent)
+        translated = SubAgentTranslator.for_provider(
+          self.class.provider_name,
+          resolved,
+          tool_registry: AgentHarness.configuration.tool_registry,
+          mcp_servers: AgentHarness.configuration.mcp_servers
+        )
+
+        options.merge(sub_agent: resolved, translated_sub_agent: translated)
+      end
+
+      def apply_sub_agent_to_prompt(prompt, translated_sub_agent)
+        return prompt unless translated_sub_agent
+
+        [translated_sub_agent[:runtime_instructions], "User task:\n#{prompt}"].join("\n\n")
+      end
+
+      def apply_sub_agent_to_messages(messages, translated_sub_agent)
+        return messages unless translated_sub_agent
+
+        [{role: "system", content: translated_sub_agent[:runtime_instructions]}] + messages
       end
 
       def command_execution_options(options)
