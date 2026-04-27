@@ -25,6 +25,7 @@ module AgentHarness
     #   end
     class Base
       include Adapter
+      include Extensions::DeepDupable
 
       DEFAULT_SMOKE_TEST_CONTRACT = {
         prompt: "Reply with exactly OK.",
@@ -538,7 +539,7 @@ module AgentHarness
         merge_extension_mcp_servers!(context)
         apply_extension_system_messages!(context)
         extensions.each { |extension| extension.on_message_before(context) }
-        extensions.each { |extension| extension.on_tool_call(context) } if context.tools&.any?
+        extensions.each { |extension| extension.on_tools_available(context) } if context.tools&.any?
         context
       end
 
@@ -595,19 +596,6 @@ module AgentHarness
 
         system_messages = additions.map { |addition| {role: "system", content: addition} }
         context.messages = system_messages + context.messages
-      end
-
-      def deep_dup(value)
-        case value
-        when Array
-          value.map { |entry| deep_dup(entry) }
-        when Hash
-          value.each_with_object({}) { |(key, entry), copy| copy[key] = deep_dup(entry) }
-        else
-          value.dup
-        end
-      rescue TypeError
-        value
       end
 
       def command_execution_options(options)

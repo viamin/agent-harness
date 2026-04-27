@@ -4,6 +4,23 @@ require "json"
 
 module AgentHarness
   module Extensions
+    module DeepDupable
+      private
+
+      def deep_dup(value)
+        case value
+        when Array
+          value.map { |entry| deep_dup(entry) }
+        when Hash
+          value.each_with_object({}) { |(key, entry), copy| copy[key] = deep_dup(entry) }
+        else
+          value.dup
+        end
+      rescue TypeError
+        value
+      end
+    end
+
     class Base
       def name
         self.class.name.split("::").last&.downcase&.to_sym
@@ -25,7 +42,7 @@ module AgentHarness
         context
       end
 
-      def on_tool_call(context)
+      def on_tools_available(context)
         context
       end
 
@@ -131,26 +148,12 @@ module AgentHarness
         return HARNESS_CAPABILITIES.fetch(capability) if HARNESS_CAPABILITIES.key?(capability)
 
         case capability
-        when :tool_use
-          provider.capabilities[:tool_use]
-        when :mcp
-          provider.capabilities[:mcp]
-        when :streaming
-          provider.capabilities[:streaming]
-        when :file_upload
-          provider.capabilities[:file_upload]
-        when :vision
-          provider.capabilities[:vision]
-        when :json_mode
-          provider.capabilities[:json_mode]
-        when :dangerous_mode
-          provider.capabilities[:dangerous_mode]
         when :chat
           provider.supports_chat?
         when :text_mode
           provider.supports_text_mode?
         else
-          false
+          !!provider.capabilities[capability]
         end
       end
     end
@@ -284,6 +287,8 @@ module AgentHarness
 
     module Adapters
       class PiExtension < Base
+        include DeepDupable
+
         attr_reader :name, :description, :version, :entry_paths, :source_path
 
         def initialize(name:, source_path:, entry_paths:, description: nil, version: nil, tools: [],
@@ -322,21 +327,6 @@ module AgentHarness
 
         def unsupported_features
           @unsupported_features.dup
-        end
-
-        private
-
-        def deep_dup(value)
-          case value
-          when Array
-            value.map { |entry| deep_dup(entry) }
-          when Hash
-            value.each_with_object({}) { |(key, entry), copy| copy[key] = deep_dup(entry) }
-          else
-            value.dup
-          end
-        rescue TypeError
-          value
         end
       end
 
@@ -495,6 +485,8 @@ module AgentHarness
       end
 
       class SkillExtension < Base
+        include DeepDupable
+
         attr_reader :name, :description, :version, :source_path
 
         def initialize(name:, source_path:, description: nil, version: nil, tools: [],
@@ -526,21 +518,6 @@ module AgentHarness
           inferred << :tool_use if @tools.any?
           inferred << :mcp if @mcp_servers.any?
           (@required_provider_capabilities + inferred).uniq
-        end
-
-        private
-
-        def deep_dup(value)
-          case value
-          when Array
-            value.map { |entry| deep_dup(entry) }
-          when Hash
-            value.each_with_object({}) { |(key, entry), copy| copy[key] = deep_dup(entry) }
-          else
-            value.dup
-          end
-        rescue TypeError
-          value
         end
       end
 

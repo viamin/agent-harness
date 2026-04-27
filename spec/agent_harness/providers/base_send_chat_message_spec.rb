@@ -91,7 +91,7 @@ RSpec.describe AgentHarness::Providers::Base, "#send_chat_message" do
         [{type: "function", function: {name: "web_search"}}]
       end
 
-      def on_tool_call(context)
+      def on_tools_available(context)
         context.metadata[:tool_hook_called] = true
       end
     end.new

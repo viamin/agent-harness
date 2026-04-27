@@ -99,7 +99,7 @@ RSpec.describe AgentHarness::Extensions do
       context = double("context")
       expect(ext.on_message_before(context)).to be(context)
       expect(ext.on_message_after(context)).to be(context)
-      expect(ext.on_tool_call(context)).to be(context)
+      expect(ext.on_tools_available(context)).to be(context)
     end
   end
 
