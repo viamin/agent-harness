@@ -22,7 +22,8 @@ module AgentHarness
     attr_accessor :config_file_path, :default_timeout
     attr_writer :command_executor
 
-    attr_reader :providers, :orchestration_config, :callbacks, :custom_provider_classes, :mcp_servers
+    attr_reader :providers, :orchestration_config, :callbacks, :custom_provider_classes
+    attr_reader :sub_agents, :tool_registry, :mcp_servers
 
     def initialize
       @logger = nil # Will use null logger if not set
@@ -33,10 +34,12 @@ module AgentHarness
       @config_file_path = nil
       @default_timeout = 300
       @providers = {}
-      @mcp_servers = []
       @orchestration_config = OrchestrationConfig.new
       @callbacks = CallbackRegistry.new
       @custom_provider_classes = {}
+      @sub_agents = {}
+      @tool_registry = ToolRegistry.new
+      @mcp_servers = {}
     end
 
     # Get or lazily initialize the command executor
@@ -75,12 +78,92 @@ module AgentHarness
       @custom_provider_classes[name.to_sym] = klass
     end
 
+    # Set MCP servers from an array of server definitions.
+    #
+    # @param servers [Array<Hash, McpServer>] server definitions
     def mcp_servers=(servers)
-      @mcp_servers = McpConfigTranslator.normalize_servers(servers)
+      normalized = McpConfigTranslator.normalize_servers(servers)
+      @mcp_servers = normalized.each_with_object({}) { |s, h| h[s.name.to_sym] = s }
     end
 
+    # Load MCP server definitions from a configuration file.
+    #
+    # @param path [String] file path
     def load_mcp_servers_file(path)
-      @mcp_servers = McpConfigLoader.load_file(path)
+      loaded = McpConfigLoader.load_file(path)
+      @mcp_servers = loaded.each_with_object({}) { |s, h| h[s.name.to_sym] = s }
+    end
+
+    # Configure a provider-agnostic sub-agent definition.
+    #
+    # @param name [Symbol, String] sub-agent name
+    # @param attributes [Hash] sub-agent attributes
+    # @yield [Hash] mutable attributes hash before validation
+    # @return [SubAgentConfig] registered sub-agent config
+    def sub_agent(name, attributes = {})
+      attributes = attributes.dup
+      yield(attributes) if block_given?
+      attributes[:name] = name
+
+      config = SubAgentConfig.from_hash(attributes)
+      @sub_agents[config.name] = config
+    end
+
+    # Load sub-agent definitions from a YAML or Markdown file.
+    #
+    # @param path [String] file path
+    # @return [Array<SubAgentConfig>] loaded sub-agents
+    def load_sub_agents(path)
+      SubAgentFileLoader.load(path).each do |sub_agent|
+        @sub_agents[sub_agent.name] = sub_agent
+      end
+    end
+
+    # Register a generic tool definition that sub-agents can reference.
+    #
+    # @param name [Symbol, String] tool name
+    # @param description [String, nil] tool description
+    # @param provider_mappings [Hash] provider-specific mappings
+    # @return [ToolDefinition]
+    def register_tool(name, description: nil, **provider_mappings)
+      @tool_registry.register(name, description: description, **provider_mappings)
+    end
+
+    # Register a named MCP server for later reference by sub-agents.
+    #
+    # @param name [Symbol, String] server name
+    # @param definition [Hash, McpServer, nil] server definition
+    # @param attributes [Hash] server attributes
+    # @return [McpServer]
+    def register_mcp_server(name, definition = nil, **attributes)
+      server = if definition.is_a?(McpServer)
+        definition
+      else
+        payload = (definition || attributes).dup
+        payload[:name] ||= name.to_s
+        McpServer.from_hash(payload)
+      end
+
+      @mcp_servers[name.to_sym] = server
+    end
+
+    # Resolve a named or inline sub-agent definition.
+    #
+    # @param reference [Symbol, String, Hash, SubAgentConfig, nil] sub-agent reference
+    # @return [SubAgentConfig, nil] resolved sub-agent config
+    def resolve_sub_agent(reference)
+      case reference
+      when nil
+        nil
+      when SubAgentConfig
+        reference
+      when Hash
+        SubAgentConfig.from_hash(reference)
+      else
+        @sub_agents.fetch(reference.to_sym) do
+          raise ConfigurationError, "Unknown sub-agent: #{reference}"
+        end
+      end
     end
 
     # Register callback for token usage events
@@ -269,6 +352,67 @@ module AgentHarness
         send(setter, value) if respond_to?(setter)
       end
       self
+    end
+  end
+
+  # Provider-agnostic tool definition used during sub-agent translation.
+  class ToolDefinition
+    attr_reader :name, :description, :provider_mappings
+
+    def initialize(name:, description: nil, provider_mappings: {})
+      @name = name.to_sym
+      @description = description
+      @provider_mappings = deep_dup(provider_mappings).each_with_object({}) do |(provider, value), mappings|
+        mappings[provider.to_sym] = value
+      end.freeze
+    end
+
+    def mapping_for(provider)
+      deep_dup(@provider_mappings[provider.to_sym])
+    end
+
+    def to_h
+      {name: @name, description: @description, provider_mappings: deep_dup(@provider_mappings)}
+    end
+
+    private
+
+    def deep_dup(value)
+      case value
+      when Array
+        value.map { |entry| deep_dup(entry) }
+      when Hash
+        value.each_with_object({}) { |(key, entry), copy| copy[key] = deep_dup(entry) }
+      else
+        value.dup
+      end
+    rescue TypeError
+      value
+    end
+  end
+
+  # Registry for canonical tool definitions referenced by sub-agents.
+  class ToolRegistry
+    def initialize
+      @tools = {}
+    end
+
+    def register(name, description: nil, **provider_mappings)
+      @tools[name.to_sym] = ToolDefinition.new(
+        name: name,
+        description: description,
+        provider_mappings: provider_mappings
+      )
+    end
+
+    def fetch(name)
+      @tools.fetch(name.to_sym) do
+        raise ConfigurationError, "Unknown tool: #{name}"
+      end
+    end
+
+    def registered?(name)
+      @tools.key?(name.to_sym)
     end
   end
 
