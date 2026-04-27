@@ -129,6 +129,12 @@ module AgentHarness
 
         # Coerce provider_runtime from Hash if needed
         options = normalize_provider_runtime(options)
+
+        # Capture execution options (callbacks, observer) before extensions
+        # processing deep-dups the options hash, which would replace identity-
+        # sensitive references (observers, procs) with clones.
+        exec_opts = command_execution_options(options)
+
         extension_context = apply_extensions_to_prompt(prompt, options)
         prompt = extension_context.prompt
         options = extension_context.options
@@ -153,7 +159,7 @@ module AgentHarness
           timeout: timeout,
           env: build_env(options),
           preparation: preparation,
-          **command_execution_options(options)
+          **exec_opts
         )
         duration = Time.now - start_time
 
