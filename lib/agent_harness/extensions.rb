@@ -281,6 +281,9 @@ module AgentHarness
         return true if File.exist?(File.join(path, "package.json"))
         return true if File.exist?(File.join(path, "index.ts")) || File.exist?(File.join(path, "index.js"))
         return true if File.directory?(File.join(path, "extensions"))
+        # Detect bare Pi-style directories containing .ts/.js source files
+        # even without package.json or index.ts, since Pi.load can resolve them.
+        return true if Dir.glob(File.join(path, "*.{ts,js}")).any?
 
         false
       end

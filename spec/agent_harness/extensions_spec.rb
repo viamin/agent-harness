@@ -453,6 +453,23 @@ RSpec.describe AgentHarness::Extensions do
       end
     end
 
+    it "discovers bare Pi-style directories without package.json" do
+      Dir.mktmpdir do |dir|
+        bare_dir = File.join(dir, "my_extension")
+        FileUtils.mkdir_p(bare_dir)
+        File.write(File.join(bare_dir, "main.ts"), <<~TS)
+          export default function(pi) {
+            pi.registerTool({ name: "lookup", description: "Look things up" });
+          }
+        TS
+
+        loaded = AgentHarness.discover_extensions(dir)
+        expect(loaded.length).to eq(1)
+        expect(loaded.first).to be_a(AgentHarness::Extensions::Adapters::PiExtension)
+        expect(loaded.first.tools).to eq([{name: "lookup", description: "Look things up"}])
+      end
+    end
+
     it "returns empty array for non-existent directory" do
       loaded = AgentHarness::Extensions::Loader.discover("/tmp/nonexistent_dir_#{SecureRandom.hex(8)}")
       expect(loaded).to eq([])
@@ -687,6 +704,19 @@ RSpec.describe AgentHarness::Extensions do
         File.write(File.join(ext_dir, "main.ts"), <<~TS)
           export default function(pi) {
             pi.registerTool({ name: "lookup", description: "Lookup" });
+          }
+        TS
+
+        loaded = described_class.load(dir)
+        expect(loaded.first).to be_a(AgentHarness::Extensions::Adapters::PiExtension)
+      end
+    end
+
+    it "infers pi adapter for directories with .ts files but no package.json or index.ts" do
+      Dir.mktmpdir do |dir|
+        File.write(File.join(dir, "main.ts"), <<~TS)
+          export default function(pi) {
+            pi.registerTool({ name: "search", description: "Search" });
           }
         TS
 
