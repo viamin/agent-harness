@@ -495,7 +495,7 @@ module AgentHarness
       end
 
       def resolve_extensions(options)
-        Array(options[:extensions]).map do |reference|
+        Array(options[:extensions]).filter_map do |reference|
           AgentHarness.configuration.resolve_extension(reference)
         end
       end

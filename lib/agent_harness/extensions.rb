@@ -257,7 +257,7 @@ module AgentHarness
         return :pi if File.directory?(path) && File.exist?(File.join(path, "package.json"))
         return :pi if File.file?(path) && File.extname(path).match?(/\A\.(?:[jt]s|json)\z/i)
         return :skill if File.file?(path) && File.extname(path) == ".md"
-        return :directory if File.directory?(path)
+        raise ConfigurationError, "Cannot infer extension adapter for directory without package.json: #{path}" if File.directory?(path)
 
         raise ConfigurationError, "Could not infer adapter for extension source: #{path}"
       end
