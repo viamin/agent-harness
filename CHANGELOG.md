@@ -1,5 +1,12 @@
 ## [Unreleased]
 
+## [0.11.2](https://github.com/viamin/agent-harness/compare/agent-harness/v0.11.1...agent-harness/v0.11.2) (2026-04-27)
+
+
+### Bug Fixes
+
+* 162: Support provider-agnostic MCP configuration ([#165](https://github.com/viamin/agent-harness/issues/165)) ([27f4814](https://github.com/viamin/agent-harness/commit/27f48146e99d8fdba0346235a3e5f19138266652))
+
 ## [0.11.1](https://github.com/viamin/agent-harness/compare/agent-harness/v0.11.0...agent-harness/v0.11.1) (2026-04-26)
 
 
