@@ -513,7 +513,7 @@ module AgentHarness
           extensions: extensions,
           mode: :message,
           prompt: prompt,
-          options: options.dup,
+          options: deep_dup(options),
           metadata: {}
         )
 
@@ -535,7 +535,7 @@ module AgentHarness
           mode: :chat,
           messages: deep_dup(messages),
           tools: merge_extension_tools(tools, extensions),
-          options: options.dup,
+          options: deep_dup(options),
           metadata: {}
         )
 
