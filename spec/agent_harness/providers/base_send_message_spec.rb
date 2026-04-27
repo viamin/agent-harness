@@ -155,6 +155,74 @@ RSpec.describe AgentHarness::Providers::Base, "#send_message" do
       response = provider.send_message(prompt: "Hello", extensions: [:prompt_extension])
       expect(response.output).to eq("response output [extended]")
     end
+
+    it "rejects extensions with tools in message mode" do
+      # Use a provider that supports tool_use so capability validation passes
+      # and the message-mode rejection is what fires.
+      capable_provider_class = Class.new(test_provider_class) do
+        def capabilities
+          super.merge(tool_use: true)
+        end
+      end
+      capable_provider = capable_provider_class.new(config: config, executor: mock_executor)
+
+      tool_extension = Class.new(AgentHarness::Extensions::Base) do
+        def name = :tool_ext
+        def tools = [{name: "web_search"}]
+      end.new
+
+      AgentHarness.configuration.register_extension(tool_extension)
+
+      expect {
+        capable_provider.send_message(prompt: "Hello", extensions: [:tool_ext])
+      }.to raise_error(AgentHarness::ExtensionCompatibilityError, /not supported in message mode/)
+    end
+
+    it "rejects extensions with MCP servers in message mode" do
+      capable_provider_class = Class.new(test_provider_class) do
+        def capabilities
+          super.merge(mcp: true)
+        end
+      end
+      capable_provider = capable_provider_class.new(config: config, executor: mock_executor)
+
+      mcp_extension = Class.new(AgentHarness::Extensions::Base) do
+        def name = :mcp_ext
+        def mcp_servers = [{name: "server", command: "npx server"}]
+      end.new
+
+      AgentHarness.configuration.register_extension(mcp_extension)
+
+      expect {
+        capable_provider.send_message(prompt: "Hello", extensions: [:mcp_ext])
+      }.to raise_error(AgentHarness::ExtensionCompatibilityError, /MCP servers are not supported in message mode/)
+    end
+
+    it "resolves extensions from a custom configuration" do
+      custom_config = AgentHarness::Configuration.new
+      custom_ext = prompt_extension_class.new
+      custom_config.register_extension(custom_ext)
+
+      custom_provider = test_provider_class.new(
+        config: config,
+        executor: mock_executor,
+        configuration: custom_config
+      )
+
+      expect(mock_executor).to receive(:execute) do |command, **|
+        expect(command).to include("Research before answering.\n\nHello")
+
+        AgentHarness::CommandExecutor::Result.new(
+          stdout: "response output",
+          stderr: "",
+          exit_code: 0,
+          duration: 1.0
+        )
+      end
+
+      response = custom_provider.send_message(prompt: "Hello", extensions: [:prompt_extension])
+      expect(response.output).to eq("response output [extended]")
+    end
   end
 
   describe "failed execution" do

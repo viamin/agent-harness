@@ -77,9 +77,11 @@ module AgentHarness
       # @param config [ProviderConfig, nil] provider configuration
       # @param executor [CommandExecutor, nil] command executor
       # @param logger [Logger, nil] logger instance
-      def initialize(config: nil, executor: nil, logger: nil)
+      # @param configuration [Configuration, nil] parent configuration for extension/sub-agent resolution
+      def initialize(config: nil, executor: nil, logger: nil, configuration: nil)
         @config = config || ProviderConfig.new(self.class.provider_name)
-        @executor = executor || AgentHarness.configuration.command_executor
+        @configuration = configuration || AgentHarness.configuration
+        @executor = executor || @configuration.command_executor
         @logger = logger || AgentHarness.logger
       end
 
@@ -231,6 +233,7 @@ module AgentHarness
         tools = extension_context.tools
         options = extension_context.options
         messages = apply_sub_agent_to_messages(messages, options[:translated_sub_agent])
+        validate_chat_mcp_servers!(options[:mcp_servers])
         transport_opts = chat_transport_options(runtime, options)
         transport_opts[:on_chat_chunk] = on_chat_chunk if on_chat_chunk
         transport_opts[:observer] = observer if observer
@@ -435,7 +438,7 @@ module AgentHarness
           servers = options[:mcp_servers]
         else
           # Configuration stores mcp_servers as a Hash keyed by name; extract values.
-          config_servers = AgentHarness.configuration.mcp_servers
+          config_servers = @configuration.mcp_servers
           servers = config_servers.is_a?(Hash) ? config_servers.values : config_servers
         end
         return options if servers.nil?
@@ -472,12 +475,12 @@ module AgentHarness
         sub_agent = options[:sub_agent]
         return options unless sub_agent
 
-        resolved = AgentHarness.configuration.resolve_sub_agent(sub_agent)
+        resolved = @configuration.resolve_sub_agent(sub_agent)
         translated = SubAgentTranslator.for_provider(
           self.class.provider_name,
           resolved,
-          tool_registry: AgentHarness.configuration.tool_registry,
-          mcp_servers: AgentHarness.configuration.mcp_servers
+          tool_registry: @configuration.tool_registry,
+          mcp_servers: @configuration.mcp_servers
         )
 
         options.merge(sub_agent: resolved, translated_sub_agent: translated)
@@ -497,7 +500,7 @@ module AgentHarness
 
       def resolve_extensions(options)
         Array(options[:extensions]).filter_map do |reference|
-          AgentHarness.configuration.resolve_extension(reference)
+          @configuration.resolve_extension(reference)
         end
       end
 
@@ -515,7 +518,8 @@ module AgentHarness
         )
 
         validate_extensions!(extensions, strict: strict)
-        merge_extension_mcp_servers!(context)
+        reject_tool_extensions_in_message_mode!(extensions)
+        reject_mcp_extensions_in_message_mode!(extensions)
         apply_extension_system_prompt!(context)
         extensions.each { |extension| extension.on_message_before(context) }
         context
@@ -563,6 +567,41 @@ module AgentHarness
         end
       end
 
+      def validate_chat_mcp_servers!(mcp_servers)
+        return if mcp_servers.nil? || mcp_servers.empty?
+
+        # Chat transports do not support request-scoped MCP servers.
+        # Raise early so extensions with MCP requirements are not silently ignored.
+        raise McpUnsupportedError.new(
+          "Chat mode does not support request-scoped MCP servers. " \
+          "Extensions or options requiring MCP servers cannot be used with send_chat_message.",
+          provider: self.class.provider_name
+        )
+      end
+
+      def reject_tool_extensions_in_message_mode!(extensions)
+        tool_extensions = extensions.select { |ext| ext.tools.any? }
+        return if tool_extensions.empty?
+
+        names = tool_extensions.map(&:name).join(", ")
+        raise ExtensionCompatibilityError.new(
+          "Extensions with tools are not supported in message mode (CLI execution " \
+          "cannot accept dynamic tool definitions): #{names}",
+          provider: self.class.provider_name
+        )
+      end
+
+      def reject_mcp_extensions_in_message_mode!(extensions)
+        mcp_extensions = extensions.select { |ext| ext.mcp_servers.any? }
+        return if mcp_extensions.empty?
+
+        names = mcp_extensions.map(&:name).join(", ")
+        raise ExtensionCompatibilityError.new(
+          "Extensions with MCP servers are not supported in message mode: #{names}",
+          provider: self.class.provider_name
+        )
+      end
+
       def merge_extension_mcp_servers!(context)
         extension_servers = context.extensions.flat_map(&:mcp_servers)
         return if extension_servers.empty?
@@ -605,8 +644,14 @@ module AgentHarness
           func[:parameters] = parameters if parameters
           {type: "function", function: func}
         else
-          # Anthropic-style / default: {name: ..., description: ...}
-          tool
+          # Anthropic-style: {name: ..., description: ..., input_schema: ...}
+          # Convert `parameters` key to `input_schema` for Anthropic/TextTransport compatibility.
+          normalized = tool.dup
+          params = normalized.delete(:parameters) || normalized.delete("parameters")
+          if params && !normalized.key?(:input_schema) && !normalized.key?("input_schema")
+            normalized[:input_schema] = params
+          end
+          normalized
         end
       end
 

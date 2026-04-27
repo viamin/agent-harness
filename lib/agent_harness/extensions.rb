@@ -357,20 +357,37 @@ module AgentHarness
         module_function
 
         def load(path)
-          root = resolve_root(path)
+          resolved_path = File.expand_path(path)
+          single_file = File.file?(resolved_path) && %w[.ts .js].include?(File.extname(resolved_path)) &&
+            File.basename(resolved_path) != "package.json"
+
+          root = resolve_root(resolved_path)
           package = load_package_json(root)
-          entry_paths = discover_entry_paths(root, package)
+          entry_paths = if single_file
+            # When a specific script file is requested, scope to that file only
+            # instead of discovering all siblings in the parent directory.
+            [resolved_path]
+          else
+            discover_entry_paths(root, package)
+          end
           ext_config = package.fetch("agent_harness", {})
           tools = ext_config["tools"] || discover_tools(entry_paths)
           system_prompt_additions = Array(ext_config["system_prompt_additions"])
           mcp_servers = Array(ext_config["mcp_servers"])
           required_provider_capabilities = Array(ext_config["required_provider_capabilities"])
+          # Conservatively require :tool_use when registerTool is called with non-inline
+          # arguments that static extraction cannot parse.
+          if !ext_config["tools"] && has_non_inline_register_tool_calls?(entry_paths)
+            required_provider_capabilities |= ["tool_use"]
+          end
           unsupported_features = Array(ext_config["unsupported_features"])
           unsupported_features |= infer_unsupported_features(entry_paths)
 
+          default_name = single_file ? File.basename(resolved_path, File.extname(resolved_path)) : File.basename(root)
+
           [
             PiExtension.new(
-              name: ext_config["name"] || package["name"] || File.basename(root),
+              name: ext_config["name"] || package["name"] || default_name,
               description: ext_config["description"] || package["description"],
               version: ext_config["version"] || package["version"],
               tools: tools.map { |tool| normalize_tool(tool) },
@@ -470,6 +487,19 @@ module AgentHarness
               {name: name, description: description}.compact
             end
           end.uniq
+        end
+
+        # Detect whether any entry path contains registerTool calls that could
+        # not be statically extracted as inline object literals. When true, the
+        # extension should conservatively require :tool_use even if discover_tools
+        # returned an empty list.
+        def has_non_inline_register_tool_calls?(entry_paths)
+          entry_paths.any? do |entry_path|
+            source = File.read(entry_path)
+            total_calls = source.scan(/registerTool\s*\(/).length
+            inline_calls = source.scan(/registerTool\s*\(\s*\{/).length
+            total_calls > inline_calls
+          end
         end
 
         def infer_unsupported_features(entry_paths)

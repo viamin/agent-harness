@@ -656,6 +656,69 @@ RSpec.describe AgentHarness::Extensions do
     end
   end
 
+  describe "Pi single-file scoping" do
+    it "loads only the requested file, not siblings" do
+      Dir.mktmpdir do |dir|
+        File.write(File.join(dir, "one.ts"), <<~TS)
+          export default function(pi) {
+            pi.registerTool({ name: "tool_one", description: "First" });
+          }
+        TS
+        File.write(File.join(dir, "two.ts"), <<~TS)
+          export default function(pi) {
+            pi.registerTool({ name: "tool_two", description: "Second" });
+          }
+        TS
+
+        loaded = AgentHarness::Extensions::Adapters::Pi.load(File.join(dir, "one.ts"))
+        ext = loaded.first
+
+        expect(ext.entry_paths).to eq([File.join(dir, "one.ts")])
+        expect(ext.tools.map { |t| t[:name] }).to eq(["tool_one"])
+        expect(ext.tools.map { |t| t[:name] }).not_to include("tool_two")
+      end
+    end
+
+    it "names single-file extensions after the file stem" do
+      Dir.mktmpdir do |dir|
+        File.write(File.join(dir, "my_extension.ts"), "// no tools")
+
+        loaded = AgentHarness::Extensions::Adapters::Pi.load(File.join(dir, "my_extension.ts"))
+        expect(loaded.first.name).to eq(:my_extension)
+      end
+    end
+  end
+
+  describe "conservative registerTool detection" do
+    it "requires :tool_use for non-inline registerTool calls" do
+      Dir.mktmpdir do |dir|
+        File.write(File.join(dir, "index.ts"), <<~TS)
+          const tool = { name: "search" };
+          pi.registerTool(tool);
+        TS
+
+        loaded = AgentHarness::Extensions::Adapters::Pi.load(dir)
+        ext = loaded.first
+
+        expect(ext.required_provider_capabilities).to include(:tool_use)
+      end
+    end
+
+    it "does not double-count when inline registerTool calls are also present" do
+      Dir.mktmpdir do |dir|
+        File.write(File.join(dir, "index.ts"), <<~TS)
+          pi.registerTool({ name: "inline_tool", description: "Inline" });
+        TS
+
+        loaded = AgentHarness::Extensions::Adapters::Pi.load(dir)
+        ext = loaded.first
+
+        expect(ext.tools).to eq([{name: "inline_tool", description: "Inline"}])
+        expect(ext.required_provider_capabilities).to include(:tool_use)
+      end
+    end
+  end
+
   describe AgentHarness::Extensions::Loader do
     it "raises for unknown adapter" do
       expect {
