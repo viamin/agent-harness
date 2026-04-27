@@ -576,7 +576,14 @@ module AgentHarness
         extension_tools = extensions.flat_map(&:tools)
         return tools unless extension_tools.any?
 
-        Array(tools) + extension_tools
+        merged = Array(tools) + extension_tools
+        names = merged.map { |t| t[:name] || t["name"] }.compact
+        duplicates = names.group_by { |n| n }.select { |_, v| v.size > 1 }.keys
+        unless duplicates.empty?
+          raise ConfigurationError,
+            "Tool name conflict between user-provided and extension tools: #{duplicates.join(", ")}"
+        end
+        merged
       end
 
       def apply_extension_system_prompt!(context)
