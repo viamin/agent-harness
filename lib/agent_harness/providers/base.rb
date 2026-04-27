@@ -419,7 +419,13 @@ module AgentHarness
       end
 
       def normalize_mcp_servers(options)
-        servers = options[:mcp_servers]
+        if options.key?(:mcp_servers)
+          servers = options[:mcp_servers]
+        else
+          # Configuration stores mcp_servers as a Hash keyed by name; extract values.
+          config_servers = AgentHarness.configuration.mcp_servers
+          servers = config_servers.is_a?(Hash) ? config_servers.values : config_servers
+        end
         return options if servers.nil?
 
         unless servers.is_a?(Array)

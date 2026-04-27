@@ -7,7 +7,8 @@ RSpec.describe AgentHarness::McpServer do
         described_class.new(
           name: "filesystem",
           transport: "stdio",
-          command: ["npx", "-y", "@modelcontextprotocol/server-filesystem", "/workspace"],
+          command: "npx",
+          args: ["-y", "@modelcontextprotocol/server-filesystem", "/workspace"],
           env: {"DEBUG" => "0"}
         )
       end
@@ -15,7 +16,8 @@ RSpec.describe AgentHarness::McpServer do
       it "sets all attributes" do
         expect(server.name).to eq("filesystem")
         expect(server.transport).to eq("stdio")
-        expect(server.command).to eq(["npx", "-y", "@modelcontextprotocol/server-filesystem", "/workspace"])
+        expect(server.command).to eq("npx")
+        expect(server.args).to eq(["-y", "@modelcontextprotocol/server-filesystem", "/workspace"])
         expect(server.env).to eq({"DEBUG" => "0"})
       end
 
@@ -24,8 +26,8 @@ RSpec.describe AgentHarness::McpServer do
         expect(server.http?).to be false
       end
 
-      it "defaults args to empty array" do
-        expect(server.args).to eq([])
+      it "stores normalized args" do
+        expect(server.args).not_to be_empty
       end
     end
 
@@ -70,7 +72,7 @@ RSpec.describe AgentHarness::McpServer do
         described_class.new(
           name: "test",
           transport: "stdio",
-          command: ["node"],
+          command: "node",
           args: ["--inspect", "server.js"]
         )
       end
@@ -103,19 +105,13 @@ RSpec.describe AgentHarness::McpServer do
     it "raises on stdio without command" do
       expect {
         described_class.new(name: "test", transport: "stdio")
-      }.to raise_error(AgentHarness::McpConfigurationError, /requires a non-empty command array/)
+      }.to raise_error(AgentHarness::McpConfigurationError, /requires a non-empty command string/)
     end
 
     it "raises on stdio with empty command" do
       expect {
-        described_class.new(name: "test", transport: "stdio", command: [])
-      }.to raise_error(AgentHarness::McpConfigurationError, /requires a non-empty command array/)
-    end
-
-    it "raises on stdio with non-string command elements" do
-      expect {
-        described_class.new(name: "test", transport: "stdio", command: [123])
-      }.to raise_error(AgentHarness::McpConfigurationError, /command must contain only strings/)
+        described_class.new(name: "test", transport: "stdio", command: "")
+      }.to raise_error(AgentHarness::McpConfigurationError, /requires a non-empty command string/)
     end
 
     it "raises on stdio with url" do
@@ -171,6 +167,12 @@ RSpec.describe AgentHarness::McpServer do
         described_class.new(name: "test", transport: "stdio", command: ["test"], env: {"DEBUG" => 1})
       }.to raise_error(AgentHarness::McpConfigurationError, /env must be a Hash with String keys and values/)
     end
+
+    it "raises when headers have non-string values" do
+      expect {
+        described_class.new(name: "test", transport: "sse", url: "http://x", headers: {"Authorization" => 1})
+      }.to raise_error(AgentHarness::McpConfigurationError, /headers must be a Hash with String keys and values/)
+    end
   end
 
   describe ".from_hash" do
@@ -178,12 +180,14 @@ RSpec.describe AgentHarness::McpServer do
       server = described_class.from_hash(
         "name" => "fs",
         "transport" => "stdio",
-        "command" => ["npx", "server"],
+        "command" => "npx",
+        "args" => ["server"],
         "env" => {"A" => "1"}
       )
       expect(server.name).to eq("fs")
       expect(server.transport).to eq("stdio")
-      expect(server.command).to eq(["npx", "server"])
+      expect(server.command).to eq("npx")
+      expect(server.args).to eq(["server"])
       expect(server.env).to eq({"A" => "1"})
     end
 
@@ -191,10 +195,12 @@ RSpec.describe AgentHarness::McpServer do
       server = described_class.from_hash(
         name: "web",
         transport: "http",
-        url: "http://localhost:3000"
+        url: "http://localhost:3000",
+        headers: {"Authorization" => "Bearer token"}
       )
       expect(server.name).to eq("web")
       expect(server.url).to eq("http://localhost:3000")
+      expect(server.headers).to eq({"Authorization" => "Bearer token"})
     end
 
     it "raises McpConfigurationError for non-hash input" do
@@ -215,13 +221,15 @@ RSpec.describe AgentHarness::McpServer do
       server = described_class.new(
         name: "fs",
         transport: "stdio",
-        command: ["npx", "server"],
+        command: "npx",
+        args: ["server"],
         env: {"DEBUG" => "1"}
       )
       h = server.to_h
       expect(h[:name]).to eq("fs")
       expect(h[:transport]).to eq("stdio")
-      expect(h[:command]).to eq(["npx", "server"])
+      expect(h[:command]).to eq("npx")
+      expect(h[:args]).to eq(["server"])
       expect(h[:env]).to eq({"DEBUG" => "1"})
       expect(h).not_to have_key(:url)
     end
@@ -230,12 +238,14 @@ RSpec.describe AgentHarness::McpServer do
       server = described_class.new(
         name: "web",
         transport: "http",
-        url: "http://localhost:3000"
+        url: "http://localhost:3000",
+        headers: {"Authorization" => "Bearer token"}
       )
       h = server.to_h
       expect(h[:name]).to eq("web")
       expect(h[:transport]).to eq("http")
       expect(h[:url]).to eq("http://localhost:3000")
+      expect(h[:headers]).to eq({"Authorization" => "Bearer token"})
       expect(h).not_to have_key(:command)
     end
 
@@ -243,7 +253,7 @@ RSpec.describe AgentHarness::McpServer do
       server = described_class.new(
         name: "fs",
         transport: "stdio",
-        command: ["npx", "server"]
+        command: "npx"
       )
       h = server.to_h
       expect(h).not_to have_key(:env)
@@ -257,7 +267,8 @@ RSpec.describe AgentHarness::McpServer do
         server = described_class.new(
           name: "fs",
           transport: "stdio",
-          command: ["npx", "server"]
+          command: "npx",
+          args: ["server"]
         )
         expect(server.reachable?).to be true
       end

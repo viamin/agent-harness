@@ -27,6 +27,39 @@ RSpec.describe AgentHarness::Configuration do
     end
   end
 
+  describe "MCP configuration" do
+    it "stores canonical MCP servers via the Ruby DSL" do
+      config.mcp_servers = [
+        {
+          name: "filesystem",
+          transport: "stdio",
+          command: "npx",
+          args: ["server"]
+        }
+      ]
+
+      expect(config.mcp_servers.length).to eq(1)
+      expect(config.mcp_servers.values.first).to be_a(AgentHarness::McpServer)
+      expect(config.mcp_servers.values.first.command_argv).to eq(["npx", "server"])
+    end
+
+    it "loads MCP servers from a file" do
+      Dir.mktmpdir do |dir|
+        path = File.join(dir, "mcp_servers.yml")
+        File.write(path, <<~YAML)
+          servers:
+            - name: remote-db
+              transport: sse
+              url: https://mcp.example.com/db
+        YAML
+
+        config.load_mcp_servers_file(path)
+      end
+
+      expect(config.mcp_servers.values.map(&:name)).to eq(["remote-db"])
+    end
+  end
+
   describe "#orchestration" do
     it "configures orchestration settings" do
       config.orchestration do |orch|

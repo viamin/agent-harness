@@ -10,7 +10,8 @@ module AgentHarness
   #   McpServer.new(
   #     name: "filesystem",
   #     transport: "stdio",
-  #     command: ["npx", "-y", "@modelcontextprotocol/server-filesystem", "/workspace"],
+  #     command: "npx",
+  #     args: ["-y", "@modelcontextprotocol/server-filesystem", "/workspace"],
   #     env: { "DEBUG" => "0" }
   #   )
   #
@@ -23,21 +24,24 @@ module AgentHarness
   class McpServer
     VALID_TRANSPORTS = %w[stdio http sse].freeze
 
-    attr_reader :name, :transport, :command, :args, :env, :url
+    attr_reader :name, :transport, :command, :args, :env, :url, :headers
 
     # @param name [String] unique name for this MCP server
     # @param transport [String] one of "stdio", "http", "sse"
-    # @param command [Array<String>, nil] command to launch (stdio only)
+    # @param command [String, Array<String>, nil] executable to launch (stdio only).
+    #   Arrays are accepted for backwards compatibility and normalized into
+    #   +command+ plus +args+.
     # @param args [Array<String>, nil] additional args for the command
     # @param env [Hash<String,String>, nil] environment variables for the server process
     # @param url [String, nil] URL for HTTP/SSE transport
-    def initialize(name:, transport:, command: nil, args: nil, env: nil, url: nil)
+    # @param headers [Hash<String,String>, nil] HTTP headers for remote MCP servers
+    def initialize(name:, transport:, command: nil, args: nil, env: nil, url: nil, headers: nil)
       @name = name
       @transport = transport.to_s
-      @command = command
-      @args = args || []
+      @command, @args = normalize_command_and_args(command, args)
       @env = env || {}
       @url = url
+      @headers = headers || {}
 
       validate!
     end
@@ -63,7 +67,8 @@ module AgentHarness
         command: hash[:command],
         args: hash[:args],
         env: hash[:env],
-        url: hash[:url]
+        url: hash[:url],
+        headers: hash[:headers]
       )
     end
 
@@ -73,6 +78,12 @@ module AgentHarness
 
     def http?
       %w[http sse].include?(@transport)
+    end
+
+    def command_argv
+      return [] unless stdio?
+
+      [@command, *@args]
     end
 
     # Check if the MCP server is reachable based on its transport type.
@@ -101,6 +112,7 @@ module AgentHarness
         h[:args] = @args unless @args.empty?
       else
         h[:url] = @url
+        h[:headers] = @headers unless @headers.empty?
       end
       h[:env] = @env unless @env.empty?
       h
@@ -118,6 +130,7 @@ module AgentHarness
 
       validate_args!
       validate_env!
+      validate_headers!
       validate_stdio! if stdio?
       validate_http! if http?
       validate_no_stdio_only_fields_on_http! if http?
@@ -137,15 +150,17 @@ module AgentHarness
         "MCP server '#{@name}' env must be a Hash with String keys and values"
     end
 
-    def validate_stdio!
-      if @command.nil? || !@command.is_a?(Array) || @command.empty?
-        raise McpConfigurationError,
-          "MCP server '#{@name}' with stdio transport requires a non-empty command array"
-      end
+    def validate_headers!
+      return if @headers.is_a?(Hash) && @headers.keys.all? { |k| k.is_a?(String) } && @headers.values.all? { |v| v.is_a?(String) }
 
-      unless @command.all? { |c| c.is_a?(String) }
+      raise McpConfigurationError,
+        "MCP server '#{@name}' headers must be a Hash with String keys and values"
+    end
+
+    def validate_stdio!
+      if @command.nil? || !@command.is_a?(String) || @command.strip.empty?
         raise McpConfigurationError,
-          "MCP server '#{@name}' command must contain only strings"
+          "MCP server '#{@name}' with stdio transport requires a non-empty command string"
       end
 
       return if @url.nil?
@@ -171,6 +186,17 @@ module AgentHarness
 
       raise McpConfigurationError,
         "MCP server '#{@name}' with #{@transport} transport should not have args (args are only valid for stdio)"
+    end
+
+    def normalize_command_and_args(command, args)
+      normalized_args = args || []
+      return [command, normalized_args] unless command.is_a?(Array)
+
+      unless normalized_args.is_a?(Array)
+        return [command.first, normalized_args]
+      end
+
+      [command.first, command[1..] + normalized_args]
     end
 
     def http_ping_ok?(timeout: 5)

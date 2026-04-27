@@ -78,6 +78,22 @@ module AgentHarness
       @custom_provider_classes[name.to_sym] = klass
     end
 
+    # Set MCP servers from an array of server definitions.
+    #
+    # @param servers [Array<Hash, McpServer>] server definitions
+    def mcp_servers=(servers)
+      normalized = McpConfigTranslator.normalize_servers(servers)
+      @mcp_servers = normalized.each_with_object({}) { |s, h| h[s.name.to_sym] = s }
+    end
+
+    # Load MCP server definitions from a configuration file.
+    #
+    # @param path [String] file path
+    def load_mcp_servers_file(path)
+      loaded = McpConfigLoader.load_file(path)
+      @mcp_servers = loaded.each_with_object({}) { |s, h| h[s.name.to_sym] = s }
+    end
+
     # Configure a provider-agnostic sub-agent definition.
     #
     # @param name [Symbol, String] sub-agent name

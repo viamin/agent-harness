@@ -9,6 +9,7 @@ module AgentHarness
     # Provides integration with the OpenAI Codex CLI tool.
     class Codex < Base
       include RateLimitResetParsing
+      include McpConfigFileSupport
 
       SUPPORTED_CLI_VERSION = "0.116.0"
       SUPPORTED_CLI_REQUIREMENT = Gem::Requirement.new(">= #{SUPPORTED_CLI_VERSION}", "< 0.117.0").freeze
@@ -186,7 +187,7 @@ module AgentHarness
           vision: false,
           tool_use: true,
           json_mode: false,
-          mcp: false,
+          mcp: true,
           dangerous_mode: true
         }
       end
@@ -198,6 +199,27 @@ module AgentHarness
       def subscription_unset_vars = ["OPENAI_API_KEY", "OPENAI_BASE_URL"] + api_key_unset_vars
 
       def cli_env_overrides = {"PAID_CODEX_SUBSCRIPTION_AUTH" => "1"}
+
+      def send_message(prompt:, **options)
+        super
+      ensure
+        cleanup_mcp_tempfiles!
+      end
+
+      def supports_mcp?
+        true
+      end
+
+      def supported_mcp_transports
+        %w[stdio http sse]
+      end
+
+      def build_mcp_flags(mcp_servers, working_dir: nil)
+        return [] if mcp_servers.empty?
+
+        config_path = write_mcp_config_file(mcp_servers, working_dir: working_dir)
+        ["--mcp-config", config_path]
+      end
 
       def test_command_overrides
         ["--skip-git-repo-check", "--output-last-message"]
@@ -447,6 +469,11 @@ module AgentHarness
 
         if externally_sandboxed
           cmd += sandbox_bypass_flags
+        end
+
+        # Add MCP server flags (validated/normalized by Base#send_message)
+        if options[:mcp_servers]&.any?
+          cmd += build_mcp_flags(options[:mcp_servers])
         end
 
         if options[:session]
@@ -1258,6 +1285,10 @@ module AgentHarness
       def codex_config_path
         config_dir = ENV["CODEX_CONFIG_DIR"] || File.expand_path("~/.codex")
         File.join(config_dir, "config.json")
+      end
+
+      def mcp_provider_key
+        :codex
       end
     end
   end
