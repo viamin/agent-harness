@@ -168,7 +168,9 @@ RSpec.describe AgentHarness::Extensions do
       )
 
       expect(report).to be_compatible
+      expect(report).to be_fully_supported
       expect(report.to_h[:compatible]).to be(true)
+      expect(report.to_h[:fully_supported]).to be(true)
     end
 
     it "reports incompatible when missing capabilities" do
@@ -180,7 +182,22 @@ RSpec.describe AgentHarness::Extensions do
       )
 
       expect(report).not_to be_compatible
+      expect(report).not_to be_fully_supported
       expect(report.to_h[:missing_provider_capabilities]).to eq([:vision])
+    end
+
+    it "reports compatible but not fully supported with unsupported features" do
+      report = AgentHarness::Extensions::CompatibilityReport.new(
+        extension: extension,
+        provider: provider,
+        missing_provider_capabilities: [],
+        unsupported_features: [:commands, :shortcuts]
+      )
+
+      expect(report).to be_compatible
+      expect(report).not_to be_fully_supported
+      expect(report.to_h[:compatible]).to be(true)
+      expect(report.to_h[:fully_supported]).to be(false)
     end
   end
 
@@ -644,6 +661,34 @@ RSpec.describe AgentHarness::Extensions do
       Dir.mktmpdir do |dir|
         File.write(File.join(dir, "package.json"), '{"name": "test"}')
         File.write(File.join(dir, "index.ts"), "// ext")
+
+        loaded = described_class.load(dir)
+        expect(loaded.first).to be_a(AgentHarness::Extensions::Adapters::PiExtension)
+      end
+    end
+
+    it "infers pi adapter for directories with index.ts" do
+      Dir.mktmpdir do |dir|
+        File.write(File.join(dir, "index.ts"), <<~TS)
+          export default function(pi) {
+            pi.registerTool({ name: "search", description: "Search" });
+          }
+        TS
+
+        loaded = described_class.load(dir)
+        expect(loaded.first).to be_a(AgentHarness::Extensions::Adapters::PiExtension)
+      end
+    end
+
+    it "infers pi adapter for directories with extensions subdirectory" do
+      Dir.mktmpdir do |dir|
+        ext_dir = File.join(dir, "extensions")
+        FileUtils.mkdir_p(ext_dir)
+        File.write(File.join(ext_dir, "main.ts"), <<~TS)
+          export default function(pi) {
+            pi.registerTool({ name: "lookup", description: "Lookup" });
+          }
+        TS
 
         loaded = described_class.load(dir)
         expect(loaded.first).to be_a(AgentHarness::Extensions::Adapters::PiExtension)

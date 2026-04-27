@@ -99,7 +99,11 @@ module AgentHarness
       end
 
       def compatible?
-        @missing_provider_capabilities.empty? && @unsupported_features.empty?
+        @missing_provider_capabilities.empty?
+      end
+
+      def fully_supported?
+        compatible? && @unsupported_features.empty?
       end
 
       def to_h
@@ -107,6 +111,7 @@ module AgentHarness
           extension: extension.name,
           provider: provider.class.provider_name,
           compatible: compatible?,
+          fully_supported: fully_supported?,
           missing_provider_capabilities: missing_provider_capabilities.dup,
           unsupported_features: unsupported_features.dup
         }
@@ -141,7 +146,8 @@ module AgentHarness
         return compatibility unless strict
 
         raise ExtensionCompatibilityError.new(
-          "Extension '#{extension.name}' is not compatible with provider '#{provider.class.provider_name}'",
+          "Extension '#{extension.name}' is not compatible with provider '#{provider.class.provider_name}': " \
+          "missing provider capabilities: #{compatibility.missing_provider_capabilities.inspect}",
           provider: provider.class.provider_name,
           extension: extension.name,
           report: compatibility.to_h
@@ -261,12 +267,22 @@ module AgentHarness
 
       def normalize_adapter(adapter, path)
         return adapter.to_sym if adapter
-        return :pi if File.directory?(path) && File.exist?(File.join(path, "package.json"))
+        return :pi if File.directory?(path) && pi_directory?(path)
         return :pi if File.file?(path) && File.extname(path).match?(/\A\.(?:[jt]s|json)\z/i)
         return :skill if File.file?(path) && File.extname(path) == ".md"
-        raise ConfigurationError, "Cannot infer extension adapter for directory without package.json: #{path}" if File.directory?(path)
+        if File.directory?(path)
+          raise ConfigurationError, "Cannot infer extension adapter for directory: #{path}"
+        end
 
         raise ConfigurationError, "Could not infer adapter for extension source: #{path}"
+      end
+
+      def pi_directory?(path)
+        return true if File.exist?(File.join(path, "package.json"))
+        return true if File.exist?(File.join(path, "index.ts")) || File.exist?(File.join(path, "index.js"))
+        return true if File.directory?(File.join(path, "extensions"))
+
+        false
       end
 
       def discover(directory)

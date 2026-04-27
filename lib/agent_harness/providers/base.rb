@@ -554,12 +554,11 @@ module AgentHarness
       def validate_extensions!(extensions, strict: true)
         extensions.each do |extension|
           report = Extensions::Compatibility.check!(provider: self, extension: extension, strict: strict)
-          next if report.compatible?
+          next if report.fully_supported?
 
           @logger&.warn(
             "[AgentHarness::#{self.class.provider_name}] Extension '#{extension.name}' has " \
-            "compatibility issues: missing=#{report.missing_provider_capabilities.inspect}, " \
-            "unsupported=#{report.unsupported_features.inspect}"
+            "unsupported features that will be unavailable: #{report.unsupported_features.inspect}"
           )
         end
       end
@@ -576,14 +575,39 @@ module AgentHarness
         extension_tools = extensions.flat_map(&:tools)
         return tools unless extension_tools.any?
 
-        merged = Array(tools) + extension_tools
-        names = merged.map { |t| t[:name] || t["name"] }.compact
+        normalized_extension_tools = extension_tools.map { |t| normalize_extension_tool_for_provider(t) }
+        merged = Array(tools) + normalized_extension_tools
+        names = merged.map { |t| extract_tool_name(t) }.compact
         duplicates = names.group_by { |n| n }.select { |_, v| v.size > 1 }.keys
         unless duplicates.empty?
           raise ConfigurationError,
             "Tool name conflict between user-provided and extension tools: #{duplicates.join(", ")}"
         end
         merged
+      end
+
+      def extract_tool_name(tool)
+        tool[:name] || tool["name"] ||
+          tool.dig(:function, :name) || tool.dig(:function, "name") ||
+          tool.dig("function", "name") || tool.dig("function", :name)
+      end
+
+      def normalize_extension_tool_for_provider(tool)
+        case chat_transport_type
+        when :openai_compatible
+          # OpenAI-style: {type: "function", function: {name: ..., description: ...}}
+          return tool if tool[:type] == "function" || tool["type"] == "function"
+
+          func = {name: tool[:name] || tool["name"]}
+          description = tool[:description] || tool["description"]
+          func[:description] = description if description
+          parameters = tool[:parameters] || tool["parameters"]
+          func[:parameters] = parameters if parameters
+          {type: "function", function: func}
+        else
+          # Anthropic-style / default: {name: ..., description: ...}
+          tool
+        end
       end
 
       def apply_extension_system_prompt!(context)
