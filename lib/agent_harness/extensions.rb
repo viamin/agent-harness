@@ -58,6 +58,10 @@ module AgentHarness
         []
       end
 
+      def unsupported_features
+        []
+      end
+
       def required_provider_capabilities
         required = []
         required << :tool_use if tools.any?
@@ -121,7 +125,7 @@ module AgentHarness
       def report(provider:, extension:)
         required = Array(extension.required_provider_capabilities).map(&:to_sym)
         missing = required.reject { |capability| capability_supported?(provider, capability) }
-        unsupported = Array(extension.respond_to?(:unsupported_features) ? extension.unsupported_features : []).map(&:to_sym)
+        unsupported = Array(extension.unsupported_features).map(&:to_sym)
 
         CompatibilityReport.new(
           extension: extension,
