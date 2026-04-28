@@ -1,5 +1,12 @@
 ## [Unreleased]
 
+## [0.11.3](https://github.com/viamin/agent-harness/compare/agent-harness/v0.11.2...agent-harness/v0.11.3) (2026-04-28)
+
+
+### Bug Fixes
+
+* 164: Support provider-agnostic extensions across compatible providers ([#168](https://github.com/viamin/agent-harness/issues/168)) ([2880ae4](https://github.com/viamin/agent-harness/commit/2880ae4f150d1d5574f259b931bbee14ebe0ed04))
+
 ## [0.11.2](https://github.com/viamin/agent-harness/compare/agent-harness/v0.11.1...agent-harness/v0.11.2) (2026-04-27)
 
 
