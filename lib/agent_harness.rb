@@ -77,6 +77,47 @@ module AgentHarness
       conductor.send_message(prompt, provider: provider, executor: executor, **options)
     end
 
+    # Resolve a canonical extension definition by name or inline object.
+    #
+    # @param reference [Symbol, String, Extensions::Base]
+    # @return [Extensions::Base]
+    def extension(reference)
+      configuration.resolve_extension(reference)
+    end
+
+    # Load one or more extensions from disk through an adapter.
+    #
+    # @param path [String] extension file, directory, or package root
+    # @param adapter [Symbol, String, nil] optional explicit adapter
+    # @return [Array<Extensions::Base>]
+    def load_extensions(path, adapter: nil)
+      configuration.load_extensions(path, adapter: adapter)
+    end
+
+    # Discover and register all extensions found in a directory.
+    #
+    # @param directory [String] directory to scan
+    # @return [Array<Extensions::Base>]
+    def discover_extensions(directory)
+      configuration.discover_extensions(directory)
+    end
+
+    # Build a compatibility report for extensions against a provider.
+    #
+    # @param provider [Symbol, String, Providers::Base] target provider
+    # @param extensions [Array<Symbol, String, Extensions::Base>] extension references
+    # @return [Array<Extensions::CompatibilityReport>]
+    def extension_compatibility(provider:, extensions:)
+      provider_instance = provider.is_a?(Providers::Base) ? provider : self.provider(provider)
+
+      Array(extensions).map do |extension_ref|
+        Extensions::Compatibility.report(
+          provider: provider_instance,
+          extension: extension(extension_ref)
+        )
+      end
+    end
+
     # Resolve a canonical sub-agent definition by name or inline payload.
     #
     # @param reference [Symbol, String, Hash, SubAgentConfig]
@@ -277,6 +318,7 @@ end
 
 # Core components
 require_relative "agent_harness/errors"
+require_relative "agent_harness/extensions"
 require_relative "agent_harness/mcp_server"
 require_relative "agent_harness/mcp_config_loader"
 require_relative "agent_harness/mcp_config_translator"

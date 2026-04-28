@@ -25,6 +25,7 @@ module AgentHarness
     #   end
     class Base
       include Adapter
+      include Extensions::DeepDupable
 
       DEFAULT_SMOKE_TEST_CONTRACT = {
         prompt: "Reply with exactly OK.",
@@ -76,9 +77,11 @@ module AgentHarness
       # @param config [ProviderConfig, nil] provider configuration
       # @param executor [CommandExecutor, nil] command executor
       # @param logger [Logger, nil] logger instance
-      def initialize(config: nil, executor: nil, logger: nil)
+      # @param configuration [Configuration, nil] parent configuration for extension/sub-agent resolution
+      def initialize(config: nil, executor: nil, logger: nil, configuration: nil)
         @config = config || ProviderConfig.new(self.class.provider_name)
-        @executor = executor || AgentHarness.configuration.command_executor
+        @configuration = configuration || AgentHarness.configuration
+        @executor = executor || @configuration.command_executor
         @logger = logger || AgentHarness.logger
       end
 
@@ -126,6 +129,15 @@ module AgentHarness
 
         # Coerce provider_runtime from Hash if needed
         options = normalize_provider_runtime(options)
+
+        # Capture execution options (callbacks, observer) before extensions
+        # processing deep-dups the options hash, which would replace identity-
+        # sensitive references (observers, procs) with clones.
+        exec_opts = command_execution_options(options)
+
+        extension_context = apply_extensions_to_prompt(prompt, options)
+        prompt = extension_context.prompt
+        options = extension_context.options
         options = normalize_sub_agent(options)
         prompt = apply_sub_agent_to_prompt(prompt, options[:translated_sub_agent])
 
@@ -147,7 +159,7 @@ module AgentHarness
           timeout: timeout,
           env: build_env(options),
           preparation: preparation,
-          **command_execution_options(options)
+          **exec_opts
         )
         duration = Time.now - start_time
 
@@ -171,13 +183,15 @@ module AgentHarness
           )
         end
 
+        response = apply_extensions_after_response(extension_context, response)
+
         # Track tokens
         track_tokens(response) if response.tokens
 
         log_debug("send_message_complete", duration: duration, tokens: response.tokens)
 
         response
-      rescue McpConfigurationError, McpUnsupportedError, McpTransportUnsupportedError
+      rescue ExtensionCompatibilityError, McpConfigurationError, McpUnsupportedError, McpTransportUnsupportedError
         raise
       rescue => e
         handle_error(e, prompt: prompt, options: options)
@@ -220,7 +234,12 @@ module AgentHarness
 
         transport = resolve_chat_transport(options)
         messages = format_messages_for_transport(conversation, transport)
+        extension_context = apply_extensions_to_chat(messages, tools, options)
+        messages = extension_context.messages
+        tools = extension_context.tools
+        options = extension_context.options
         messages = apply_sub_agent_to_messages(messages, options[:translated_sub_agent])
+        validate_chat_mcp_servers!(options[:mcp_servers])
         transport_opts = chat_transport_options(runtime, options)
         transport_opts[:on_chat_chunk] = on_chat_chunk if on_chat_chunk
         transport_opts[:observer] = observer if observer
@@ -233,11 +252,13 @@ module AgentHarness
           &on_chunk
         )
 
+        response = apply_extensions_after_response(extension_context, response)
+
         track_tokens(response) if response.tokens
         log_debug("send_chat_message_complete", duration: response.duration, tokens: response.tokens)
 
         response
-      rescue ProviderError, AuthenticationError, RateLimitError, TimeoutError
+      rescue ExtensionCompatibilityError, ProviderError, AuthenticationError, RateLimitError, TimeoutError
         raise
       rescue => e
         last_msg = conversation&.last || messages&.last
@@ -423,7 +444,7 @@ module AgentHarness
           servers = options[:mcp_servers]
         else
           # Configuration stores mcp_servers as a Hash keyed by name; extract values.
-          config_servers = AgentHarness.configuration.mcp_servers
+          config_servers = @configuration.mcp_servers
           servers = config_servers.is_a?(Hash) ? config_servers.values : config_servers
         end
         return options if servers.nil?
@@ -460,12 +481,12 @@ module AgentHarness
         sub_agent = options[:sub_agent]
         return options unless sub_agent
 
-        resolved = AgentHarness.configuration.resolve_sub_agent(sub_agent)
+        resolved = @configuration.resolve_sub_agent(sub_agent)
         translated = SubAgentTranslator.for_provider(
           self.class.provider_name,
           resolved,
-          tool_registry: AgentHarness.configuration.tool_registry,
-          mcp_servers: AgentHarness.configuration.mcp_servers
+          tool_registry: @configuration.tool_registry,
+          mcp_servers: @configuration.mcp_servers
         )
 
         options.merge(sub_agent: resolved, translated_sub_agent: translated)
@@ -481,6 +502,182 @@ module AgentHarness
         return messages unless translated_sub_agent
 
         [{role: "system", content: translated_sub_agent[:runtime_instructions]}] + messages
+      end
+
+      def resolve_extensions(options)
+        Array(options[:extensions]).filter_map do |reference|
+          @configuration.resolve_extension(reference)
+        end
+      end
+
+      def apply_extensions_to_prompt(prompt, options)
+        extensions = resolve_extensions(options)
+        strict = options.fetch(:extensions_strict, true)
+        Extensions::Composition.compose(extensions) if extensions.size > 1
+        context = Extensions::MessageContext.new(
+          provider: self,
+          extensions: extensions,
+          mode: :message,
+          prompt: prompt,
+          options: deep_dup(options),
+          metadata: {}
+        )
+
+        validate_extensions!(extensions, strict: strict)
+        reject_tool_extensions_in_message_mode!(extensions)
+        reject_mcp_extensions_in_message_mode!(extensions)
+        apply_extension_system_prompt!(context)
+        extensions.each { |extension| extension.on_message_before(context) }
+        context
+      end
+
+      def apply_extensions_to_chat(messages, tools, options)
+        extensions = resolve_extensions(options)
+        strict = options.fetch(:extensions_strict, true)
+        Extensions::Composition.compose(extensions) if extensions.size > 1
+        context = Extensions::MessageContext.new(
+          provider: self,
+          extensions: extensions,
+          mode: :chat,
+          messages: deep_dup(messages),
+          tools: merge_extension_tools(tools, extensions),
+          options: deep_dup(options),
+          metadata: {}
+        )
+
+        validate_extensions!(extensions, strict: strict)
+        merge_extension_mcp_servers!(context)
+        apply_extension_system_messages!(context)
+        extensions.each { |extension| extension.on_message_before(context) }
+        extensions.each { |extension| extension.on_tools_available(context) } if context.tools&.any?
+        context
+      end
+
+      def apply_extensions_after_response(context, response)
+        return response unless context
+
+        context.response = response
+        context.extensions.each { |extension| extension.on_message_after(context) }
+        context.response
+      end
+
+      def validate_extensions!(extensions, strict: true)
+        extensions.each do |extension|
+          report = Extensions::Compatibility.check!(provider: self, extension: extension, strict: strict)
+          next if report.fully_supported?
+
+          @logger&.warn(
+            "[AgentHarness::#{self.class.provider_name}] Extension '#{extension.name}' has " \
+            "unsupported features that will be unavailable: #{report.unsupported_features.inspect}"
+          )
+        end
+      end
+
+      def validate_chat_mcp_servers!(mcp_servers)
+        return if mcp_servers.nil? || mcp_servers.empty?
+
+        # Chat transports do not support request-scoped MCP servers.
+        # Raise early so extensions with MCP requirements are not silently ignored.
+        raise McpUnsupportedError.new(
+          "Chat mode does not support request-scoped MCP servers. " \
+          "Extensions or options requiring MCP servers cannot be used with send_chat_message.",
+          provider: self.class.provider_name
+        )
+      end
+
+      def reject_tool_extensions_in_message_mode!(extensions)
+        tool_extensions = extensions.select { |ext| ext.tools.any? }
+        return if tool_extensions.empty?
+
+        names = tool_extensions.map(&:name).join(", ")
+        raise ExtensionCompatibilityError.new(
+          "Extensions with tools are not supported in message mode (CLI execution " \
+          "cannot accept dynamic tool definitions): #{names}",
+          provider: self.class.provider_name
+        )
+      end
+
+      def reject_mcp_extensions_in_message_mode!(extensions)
+        mcp_extensions = extensions.select { |ext| ext.mcp_servers.any? }
+        return if mcp_extensions.empty?
+
+        names = mcp_extensions.map(&:name).join(", ")
+        raise ExtensionCompatibilityError.new(
+          "Extensions with MCP servers are not supported in message mode: #{names}",
+          provider: self.class.provider_name
+        )
+      end
+
+      def merge_extension_mcp_servers!(context)
+        extension_servers = context.extensions.flat_map(&:mcp_servers)
+        return if extension_servers.empty?
+
+        merged = Array(context.options[:mcp_servers]) + extension_servers
+        context.options = context.options.merge(mcp_servers: merged)
+      end
+
+      def merge_extension_tools(tools, extensions)
+        extension_tools = extensions.flat_map(&:tools)
+        return tools unless extension_tools.any?
+
+        normalized_extension_tools = extension_tools.map { |t| normalize_extension_tool_for_provider(t) }
+        merged = Array(tools) + normalized_extension_tools
+        names = merged.map { |t| extract_tool_name(t) }.compact
+        duplicates = names.group_by { |n| n }.select { |_, v| v.size > 1 }.keys
+        unless duplicates.empty?
+          raise ConfigurationError,
+            "Tool name conflict between user-provided and extension tools: #{duplicates.join(", ")}"
+        end
+        merged
+      end
+
+      def extract_tool_name(tool)
+        tool[:name] || tool["name"] ||
+          tool.dig(:function, :name) || tool.dig(:function, "name") ||
+          tool.dig("function", "name") || tool.dig("function", :name)
+      end
+
+      def normalize_extension_tool_for_provider(tool)
+        case chat_transport_type
+        when :openai_compatible
+          # OpenAI-style: {type: "function", function: {name: ..., description: ...}}
+          return tool if tool[:type] == "function" || tool["type"] == "function"
+
+          func = {name: tool[:name] || tool["name"]}
+          description = tool[:description] || tool["description"]
+          func[:description] = description if description
+          parameters = tool[:parameters] || tool["parameters"]
+          func[:parameters] = parameters if parameters
+          {type: "function", function: func}
+        else
+          # Anthropic-style: {name: ..., description: ..., input_schema: ...}
+          # Convert `parameters` key to `input_schema` for Anthropic/TextTransport compatibility.
+          normalized = tool.dup
+          params = normalized.delete(:parameters) || normalized.delete("parameters")
+          if params && !normalized.key?(:input_schema) && !normalized.key?("input_schema")
+            normalized[:input_schema] = params
+          end
+          normalized
+        end
+      end
+
+      def apply_extension_system_prompt!(context)
+        additions = context.extensions.flat_map(&:system_prompt_additions).reject do |addition|
+          addition.nil? || addition.empty?
+        end
+        return if additions.empty?
+
+        context.prompt = [additions.join("\n\n"), context.prompt].join("\n\n")
+      end
+
+      def apply_extension_system_messages!(context)
+        additions = context.extensions.flat_map(&:system_prompt_additions).reject do |addition|
+          addition.nil? || addition.empty?
+        end
+        return if additions.empty?
+
+        system_messages = additions.map { |addition| {role: "system", content: addition} }
+        context.messages = system_messages + context.messages
       end
 
       def command_execution_options(options)
