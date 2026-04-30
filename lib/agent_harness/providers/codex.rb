@@ -154,6 +154,9 @@ module AgentHarness
           new.send(:parse_jsonl_output, output)
         end
 
+        # Parse a single Codex JSONL event as it arrives on stdout and classify it
+        # for real-time progress tracking. Returns nil for malformed JSON, scalar
+        # JSON values, plain-text output, or unsupported event types.
         def parse_streaming_event(line)
           event = JSON.parse(line.to_s)
           return unless event.is_a?(Hash)

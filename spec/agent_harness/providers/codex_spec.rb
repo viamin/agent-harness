@@ -189,6 +189,10 @@ RSpec.describe AgentHarness::Providers::Codex do
       expect(described_class.parse_streaming_event("{")).to be_nil
     end
 
+    it "returns nil for scalar JSON values" do
+      expect(described_class.parse_streaming_event("123")).to be_nil
+    end
+
     it "returns nil for non-JSONL text" do
       expect(described_class.parse_streaming_event("plain text output")).to be_nil
     end
