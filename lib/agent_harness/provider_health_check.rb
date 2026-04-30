@@ -273,6 +273,19 @@ module AgentHarness
           )
         end
 
+        preflight_env = build_preflight_env(provider_instance, provider_runtime)
+        preflight = provider_instance.preflight_check(env: preflight_env, timeout: timeout)
+        unless preflight[:healthy]
+          return build_result(
+            name: provider_name,
+            status: "error",
+            message: preflight[:reason] || "Preflight check failed",
+            start_time: start_time,
+            error_category: normalize_preflight_error_category(preflight[:error_category]),
+            check: :preflight
+          )
+        end
+
         smoke_contract = provider_instance.smoke_test_contract
         # Explicitly handle missing smoke-test contract when no custom smoke_test implementation
         if smoke_contract.nil? && !provider_overrides_method?(provider_instance, :smoke_test)
@@ -410,6 +423,25 @@ module AgentHarness
         end
       end
 
+      def normalize_preflight_error_category(category)
+        case category&.to_sym
+        when :installation
+          :installation
+        when :auth_expired, :authentication
+          :authentication
+        when :rate_limited, :rate_limit
+          :rate_limit
+        when :quota_exceeded, :quota
+          :quota
+        when :timeout
+          :timeout
+        when :configuration
+          :configuration
+        else
+          :transient
+        end
+      end
+
       def installation_failure_message?(message)
         message.to_s.match?(/(not found in PATH|command not found|No such file or directory|is not installed)/i)
       end
@@ -451,6 +483,15 @@ module AgentHarness
         end
 
         provider
+      end
+
+      def build_preflight_env(provider_instance, provider_runtime)
+        return {} unless provider_instance.respond_to?(:build_env, true)
+
+        runtime = ProviderRuntime.wrap(provider_runtime)
+        provider_instance.send(:build_env, provider_runtime: runtime)
+      rescue ArgumentError, NoMethodError
+        {}
       end
 
       def monotonic_now

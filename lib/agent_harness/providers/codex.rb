@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
 require "json"
+require "net/http"
+require "uri"
 
 module AgentHarness
   module Providers
@@ -349,6 +351,32 @@ module AgentHarness
         {healthy: true, message: "Codex CLI available and authenticated"}
       end
 
+      def preflight_check(env:, timeout: 10)
+        auth = auth_status_for_env(env)
+        return {healthy: false, reason: auth[:error], error_category: :authentication} unless auth[:valid]
+
+        version = codex_cli_version(env: env, timeout: timeout)
+        unless version
+          return {
+            healthy: false,
+            reason: "Codex CLI version check failed. Ensure 'codex' is installed and available in PATH.",
+            error_category: :installation
+          }
+        end
+
+        unless SUPPORTED_CLI_REQUIREMENT.satisfied_by?(version)
+          return {
+            healthy: false,
+            reason: "Unsupported Codex CLI version #{version}. Expected #{SUPPORTED_CLI_REQUIREMENT}.",
+            error_category: :installation
+          }
+        end
+
+        check_base_url_reachability(env: env, timeout: timeout)
+      rescue => e
+        {healthy: false, reason: "Codex preflight failed: #{e.message}"}
+      end
+
       def validate_config
         errors = []
 
@@ -506,6 +534,114 @@ module AgentHarness
       end
 
       private
+
+      def auth_status_for_env(env)
+        api_key = env_fetch(env, "OPENAI_API_KEY")
+        if api_key.nil? || api_key.strip.empty?
+          credentials = read_codex_credentials_for_env(env)
+          if credentials
+            key = credentials["api_key"] || credentials["apiKey"] || credentials["OPENAI_API_KEY"]
+            if key.is_a?(String) && !key.strip.empty?
+              if key.strip.start_with?("sk-")
+                return {valid: true, expires_at: nil, error: nil, auth_method: :config_file}
+              end
+
+              return {
+                valid: false,
+                expires_at: nil,
+                error: "Config file API key is set but does not appear to be a valid OpenAI API key",
+                auth_method: nil
+              }
+            end
+          end
+
+          return auth_status unless env.key?("OPENAI_API_KEY") || env.key?(:OPENAI_API_KEY) ||
+            env.key?("CODEX_CONFIG_DIR") || env.key?(:CODEX_CONFIG_DIR)
+
+          return {
+            valid: false,
+            expires_at: nil,
+            error: "No OpenAI API key found. Set OPENAI_API_KEY or configure in #{codex_config_path_for_env(env)}",
+            auth_method: nil
+          }
+        end
+
+        if api_key.strip.start_with?("sk-")
+          {valid: true, expires_at: nil, error: nil, auth_method: :api_key}
+        else
+          {
+            valid: false,
+            expires_at: nil,
+            error: "OPENAI_API_KEY is set but does not appear to be a valid OpenAI API key",
+            auth_method: nil
+          }
+        end
+      end
+
+      def codex_cli_version(env:, timeout:)
+        result = @executor.execute([self.class.binary_name, "--version"], timeout: timeout, env: env)
+        version_string = [result.stdout, result.stderr].join("\n")[/(\d+\.\d+\.\d+)/, 1]
+        return nil unless version_string
+
+        Gem::Version.new(version_string)
+      rescue
+        nil
+      end
+
+      def check_base_url_reachability(env:, timeout:)
+        uri = codex_base_url_uri(env)
+        http = Net::HTTP.new(uri.host, uri.port)
+        http.use_ssl = uri.scheme == "https"
+        http.open_timeout = timeout
+        http.read_timeout = timeout
+        http.write_timeout = timeout if http.respond_to?(:write_timeout=)
+
+        response = http.start do |client|
+          client.request(Net::HTTP::Head.new(uri))
+        rescue Net::HTTPFatalError, Net::HTTPClientException
+          client.request(Net::HTTP::Get.new(uri))
+        end
+
+        if response.is_a?(Net::HTTPSuccess) || response.is_a?(Net::HTTPRedirection) ||
+            response.code.to_i < 500
+          return {healthy: true}
+        end
+
+        {
+          healthy: false,
+          reason: "Codex API base URL #{uri} returned HTTP #{response.code}. Check OPENAI_BASE_URL, proxy configuration, and network policy.",
+          error_category: :transient
+        }
+      rescue URI::InvalidURIError
+        {
+          healthy: false,
+          reason: "OPENAI_BASE_URL is invalid. Check the configured URL format.",
+          error_category: :configuration
+        }
+      rescue SocketError, SystemCallError, IOError, Timeout::Error, OpenSSL::SSL::SSLError => e
+        {
+          healthy: false,
+          reason: "Codex API base URL #{env_fetch(env, "OPENAI_BASE_URL") || "https://api.openai.com"} is unreachable: #{e.message}. Check DNS, proxy settings, and network policy.",
+          error_category: :transient
+        }
+      end
+
+      def codex_base_url_uri(env)
+        raw_url = env_fetch(env, "OPENAI_BASE_URL")
+        raw_url = ENV["OPENAI_BASE_URL"] if raw_url.nil? || raw_url.empty?
+        raw_url = "https://api.openai.com" if raw_url.nil? || raw_url.empty?
+
+        uri = URI.parse(raw_url)
+        uri.path = "/" if uri.path.nil? || uri.path.empty?
+        uri
+      end
+
+      def env_fetch(env, key)
+        return env[key] if env.key?(key)
+        return env[key.to_sym] if env.key?(key.to_sym)
+
+        nil
+      end
 
       def escape_toml_string(val)
         val.to_s.gsub("\\") { "\\\\" }.gsub('"') { "\\\"" }.gsub("\n") { "\\n" }
@@ -1282,8 +1418,31 @@ module AgentHarness
         raise JSON::ParserError, "Invalid JSON in Codex config at #{path}"
       end
 
+      def read_codex_credentials_for_env(env)
+        path = codex_config_path_for_env(env)
+        return nil unless File.exist?(path)
+
+        parsed = JSON.parse(File.read(path))
+        return nil unless parsed.is_a?(Hash)
+
+        parsed
+      rescue Errno::ENOENT
+        nil
+      rescue Errno::EACCES => e
+        raise IOError, "Permission denied reading Codex config at #{path}: #{e.message}"
+      rescue JSON::ParserError
+        raise JSON::ParserError, "Invalid JSON in Codex config at #{path}"
+      end
+
       def codex_config_path
         config_dir = ENV["CODEX_CONFIG_DIR"] || File.expand_path("~/.codex")
+        File.join(config_dir, "config.json")
+      end
+
+      def codex_config_path_for_env(env)
+        config_dir = env_fetch(env, "CODEX_CONFIG_DIR")
+        config_dir = ENV["CODEX_CONFIG_DIR"] if config_dir.nil? || config_dir.empty?
+        config_dir = File.expand_path("~/.codex") if config_dir.nil? || config_dir.empty?
         File.join(config_dir, "config.json")
       end
 

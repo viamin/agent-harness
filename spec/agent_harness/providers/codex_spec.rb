@@ -5683,6 +5683,66 @@ RSpec.describe AgentHarness::Providers::Codex do
       end
     end
 
+    describe "#preflight_check" do
+      let(:mock_executor) { instance_double(AgentHarness::CommandExecutor) }
+      let(:provider) { described_class.new(executor: mock_executor) }
+      let(:http) { instance_double(Net::HTTP) }
+      let(:http_response) { instance_double(Net::HTTPOK, code: "200") }
+
+      before do
+        allow(ENV).to receive(:[]).and_call_original
+        allow(Net::HTTP).to receive(:new).and_return(http)
+        allow(http).to receive(:use_ssl=)
+        allow(http).to receive(:open_timeout=)
+        allow(http).to receive(:read_timeout=)
+        allow(http).to receive(:write_timeout=)
+        allow(http).to receive(:start).and_yield(http)
+        allow(http).to receive(:request).and_return(http_response)
+      end
+
+      it "returns healthy when auth, CLI version, and API reachability pass" do
+        allow(mock_executor).to receive(:execute).with(
+          ["codex", "--version"],
+          timeout: 7,
+          env: {"OPENAI_API_KEY" => "sk-test-key", "OPENAI_BASE_URL" => "https://api.openai.com"}
+        ).and_return(
+          AgentHarness::CommandExecutor::Result.new(stdout: "codex 0.116.0", stderr: "", exit_code: 0, duration: 0.1)
+        )
+
+        result = provider.preflight_check(
+          env: {"OPENAI_API_KEY" => "sk-test-key", "OPENAI_BASE_URL" => "https://api.openai.com"},
+          timeout: 7
+        )
+
+        expect(result).to eq({healthy: true})
+      end
+
+      it "returns an actionable auth failure when credentials are missing" do
+        result = provider.preflight_check(env: {"OPENAI_API_KEY" => ""}, timeout: 5)
+
+        expect(result[:healthy]).to be false
+        expect(result[:error_category]).to eq(:authentication)
+        expect(result[:reason]).to include("No OpenAI API key found")
+      end
+
+      it "returns an actionable reachability failure when the API base URL cannot be reached" do
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(stdout: "codex 0.116.0", stderr: "", exit_code: 0, duration: 0.1)
+        )
+        allow(http).to receive(:request).and_raise(SocketError, "getaddrinfo: Name or service not known")
+
+        result = provider.preflight_check(
+          env: {"OPENAI_API_KEY" => "sk-test-key", "OPENAI_BASE_URL" => "https://proxy.invalid"},
+          timeout: 5
+        )
+
+        expect(result[:healthy]).to be false
+        expect(result[:error_category]).to eq(:transient)
+        expect(result[:reason]).to include("unreachable")
+        expect(result[:reason]).to include("proxy")
+      end
+    end
+
     describe "#validate_config" do
       context "with valid config" do
         it "returns valid" do

@@ -345,6 +345,19 @@ module AgentHarness
         nil
       end
 
+      # Run a lightweight provider-owned preflight check before committing to a
+      # full prompt execution.
+      #
+      # Providers can override this to validate request-scoped connectivity,
+      # credentials, CLI version, or other fast-fail prerequisites.
+      #
+      # @param env [Hash] request-scoped environment overrides
+      # @param timeout [Numeric] time budget in seconds
+      # @return [Hash] with :healthy and optional :reason keys
+      def preflight_check(env:, timeout: 10)
+        {healthy: true}
+      end
+
       protected
 
       # Build CLI command - override in subclasses

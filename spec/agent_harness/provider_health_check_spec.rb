@@ -325,6 +325,107 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
       end
     end
 
+    context "when provider preflight fails" do
+      let(:provider_class) do
+        Class.new(AgentHarness::Providers::Base) do
+          class << self
+            def provider_name
+              :test_provider
+            end
+
+            def binary_name
+              "test-cli"
+            end
+
+            def available?
+              true
+            end
+          end
+
+          def preflight_check(env:, timeout: 10)
+            {
+              healthy: false,
+              reason: "API base URL is unreachable",
+              error_category: :transient
+            }
+          end
+
+          def smoke_test(timeout: nil, provider_runtime: nil)
+            {ok: true, status: "ok", message: "Smoke test passed", error_category: nil}
+          end
+        end
+      end
+
+      before do
+        registry.register(:test_provider, provider_class)
+        allow(AgentHarness::Authentication).to receive(:auth_status)
+          .with(:test_provider)
+          .and_return({valid: true, expires_at: nil, error: nil})
+      end
+
+      it "returns an error with the structured preflight reason" do
+        result = described_class.check(:test_provider)
+
+        expect(result[:status]).to eq("error")
+        expect(result[:message]).to eq("API base URL is unreachable")
+        expect(result[:error_category]).to eq(:transient)
+        expect(result[:check]).to eq(:preflight)
+      end
+    end
+
+    context "when provider runtime overrides disable host preflight" do
+      let(:captured_env) { [] }
+      let(:captured_timeout) { [] }
+      let(:provider_class) do
+        env_values = captured_env
+        timeout_values = captured_timeout
+
+        klass = Class.new(AgentHarness::Providers::Base) do
+          class << self
+            def provider_name
+              :test_provider
+            end
+
+            def binary_name
+              "test-cli"
+            end
+
+            def available?
+              true
+            end
+          end
+
+          def smoke_test(timeout: nil, provider_runtime: nil)
+            {ok: true, status: "ok", message: "Smoke test passed", error_category: nil}
+          end
+        end
+
+        klass.define_method(:preflight_check) do |env:, timeout: 10|
+          env_values << env
+          timeout_values << timeout
+          {healthy: true}
+        end
+
+        klass
+      end
+
+      before do
+        registry.register(:test_provider, provider_class)
+      end
+
+      it "still runs provider preflight with the runtime environment" do
+        result = described_class.check(
+          :test_provider,
+          timeout: 9,
+          provider_runtime: {env: {"OPENAI_API_KEY" => "sk-test-key"}, base_url: "https://proxy.internal"}
+        )
+
+        expect(result[:status]).to eq("ok")
+        expect(captured_timeout).to eq([9])
+        expect(captured_env).to eq([{"OPENAI_API_KEY" => "sk-test-key"}])
+      end
+    end
+
     context "when the provider does not publish a smoke-test contract" do
       let(:provider_class) do
         Class.new(AgentHarness::Providers::Base) do
