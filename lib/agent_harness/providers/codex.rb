@@ -584,7 +584,7 @@ module AgentHarness
         return nil unless version_string
 
         Gem::Version.new(version_string)
-      rescue
+      rescue # rubocop prefers bare rescue; in Ruby this catches StandardError, not Exception/SignalException
         nil
       end
 
