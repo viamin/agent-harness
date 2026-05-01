@@ -37,6 +37,80 @@ module AgentHarness
         /failed to refresh token\b.*service(?:\s+(?:is|was))?\s+(?:temporarily\s+)?unavailable/im
       ].freeze
 
+      STDOUT_ERROR_PATTERNS = {
+        quota_exceeded: [
+          /free tier limit reached/i,
+          /please upgrade to a paid plan/i,
+          /quota.*exceeded/i,
+          /insufficient.*quota/i,
+          /billing/i
+        ],
+        rate_limited: [
+          /rate.?limit/i,
+          /too.?many.?requests/i,
+          /\b429\b/
+        ],
+        auth_expired: [
+          /authentication_error/i,
+          /invalid_grant/i,
+          /Token is expired or invalid/i,
+          /unauthorized/i
+        ],
+        sandbox_failure: [
+          /bwrap.*no permissions/i,
+          /no permissions to create a new namespace/i,
+          /unprivileged.*namespace/i
+        ]
+      }.tap { |h| h.each_value(&:freeze) }.freeze
+
+      STDERR_ERROR_PATTERNS = {
+        quota_exceeded: [
+          /free tier limit reached/i,
+          /please upgrade to a paid plan/i,
+          /quota.*exceeded/i,
+          /insufficient.*quota/i,
+          /billing/i
+        ],
+        rate_limited: [
+          /rate.?limit/i,
+          /too.?many.?requests/i,
+          /\b429\b/
+        ],
+        auth_expired: OAUTH_REFRESH_FAILURE_PATTERNS + [
+          /invalid.*api.*key/i,
+          /unauthorized/i,
+          /authentication_error/i,
+          /invalid_grant/i,
+          /Token is expired or invalid/i,
+          /\b401\b/,
+          /incorrect.*api.*key/i
+        ],
+        sandbox_failure: [
+          /bwrap.*no permissions/i,
+          /no permissions to create a new namespace/i,
+          /unprivileged.*namespace/i
+        ],
+        transient_error: OAUTH_REFRESH_TRANSIENT_PATTERNS + [
+          /timeout/i,
+          /connection.*error/i,
+          /service.*unavailable/i,
+          /\b503\b/,
+          /\b502\b/,
+          /connection.*reset/i
+        ]
+      }.tap { |h| h.each_value(&:freeze) }.freeze
+
+      # Maps internal classification symbols to the structured reason symbols
+      # returned by classify_output_chunk
+      CLASSIFICATION_REASON_MAP = {
+        quota_exceeded: :quota_exceeded,
+        rate_limited: :rate_limited,
+        auth_expired: :auth_expired,
+        sandbox_failure: :sandbox_failure,
+        transient_error: :transient_error,
+        fatal_error: :fatal_error
+      }.freeze
+
       class << self
         def provider_name
           :codex
@@ -44,6 +118,26 @@ module AgentHarness
 
         def binary_name
           "codex"
+        end
+
+        # Classify a chunk of output text from the provider CLI in real-time
+        #
+        # Can be called during streaming to classify both stdout and stderr
+        # chunks as they arrive. For stdout, attempts to parse JSONL events
+        # and extract error information from structured output.
+        #
+        # @param text [String] the output chunk to classify
+        # @param stream [:stdout, :stderr] which stream the text came from
+        # @return [nil, Hash] nil if no error detected, or a Hash with
+        #   :reason (Symbol) and optional :detail (String)
+        def classify_output_chunk(text, stream:)
+          return nil if text.nil? || text.strip.empty?
+
+          if stream == :stdout
+            classify_stdout_chunk(text)
+          else
+            classify_stderr_chunk(text)
+          end
         end
 
         def available?
@@ -150,6 +244,69 @@ module AgentHarness
         end
 
         private
+
+        def classify_stdout_chunk(text)
+          # Try to parse JSONL events from stdout and check for error content
+          text.each_line do |line|
+            stripped = line.strip
+            next if stripped.empty?
+
+            begin
+              event = JSON.parse(stripped)
+            rescue JSON::ParserError
+              # Non-JSON stdout line — check plain-text patterns
+              result = match_patterns(stripped, STDOUT_ERROR_PATTERNS)
+              return result if result
+              next
+            end
+
+            result = classify_jsonl_event(event)
+            return result if result
+          end
+
+          nil
+        end
+
+        def classify_stderr_chunk(text)
+          match_patterns(text, STDERR_ERROR_PATTERNS)
+        end
+
+        def classify_jsonl_event(event)
+          return nil unless event.is_a?(Hash)
+
+          # Check error fields common in JSONL error events
+          error_text = extract_jsonl_error_text(event)
+          return nil unless error_text
+
+          match_patterns(error_text, STDOUT_ERROR_PATTERNS)
+        end
+
+        def extract_jsonl_error_text(event)
+          # Direct error field
+          error = event["error"]
+          return error if error.is_a?(String) && !error.empty?
+
+          if error.is_a?(Hash)
+            msg = error["message"]
+            return msg if msg.is_a?(String) && !msg.empty?
+          end
+
+          # Check for error in nested message/content
+          message = event["message"]
+          return message if message.is_a?(String) && message.match?(/error|limit|fail|expired|unauthorized/i)
+
+          nil
+        end
+
+        def match_patterns(text, pattern_groups)
+          pattern_groups.each do |category, patterns|
+            if patterns.any? { |p| text.match?(p) }
+              return {reason: category}
+            end
+          end
+
+          nil
+        end
 
         def tail_nonempty_lines(text, limit:)
           return [] if limit <= 0
@@ -296,7 +453,10 @@ module AgentHarness
           ],
           abort: [
             /free tier limit reached/i,
-            /please upgrade to a paid plan/i
+            /please upgrade to a paid plan/i,
+            /bwrap.*no permissions/i,
+            /no permissions to create a new namespace/i,
+            /unprivileged.*namespace/i
           ]
         )
       end
@@ -850,7 +1010,11 @@ module AgentHarness
             total: total_tokens
           } : nil
         }
-      rescue
+      rescue JSON::ParserError => e
+        AgentHarness.logger&.warn("[AgentHarness::Codex] JSONL parse error: #{e.message}")
+        nil
+      rescue => e
+        AgentHarness.logger&.warn("[AgentHarness::Codex] Unexpected error parsing JSONL output: #{e.class}: #{e.message}")
         nil
       end
 

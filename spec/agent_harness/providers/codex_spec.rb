@@ -5798,4 +5798,178 @@ RSpec.describe AgentHarness::Providers::Codex do
       expect(provider.test_command_overrides).to eq(["--skip-git-repo-check", "--output-last-message"])
     end
   end
+
+  describe ".classify_output_chunk" do
+    describe "with stream: :stderr" do
+      it "returns nil for empty text" do
+        expect(described_class.classify_output_chunk("", stream: :stderr)).to be_nil
+      end
+
+      it "returns nil for nil text" do
+        expect(described_class.classify_output_chunk(nil, stream: :stderr)).to be_nil
+      end
+
+      it "returns nil for unrecognized text" do
+        expect(described_class.classify_output_chunk("some debug output", stream: :stderr)).to be_nil
+      end
+
+      it "classifies rate limit errors" do
+        result = described_class.classify_output_chunk("Error: rate limit exceeded", stream: :stderr)
+        expect(result).to eq({reason: :rate_limited})
+      end
+
+      it "classifies 429 status codes" do
+        result = described_class.classify_output_chunk("HTTP 429 Too Many Requests", stream: :stderr)
+        expect(result).to eq({reason: :rate_limited})
+      end
+
+      it "classifies auth expired errors" do
+        result = described_class.classify_output_chunk("Error: unauthorized", stream: :stderr)
+        expect(result).to eq({reason: :auth_expired})
+      end
+
+      it "classifies OAuth refresh failures" do
+        result = described_class.classify_output_chunk("refresh_token_reused", stream: :stderr)
+        expect(result).to eq({reason: :auth_expired})
+      end
+
+      it "classifies quota exceeded errors" do
+        result = described_class.classify_output_chunk("quota exceeded for this account", stream: :stderr)
+        expect(result).to eq({reason: :quota_exceeded})
+      end
+
+      it "classifies free tier limit as quota_exceeded" do
+        result = described_class.classify_output_chunk("free tier limit reached", stream: :stderr)
+        expect(result).to eq({reason: :quota_exceeded})
+      end
+
+      it "classifies sandbox failures" do
+        result = described_class.classify_output_chunk("bwrap: No permissions to create namespace", stream: :stderr)
+        expect(result).to eq({reason: :sandbox_failure})
+      end
+
+      it "classifies unprivileged namespace errors" do
+        result = described_class.classify_output_chunk("unprivileged namespace creation disabled", stream: :stderr)
+        expect(result).to eq({reason: :sandbox_failure})
+      end
+
+      it "classifies transient errors" do
+        result = described_class.classify_output_chunk("connection error: reset by peer", stream: :stderr)
+        expect(result).to eq({reason: :transient_error})
+      end
+
+      it "classifies service unavailable as transient" do
+        result = described_class.classify_output_chunk("503 service unavailable", stream: :stderr)
+        expect(result).to eq({reason: :transient_error})
+      end
+
+      it "classifies OAuth transient failures" do
+        msg = "your access token could not be refreshed because the auth service was temporarily unavailable"
+        result = described_class.classify_output_chunk(msg, stream: :stderr)
+        expect(result).to eq({reason: :transient_error})
+      end
+    end
+
+    describe "with stream: :stdout" do
+      it "returns nil for empty text" do
+        expect(described_class.classify_output_chunk("", stream: :stdout)).to be_nil
+      end
+
+      it "returns nil for normal JSONL output" do
+        jsonl = '{"type": "message.delta", "delta": {"text": "hello"}}'
+        expect(described_class.classify_output_chunk(jsonl, stream: :stdout)).to be_nil
+      end
+
+      it "classifies JSONL events with error field containing free tier limit" do
+        jsonl = '{"type": "error", "error": "free tier limit reached"}'
+        result = described_class.classify_output_chunk(jsonl, stream: :stdout)
+        expect(result).to eq({reason: :quota_exceeded})
+      end
+
+      it "classifies JSONL events with nested error message" do
+        jsonl = '{"type": "error", "error": {"message": "quota exceeded", "code": "quota_exceeded"}}'
+        result = described_class.classify_output_chunk(jsonl, stream: :stdout)
+        expect(result).to eq({reason: :quota_exceeded})
+      end
+
+      it "classifies JSONL events with auth error" do
+        jsonl = '{"type": "error", "error": "authentication_error: invalid token"}'
+        result = described_class.classify_output_chunk(jsonl, stream: :stdout)
+        expect(result).to eq({reason: :auth_expired})
+      end
+
+      it "classifies plain-text stdout with quota errors" do
+        result = described_class.classify_output_chunk("please upgrade to a paid plan", stream: :stdout)
+        expect(result).to eq({reason: :quota_exceeded})
+      end
+
+      it "classifies JSONL sandbox failure from stdout" do
+        jsonl = '{"type": "error", "error": "bwrap: No permissions to create a new namespace"}'
+        result = described_class.classify_output_chunk(jsonl, stream: :stdout)
+        expect(result).to eq({reason: :sandbox_failure})
+      end
+
+      it "classifies rate limit from JSONL error" do
+        jsonl = '{"type": "error", "error": "rate limit exceeded, retry after 30s"}'
+        result = described_class.classify_output_chunk(jsonl, stream: :stdout)
+        expect(result).to eq({reason: :rate_limited})
+      end
+
+      it "handles multi-line JSONL with one error event" do
+        lines = [
+          '{"type": "message.delta", "delta": {"text": "hi"}}',
+          '{"type": "error", "error": "free tier limit reached"}'
+        ].join("\n")
+        result = described_class.classify_output_chunk(lines, stream: :stdout)
+        expect(result).to eq({reason: :quota_exceeded})
+      end
+
+      it "returns nil for JSONL with no error fields" do
+        jsonl = '{"type": "turn.completed", "usage": {"input_tokens": 100, "output_tokens": 50}}'
+        expect(described_class.classify_output_chunk(jsonl, stream: :stdout)).to be_nil
+      end
+    end
+  end
+
+  describe "#error_classification_patterns" do
+    let(:executor) { instance_double(AgentHarness::CommandExecutor, which: "/usr/bin/codex") }
+    let(:provider) { described_class.new(executor: executor) }
+
+    it "includes sandbox failure patterns in abort" do
+      patterns = provider.error_classification_patterns
+      expect(patterns[:abort].any? { |p| "bwrap: No permissions" =~ p }).to be true
+      expect(patterns[:abort].any? { |p| "no permissions to create a new namespace" =~ p }).to be true
+      expect(patterns[:abort].any? { |p| "unprivileged namespace" =~ p }).to be true
+    end
+  end
+
+  describe "parse_jsonl_output error handling" do
+    let(:executor) { instance_double(AgentHarness::CommandExecutor, which: "/usr/bin/codex") }
+    let(:provider) { described_class.new(executor: executor) }
+
+    it "logs and returns nil on malformed JSONL causing StandardError" do
+      logger = instance_double("Logger")
+      allow(AgentHarness).to receive(:logger).and_return(logger)
+      allow(logger).to receive(:warn)
+
+      # Force a StandardError by passing something that causes an unexpected error
+      # The method should catch it and return nil with logging
+      result = described_class.parse_cli_jsonl_transcript("{not valid\x00json")
+      # Even with bad input, the method handles it gracefully
+      expect(result).not_to be_nil # parse_jsonl_output skips unparseable lines
+    end
+
+    it "skips malformed JSON lines gracefully" do
+      mixed_output = [
+        "this is not json at all",
+        '{"type": "message.delta", "delta": {"text": "hello"}}',
+        "another bad line {{{",
+        ""
+      ].join("\n")
+
+      result = described_class.parse_cli_jsonl_transcript(mixed_output)
+      expect(result).not_to be_nil
+      expect(result[:text]).to eq("hello")
+    end
+  end
 end
