@@ -186,6 +186,7 @@ module AgentHarness
         klass = registry.get(provider_name)
         provider_instance = build_provider(provider_name, klass, executor: executor)
         host_preflight_allowed = host_preflight_allowed?(executor: executor, provider_runtime: provider_runtime)
+        provider_preflight_allowed = provider_preflight_allowed?(executor: executor)
 
         auth_degraded = false
         if host_preflight_allowed
@@ -278,7 +279,7 @@ module AgentHarness
         # process, so its network view may not match a containerised or
         # remote executor. Skipping it avoids marking a provider unhealthy
         # when only the host cannot reach the endpoint.
-        if host_preflight_allowed
+        if provider_preflight_allowed
           preflight_env = build_preflight_env(provider_instance, provider_runtime)
           preflight = provider_instance.preflight_check(env: preflight_env, timeout: timeout)
           unless preflight[:healthy]
@@ -383,7 +384,21 @@ module AgentHarness
 
       def host_preflight_allowed?(executor:, provider_runtime: nil)
         effective_executor = executor || AgentHarness.configuration.command_executor
+        if provider_runtime
+          runtime = ProviderRuntime.wrap(provider_runtime)
+          return false if runtime_sensitive_host_overrides?(runtime)
+        end
+
+        provider_preflight_allowed?(executor: effective_executor)
+      end
+
+      def provider_preflight_allowed?(executor:)
+        effective_executor = executor || AgentHarness.configuration.command_executor
         effective_executor.is_a?(CommandExecutor) && !effective_executor.is_a?(DockerCommandExecutor)
+      end
+
+      def runtime_sensitive_host_overrides?(runtime)
+        runtime && (!runtime.env.empty? || !runtime.unset_env.empty? || runtime.base_url || runtime.api_provider)
       end
 
       def effective_check_timeout(provider_name, base_timeout)

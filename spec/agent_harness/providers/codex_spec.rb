@@ -111,6 +111,14 @@ RSpec.describe AgentHarness::Providers::Codex do
   end
 
   describe ".parse_cli_jsonl_transcript" do
+    it "reuses a memoized parser instance instead of constructing a provider" do
+      allow(described_class).to receive(:new).and_call_original
+
+      described_class.parse_cli_jsonl_transcript("")
+
+      expect(described_class).not_to have_received(:new)
+    end
+
     it "extracts final assistant text from a single JSONL event" do
       output = JSON.generate({
         "type" => "turn.completed",
@@ -181,6 +189,197 @@ RSpec.describe AgentHarness::Providers::Codex do
       parsed = described_class.parse_cli_jsonl_transcript(output, max_events: -1)
 
       expect(parsed).to be_nil
+    end
+  end
+
+  describe ".parse_streaming_event" do
+    it "reuses a memoized parser instance instead of constructing a provider" do
+      line = JSON.generate({"type" => "message.delta", "delta" => {"text" => "partial"}})
+      allow(described_class).to receive(:new).and_call_original
+
+      described_class.parse_streaming_event(line)
+
+      expect(described_class).not_to have_received(:new)
+    end
+
+    it "returns nil for malformed JSON" do
+      expect(described_class.parse_streaming_event("{")).to be_nil
+    end
+
+    it "returns nil for scalar JSON values" do
+      expect(described_class.parse_streaming_event("123")).to be_nil
+    end
+
+    it "returns nil for non-JSONL text" do
+      expect(described_class.parse_streaming_event("plain text output")).to be_nil
+    end
+
+    it "returns nil for unrecognized event types" do
+      line = JSON.generate({"type" => "unknown.event"})
+
+      expect(described_class.parse_streaming_event(line)).to be_nil
+    end
+
+    it "classifies message.delta events as progress" do
+      line = JSON.generate({"type" => "message.delta", "turn" => 2, "delta" => {"text" => "partial"}})
+
+      expect(described_class.parse_streaming_event(line)).to eq(
+        described_class::StreamingEvent.new(
+          type: :progress,
+          turn: 2,
+          raw_event: JSON.parse(line)
+        )
+      )
+    end
+
+    it "classifies turn.completed events with token usage" do
+      line = JSON.generate({
+        "type" => "turn.completed",
+        "turn" => 3,
+        "usage" => {"input_tokens" => 12, "output_tokens" => 5}
+      })
+
+      expect(described_class.parse_streaming_event(line)).to eq(
+        described_class::StreamingEvent.new(
+          type: :turn_complete,
+          turn: 3,
+          tokens: {input: 12, output: 5, total: 17},
+          raw_event: JSON.parse(line)
+        )
+      )
+    end
+
+    it "classifies turn.failed events as errors" do
+      line = JSON.generate({
+        "type" => "turn.failed",
+        "turn" => 4,
+        "error" => {"message" => "provider timeout"},
+        "usage" => {"total_tokens" => 99}
+      })
+
+      expect(described_class.parse_streaming_event(line)).to eq(
+        described_class::StreamingEvent.new(
+          type: :error,
+          turn: 4,
+          tokens: {input: 0, output: 0, total: 99},
+          error_message: "provider timeout",
+          raw_event: JSON.parse(line)
+        )
+      )
+    end
+
+    it "classifies assistant item.completed events as progress" do
+      line = JSON.generate({
+        "type" => "item.completed",
+        "turn" => 5,
+        "item" => {"type" => "message", "role" => "assistant", "text" => "done"}
+      })
+
+      expect(described_class.parse_streaming_event(line)).to eq(
+        described_class::StreamingEvent.new(
+          type: :progress,
+          turn: 5,
+          raw_event: JSON.parse(line)
+        )
+      )
+    end
+
+    it "classifies tool item.completed events as tool use" do
+      line = JSON.generate({
+        "type" => "item.completed",
+        "turn" => 6,
+        "item" => {"type" => "tool_call", "name" => "shell"}
+      })
+
+      expect(described_class.parse_streaming_event(line)).to eq(
+        described_class::StreamingEvent.new(
+          type: :tool_use,
+          turn: 6,
+          tool_name: "shell",
+          raw_event: JSON.parse(line)
+        )
+      )
+    end
+
+    it "classifies task_complete events as turn completion" do
+      line = JSON.generate({
+        "type" => "task_complete",
+        "turn" => 7,
+        "last_agent_message" => "final answer"
+      })
+
+      expect(described_class.parse_streaming_event(line)).to eq(
+        described_class::StreamingEvent.new(
+          type: :turn_complete,
+          turn: 7,
+          raw_event: JSON.parse(line)
+        )
+      )
+    end
+
+    it "classifies top-level response_item with assistant message as progress" do
+      line = JSON.generate({
+        "type" => "response_item",
+        "payload" => {
+          "type" => "message",
+          "role" => "assistant",
+          "item_type" => "assistant_message",
+          "content" => [{"type" => "text", "text" => "hello"}]
+        }
+      })
+
+      expect(described_class.parse_streaming_event(line)).to eq(
+        described_class::StreamingEvent.new(
+          type: :progress,
+          turn: nil,
+          raw_event: JSON.parse(line)
+        )
+      )
+    end
+
+    it "classifies top-level response_item with tool call as tool use" do
+      line = JSON.generate({
+        "type" => "response_item",
+        "payload" => {
+          "type" => "tool_call",
+          "name" => "shell",
+          "item_type" => "tool_call"
+        }
+      })
+
+      expect(described_class.parse_streaming_event(line)).to eq(
+        described_class::StreamingEvent.new(
+          type: :tool_use,
+          turn: nil,
+          tool_name: "shell",
+          raw_event: JSON.parse(line)
+        )
+      )
+    end
+
+    it "classifies wrapped token_count payloads as token usage" do
+      line = JSON.generate({
+        "type" => "event_msg",
+        "payload" => {
+          "type" => "token_count",
+          "turn" => 8,
+          "info" => {
+            "last_token_usage" => {
+              "input_tokens" => 9,
+              "output_tokens" => 4
+            }
+          }
+        }
+      })
+
+      expect(described_class.parse_streaming_event(line)).to eq(
+        described_class::StreamingEvent.new(
+          type: :token_usage,
+          turn: 8,
+          tokens: {input: 9, output: 4, total: 13},
+          raw_event: JSON.parse(line)
+        )
+      )
     end
   end
 

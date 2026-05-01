@@ -432,6 +432,57 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
       end
     end
 
+    context "when provider_runtime supplies auth overrides" do
+      let(:captured_env) { [] }
+      let(:provider_class) do
+        env_values = captured_env
+
+        klass = Class.new(AgentHarness::Providers::Base) do
+          class << self
+            def provider_name
+              :test_provider
+            end
+
+            def binary_name
+              "test-cli"
+            end
+
+            def available?
+              true
+            end
+          end
+
+          def smoke_test(timeout: nil, provider_runtime: nil)
+            {ok: true, status: "ok", message: "Smoke test passed", error_category: nil}
+          end
+        end
+
+        klass.define_method(:preflight_check) do |env:, timeout: 10|
+          env_values << env
+          {healthy: true}
+        end
+
+        klass
+      end
+
+      before do
+        registry.register(:test_provider, provider_class)
+      end
+
+      it "skips host auth checks but still runs runtime-aware provider preflight" do
+        expect(AgentHarness::Authentication).not_to receive(:auth_status)
+
+        result = described_class.check(
+          :test_provider,
+          provider_runtime: {env: {"OPENAI_API_KEY" => "sk-runtime-key"}, base_url: "https://proxy.internal"}
+        )
+
+        expect(result[:status]).to eq("ok")
+        expect(result[:message]).to eq("Smoke test passed using the supplied execution context")
+        expect(captured_env).to eq([{"OPENAI_API_KEY" => "sk-runtime-key"}])
+      end
+    end
+
     context "when the provider does not publish a smoke-test contract" do
       let(:provider_class) do
         Class.new(AgentHarness::Providers::Base) do

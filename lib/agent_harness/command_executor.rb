@@ -505,8 +505,10 @@ module AgentHarness
         backup_path = snapshot.fetch(:backup_path)
         raise ArgumentError, "missing runtime preparation backup: #{backup_path}" unless File.exist?(backup_path)
 
-        delete_preparation_path(path)
         FileUtils.mkdir_p(File.dirname(path))
+        unless File.file?(path) && !File.symlink?(path)
+          delete_preparation_path(path)
+        end
         FileUtils.cp(backup_path, path, preserve: true)
       else
         delete_preparation_path(path)
