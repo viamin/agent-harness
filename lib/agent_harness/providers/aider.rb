@@ -263,6 +263,30 @@ module AgentHarness
         cleanup_llm_history_file!(llm_history_path)
       end
 
+      # Parse raw container output into a Response.
+      #
+      # Overrides the base implementation to support the
+      # +llm_history_path+ option for token usage extraction from
+      # Aider's LLM history file.
+      #
+      # @param stdout [String] captured standard output
+      # @param stderr [String] captured standard error
+      # @param exit_code [Integer] process exit code
+      # @param duration [Float] execution duration in seconds
+      # @param options [Hash] additional options
+      # @option options [String, nil] :llm_history_path path to LLM history file
+      # @return [Response] parsed response
+      def parse_container_output(stdout:, stderr: "", exit_code: 0, duration: 0.0, **options)
+        result = CommandExecutor::Result.new(
+          stdout: stdout,
+          stderr: stderr,
+          exit_code: exit_code,
+          duration: duration
+        )
+        parse_response(result, duration: duration,
+          llm_history_path: options[:llm_history_path])
+      end
+
       protected
 
       def build_command(prompt, options)
