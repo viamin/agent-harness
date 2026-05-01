@@ -413,7 +413,7 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
         registry.register(:test_provider, provider_class)
       end
 
-      it "still runs provider preflight with the runtime environment" do
+      it "skips provider preflight when host preflight is not allowed" do
         result = described_class.check(
           :test_provider,
           timeout: 9,
@@ -421,8 +421,8 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
         )
 
         expect(result[:status]).to eq("ok")
-        expect(captured_timeout).to eq([9])
-        expect(captured_env).to eq([{"OPENAI_API_KEY" => "sk-test-key"}])
+        expect(captured_timeout).to be_empty
+        expect(captured_env).to be_empty
       end
     end
 

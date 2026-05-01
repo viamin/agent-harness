@@ -5741,6 +5741,21 @@ RSpec.describe AgentHarness::Providers::Codex do
         expect(result[:reason]).to include("unreachable")
         expect(result[:reason]).to include("proxy")
       end
+
+      it "returns a configuration error when OPENAI_BASE_URL lacks an HTTP scheme" do
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(stdout: "codex 0.116.0", stderr: "", exit_code: 0, duration: 0.1)
+        )
+
+        result = provider.preflight_check(
+          env: {"OPENAI_API_KEY" => "sk-test-key", "OPENAI_BASE_URL" => "api.openai.com"},
+          timeout: 5
+        )
+
+        expect(result[:healthy]).to be false
+        expect(result[:error_category]).to eq(:configuration)
+        expect(result[:reason]).to include("OPENAI_BASE_URL")
+      end
     end
 
     describe "#validate_config" do

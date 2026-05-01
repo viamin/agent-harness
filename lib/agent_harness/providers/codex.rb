@@ -612,10 +612,10 @@ module AgentHarness
           reason: "Codex API base URL #{uri} returned HTTP #{response.code}. Check OPENAI_BASE_URL, proxy configuration, and network policy.",
           error_category: :transient
         }
-      rescue URI::InvalidURIError
+      rescue URI::InvalidURIError => e
         {
           healthy: false,
-          reason: "OPENAI_BASE_URL is invalid. Check the configured URL format.",
+          reason: e.message.start_with?("OPENAI_BASE_URL") ? e.message : "OPENAI_BASE_URL is invalid. Check the configured URL format.",
           error_category: :configuration
         }
       rescue SocketError, SystemCallError, IOError, Timeout::Error, OpenSSL::SSL::SSLError => e
@@ -632,6 +632,12 @@ module AgentHarness
         raw_url = "https://api.openai.com" if raw_url.nil? || raw_url.empty?
 
         uri = URI.parse(raw_url)
+
+        unless uri.is_a?(URI::HTTP) && uri.host && !uri.host.empty?
+          raise URI::InvalidURIError,
+            "OPENAI_BASE_URL must be an absolute HTTP or HTTPS URL (got #{raw_url.inspect})"
+        end
+
         uri.path = "/" if uri.path.nil? || uri.path.empty?
         uri
       end

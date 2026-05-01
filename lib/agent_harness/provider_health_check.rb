@@ -273,17 +273,24 @@ module AgentHarness
           )
         end
 
-        preflight_env = build_preflight_env(provider_instance, provider_runtime)
-        preflight = provider_instance.preflight_check(env: preflight_env, timeout: timeout)
-        unless preflight[:healthy]
-          return build_result(
-            name: provider_name,
-            status: "error",
-            message: preflight[:reason] || "Preflight check failed",
-            start_time: start_time,
-            error_category: normalize_preflight_error_category(preflight[:error_category]),
-            check: :preflight
-          )
+        # Only run the provider preflight in host contexts. The preflight
+        # hook (e.g. Codex's Net::HTTP probe) executes in the Ruby host
+        # process, so its network view may not match a containerised or
+        # remote executor. Skipping it avoids marking a provider unhealthy
+        # when only the host cannot reach the endpoint.
+        if host_preflight_allowed
+          preflight_env = build_preflight_env(provider_instance, provider_runtime)
+          preflight = provider_instance.preflight_check(env: preflight_env, timeout: timeout)
+          unless preflight[:healthy]
+            return build_result(
+              name: provider_name,
+              status: "error",
+              message: preflight[:reason] || "Preflight check failed",
+              start_time: start_time,
+              error_category: normalize_preflight_error_category(preflight[:error_category]),
+              check: :preflight
+            )
+          end
         end
 
         smoke_contract = provider_instance.smoke_test_contract
