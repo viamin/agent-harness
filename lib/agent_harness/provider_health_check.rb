@@ -383,12 +383,6 @@ module AgentHarness
 
       def host_preflight_allowed?(executor:, provider_runtime: nil)
         effective_executor = executor || AgentHarness.configuration.command_executor
-        # Skip host preflight only when provider runtime has environment/config overrides
-        # that could conflict with host-level checks (env, base_url, api_provider, unset_env)
-        if provider_runtime
-          runtime = ProviderRuntime.wrap(provider_runtime)
-          return false if runtime && (!runtime.env.empty? || !runtime.unset_env.empty? || runtime.base_url || runtime.api_provider)
-        end
         effective_executor.is_a?(CommandExecutor) && !effective_executor.is_a?(DockerCommandExecutor)
       end
 

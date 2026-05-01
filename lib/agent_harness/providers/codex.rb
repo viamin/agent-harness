@@ -606,14 +606,21 @@ module AgentHarness
           end
         end
 
-        if http_success_or_redirect?(response) || response.code.to_i < 500
-          return {healthy: true}
+        return {healthy: true} if http_success_or_redirect?(response)
+
+        response_code = response.code.to_i
+        if invalid_base_url_response_code?(response_code)
+          return {
+            healthy: false,
+            reason: "Codex API base URL #{uri} returned HTTP #{response.code}. Check OPENAI_BASE_URL; the configured URL appears to point at an invalid API path.",
+            error_category: :configuration
+          }
         end
 
         {
           healthy: false,
           reason: "Codex API base URL #{uri} returned HTTP #{response.code}. Check OPENAI_BASE_URL, proxy configuration, and network policy.",
-          error_category: :transient
+          error_category: (response_code >= 500) ? :transient : :configuration
         }
       rescue URI::InvalidURIError => e
         {
@@ -654,6 +661,10 @@ module AgentHarness
 
       def http_success_or_redirect?(response)
         response.is_a?(Net::HTTPSuccess) || response.is_a?(Net::HTTPRedirection)
+      end
+
+      def invalid_base_url_response_code?(response_code)
+        [404, 410].include?(response_code)
       end
 
       def escape_toml_string(val)

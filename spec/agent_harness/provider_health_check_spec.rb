@@ -373,7 +373,7 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
       end
     end
 
-    context "when provider runtime overrides disable host preflight" do
+    context "when provider runtime includes request-scoped overrides" do
       let(:captured_env) { [] }
       let(:captured_timeout) { [] }
       let(:provider_class) do
@@ -413,7 +413,13 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
         registry.register(:test_provider, provider_class)
       end
 
-      it "skips provider preflight when host preflight is not allowed" do
+      before do
+        allow(AgentHarness::Authentication).to receive(:auth_status)
+          .with(:test_provider)
+          .and_return({valid: true, expires_at: nil, error: nil})
+      end
+
+      it "still runs provider preflight for local checks" do
         result = described_class.check(
           :test_provider,
           timeout: 9,
@@ -421,8 +427,8 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
         )
 
         expect(result[:status]).to eq("ok")
-        expect(captured_timeout).to be_empty
-        expect(captured_env).to be_empty
+        expect(captured_timeout).to eq([9])
+        expect(captured_env).to eq([{"OPENAI_API_KEY" => "sk-test-key"}])
       end
     end
 

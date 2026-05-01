@@ -5773,6 +5773,24 @@ RSpec.describe AgentHarness::Providers::Codex do
         expect(http).to have_received(:request).with(instance_of(Net::HTTP::Head)).ordered
         expect(http).to have_received(:request).with(instance_of(Net::HTTP::Get)).ordered
       end
+
+      it "returns a configuration error when the API base URL resolves to an invalid path" do
+        not_found_response = Net::HTTPNotFound.new("1.1", "404", "Not Found")
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(stdout: "codex 0.116.0", stderr: "", exit_code: 0, duration: 0.1)
+        )
+        allow(http).to receive(:request).and_return(not_found_response, not_found_response)
+
+        result = provider.preflight_check(
+          env: {"OPENAI_API_KEY" => "sk-test-key", "OPENAI_BASE_URL" => "https://api.openai.com/typo"},
+          timeout: 5
+        )
+
+        expect(result[:healthy]).to be false
+        expect(result[:error_category]).to eq(:configuration)
+        expect(result[:reason]).to include("invalid API path")
+        expect(result[:reason]).to include("HTTP 404")
+      end
     end
 
     describe "#validate_config" do
