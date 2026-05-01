@@ -5687,7 +5687,7 @@ RSpec.describe AgentHarness::Providers::Codex do
       let(:mock_executor) { instance_double(AgentHarness::CommandExecutor) }
       let(:provider) { described_class.new(executor: mock_executor) }
       let(:http) { instance_double(Net::HTTP) }
-      let(:http_response) { instance_double(Net::HTTPOK, code: "200") }
+      let(:http_response) { Net::HTTPOK.new("1.1", "200", "OK") }
 
       before do
         allow(ENV).to receive(:[]).and_call_original
@@ -5696,7 +5696,7 @@ RSpec.describe AgentHarness::Providers::Codex do
         allow(http).to receive(:open_timeout=)
         allow(http).to receive(:read_timeout=)
         allow(http).to receive(:write_timeout=)
-        allow(http).to receive(:start).and_yield(http)
+        allow(http).to receive(:start) { |&block| block.call(http) }
         allow(http).to receive(:request).and_return(http_response)
       end
 
@@ -5755,6 +5755,23 @@ RSpec.describe AgentHarness::Providers::Codex do
         expect(result[:healthy]).to be false
         expect(result[:error_category]).to eq(:configuration)
         expect(result[:reason]).to include("OPENAI_BASE_URL")
+      end
+
+      it "retries with GET when HEAD returns a non-success response" do
+        head_response = Net::HTTPMethodNotAllowed.new("1.1", "405", "Method Not Allowed")
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(stdout: "codex 0.116.0", stderr: "", exit_code: 0, duration: 0.1)
+        )
+        allow(http).to receive(:request).and_return(head_response, http_response)
+
+        result = provider.preflight_check(
+          env: {"OPENAI_API_KEY" => "sk-test-key", "OPENAI_BASE_URL" => "https://api.openai.com"},
+          timeout: 5
+        )
+
+        expect(result).to eq({healthy: true})
+        expect(http).to have_received(:request).with(instance_of(Net::HTTP::Head)).ordered
+        expect(http).to have_received(:request).with(instance_of(Net::HTTP::Get)).ordered
       end
     end
 

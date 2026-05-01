@@ -598,12 +598,15 @@ module AgentHarness
 
         response = http.start do |client|
           client.request(Net::HTTP::Head.new(uri))
-        rescue Net::HTTPFatalError, Net::HTTPClientException
-          client.request(Net::HTTP::Get.new(uri))
         end
 
-        if response.is_a?(Net::HTTPSuccess) || response.is_a?(Net::HTTPRedirection) ||
-            response.code.to_i < 500
+        unless http_success_or_redirect?(response)
+          response = http.start do |client|
+            client.request(Net::HTTP::Get.new(uri))
+          end
+        end
+
+        if http_success_or_redirect?(response) || response.code.to_i < 500
           return {healthy: true}
         end
 
@@ -647,6 +650,10 @@ module AgentHarness
         return env[key.to_sym] if env.key?(key.to_sym)
 
         nil
+      end
+
+      def http_success_or_redirect?(response)
+        response.is_a?(Net::HTTPSuccess) || response.is_a?(Net::HTTPRedirection)
       end
 
       def escape_toml_string(val)
