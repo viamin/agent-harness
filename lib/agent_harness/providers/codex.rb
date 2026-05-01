@@ -147,11 +147,11 @@ module AgentHarness
         end
 
         def parse_cli_jsonl_transcript(raw_output, max_events: nil)
-          return new.send(:parse_jsonl_output, "") if max_events && max_events <= 0
+          return parser_instance.send(:parse_jsonl_output, "") if max_events && max_events <= 0
 
           output = max_events ? tail_nonempty_lines(raw_output, limit: max_events).join("\n") : raw_output
 
-          new.send(:parse_jsonl_output, output)
+          parser_instance.send(:parse_jsonl_output, output)
         end
 
         # Parse a single Codex JSONL event as it arrives on stdout and classify it
@@ -161,12 +161,16 @@ module AgentHarness
           event = JSON.parse(line.to_s)
           return unless event.is_a?(Hash)
 
-          new.send(:build_streaming_event, event)
+          parser_instance.send(:build_streaming_event, event)
         rescue JSON::ParserError, TypeError
           nil
         end
 
         private
+
+        def parser_instance
+          @parser_instance ||= allocate.freeze
+        end
 
         def tail_nonempty_lines(text, limit:)
           return [] if limit <= 0

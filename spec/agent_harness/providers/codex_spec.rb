@@ -111,6 +111,14 @@ RSpec.describe AgentHarness::Providers::Codex do
   end
 
   describe ".parse_cli_jsonl_transcript" do
+    it "reuses a memoized parser instance instead of constructing a provider" do
+      allow(described_class).to receive(:new).and_call_original
+
+      described_class.parse_cli_jsonl_transcript("")
+
+      expect(described_class).not_to have_received(:new)
+    end
+
     it "extracts final assistant text from a single JSONL event" do
       output = JSON.generate({
         "type" => "turn.completed",
@@ -185,6 +193,15 @@ RSpec.describe AgentHarness::Providers::Codex do
   end
 
   describe ".parse_streaming_event" do
+    it "reuses a memoized parser instance instead of constructing a provider" do
+      line = JSON.generate({"type" => "message.delta", "delta" => {"text" => "partial"}})
+      allow(described_class).to receive(:new).and_call_original
+
+      described_class.parse_streaming_event(line)
+
+      expect(described_class).not_to have_received(:new)
+    end
+
     it "returns nil for malformed JSON" do
       expect(described_class.parse_streaming_event("{")).to be_nil
     end
