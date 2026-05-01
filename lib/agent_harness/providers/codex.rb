@@ -525,12 +525,10 @@ module AgentHarness
       private
 
       def build_streaming_event(event)
-        raw_event, payload = unwrap_streaming_event(event)
+        raw_event, payload, dispatch_type = unwrap_streaming_event(event)
         return unless payload.is_a?(Hash)
 
-        type = payload["type"]
-
-        case type
+        case dispatch_type
         when "message.delta", "agent_message_delta"
           build_progress_streaming_event(raw_event, payload)
         when "turn.completed", "task_complete", "turn_complete"
@@ -545,15 +543,19 @@ module AgentHarness
       end
 
       def unwrap_streaming_event(event)
-        payload = if event["type"] == "event_msg"
-          event["payload"]
-        elsif event["type"] == "response_item"
-          event["payload"]
-        else
-          event
-        end
+        event_type = event["type"]
 
-        [event, payload]
+        if event_type == "event_msg"
+          payload = event["payload"]
+          [event, payload, payload.is_a?(Hash) ? payload["type"] : nil]
+        elsif event_type == "response_item"
+          # Preserve the original "response_item" dispatch type so
+          # build_streaming_event routes to build_item_streaming_event
+          # even after unwrapping the inner payload.
+          [event, event["payload"], "response_item"]
+        else
+          [event, event, event_type]
+        end
       end
 
       def build_progress_streaming_event(raw_event, payload)

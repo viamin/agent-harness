@@ -300,6 +300,46 @@ RSpec.describe AgentHarness::Providers::Codex do
       )
     end
 
+    it "classifies top-level response_item with assistant message as progress" do
+      line = JSON.generate({
+        "type" => "response_item",
+        "payload" => {
+          "type" => "message",
+          "role" => "assistant",
+          "item_type" => "assistant_message",
+          "content" => [{"type" => "text", "text" => "hello"}]
+        }
+      })
+
+      expect(described_class.parse_streaming_event(line)).to eq(
+        described_class::StreamingEvent.new(
+          type: :progress,
+          turn: nil,
+          raw_event: JSON.parse(line)
+        )
+      )
+    end
+
+    it "classifies top-level response_item with tool call as tool use" do
+      line = JSON.generate({
+        "type" => "response_item",
+        "payload" => {
+          "type" => "tool_call",
+          "name" => "shell",
+          "item_type" => "tool_call"
+        }
+      })
+
+      expect(described_class.parse_streaming_event(line)).to eq(
+        described_class::StreamingEvent.new(
+          type: :tool_use,
+          turn: nil,
+          tool_name: "shell",
+          raw_event: JSON.parse(line)
+        )
+      )
+    end
+
     it "classifies wrapped token_count payloads as token usage" do
       line = JSON.generate({
         "type" => "event_msg",
