@@ -99,18 +99,6 @@ module AgentHarness
           /connection.*reset/i
         ]
       }.tap { |h| h.each_value(&:freeze) }.freeze
-
-      # Maps internal classification symbols to the structured reason symbols
-      # returned by classify_output_chunk
-      CLASSIFICATION_REASON_MAP = {
-        quota_exceeded: :quota_exceeded,
-        rate_limited: :rate_limited,
-        auth_expired: :auth_expired,
-        sandbox_failure: :sandbox_failure,
-        transient_error: :transient_error,
-        fatal_error: :fatal_error
-      }.freeze
-
       class << self
         def provider_name
           :codex
