@@ -99,6 +99,7 @@ module AgentHarness
           /connection.*reset/i
         ]
       }.tap { |h| h.each_value(&:freeze) }.freeze
+
       class << self
         def provider_name
           :codex
@@ -117,7 +118,7 @@ module AgentHarness
         # @param text [String] the output chunk to classify
         # @param stream [:stdout, :stderr] which stream the text came from
         # @return [nil, Hash] nil if no error detected, or a Hash with
-        #   :reason (Symbol) and optional :detail (String)
+        #   :reason (Symbol)
         def classify_output_chunk(text, stream:)
           return nil if text.nil? || text.strip.empty?
 
