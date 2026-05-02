@@ -618,11 +618,11 @@ module AgentHarness
         http.write_timeout = timeout if http.respond_to?(:write_timeout=)
 
         response = http.start do |client|
-          client.request(Net::HTTP::Head.new(uri))
-        end
+          head_response = client.request(Net::HTTP::Head.new(uri))
 
-        unless http_success_or_redirect?(response)
-          response = http.start do |client|
+          if http_success_or_redirect?(head_response)
+            head_response
+          else
             client.request(Net::HTTP::Get.new(uri))
           end
         end
