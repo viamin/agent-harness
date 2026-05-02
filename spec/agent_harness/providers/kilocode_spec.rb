@@ -3600,23 +3600,35 @@ RSpec.describe AgentHarness::Providers::Kilocode do
     let(:executor) { instance_double(AgentHarness::CommandExecutor, which: "/usr/bin/kilo") }
     let(:provider) { described_class.new(executor: executor) }
 
-    it "returns JSON config with provided options" do
+    it "returns JSON config with provider as nested object" do
       content = provider.config_file_content(
         api_provider: "anthropic",
         model_id: "claude-sonnet-4-6"
       )
       parsed = JSON.parse(content)
 
-      expect(parsed["provider"]).to eq("anthropic")
-      expect(parsed["model"]).to eq("claude-sonnet-4-6")
+      expect(parsed["provider"]).to eq({"anthropic" => {}})
+      expect(parsed["model"]).to eq("anthropic/claude-sonnet-4-6")
     end
 
-    it "returns valid JSON with empty options" do
+    it "uses provider_name over api_provider when both given" do
+      content = provider.config_file_content(
+        provider_name: "openai",
+        api_provider: "anthropic",
+        model_id: "gpt-4o"
+      )
+      parsed = JSON.parse(content)
+
+      expect(parsed["provider"]).to eq({"openai" => {}})
+      expect(parsed["model"]).to eq("openai/gpt-4o")
+    end
+
+    it "defaults provider to openai with empty options" do
       content = provider.config_file_content
       parsed = JSON.parse(content)
 
       expect(parsed).to be_a(Hash)
-      expect(parsed["provider"]).to be_nil
+      expect(parsed["provider"]).to eq({"openai" => {}})
       expect(parsed["model"]).to be_nil
     end
   end
