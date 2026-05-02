@@ -11,6 +11,11 @@ module AgentHarness
       include RateLimitResetParsing
       include McpConfigFileSupport
 
+      StreamingEvent = Struct.new(
+        :type, :turn, :tokens, :error_message, :tool_name, :raw_event,
+        keyword_init: true
+      )
+
       SUPPORTED_CLI_VERSION = "0.116.0"
       SUPPORTED_CLI_REQUIREMENT = Gem::Requirement.new(">= #{SUPPORTED_CLI_VERSION}", "< 0.117.0").freeze
       OAUTH_REFRESH_FAILURE_PATTERNS = [
@@ -115,15 +120,22 @@ module AgentHarness
         # chunks as they arrive. For stdout, attempts to parse JSONL events
         # and extract error information from structured output.
         #
+        # Because CommandExecutor reads arbitrary 4096-byte chunks, a single
+        # JSONL event may be split across consecutive calls. Pass a String
+        # buffer via +stdout_buffer+ that persists across calls so incomplete
+        # trailing lines are re-assembled before parsing.
+        #
         # @param text [String] the output chunk to classify
         # @param stream [:stdout, :stderr] which stream the text came from
+        # @param stdout_buffer [String, nil] mutable String accumulator for
+        #   incomplete stdout lines across calls (ignored for stderr)
         # @return [nil, Hash] nil if no error detected, or a Hash with
         #   :reason (Symbol)
-        def classify_output_chunk(text, stream:)
+        def classify_output_chunk(text, stream:, stdout_buffer: nil)
           return nil if text.nil? || text.strip.empty?
 
           if stream == :stdout
-            classify_stdout_chunk(text)
+            classify_stdout_chunk(text, stdout_buffer)
           else
             classify_stderr_chunk(text)
           end
@@ -225,27 +237,47 @@ module AgentHarness
         end
 
         def parse_cli_jsonl_transcript(raw_output, max_events: nil)
-          return new.send(:parse_jsonl_output, "") if max_events && max_events <= 0
+          return parser_instance.send(:parse_jsonl_output, "") if max_events && max_events <= 0
 
           output = max_events ? tail_nonempty_lines(raw_output, limit: max_events).join("\n") : raw_output
 
-          new.send(:parse_jsonl_output, output)
+          parser_instance.send(:parse_jsonl_output, output)
+        end
+
+        # Parse a single Codex JSONL event as it arrives on stdout and classify it
+        # for real-time progress tracking. Returns nil for malformed JSON, scalar
+        # JSON values, plain-text output, or unsupported event types.
+        def parse_streaming_event(line)
+          event = JSON.parse(line.to_s)
+          return unless event.is_a?(Hash)
+
+          parser_instance.send(:build_streaming_event, event)
+        rescue JSON::ParserError, TypeError
+          nil
         end
 
         private
 
-        def classify_stdout_chunk(text)
-          # Try to parse JSONL events from stdout and check for error content
-          text.each_line do |line|
+        def classify_stdout_chunk(text, buffer)
+          # Prepend any leftover data from a previous partial chunk.
+          data = buffer ? (buffer.slice!(0..-1) + text) : text
+
+          lines = data.split("\n", -1)
+
+          # If the chunk does not end with a newline the last element is an
+          # incomplete line — stash it in the buffer for the next call.
+          if buffer && !data.end_with?("\n")
+            buffer.replace(lines.pop.to_s)
+          end
+
+          lines.each do |line|
             stripped = line.strip
             next if stripped.empty?
 
             begin
               event = JSON.parse(stripped)
             rescue JSON::ParserError
-              # Non-JSON stdout line — check plain-text patterns
-              result = match_patterns(stripped, STDOUT_ERROR_PATTERNS)
-              return result if result
+              # Non-JSON stdout line — skip, only classify explicit error events
               next
             end
 
@@ -263,7 +295,8 @@ module AgentHarness
         def classify_jsonl_event(event)
           return nil unless event.is_a?(Hash)
 
-          # Check error fields common in JSONL error events
+          # Only classify events with explicit error payloads — not normal
+          # assistant messages whose text happens to contain error-ish words.
           error_text = extract_jsonl_error_text(event)
           return nil unless error_text
 
@@ -271,7 +304,7 @@ module AgentHarness
         end
 
         def extract_jsonl_error_text(event)
-          # Direct error field
+          # Direct error field (top-level "error" key)
           error = event["error"]
           return error if error.is_a?(String) && !error.empty?
 
@@ -280,10 +313,10 @@ module AgentHarness
             return msg if msg.is_a?(String) && !msg.empty?
           end
 
-          # Check for error in nested message/content
-          message = event["message"]
-          return message if message.is_a?(String) && message.match?(/error|limit|fail|expired|unauthorized/i)
-
+          # Only extract from "message" when the event type is explicitly an
+          # error event — normal assistant output (agent_message, response_item,
+          # etc.) also carries a "message" field with user-facing text that
+          # would false-positive on patterns like /429/.
           nil
         end
 
@@ -295,6 +328,10 @@ module AgentHarness
           end
 
           nil
+        end
+
+        def parser_instance
+          @parser_instance ||= allocate.freeze
         end
 
         def tail_nonempty_lines(text, limit:)
@@ -655,6 +692,152 @@ module AgentHarness
       end
 
       private
+
+      def build_streaming_event(event)
+        raw_event, payload, dispatch_type = unwrap_streaming_event(event)
+        return unless payload.is_a?(Hash)
+
+        case dispatch_type
+        when "message.delta", "agent_message_delta"
+          build_progress_streaming_event(raw_event, payload)
+        when "turn.completed", "task_complete", "turn_complete"
+          build_turn_complete_streaming_event(raw_event, payload)
+        when "turn.failed"
+          build_error_streaming_event(raw_event, payload)
+        when "item.completed", "response_item", "agent_message"
+          build_item_streaming_event(raw_event, payload)
+        when "token_count"
+          build_token_usage_streaming_event(raw_event, payload)
+        end
+      end
+
+      def unwrap_streaming_event(event)
+        event_type = event["type"]
+
+        if event_type == "event_msg"
+          payload = event["payload"]
+          [event, payload, payload.is_a?(Hash) ? payload["type"] : nil]
+        elsif event_type == "response_item"
+          # Preserve the original "response_item" dispatch type so
+          # build_streaming_event routes to build_item_streaming_event
+          # even after unwrapping the inner payload.
+          [event, event["payload"], "response_item"]
+        else
+          [event, event, event_type]
+        end
+      end
+
+      def build_progress_streaming_event(raw_event, payload)
+        return unless progress_payload?(payload)
+
+        StreamingEvent.new(
+          type: :progress,
+          turn: extract_streaming_turn(payload),
+          raw_event: raw_event
+        )
+      end
+
+      def build_turn_complete_streaming_event(raw_event, payload)
+        StreamingEvent.new(
+          type: :turn_complete,
+          turn: extract_streaming_turn(payload),
+          tokens: compact_streaming_tokens(build_token_usage(payload["usage"])),
+          raw_event: raw_event
+        )
+      end
+
+      def build_error_streaming_event(raw_event, payload)
+        StreamingEvent.new(
+          type: :error,
+          turn: extract_streaming_turn(payload),
+          tokens: compact_streaming_tokens(build_token_usage(payload["usage"])),
+          error_message: extract_error_message(payload),
+          raw_event: raw_event
+        )
+      end
+
+      def build_item_streaming_event(raw_event, payload)
+        item = payload["item"].is_a?(Hash) ? payload["item"] : payload
+
+        if tool_use_payload?(item)
+          return StreamingEvent.new(
+            type: :tool_use,
+            turn: extract_streaming_turn(payload),
+            tool_name: extract_tool_name(item),
+            raw_event: raw_event
+          )
+        end
+
+        return unless assistant_message_item?(item) || response_item_assistant_payload?(item) || wrapped_assistant_payload?(item)
+
+        StreamingEvent.new(
+          type: :progress,
+          turn: extract_streaming_turn(payload),
+          raw_event: raw_event
+        )
+      end
+
+      def build_token_usage_streaming_event(raw_event, payload)
+        wrapped_token_usage = extract_wrapped_tokens(payload["info"])
+        usage = wrapped_token_usage&.fetch(:last, nil) || wrapped_token_usage&.fetch(:total, nil)
+        return unless usage
+
+        StreamingEvent.new(
+          type: :token_usage,
+          turn: extract_streaming_turn(payload),
+          tokens: compact_streaming_tokens(usage),
+          raw_event: raw_event
+        )
+      end
+
+      def progress_payload?(payload)
+        case payload["type"]
+        when "message.delta"
+          payload["delta"].is_a?(Hash)
+        when "agent_message_delta"
+          wrapped_assistant_payload?(payload)
+        else
+          false
+        end
+      end
+
+      def tool_use_payload?(item)
+        item.is_a?(Hash) && item["type"] == "tool_call"
+      end
+
+      def extract_tool_name(item)
+        item["tool_name"] || item["name"] || item.dig("function", "name") || item.dig("call", "name")
+      end
+
+      def extract_streaming_turn(payload)
+        value = payload["turn"] || payload["turn_id"] || payload["turn_index"] || payload.dig("context", "turn")
+        return value if value.is_a?(Integer)
+
+        value.to_i if value.is_a?(String) && /\A\d+\z/.match?(value.strip)
+      end
+
+      def compact_streaming_tokens(usage)
+        return unless usage
+
+        {
+          input: usage[:input],
+          output: usage[:output],
+          total: usage[:total]
+        }
+      end
+
+      def extract_error_message(payload)
+        error = payload["error"]
+
+        case error
+        when String
+          error
+        when Hash
+          error["message"] || error["error"] || error["detail"]
+        else
+          payload["message"]
+        end
+      end
 
       def escape_toml_string(val)
         val.to_s.gsub("\\") { "\\\\" }.gsub('"') { "\\\"" }.gsub("\n") { "\\n" }

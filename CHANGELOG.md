@@ -1,5 +1,12 @@
 ## [Unreleased]
 
+## [0.12.0](https://github.com/viamin/agent-harness/compare/agent-harness/v0.11.3...agent-harness/v0.12.0) (2026-05-01)
+
+
+### Features
+
+* streaming JSONL event parser for real-time Codex progress tracking ([#184](https://github.com/viamin/agent-harness/issues/184)) ([4905539](https://github.com/viamin/agent-harness/commit/490553992904f39e52028b2140ab99755aad1fb1))
+
 ## [0.11.3](https://github.com/viamin/agent-harness/compare/agent-harness/v0.11.2...agent-harness/v0.11.3) (2026-04-28)
 
 
