@@ -345,12 +345,39 @@ module AgentHarness
         handle_error(e, prompt: prompt, options: options)
       end
 
+      def plan_execution(prompt:, **options)
+        log_debug("plan_execution_start", prompt_length: prompt.length, options: options.keys)
+
+        options = normalize_provider_runtime(options)
+        options = normalize_mcp_servers(options)
+        validate_mcp_servers!(options[:mcp_servers]) if options[:mcp_servers]&.any?
+
+        env = build_env(options)
+        version = planned_copilot_cli_version(env)
+        raise unsupported_subcommand_cli_error if subcommand_cli_version?(version)
+
+        options = options.merge(_command_env: env, _planned_cli_version: version)
+
+        {
+          command: build_command(prompt, options),
+          env: env,
+          preparation: build_execution_preparation(options)
+        }
+      rescue McpConfigurationError, McpUnsupportedError, McpTransportUnsupportedError
+        raise
+      rescue => e
+        handle_error(e, prompt: prompt, options: options)
+      end
+
       protected
 
       def build_command(prompt, options)
         env = options.fetch(:_command_env) { build_env(options) }
         runtime = options[:provider_runtime]
-        version = copilot_cli_version(probe_timeout: options[:_version_probe_timeout], env: env)
+        version = options[:_planned_cli_version] || copilot_cli_version(
+          probe_timeout: options[:_version_probe_timeout],
+          env: env
+        )
 
         raise unsupported_subcommand_cli_error if subcommand_cli_version?(version)
 
@@ -446,6 +473,15 @@ module AgentHarness
         log_debug("copilot_cli_version_check_failed", error: e.message)
         @copilot_cli_versions ||= {}
         @copilot_cli_versions[cache_key] = nil if defined?(cache_key)
+      end
+
+      def planned_copilot_cli_version(env)
+        cache_key = version_probe_cache_key(env)
+        @copilot_cli_versions ||= {}
+        return @copilot_cli_versions[cache_key] if @copilot_cli_versions.key?(cache_key)
+
+        raise ProviderError,
+          "GitHub Copilot execution plan requires a cached CLI version because command flags depend on the installed CLI version"
       end
 
       def version_probe_cache_key(env)

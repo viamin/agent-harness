@@ -565,6 +565,20 @@ RSpec.describe AgentHarness::Providers::Cursor do
       end
     end
 
+    describe "#plan_execution" do
+      it "returns the stdin command plan without executing" do
+        expect(mock_executor).not_to receive(:execute)
+
+        plan = provider.plan_execution(prompt: "Hello")
+
+        expect(plan).to eq(
+          command: [described_class.binary_name, "-p"],
+          env: {},
+          preparation: nil
+        )
+      end
+    end
+
     describe "#execution_semantics" do
       it "returns the full provider contract" do
         semantics = provider.execution_semantics

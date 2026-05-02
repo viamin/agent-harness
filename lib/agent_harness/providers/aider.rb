@@ -263,6 +263,26 @@ module AgentHarness
         cleanup_llm_history_file!(llm_history_path)
       end
 
+      def plan_execution(prompt:, **options)
+        log_debug("plan_execution_start", prompt_length: prompt.length, options: options.keys)
+
+        options = normalize_provider_runtime(options)
+        options = normalize_mcp_servers(options)
+        validate_mcp_servers!(options[:mcp_servers]) if options[:mcp_servers]&.any?
+
+        llm_history_path = generate_llm_history_path
+
+        {
+          command: build_command(prompt, options.merge(llm_history_path: llm_history_path)),
+          env: build_env(options),
+          preparation: build_execution_preparation(options)
+        }
+      rescue McpConfigurationError, McpUnsupportedError, McpTransportUnsupportedError
+        raise
+      rescue => e
+        handle_error(e, prompt: prompt, options: options)
+      end
+
       protected
 
       def build_command(prompt, options)

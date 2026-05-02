@@ -60,6 +60,40 @@ RSpec.describe AgentHarness::Providers::Base do
     end
   end
 
+  describe "#plan_execution" do
+    let(:mock_executor) { instance_double(AgentHarness::CommandExecutor) }
+    let(:provider) { test_provider_class.new(executor: mock_executor) }
+
+    it "returns command, env, and preparation without executing" do
+      expect(mock_executor).not_to receive(:execute)
+
+      plan = provider.plan_execution(prompt: "Hello")
+
+      expect(plan).to eq(
+        command: ["echo", "Hello"],
+        env: {},
+        preparation: nil
+      )
+    end
+
+    it "applies sub-agent prompt translation to the planned command" do
+      AgentHarness.configuration.register_tool(:read_file, test_provider: "read_file")
+      AgentHarness.configure do |config|
+        config.sub_agent(:code_reviewer,
+          description: "Reviews code",
+          instructions: "Review the provided changes",
+          tools: [:read_file])
+      end
+
+      plan = provider.plan_execution(prompt: "Hello", sub_agent: :code_reviewer)
+
+      expect(plan[:command]).to eq([
+        "echo",
+        "Sub-agent role: code_reviewer\nDescription: Reviews code\n\nFollow these sub-agent instructions exactly:\nReview the provided changes\n\nUser task:\nHello"
+      ])
+    end
+  end
+
   describe "#name" do
     it "returns provider name" do
       expect(provider.name).to eq("test_provider")

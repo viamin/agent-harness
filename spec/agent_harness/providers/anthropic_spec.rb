@@ -1208,6 +1208,17 @@ RSpec.describe AgentHarness::Providers::Anthropic do
           expect(response.metadata[:transport]).to eq(:http)
         end
 
+        it "does not expose a CLI execution plan" do
+          expect(mock_executor).not_to receive(:execute)
+
+          expect {
+            provider.plan_execution(prompt: "Summarize this", mode: :text)
+          }.to raise_error(
+            AgentHarness::ProviderError,
+            /does not produce a CLI execution plan/
+          )
+        end
+
         it "extracts tokens from HTTP response" do
           http_response = instance_double(Net::HTTPOK,
             code: "200",
