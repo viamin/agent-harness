@@ -1061,7 +1061,8 @@ module AgentHarness
         response = send_message(
           prompt: prompt,
           timeout: timeout || contract[:timeout],
-          provider_runtime: provider_runtime
+          provider_runtime: provider_runtime,
+          smoke_test: true
         )
 
         output = response.output.to_s.strip

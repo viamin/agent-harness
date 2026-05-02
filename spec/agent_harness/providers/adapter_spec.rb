@@ -2082,7 +2082,8 @@ RSpec.describe AgentHarness::Providers::Adapter do
         expect(adapter).to receive(:send_message).with(
           prompt: "Reply with exactly OK.",
           timeout: 5,
-          provider_runtime: nil
+          provider_runtime: nil,
+          smoke_test: true
         ).and_return(
           AgentHarness::Response.new(
             output: "OK",
