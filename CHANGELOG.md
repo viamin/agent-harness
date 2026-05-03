@@ -1,5 +1,12 @@
 ## [Unreleased]
 
+## [0.15.0](https://github.com/viamin/agent-harness/compare/agent-harness/v0.14.1...agent-harness/v0.15.0) (2026-05-03)
+
+
+### Features
+
+* pre-flight connectivity check API for provider health verification ([#185](https://github.com/viamin/agent-harness/issues/185)) ([3ad6a2f](https://github.com/viamin/agent-harness/commit/3ad6a2ffbfe84b2271e4de968fa096276724e63c))
+
 ## [0.14.1](https://github.com/viamin/agent-harness/compare/agent-harness/v0.14.0...agent-harness/v0.14.1) (2026-05-03)
 
 
