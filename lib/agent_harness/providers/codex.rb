@@ -849,7 +849,8 @@ module AgentHarness
 
       def codex_base_url_uri(env)
         raw_url = env_fetch(env, "OPENAI_BASE_URL")
-        raw_url = ENV["OPENAI_BASE_URL"] if raw_url.nil? || raw_url.empty?
+        # Only fall back to the default URL; do not read process ENV here, as the
+        # caller may have intentionally omitted OPENAI_BASE_URL to use the default.
         raw_url = "https://api.openai.com" if raw_url.nil? || raw_url.empty?
 
         uri = URI.parse(raw_url)

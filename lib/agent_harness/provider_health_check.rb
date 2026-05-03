@@ -505,7 +505,7 @@ module AgentHarness
         return {} unless provider_instance.respond_to?(:build_env, true)
 
         runtime = ProviderRuntime.wrap(provider_runtime)
-        provider_instance.send(:build_env, provider_runtime: runtime)
+        provider_instance.send(:build_env, {provider_runtime: runtime})
       rescue ArgumentError, NoMethodError
         {}
       end
