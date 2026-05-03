@@ -385,5 +385,105 @@ RSpec.describe AgentHarness::Providers::Opencode do
         expect(provider.execution_semantics[:uses_subcommand]).to be true
       end
     end
+
+    describe "#supports_activity_heartbeat?" do
+      it "returns true" do
+        expect(provider.supports_activity_heartbeat?).to be true
+      end
+    end
+
+    describe "#heartbeat_integration" do
+      let(:heartbeat_path) { "/paid-heartbeat/.paid-heartbeat" }
+
+      subject(:integration) { provider.heartbeat_integration(heartbeat_file_path: heartbeat_path) }
+
+      it "returns a supported integration" do
+        expect(integration[:supported]).to be true
+      end
+
+      it "sets the OPENCODE_HEARTBEAT_FILE env var" do
+        expect(integration[:env]).to eq("OPENCODE_HEARTBEAT_FILE" => heartbeat_path)
+      end
+
+      it "returns an ExecutionPreparation with hook config" do
+        preparation = integration[:preparation]
+        expect(preparation).to be_a(AgentHarness::ExecutionPreparation)
+        expect(preparation.file_writes).not_to be_empty
+
+        hook_write = preparation.file_writes.first
+        expect(hook_write.path).to eq("~/.config/opencode/hooks.json")
+        expect(hook_write.mode).to eq(0o600)
+
+        parsed = JSON.parse(hook_write.content)
+        expect(parsed).to have_key("hooks")
+        expect(parsed["hooks"]["on_activity"]).to be_an(Array)
+        expect(parsed["hooks"]["on_activity"].first["command"]).to include(heartbeat_path)
+      end
+
+      it "reports tool_call granularity" do
+        expect(integration[:granularity]).to eq(:tool_call)
+      end
+
+      it "raises ArgumentError for nil heartbeat_file_path" do
+        expect {
+          provider.heartbeat_integration(heartbeat_file_path: nil)
+        }.to raise_error(ArgumentError, /heartbeat_file_path must be a non-empty String/)
+      end
+
+      it "raises ArgumentError for blank heartbeat_file_path" do
+        expect {
+          provider.heartbeat_integration(heartbeat_file_path: "  ")
+        }.to raise_error(ArgumentError, /heartbeat_file_path must be a non-empty String/)
+      end
+
+      it "raises ArgumentError for relative heartbeat_file_path" do
+        expect {
+          provider.heartbeat_integration(heartbeat_file_path: "relative/path")
+        }.to raise_error(ArgumentError, /heartbeat_file_path must be an absolute path/)
+      end
+
+      context "when existing hooks.json is present" do
+        let(:hooks_config_path) { File.expand_path("~/.config/opencode/hooks.json") }
+        let(:existing_config) do
+          {"hooks" => {"on_activity" => [{"command" => "echo existing"}], "on_error" => [{"command" => "echo error"}]}}
+        end
+
+        before do
+          allow(File).to receive(:exist?).and_call_original
+          allow(File).to receive(:exist?).with(hooks_config_path).and_return(true)
+          allow(File).to receive(:read).and_call_original
+          allow(File).to receive(:read).with(hooks_config_path).and_return(JSON.generate(existing_config))
+        end
+
+        it "merges heartbeat hook with existing on_activity hooks" do
+          hook_write = integration[:preparation].file_writes.first
+          parsed = JSON.parse(hook_write.content)
+
+          expect(parsed["hooks"]["on_activity"].length).to eq(2)
+          expect(parsed["hooks"]["on_activity"].first["command"]).to eq("echo existing")
+          expect(parsed["hooks"]["on_activity"].last["command"]).to include("touch")
+        end
+
+        it "preserves other hook types" do
+          hook_write = integration[:preparation].file_writes.first
+          parsed = JSON.parse(hook_write.content)
+
+          expect(parsed["hooks"]["on_error"]).to eq([{"command" => "echo error"}])
+        end
+      end
+
+      context "with shell-sensitive characters in heartbeat_file_path" do
+        let(:heartbeat_path) { "/tmp/heartbeat file;touch /tmp/pwned" }
+
+        it "shell-escapes the heartbeat command path" do
+          hook_write = integration[:preparation].file_writes.first
+          parsed = JSON.parse(hook_write.content)
+
+          expect(parsed["hooks"]["on_activity"].first["command"]).to eq(
+            "touch /tmp/heartbeat\\ file\\;touch\\ /tmp/pwned"
+          )
+        end
+      end
+    end
   end
 end

@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "json"
+require "shellwords"
 
 module AgentHarness
   module Providers
@@ -126,6 +127,39 @@ module AgentHarness
           json_mode: false,
           mcp: false,
           dangerous_mode: false
+        }
+      end
+
+      def supports_activity_heartbeat?
+        true
+      end
+
+      def heartbeat_integration(heartbeat_file_path:)
+        unless heartbeat_file_path.is_a?(String) && !heartbeat_file_path.strip.empty?
+          raise ArgumentError, "heartbeat_file_path must be a non-empty String"
+        end
+        unless heartbeat_file_path.start_with?("/")
+          raise ArgumentError, "heartbeat_file_path must be an absolute path (got #{heartbeat_file_path.inspect})"
+        end
+
+        hook_script = heartbeat_hook_script(heartbeat_file_path)
+        config_payload = merge_heartbeat_hooks(hook_script)
+
+        preparation = ExecutionPreparation.new(
+          file_writes: [
+            {
+              path: heartbeat_hook_config_path,
+              content: JSON.pretty_generate(config_payload),
+              mode: 0o600
+            }
+          ]
+        )
+
+        {
+          supported: true,
+          env: {"KILO_HEARTBEAT_FILE" => heartbeat_file_path},
+          preparation: preparation,
+          granularity: :tool_call
         }
       end
 
@@ -297,6 +331,32 @@ module AgentHarness
       end
 
       private
+
+      def heartbeat_hook_script(heartbeat_file_path)
+        "touch #{Shellwords.escape(heartbeat_file_path)}"
+      end
+
+      def heartbeat_hook_config_path
+        "~/.config/kilocode/hooks.json"
+      end
+
+      def merge_heartbeat_hooks(hook_script)
+        existing = load_existing_hooks_config(heartbeat_hook_config_path)
+        hooks = existing.fetch("hooks", {})
+        on_activity = hooks.fetch("on_activity", [])
+        on_activity = on_activity.dup
+        on_activity << {"command" => hook_script}
+        existing.merge("hooks" => hooks.merge("on_activity" => on_activity))
+      end
+
+      def load_existing_hooks_config(path)
+        expanded = File.expand_path(path)
+        return {} unless File.exist?(expanded)
+
+        JSON.parse(File.read(expanded))
+      rescue JSON::ParserError
+        {}
+      end
 
       def each_json_event(output)
         return if output.nil? || output.empty?

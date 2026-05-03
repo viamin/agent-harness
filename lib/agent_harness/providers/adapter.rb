@@ -1187,6 +1187,39 @@ module AgentHarness
         nil
       end
 
+      # Whether this provider supports activity heartbeat signaling.
+      #
+      # Providers that can emit a container-visible liveness signal during
+      # long-running CLI execution return +true+. Downstream callers use
+      # this to decide whether heartbeat-backed idle timeout is viable
+      # without maintaining provider-name allowlists.
+      #
+      # @return [Boolean] true if the provider can emit heartbeat signals
+      def supports_activity_heartbeat?
+        false
+      end
+
+      # Return structured heartbeat integration wiring for this provider.
+      #
+      # Providers that support activity heartbeat return a Hash describing
+      # how to wire heartbeat file touches into the CLI execution. The
+      # returned contract includes environment variables, execution
+      # preparation (config/plugin file writes), and the heartbeat
+      # granularity so downstream callers can enable heartbeat-backed idle
+      # timeout without hardcoding provider-specific config logic.
+      #
+      # @param heartbeat_file_path [String] absolute path to the heartbeat
+      #   file that should be touched on activity
+      # @return [Hash] heartbeat integration contract:
+      #   - +:supported+ [Boolean] whether heartbeat is available
+      #   - +:env+ [Hash] environment variables to set (empty when unsupported)
+      #   - +:preparation+ [ExecutionPreparation, nil] file writes for config/plugin wiring
+      #   - +:granularity+ [Symbol, nil] heartbeat event granularity
+      #     (+:tool_call+, +:turn+, or +:progress+)
+      def heartbeat_integration(heartbeat_file_path:)
+        {supported: false, env: {}, preparation: nil, granularity: nil}
+      end
+
       private
 
       def classify_smoke_test_message(message)
