@@ -1905,5 +1905,46 @@ RSpec.describe AgentHarness::Providers::Aider do
         expect(provider.instance_variable_get(:@aider_history_path)).to be_nil
       end
     end
+
+    describe "#parse_container_output" do
+      it "parses plain text output" do
+        response = provider.parse_container_output(
+          stdout: "Hello from Aider",
+          stderr: "",
+          exit_code: 0,
+          duration: 5.0
+        )
+
+        expect(response).to be_a(AgentHarness::Response)
+        expect(response.output).to eq("Hello from Aider")
+        expect(response.success?).to be true
+        expect(response.duration).to eq(5.0)
+        expect(response.provider).to eq(:aider)
+      end
+
+      it "captures errors for non-zero exit codes" do
+        response = provider.parse_container_output(
+          stdout: "",
+          stderr: "aider crashed",
+          exit_code: 1,
+          duration: 0.5
+        )
+
+        expect(response.failed?).to be true
+        expect(response.error).to include("aider crashed")
+      end
+
+      it "accepts llm_history_path option" do
+        response = provider.parse_container_output(
+          stdout: "done",
+          stderr: "",
+          exit_code: 0,
+          duration: 1.0,
+          llm_history_path: nil
+        )
+
+        expect(response.success?).to be true
+      end
+    end
   end
 end

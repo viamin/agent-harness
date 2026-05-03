@@ -3183,5 +3183,53 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         }.to raise_error(AgentHarness::ProviderError, /requires a cached CLI version/)
       end
     end
+
+    describe "#parse_container_output" do
+      it "parses plain text output" do
+        response = provider.parse_container_output(
+          stdout: "Hello from Copilot",
+          stderr: "",
+          exit_code: 0,
+          duration: 1.5
+        )
+
+        expect(response).to be_a(AgentHarness::Response)
+        expect(response.output).to eq("Hello from Copilot")
+        expect(response.success?).to be true
+        expect(response.duration).to eq(1.5)
+      end
+
+      it "passes json_output_requested option to parse_response" do
+        jsonl_output = [
+          '{"text":"result text"}',
+          '{"usage":{"input_tokens":10,"output_tokens":5}}'
+        ].join("\n")
+
+        response = provider.parse_container_output(
+          stdout: jsonl_output,
+          stderr: "",
+          exit_code: 0,
+          duration: 2.0,
+          json_output_requested: true
+        )
+
+        expect(response).to be_a(AgentHarness::Response)
+        expect(response.output).to eq("result text")
+        expect(response.tokens).to eq({input: 10, output: 5, total: 15})
+        expect(response.success?).to be true
+      end
+
+      it "captures errors for non-zero exit codes" do
+        response = provider.parse_container_output(
+          stdout: "",
+          stderr: "something went wrong",
+          exit_code: 1,
+          duration: 0.5
+        )
+
+        expect(response.failed?).to be true
+        expect(response.error).to include("something went wrong")
+      end
+    end
   end
 end

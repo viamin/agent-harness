@@ -577,6 +577,15 @@ RSpec.describe AgentHarness::Providers::Cursor do
           preparation: nil
         )
       end
+
+      it "includes runtime flags in the planned command" do
+        runtime = AgentHarness::ProviderRuntime.new(flags: ["--verbose"])
+        expect(mock_executor).not_to receive(:execute)
+
+        plan = provider.plan_execution(prompt: "Hello", provider_runtime: runtime)
+
+        expect(plan[:command]).to eq([described_class.binary_name, "-p", "--verbose"])
+      end
     end
 
     describe "#execution_semantics" do

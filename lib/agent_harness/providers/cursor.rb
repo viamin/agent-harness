@@ -319,8 +319,12 @@ module AgentHarness
         options = normalize_mcp_servers(options)
         validate_mcp_servers!(options[:mcp_servers]) if options[:mcp_servers]&.any?
 
+        runtime = options[:provider_runtime]
+        cmd = [self.class.binary_name, "-p"]
+        cmd.concat(runtime.flags) if runtime&.flags&.any?
+
         {
-          command: [self.class.binary_name, "-p"],
+          command: cmd,
           env: build_env(options),
           preparation: build_execution_preparation(options)
         }

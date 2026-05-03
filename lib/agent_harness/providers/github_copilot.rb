@@ -369,6 +369,33 @@ module AgentHarness
         handle_error(e, prompt: prompt, options: options)
       end
 
+      # Parse raw container output into a Response.
+      #
+      # Overrides the base implementation to support the
+      # +json_output_requested+ option, which controls whether JSONL
+      # output is parsed for token extraction.
+      #
+      # @param stdout [String] captured standard output
+      # @param stderr [String] captured standard error
+      # @param exit_code [Integer] process exit code
+      # @param duration [Float] execution duration in seconds
+      # @param options [Hash] additional options
+      # @option options [Boolean] :json_output_requested whether to parse JSONL output
+      # @return [Response] parsed response
+      def parse_container_output(stdout:, stderr: "", exit_code: 0, duration: 0.0, **options)
+        result = CommandExecutor::Result.new(
+          stdout: stdout,
+          stderr: stderr,
+          exit_code: exit_code,
+          duration: duration
+        )
+        parse_response(
+          result,
+          duration: duration,
+          json_output_requested: options.fetch(:json_output_requested, false)
+        )
+      end
+
       protected
 
       def build_command(prompt, options)

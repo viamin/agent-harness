@@ -1,5 +1,12 @@
 ## [Unreleased]
 
+## [0.13.0](https://github.com/viamin/agent-harness/compare/agent-harness/v0.12.0...agent-harness/v0.13.0) (2026-05-03)
+
+
+### Features
+
+* Expose public parse_container_output method on provider interface ([#187](https://github.com/viamin/agent-harness/issues/187)) ([ecdb7ba](https://github.com/viamin/agent-harness/commit/ecdb7bac56e47cf75e1379508cca64a9c7a0ffff))
+
 ## [0.12.0](https://github.com/viamin/agent-harness/compare/agent-harness/v0.11.3...agent-harness/v0.12.0) (2026-05-01)
 
 

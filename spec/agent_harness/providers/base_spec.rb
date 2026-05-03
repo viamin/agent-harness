@@ -240,6 +240,63 @@ RSpec.describe AgentHarness::Providers::Base do
     end
   end
 
+  describe "#parse_container_output" do
+    it "returns a Response from raw stdout/stderr/exit_code/duration" do
+      response = provider.parse_container_output(
+        stdout: "hello world",
+        stderr: "",
+        exit_code: 0,
+        duration: 1.5
+      )
+
+      expect(response).to be_a(AgentHarness::Response)
+      expect(response.output).to eq("hello world")
+      expect(response.exit_code).to eq(0)
+      expect(response.duration).to eq(1.5)
+      expect(response.provider).to eq(:test_provider)
+      expect(response.success?).to be true
+    end
+
+    it "captures errors for non-zero exit codes" do
+      response = provider.parse_container_output(
+        stdout: "",
+        stderr: "something went wrong",
+        exit_code: 1,
+        duration: 2.0
+      )
+
+      expect(response.exit_code).to eq(1)
+      expect(response.error).to include("something went wrong")
+      expect(response.failed?).to be true
+    end
+
+    it "uses default values for optional parameters" do
+      response = provider.parse_container_output(stdout: "ok")
+
+      expect(response.exit_code).to eq(0)
+      expect(response.duration).to eq(0.0)
+      expect(response.success?).to be true
+    end
+
+    it "respects legitimate_exit_codes from execution_semantics" do
+      provider_with_codes = Class.new(test_provider_class) do
+        def execution_semantics
+          super.merge(legitimate_exit_codes: [0, 1])
+        end
+      end.new
+
+      response = provider_with_codes.parse_container_output(
+        stdout: "done",
+        stderr: "",
+        exit_code: 1,
+        duration: 1.0
+      )
+
+      expect(response.error).to be_nil
+      expect(response.success?).to be true
+    end
+  end
+
   describe "#sandboxed_environment?" do
     it "returns false with standard CommandExecutor" do
       expect(provider.sandboxed_environment?).to be false

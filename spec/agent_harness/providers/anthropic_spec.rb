@@ -1370,5 +1370,41 @@ RSpec.describe AgentHarness::Providers::Anthropic do
         expect(semantics[:parses_rate_limit_reset]).to be false
       end
     end
+
+    describe "#parse_container_output" do
+      it "parses JSON envelope output into a Response" do
+        envelope = JSON.generate({
+          "type" => "result",
+          "subtype" => "success",
+          "result" => "Hello from Claude",
+          "usage" => {"input_tokens" => 10, "output_tokens" => 5}
+        })
+
+        response = provider.parse_container_output(
+          stdout: envelope,
+          stderr: "",
+          exit_code: 0,
+          duration: 2.5
+        )
+
+        expect(response).to be_a(AgentHarness::Response)
+        expect(response.output).to eq("Hello from Claude")
+        expect(response.success?).to be true
+        expect(response.duration).to eq(2.5)
+      end
+
+      it "captures errors for failed exit codes" do
+        response = provider.parse_container_output(
+          stdout: "",
+          stderr: "something went wrong",
+          exit_code: 1,
+          duration: 0.5
+        )
+
+        expect(response.failed?).to be true
+        expect(response.error).to be_a(String)
+        expect(response.error).not_to be_empty
+      end
+    end
   end
 end
