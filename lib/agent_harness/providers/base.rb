@@ -240,6 +240,11 @@ module AgentHarness
         raise
       rescue => e
         handle_error(e, prompt: prompt, options: options)
+      ensure
+        # build_command may call build_mcp_flags which creates tempfiles (and
+        # in Docker even invokes the executor) via write_mcp_config_file.
+        # Clean up so that planning has no lasting side effects.
+        cleanup_mcp_tempfiles! if respond_to?(:cleanup_mcp_tempfiles!, true)
       end
 
       # Send a multi-turn chat message via the provider's chat transport.

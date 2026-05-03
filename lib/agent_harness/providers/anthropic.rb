@@ -393,6 +393,8 @@ module AgentHarness
         end
 
         super
+      ensure
+        cleanup_mcp_tempfiles!
       end
 
       def api_key_env_var_names = ["ANTHROPIC_API_KEY"]

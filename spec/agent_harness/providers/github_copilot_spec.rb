@@ -3159,10 +3159,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         provider.instance_variable_set(:@copilot_cli_versions, {
           provider.send(:version_probe_cache_key, {}) => Gem::Version.new("0.0.422")
         })
-        expect(mock_executor).not_to receive(:execute).with(
-          ["github-copilot-cli", "-p", "Hello", "--output-format", "json"],
-          anything
-        )
+        expect(mock_executor).not_to receive(:execute)
 
         plan = provider.plan_execution(prompt: "Hello")
 
