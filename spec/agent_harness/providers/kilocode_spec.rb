@@ -3726,6 +3726,42 @@ RSpec.describe AgentHarness::Providers::Kilocode do
       }.to raise_error(ArgumentError, /heartbeat_file_path must be a non-empty String/)
     end
 
+    it "raises ArgumentError for relative heartbeat_file_path" do
+      expect {
+        provider.heartbeat_integration(heartbeat_file_path: "relative/path")
+      }.to raise_error(ArgumentError, /heartbeat_file_path must be an absolute path/)
+    end
+
+    context "when existing hooks.json is present" do
+      let(:hooks_config_path) { File.expand_path("~/.config/kilocode/hooks.json") }
+      let(:existing_config) do
+        {"hooks" => {"on_activity" => [{"command" => "echo existing"}], "on_error" => [{"command" => "echo error"}]}}
+      end
+
+      before do
+        allow(File).to receive(:exist?).and_call_original
+        allow(File).to receive(:exist?).with(hooks_config_path).and_return(true)
+        allow(File).to receive(:read).and_call_original
+        allow(File).to receive(:read).with(hooks_config_path).and_return(JSON.generate(existing_config))
+      end
+
+      it "merges heartbeat hook with existing on_activity hooks" do
+        hook_write = integration[:preparation].file_writes.first
+        parsed = JSON.parse(hook_write.content)
+
+        expect(parsed["hooks"]["on_activity"].length).to eq(2)
+        expect(parsed["hooks"]["on_activity"].first["command"]).to eq("echo existing")
+        expect(parsed["hooks"]["on_activity"].last["command"]).to include("touch")
+      end
+
+      it "preserves other hook types" do
+        hook_write = integration[:preparation].file_writes.first
+        parsed = JSON.parse(hook_write.content)
+
+        expect(parsed["hooks"]["on_error"]).to eq([{"command" => "echo error"}])
+      end
+    end
+
     context "with shell-sensitive characters in heartbeat_file_path" do
       let(:heartbeat_path) { "/tmp/heartbeat file;touch /tmp/pwned" }
 
