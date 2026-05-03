@@ -130,10 +130,16 @@ module AgentHarness
       end
 
       def config_file_content(options = {})
-        {
-          provider: options[:api_provider],
-          model: options[:model_id]
-        }.to_json
+        # Only use explicit provider_name or default to "openai".
+        # api_provider is a generic backend label (e.g. "openrouter") that is not
+        # a valid Kilo built-in provider ID, so we must not fall back to it here.
+        provider_name = options[:provider_name] || "openai"
+        model_id = options[:model_id]
+
+        config = {provider: {provider_name => {}}}
+        config[:model] = "#{provider_name}/#{model_id}" if model_id
+
+        config.to_json
       end
 
       def error_patterns
