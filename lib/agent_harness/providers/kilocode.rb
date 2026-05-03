@@ -130,7 +130,7 @@ module AgentHarness
       end
 
       def config_file_content(options = {})
-        provider_name = options[:provider_name] || options[:api_provider] || "openai"
+        provider_name = options[:provider_name] || "openai"
         model_id = options[:model_id]
 
         config = {provider: {provider_name => {}}}

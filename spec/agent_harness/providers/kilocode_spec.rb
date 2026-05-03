@@ -3602,7 +3602,7 @@ RSpec.describe AgentHarness::Providers::Kilocode do
 
     it "returns JSON config with provider as nested object" do
       content = provider.config_file_content(
-        api_provider: "anthropic",
+        provider_name: "anthropic",
         model_id: "claude-sonnet-4-6"
       )
       parsed = JSON.parse(content)
@@ -3615,6 +3615,17 @@ RSpec.describe AgentHarness::Providers::Kilocode do
       content = provider.config_file_content(
         provider_name: "openai",
         api_provider: "anthropic",
+        model_id: "gpt-4o"
+      )
+      parsed = JSON.parse(content)
+
+      expect(parsed["provider"]).to eq({"openai" => {}})
+      expect(parsed["model"]).to eq("openai/gpt-4o")
+    end
+
+    it "ignores api_provider when provider_name is not given" do
+      content = provider.config_file_content(
+        api_provider: "openrouter",
         model_id: "gpt-4o"
       )
       parsed = JSON.parse(content)
