@@ -1,5 +1,12 @@
 ## [Unreleased]
 
+## [0.16.1](https://github.com/viamin/agent-harness/compare/agent-harness/v0.16.0...agent-harness/v0.16.1) (2026-05-03)
+
+
+### Bug Fixes
+
+* **kilocode:** config_file_content generates invalid JSON for kilo CLI v7.1.3 ([#190](https://github.com/viamin/agent-harness/issues/190)) ([0f7e24a](https://github.com/viamin/agent-harness/commit/0f7e24a8c342045d16a9332385e93f0607d0845e))
+
 ## [0.16.0](https://github.com/viamin/agent-harness/compare/agent-harness/v0.15.0...agent-harness/v0.16.0) (2026-05-03)
 
 
