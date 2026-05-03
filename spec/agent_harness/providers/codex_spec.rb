@@ -5973,6 +5973,36 @@ RSpec.describe AgentHarness::Providers::Codex do
         expect(http).to have_received(:request).with(instance_of(Net::HTTP::Get)).ordered
       end
 
+      it "treats 401/403 as healthy since auth is validated separately" do
+        unauthorized_response = Net::HTTPUnauthorized.new("1.1", "401", "Unauthorized")
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(stdout: "codex 0.116.0", stderr: "", exit_code: 0, duration: 0.1)
+        )
+        allow(http).to receive(:request).and_return(unauthorized_response)
+
+        result = provider.preflight_check(
+          env: {"OPENAI_API_KEY" => "sk-test-key", "OPENAI_BASE_URL" => "https://api.openai.com"},
+          timeout: 5
+        )
+
+        expect(result).to eq({healthy: true})
+      end
+
+      it "treats 403 Forbidden as healthy since auth is validated separately" do
+        forbidden_response = Net::HTTPForbidden.new("1.1", "403", "Forbidden")
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(stdout: "codex 0.116.0", stderr: "", exit_code: 0, duration: 0.1)
+        )
+        allow(http).to receive(:request).and_return(forbidden_response)
+
+        result = provider.preflight_check(
+          env: {"OPENAI_API_KEY" => "sk-test-key", "OPENAI_BASE_URL" => "https://api.openai.com"},
+          timeout: 5
+        )
+
+        expect(result).to eq({healthy: true})
+      end
+
       it "returns a configuration error when the API base URL resolves to an invalid path" do
         not_found_response = Net::HTTPNotFound.new("1.1", "404", "Not Found")
         allow(mock_executor).to receive(:execute).and_return(

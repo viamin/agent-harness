@@ -601,7 +601,7 @@ module AgentHarness
         response = http.start do |client|
           head_response = client.request(Net::HTTP::Head.new(uri))
 
-          if http_success_or_redirect?(head_response)
+          if http_success_or_redirect?(head_response) || http_auth_rejection?(head_response)
             head_response
           else
             client.request(Net::HTTP::Get.new(uri))
@@ -611,6 +611,9 @@ module AgentHarness
         return {healthy: true} if http_success_or_redirect?(response)
 
         response_code = response.code.to_i
+        # 401/403 confirm the endpoint exists and is reachable; auth is
+        # validated separately by auth_status_for_env.
+        return {healthy: true} if http_auth_rejection?(response)
         if invalid_base_url_response_code?(response_code)
           return {
             healthy: false,
@@ -663,6 +666,10 @@ module AgentHarness
 
       def http_success_or_redirect?(response)
         response.is_a?(Net::HTTPSuccess) || response.is_a?(Net::HTTPRedirection)
+      end
+
+      def http_auth_rejection?(response)
+        [401, 403].include?(response.code.to_i)
       end
 
       def invalid_base_url_response_code?(response_code)
