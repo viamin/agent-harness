@@ -3623,15 +3623,17 @@ RSpec.describe AgentHarness::Providers::Kilocode do
       expect(parsed["model"]).to eq("openai/gpt-4o")
     end
 
-    it "falls back to api_provider when provider_name is not given" do
+    it "ignores api_provider and defaults to openai when provider_name is not given" do
       content = provider.config_file_content(
         api_provider: "openrouter",
         model_id: "gpt-4o"
       )
       parsed = JSON.parse(content)
 
-      expect(parsed["provider"]).to eq({"openrouter" => {}})
-      expect(parsed["model"]).to eq("openrouter/gpt-4o")
+      # api_provider is a generic backend label (e.g. "openrouter"), not a valid
+      # Kilo provider ID, so it must be ignored in favor of the "openai" default.
+      expect(parsed["provider"]).to eq({"openai" => {}})
+      expect(parsed["model"]).to eq("openai/gpt-4o")
     end
 
     it "defaults provider to openai with empty options" do
