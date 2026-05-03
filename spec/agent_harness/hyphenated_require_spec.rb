@@ -5,7 +5,7 @@ require "open3"
 RSpec.describe "hyphenated require entrypoint" do
   it 'loads the gem via `require "agent-harness"`' do
     stdout, stderr, status = Open3.capture3(
-      "ruby",
+      RbConfig.ruby,
       "-I",
       File.expand_path("../../lib", __dir__),
       "-e",
