@@ -341,4 +341,21 @@ RSpec.describe AgentHarness::Providers::Base do
       expect(provider.parse_rate_limit_reset(nil)).to be_nil
     end
   end
+
+  describe "#supports_activity_heartbeat?" do
+    it "returns false by default" do
+      expect(provider.supports_activity_heartbeat?).to be false
+    end
+  end
+
+  describe "#heartbeat_integration" do
+    it "returns a no-op integration by default" do
+      result = provider.heartbeat_integration(heartbeat_file_path: "/tmp/heartbeat")
+
+      expect(result[:supported]).to be false
+      expect(result[:env]).to eq({})
+      expect(result[:preparation]).to be_nil
+      expect(result[:granularity]).to be_nil
+    end
+  end
 end

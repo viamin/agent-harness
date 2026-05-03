@@ -147,6 +147,36 @@ module AgentHarness
         }
       end
 
+      def supports_activity_heartbeat?
+        true
+      end
+
+      def heartbeat_integration(heartbeat_file_path:)
+        unless heartbeat_file_path.is_a?(String) && !heartbeat_file_path.strip.empty?
+          raise ArgumentError, "heartbeat_file_path must be a non-empty String"
+        end
+
+        hook_script = heartbeat_hook_script(heartbeat_file_path)
+        config_payload = {"hooks" => {"on_activity" => [{"command" => hook_script}]}}
+
+        preparation = ExecutionPreparation.new(
+          file_writes: [
+            {
+              path: heartbeat_hook_config_path,
+              content: serialize_opencode_config(config_payload),
+              mode: 0o600
+            }
+          ]
+        )
+
+        {
+          supported: true,
+          env: {"OPENCODE_HEARTBEAT_FILE" => heartbeat_file_path},
+          preparation: preparation,
+          granularity: :tool_call
+        }
+      end
+
       def error_patterns
         COMMON_ERROR_PATTERNS
       end
@@ -231,6 +261,14 @@ module AgentHarness
 
       def serialize_opencode_config(payload)
         JSON.pretty_generate(payload)
+      end
+
+      def heartbeat_hook_script(heartbeat_file_path)
+        "touch #{heartbeat_file_path}"
+      end
+
+      def heartbeat_hook_config_path
+        "~/.config/opencode/hooks.json"
       end
 
       def stringify_keys(hash)

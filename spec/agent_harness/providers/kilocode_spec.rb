@@ -3670,4 +3670,60 @@ RSpec.describe AgentHarness::Providers::Kilocode do
       expect(provider.test_command_overrides).to eq(["--auto", "--print-logs"])
     end
   end
+
+  describe "#supports_activity_heartbeat?" do
+    let(:executor) { instance_double(AgentHarness::CommandExecutor) }
+    let(:provider) { described_class.new(executor: executor) }
+
+    it "returns true" do
+      expect(provider.supports_activity_heartbeat?).to be true
+    end
+  end
+
+  describe "#heartbeat_integration" do
+    let(:executor) { instance_double(AgentHarness::CommandExecutor) }
+    let(:provider) { described_class.new(executor: executor) }
+    let(:heartbeat_path) { "/paid-heartbeat/.paid-heartbeat" }
+
+    subject(:integration) { provider.heartbeat_integration(heartbeat_file_path: heartbeat_path) }
+
+    it "returns a supported integration" do
+      expect(integration[:supported]).to be true
+    end
+
+    it "sets the KILO_HEARTBEAT_FILE env var" do
+      expect(integration[:env]).to eq("KILO_HEARTBEAT_FILE" => heartbeat_path)
+    end
+
+    it "returns an ExecutionPreparation with hook config" do
+      preparation = integration[:preparation]
+      expect(preparation).to be_a(AgentHarness::ExecutionPreparation)
+      expect(preparation.file_writes).not_to be_empty
+
+      hook_write = preparation.file_writes.first
+      expect(hook_write.path).to eq("~/.config/kilocode/hooks.json")
+      expect(hook_write.mode).to eq(0o600)
+
+      parsed = JSON.parse(hook_write.content)
+      expect(parsed).to have_key("hooks")
+      expect(parsed["hooks"]["on_activity"]).to be_an(Array)
+      expect(parsed["hooks"]["on_activity"].first["command"]).to include(heartbeat_path)
+    end
+
+    it "reports tool_call granularity" do
+      expect(integration[:granularity]).to eq(:tool_call)
+    end
+
+    it "raises ArgumentError for nil heartbeat_file_path" do
+      expect {
+        provider.heartbeat_integration(heartbeat_file_path: nil)
+      }.to raise_error(ArgumentError, /heartbeat_file_path must be a non-empty String/)
+    end
+
+    it "raises ArgumentError for blank heartbeat_file_path" do
+      expect {
+        provider.heartbeat_integration(heartbeat_file_path: "  ")
+      }.to raise_error(ArgumentError, /heartbeat_file_path must be a non-empty String/)
+    end
+  end
 end
