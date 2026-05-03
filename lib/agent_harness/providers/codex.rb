@@ -65,6 +65,14 @@ module AgentHarness
           /bwrap.*no permissions/i,
           /no permissions to create a new namespace/i,
           /unprivileged.*namespace/i
+        ],
+        transient_error: [
+          /timeout/i,
+          /connection.*error/i,
+          /service.*unavailable/i,
+          /\b503\b/,
+          /\b502\b/,
+          /connection.*reset/i
         ]
       }.tap { |h| h.each_value(&:freeze) }.freeze
 
@@ -274,12 +282,8 @@ module AgentHarness
             stripped = line.strip
             next if stripped.empty?
 
-            begin
-              event = JSON.parse(stripped)
-            rescue JSON::ParserError
-              # Non-JSON stdout line — skip, only classify explicit error events
-              next
-            end
+            event = parse_stdout_jsonl_event(stripped)
+            next unless event
 
             result = classify_jsonl_event(event)
             return result if result
@@ -290,6 +294,24 @@ module AgentHarness
 
         def classify_stderr_chunk(text)
           match_patterns(text, STDERR_ERROR_PATTERNS)
+        end
+
+        def parse_stdout_jsonl_event(text)
+          escaped_newline_trimmed = text.sub(/(?:\\r)?\\n\z/, "")
+          candidates = if escaped_newline_trimmed == text
+            [text]
+          else
+            [text, escaped_newline_trimmed]
+          end
+
+          candidates.each do |candidate|
+            return JSON.parse(candidate)
+          rescue JSON::ParserError
+            next
+          end
+
+          # Non-JSON stdout line — skip, only classify explicit error events
+          nil
         end
 
         def classify_jsonl_event(event)

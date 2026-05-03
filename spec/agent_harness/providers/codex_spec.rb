@@ -6113,6 +6113,18 @@ RSpec.describe AgentHarness::Providers::Codex do
         expect(result).to eq({reason: :rate_limited})
       end
 
+      it "classifies transient failures from JSONL error payloads" do
+        jsonl = '{"type":"error","error":"503 service unavailable"}'
+        result = described_class.classify_output_chunk(jsonl, stream: :stdout)
+        expect(result).to eq({reason: :transient_error})
+      end
+
+      it "classifies JSONL errors with a literal escaped newline suffix" do
+        jsonl = '{"type":"error","error":"503 service unavailable"}\n'
+        result = described_class.classify_output_chunk(jsonl, stream: :stdout)
+        expect(result).to eq({reason: :transient_error})
+      end
+
       it "handles multi-line JSONL with one error event" do
         lines = [
           '{"type": "message.delta", "delta": {"text": "hi"}}',
