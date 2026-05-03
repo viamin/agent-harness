@@ -1,5 +1,19 @@
 ## [Unreleased]
 
+## [0.14.0](https://github.com/viamin/agent-harness/compare/agent-harness/v0.13.1...agent-harness/v0.14.0) (2026-05-03)
+
+
+### Features
+
+* expose public provider registry and config factory methods ([#193](https://github.com/viamin/agent-harness/issues/193)) ([11158ef](https://github.com/viamin/agent-harness/commit/11158efde6d77c885e7be1a03465d915efa0ee40)), closes [#175](https://github.com/viamin/agent-harness/issues/175)
+
+## [0.13.1](https://github.com/viamin/agent-harness/compare/agent-harness/v0.13.0...agent-harness/v0.13.1) (2026-05-03)
+
+
+### Bug Fixes
+
+* Gem name (agent-harness) and require file (agent_harness) naming mismatch ([#189](https://github.com/viamin/agent-harness/issues/189)) ([4f19ba6](https://github.com/viamin/agent-harness/commit/4f19ba61d31a7815100fc602b73230b369770961))
+
 ## [0.13.0](https://github.com/viamin/agent-harness/compare/agent-harness/v0.12.0...agent-harness/v0.13.0) (2026-05-03)
 
 
