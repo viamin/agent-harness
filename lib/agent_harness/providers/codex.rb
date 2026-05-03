@@ -317,6 +317,9 @@ module AgentHarness
         def classify_jsonl_event(event)
           return nil unless event.is_a?(Hash)
 
+          payload = unwrap_classification_event(event)
+          event = payload if payload.is_a?(Hash)
+
           # Only classify events with explicit error payloads — not normal
           # assistant messages whose text happens to contain error-ish words.
           error_text = extract_jsonl_error_text(event)
@@ -354,6 +357,15 @@ module AgentHarness
 
         def parser_instance
           @parser_instance ||= allocate.freeze
+        end
+
+        def unwrap_classification_event(event)
+          case event["type"]
+          when "event_msg", "response_item"
+            event["payload"]
+          else
+            event
+          end
         end
 
         def tail_nonempty_lines(text, limit:)

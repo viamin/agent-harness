@@ -6091,6 +6091,19 @@ RSpec.describe AgentHarness::Providers::Codex do
         expect(result).to eq({reason: :quota_exceeded})
       end
 
+      it "classifies wrapped event_msg JSONL events with nested error message" do
+        jsonl = JSON.generate({
+          "type" => "event_msg",
+          "payload" => {
+            "type" => "turn.failed",
+            "error" => {"message" => "free tier limit reached"}
+          }
+        })
+
+        result = described_class.classify_output_chunk(jsonl, stream: :stdout)
+        expect(result).to eq({reason: :quota_exceeded})
+      end
+
       it "classifies JSONL events with auth error" do
         jsonl = '{"type": "error", "error": "authentication_error: invalid token"}'
         result = described_class.classify_output_chunk(jsonl, stream: :stdout)
@@ -6222,6 +6235,37 @@ RSpec.describe AgentHarness::Providers::Codex do
       result = described_class.parse_cli_jsonl_transcript(mixed_output)
       expect(result).not_to be_nil
       expect(result[:text]).to eq("hello")
+    end
+  end
+
+  describe "#parse_container_output" do
+    subject(:provider) { described_class.new }
+
+    it "parses plain text output" do
+      response = provider.parse_container_output(
+        stdout: "Hello from Codex",
+        stderr: "",
+        exit_code: 0,
+        duration: 3.0
+      )
+
+      expect(response).to be_a(AgentHarness::Response)
+      expect(response.output).to eq("Hello from Codex")
+      expect(response.success?).to be true
+      expect(response.duration).to eq(3.0)
+      expect(response.provider).to eq(:codex)
+    end
+
+    it "captures errors for non-zero exit codes" do
+      response = provider.parse_container_output(
+        stdout: "",
+        stderr: "command failed",
+        exit_code: 1,
+        duration: 0.5
+      )
+
+      expect(response.failed?).to be true
+      expect(response.error).to include("command failed")
     end
   end
 end
