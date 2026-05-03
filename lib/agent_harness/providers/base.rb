@@ -197,6 +197,56 @@ module AgentHarness
         handle_error(e, prompt: prompt, options: options)
       end
 
+      # Return the provider CLI execution plan without executing it.
+      #
+      # @param prompt [String] the prompt to send
+      # @param options [Hash] additional options
+      # @return [Hash] with :command, :env, and :preparation keys
+      def plan_execution(prompt:, **options)
+        log_debug("plan_execution_start", prompt_length: prompt.length, options: options.keys)
+
+        if options[:mode] == :text && !supports_text_mode?
+          log_debug("text_mode_cli_fallback", provider: self.class.provider_name)
+          options = options.except(:mode).merge(tools: :none)
+        end
+
+        if options[:tools] && !supports_tool_control?
+          log_debug("tools_option_unsupported",
+            provider: self.class.provider_name,
+            tools: options[:tools])
+          @logger&.warn(
+            "[AgentHarness::#{self.class.provider_name}] tools option is not supported " \
+            "by this provider and will be ignored"
+          )
+        end
+
+        options = normalize_provider_runtime(options)
+
+        extension_context = apply_extensions_to_prompt(prompt, options)
+        prompt = extension_context.prompt
+        options = extension_context.options
+        options = normalize_sub_agent(options)
+        prompt = apply_sub_agent_to_prompt(prompt, options[:translated_sub_agent])
+
+        options = normalize_mcp_servers(options)
+        validate_mcp_servers!(options[:mcp_servers]) if options[:mcp_servers]&.any?
+
+        {
+          command: build_command(prompt, options),
+          env: build_env(options),
+          preparation: build_execution_preparation(options)
+        }
+      rescue ExtensionCompatibilityError, McpConfigurationError, McpUnsupportedError, McpTransportUnsupportedError
+        raise
+      rescue => e
+        handle_error(e, prompt: prompt, options: options)
+      ensure
+        # build_command may call build_mcp_flags which creates tempfiles (and
+        # in Docker even invokes the executor) via write_mcp_config_file.
+        # Clean up so that planning has no lasting side effects.
+        cleanup_mcp_tempfiles! if respond_to?(:cleanup_mcp_tempfiles!, true)
+      end
+
       # Send a multi-turn chat message via the provider's chat transport.
       #
       # Providers that support chat mode can accept either +conversation:+

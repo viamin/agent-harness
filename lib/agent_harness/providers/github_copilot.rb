@@ -188,11 +188,11 @@ module AgentHarness
         ["--allow-all"]
       end
 
-      def supports_sessions?(probe_timeout: nil, env: {}, version: nil)
+      def supports_sessions?(probe_timeout: nil, env: {}, version: :not_provided)
         legacy_prompt_cli?(version: version, probe_timeout: probe_timeout, env: env)
       end
 
-      def session_flags(session_id, version: nil, probe_timeout: nil, env: {})
+      def session_flags(session_id, version: :not_provided, probe_timeout: nil, env: {})
         return [] unless session_id && !session_id.empty?
         return [] unless legacy_prompt_cli?(version: version, probe_timeout: probe_timeout, env: env)
 
@@ -345,6 +345,30 @@ module AgentHarness
         handle_error(e, prompt: prompt, options: options)
       end
 
+      def plan_execution(prompt:, **options)
+        log_debug("plan_execution_start", prompt_length: prompt.length, options: options.keys)
+
+        options = normalize_provider_runtime(options)
+        options = normalize_mcp_servers(options)
+        validate_mcp_servers!(options[:mcp_servers]) if options[:mcp_servers]&.any?
+
+        env = build_env(options)
+        version = planned_copilot_cli_version(env)
+        raise unsupported_subcommand_cli_error if subcommand_cli_version?(version)
+
+        options = options.merge(_command_env: env, _planned_cli_version: version)
+
+        {
+          command: build_command(prompt, options),
+          env: env,
+          preparation: build_execution_preparation(options)
+        }
+      rescue McpConfigurationError, McpUnsupportedError, McpTransportUnsupportedError
+        raise
+      rescue => e
+        handle_error(e, prompt: prompt, options: options)
+      end
+
       # Parse raw container output into a Response.
       #
       # Overrides the base implementation to support the
@@ -377,7 +401,14 @@ module AgentHarness
       def build_command(prompt, options)
         env = options.fetch(:_command_env) { build_env(options) }
         runtime = options[:provider_runtime]
-        version = copilot_cli_version(probe_timeout: options[:_version_probe_timeout], env: env)
+        version = if options.key?(:_planned_cli_version)
+          options[:_planned_cli_version]
+        else
+          copilot_cli_version(
+            probe_timeout: options[:_version_probe_timeout],
+            env: env
+          )
+        end
 
         raise unsupported_subcommand_cli_error if subcommand_cli_version?(version)
 
@@ -440,13 +471,13 @@ module AgentHarness
         ["--allow-all-tools"]
       end
 
-      def supports_json_output_format?(probe_timeout: nil, env: {}, version: nil)
-        version ||= copilot_cli_version(probe_timeout: probe_timeout, env: env)
+      def supports_json_output_format?(probe_timeout: nil, env: {}, version: :not_provided)
+        version = copilot_cli_version(probe_timeout: probe_timeout, env: env) if version == :not_provided
         !version.nil? && !subcommand_cli_version?(version) && version >= JSON_OUTPUT_MIN_VERSION
       end
 
-      def legacy_prompt_cli?(probe_timeout: nil, env: {}, version: nil)
-        version ||= copilot_cli_version(probe_timeout: probe_timeout, env: env)
+      def legacy_prompt_cli?(probe_timeout: nil, env: {}, version: :not_provided)
+        version = copilot_cli_version(probe_timeout: probe_timeout, env: env) if version == :not_provided
         !version.nil? && !subcommand_cli_version?(version)
       end
 
@@ -473,6 +504,17 @@ module AgentHarness
         log_debug("copilot_cli_version_check_failed", error: e.message)
         @copilot_cli_versions ||= {}
         @copilot_cli_versions[cache_key] = nil if defined?(cache_key)
+      end
+
+      def planned_copilot_cli_version(env)
+        cache_key = version_probe_cache_key(env)
+        @copilot_cli_versions ||= {}
+        return @copilot_cli_versions[cache_key] if @copilot_cli_versions.key?(cache_key)
+
+        # When no cached version is available (cold start), return nil so
+        # build_command falls back to the conservative -s flag path, matching
+        # the behavior of send_message when the version probe returns nil.
+        nil
       end
 
       def version_probe_cache_key(env)

@@ -386,6 +386,17 @@ module AgentHarness
         cleanup_mcp_tempfiles!
       end
 
+      def plan_execution(prompt:, **options)
+        if options[:mode] == :text
+          raise ProviderError,
+            "Anthropic text mode uses the HTTP transport and does not produce a CLI execution plan"
+        end
+
+        super
+      ensure
+        cleanup_mcp_tempfiles!
+      end
+
       def api_key_env_var_names = ["ANTHROPIC_API_KEY"]
 
       def api_key_unset_vars = ["ANTHROPIC_BASE_URL", "ANTHROPIC_HEADER_X_AGENT_RUN_ID", "ANTHROPIC_HEADER_X_PROXY_TOKEN"]

@@ -775,6 +775,15 @@ module AgentHarness
         raise NotImplementedError, "#{self.class} must implement #send_message"
       end
 
+      # Return the provider CLI execution plan without executing the command.
+      #
+      # @param prompt [String] the prompt to send
+      # @param options [Hash] provider-specific options
+      # @return [Hash] with :command, :env, and :preparation keys
+      def plan_execution(prompt:, **options)
+        raise NotImplementedError, "#{self.class} must implement #plan_execution"
+      end
+
       # Provider configuration schema for app-driven setup UIs
       #
       # Returns metadata describing the configurable fields, supported

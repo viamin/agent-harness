@@ -312,6 +312,28 @@ module AgentHarness
         handle_error(e, prompt: prompt, options: options)
       end
 
+      def plan_execution(prompt:, **options)
+        log_debug("plan_execution_start", prompt_length: prompt.length, options: options.keys)
+
+        options = normalize_provider_runtime(options)
+        options = normalize_mcp_servers(options)
+        validate_mcp_servers!(options[:mcp_servers]) if options[:mcp_servers]&.any?
+
+        runtime = options[:provider_runtime]
+        cmd = [self.class.binary_name, "-p"]
+        cmd.concat(runtime.flags) if runtime&.flags&.any?
+
+        {
+          command: cmd,
+          env: build_env(options),
+          preparation: build_execution_preparation(options)
+        }
+      rescue McpConfigurationError, McpUnsupportedError, McpTransportUnsupportedError
+        raise
+      rescue => e
+        handle_error(e, prompt: prompt, options: options)
+      end
+
       protected
 
       def build_command(prompt, options)

@@ -817,6 +817,24 @@ RSpec.describe AgentHarness::Providers::Aider do
       end
     end
 
+    describe "#plan_execution" do
+      let(:mock_executor) { instance_double(AgentHarness::CommandExecutor) }
+      let(:provider) { described_class.new(executor: mock_executor) }
+
+      it "returns the command plan without creating or executing the history file" do
+        expect(mock_executor).not_to receive(:execute)
+        expect(provider).not_to receive(:prepare_llm_history_file!)
+
+        plan = provider.plan_execution(prompt: "hello")
+
+        expect(plan[:command]).to include("--llm-history-file")
+        history_path = plan[:command][plan[:command].index("--llm-history-file") + 1]
+        expect(history_path).to match(%r{/tmp/aider_llm_history_})
+        expect(plan[:env]).to eq({})
+        expect(plan[:preparation]).to be_nil
+      end
+    end
+
     describe "#parse_response with llm history" do
       let(:result) do
         AgentHarness::CommandExecutor::Result.new(

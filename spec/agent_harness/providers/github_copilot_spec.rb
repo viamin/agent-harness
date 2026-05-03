@@ -3154,6 +3154,37 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
       end
     end
 
+    describe "#plan_execution" do
+      it "returns the cached CLI command plan without executing" do
+        provider.instance_variable_set(:@copilot_cli_versions, {
+          provider.send(:version_probe_cache_key, {}) => Gem::Version.new("0.0.422")
+        })
+        expect(mock_executor).not_to receive(:execute)
+
+        plan = provider.plan_execution(prompt: "Hello")
+
+        expect(plan).to eq(
+          command: ["github-copilot-cli", "-p", "Hello", "--output-format", "json"],
+          env: {},
+          preparation: nil
+        )
+      end
+
+      it "falls back to the -s flag path when the CLI version is not cached" do
+        uncached_provider = described_class.new(config: config, executor: mock_executor)
+        allow(mock_executor).to receive(:which).with("github-copilot-cli").and_return("/usr/bin/github-copilot-cli")
+        expect(mock_executor).not_to receive(:execute)
+
+        plan = uncached_provider.plan_execution(prompt: "Hello")
+
+        expect(plan).to eq(
+          command: ["github-copilot-cli", "-p", "Hello", "-s"],
+          env: {},
+          preparation: nil
+        )
+      end
+    end
+
     describe "#parse_container_output" do
       it "parses plain text output" do
         response = provider.parse_container_output(
