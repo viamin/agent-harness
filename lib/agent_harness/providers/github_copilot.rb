@@ -365,8 +365,11 @@ module AgentHarness
           exit_code: exit_code,
           duration: duration
         )
-        parse_response(result, duration: duration,
-          json_output_requested: options.fetch(:json_output_requested, false))
+        parse_response(
+          result,
+          duration: duration,
+          json_output_requested: options.fetch(:json_output_requested, false)
+        )
       end
 
       protected

@@ -283,8 +283,11 @@ module AgentHarness
           exit_code: exit_code,
           duration: duration
         )
-        parse_response(result, duration: duration,
-          llm_history_path: options[:llm_history_path])
+        parse_response(
+          result,
+          duration: duration,
+          llm_history_path: options[:llm_history_path]
+        )
       end
 
       protected

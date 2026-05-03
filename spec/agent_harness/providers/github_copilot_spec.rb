@@ -3171,7 +3171,8 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
 
       it "passes json_output_requested option to parse_response" do
         jsonl_output = [
-          '{"type":"message","message":{"content":[{"type":"text","text":"result text"}],"usage":{"input_tokens":10,"output_tokens":5}}}'
+          '{"text":"result text"}',
+          '{"usage":{"input_tokens":10,"output_tokens":5}}'
         ].join("\n")
 
         response = provider.parse_container_output(
@@ -3183,6 +3184,8 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         )
 
         expect(response).to be_a(AgentHarness::Response)
+        expect(response.output).to eq("result text")
+        expect(response.tokens).to eq({input: 10, output: 5, total: 15})
         expect(response.success?).to be true
       end
 
