@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "json"
+require "shellwords"
 
 module AgentHarness
   module Providers
@@ -264,7 +265,7 @@ module AgentHarness
       end
 
       def heartbeat_hook_script(heartbeat_file_path)
-        "touch #{heartbeat_file_path}"
+        "touch #{Shellwords.escape(heartbeat_file_path)}"
       end
 
       def heartbeat_hook_config_path

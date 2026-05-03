@@ -3725,5 +3725,18 @@ RSpec.describe AgentHarness::Providers::Kilocode do
         provider.heartbeat_integration(heartbeat_file_path: "  ")
       }.to raise_error(ArgumentError, /heartbeat_file_path must be a non-empty String/)
     end
+
+    context "with shell-sensitive characters in heartbeat_file_path" do
+      let(:heartbeat_path) { "/tmp/heartbeat file;touch /tmp/pwned" }
+
+      it "shell-escapes the heartbeat command path" do
+        hook_write = integration[:preparation].file_writes.first
+        parsed = JSON.parse(hook_write.content)
+
+        expect(parsed["hooks"]["on_activity"].first["command"]).to eq(
+          "touch /tmp/heartbeat\\ file\\;touch\\ /tmp/pwned"
+        )
+      end
+    end
   end
 end
