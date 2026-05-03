@@ -1,5 +1,12 @@
 ## [Unreleased]
 
+## [0.17.0](https://github.com/viamin/agent-harness/compare/agent-harness/v0.16.1...agent-harness/v0.17.0) (2026-05-03)
+
+
+### Features
+
+* **extensions:** add activity heartbeat support for OpenCode/KiloCode-compatible providers ([#201](https://github.com/viamin/agent-harness/issues/201)) ([4914f6d](https://github.com/viamin/agent-harness/commit/4914f6d7971c55600f268b6886b967b753b25c96))
+
 ## [0.16.1](https://github.com/viamin/agent-harness/compare/agent-harness/v0.16.0...agent-harness/v0.16.1) (2026-05-03)
 
 
