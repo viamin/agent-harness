@@ -3173,14 +3173,18 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         )
       end
 
-      it "raises when the CLI version is not already cached" do
+      it "falls back to the -s flag path when the CLI version is not cached" do
         uncached_provider = described_class.new(config: config, executor: mock_executor)
         allow(mock_executor).to receive(:which).with("github-copilot-cli").and_return("/usr/bin/github-copilot-cli")
         expect(mock_executor).not_to receive(:execute)
 
-        expect {
-          uncached_provider.plan_execution(prompt: "Hello")
-        }.to raise_error(AgentHarness::ProviderError, /requires a cached CLI version/)
+        plan = uncached_provider.plan_execution(prompt: "Hello")
+
+        expect(plan).to eq(
+          command: ["github-copilot-cli", "-p", "Hello", "-s"],
+          env: {},
+          preparation: nil
+        )
       end
     end
 
