@@ -217,6 +217,12 @@ RSpec.describe AgentHarness::Providers::Base do
     end
   end
 
+  describe "#preflight_check" do
+    it "returns a healthy no-op result by default" do
+      expect(provider.preflight_check(env: {})).to eq({healthy: true})
+    end
+  end
+
   describe "#parse_response" do
     let(:result) { instance_double("Result", stdout: "output", stderr: "", exit_code: 0) }
 

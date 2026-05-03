@@ -1,5 +1,19 @@
 ## [Unreleased]
 
+## [0.15.0](https://github.com/viamin/agent-harness/compare/agent-harness/v0.14.1...agent-harness/v0.15.0) (2026-05-03)
+
+
+### Features
+
+* pre-flight connectivity check API for provider health verification ([#185](https://github.com/viamin/agent-harness/issues/185)) ([3ad6a2f](https://github.com/viamin/agent-harness/commit/3ad6a2ffbfe84b2271e4de968fa096276724e63c))
+
+## [0.14.1](https://github.com/viamin/agent-harness/compare/agent-harness/v0.14.0...agent-harness/v0.14.1) (2026-05-03)
+
+
+### Bug Fixes
+
+* **kilocode:** test_command_overrides never wired into smoke test — kilo hangs without --auto ([#191](https://github.com/viamin/agent-harness/issues/191)) ([7c01d49](https://github.com/viamin/agent-harness/commit/7c01d49713cbedb6fb93758be95b7d92aa4599d3))
+
 ## [0.14.0](https://github.com/viamin/agent-harness/compare/agent-harness/v0.13.1...agent-harness/v0.14.0) (2026-05-03)
 
 

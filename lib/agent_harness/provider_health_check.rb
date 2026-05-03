@@ -186,6 +186,7 @@ module AgentHarness
         klass = registry.get(provider_name)
         provider_instance = build_provider(provider_name, klass, executor: executor)
         host_preflight_allowed = host_preflight_allowed?(executor: executor, provider_runtime: provider_runtime)
+        provider_preflight_allowed = provider_preflight_allowed?(executor: executor)
 
         auth_degraded = false
         if host_preflight_allowed
@@ -271,6 +272,26 @@ module AgentHarness
             error_category: :configuration,
             check: :configuration
           )
+        end
+
+        # Only run the provider preflight in host contexts. The preflight
+        # hook (e.g. Codex's Net::HTTP probe) executes in the Ruby host
+        # process, so its network view may not match a containerised or
+        # remote executor. Skipping it avoids marking a provider unhealthy
+        # when only the host cannot reach the endpoint.
+        if provider_preflight_allowed
+          preflight_env = build_preflight_env(provider_instance, provider_runtime)
+          preflight = provider_instance.preflight_check(env: preflight_env, timeout: timeout)
+          unless preflight[:healthy]
+            return build_result(
+              name: provider_name,
+              status: "error",
+              message: preflight[:reason] || "Preflight check failed",
+              start_time: start_time,
+              error_category: normalize_preflight_error_category(preflight[:error_category]),
+              check: :preflight
+            )
+          end
         end
 
         smoke_contract = provider_instance.smoke_test_contract
@@ -363,13 +384,21 @@ module AgentHarness
 
       def host_preflight_allowed?(executor:, provider_runtime: nil)
         effective_executor = executor || AgentHarness.configuration.command_executor
-        # Skip host preflight only when provider runtime has environment/config overrides
-        # that could conflict with host-level checks (env, base_url, api_provider, unset_env)
         if provider_runtime
           runtime = ProviderRuntime.wrap(provider_runtime)
-          return false if runtime && (!runtime.env.empty? || !runtime.unset_env.empty? || runtime.base_url || runtime.api_provider)
+          return false if runtime_sensitive_host_overrides?(runtime)
         end
+
+        provider_preflight_allowed?(executor: effective_executor)
+      end
+
+      def provider_preflight_allowed?(executor:)
+        effective_executor = executor || AgentHarness.configuration.command_executor
         effective_executor.is_a?(CommandExecutor) && !effective_executor.is_a?(DockerCommandExecutor)
+      end
+
+      def runtime_sensitive_host_overrides?(runtime)
+        runtime && (!runtime.env.empty? || !runtime.unset_env.empty? || runtime.base_url || runtime.api_provider)
       end
 
       def effective_check_timeout(provider_name, base_timeout)
@@ -407,6 +436,25 @@ module AgentHarness
           :configuration
         else
           :unknown
+        end
+      end
+
+      def normalize_preflight_error_category(category)
+        case category&.to_sym
+        when :installation
+          :installation
+        when :auth_expired, :authentication
+          :authentication
+        when :rate_limited, :rate_limit
+          :rate_limit
+        when :quota_exceeded, :quota
+          :quota
+        when :timeout
+          :timeout
+        when :configuration
+          :configuration
+        else
+          :transient
         end
       end
 
@@ -451,6 +499,15 @@ module AgentHarness
         end
 
         provider
+      end
+
+      def build_preflight_env(provider_instance, provider_runtime)
+        return {} unless provider_instance.respond_to?(:build_env, true)
+
+        runtime = ProviderRuntime.wrap(provider_runtime)
+        provider_instance.send(:build_env, {provider_runtime: runtime})
+      rescue ArgumentError, NoMethodError
+        {}
       end
 
       def monotonic_now

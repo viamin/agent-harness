@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
 require "json"
+require "net/http"
+require "uri"
 
 module AgentHarness
   module Providers
@@ -42,6 +44,62 @@ module AgentHarness
         /failed to refresh token\b.*service(?:\s+(?:is|was))?\s+(?:temporarily\s+)?unavailable/im
       ].freeze
 
+      SHARED_OUTPUT_ERROR_PATTERNS = {
+        quota_exceeded: [
+          /free tier limit reached/i,
+          /please upgrade to a paid plan/i,
+          /quota.*exceeded/i,
+          /insufficient.*quota/i,
+          /billing/i
+        ],
+        rate_limited: [
+          /rate.?limit/i,
+          /too.?many.?requests/i,
+          /\b429\b/
+        ],
+        auth_expired: [
+          /authentication_error/i,
+          /invalid_grant/i,
+          /Token is expired or invalid/i,
+          /unauthorized/i
+        ],
+        sandbox_failure: [
+          /bwrap.*no permissions/i,
+          /no permissions to create a new namespace/i,
+          /unprivileged.*namespace/i
+        ],
+        transient_error: [
+          /timeout/i,
+          /connection.*error/i,
+          /service.*unavailable/i,
+          /\b503\b/,
+          /\b502\b/,
+          /connection.*reset/i
+        ]
+      }.tap { |h| h.each_value(&:freeze) }.freeze
+
+      STDOUT_ERROR_PATTERNS = SHARED_OUTPUT_ERROR_PATTERNS.merge(
+        auth_expired: [
+          /authentication_error/i,
+          /invalid_grant/i,
+          /Token is expired or invalid/i,
+          /unauthorized/i
+        ]
+      ).tap { |h| h.each_value(&:freeze) }.freeze
+
+      STDERR_ERROR_PATTERNS = SHARED_OUTPUT_ERROR_PATTERNS.merge(
+        auth_expired: OAUTH_REFRESH_FAILURE_PATTERNS + [
+          /invalid.*api.*key/i,
+          /unauthorized/i,
+          /authentication_error/i,
+          /invalid_grant/i,
+          /Token is expired or invalid/i,
+          /\b401\b/,
+          /incorrect.*api.*key/i
+        ],
+        transient_error: OAUTH_REFRESH_TRANSIENT_PATTERNS + SHARED_OUTPUT_ERROR_PATTERNS[:transient_error]
+      ).tap { |h| h.each_value(&:freeze) }.freeze
+
       class << self
         def provider_name
           :codex
@@ -49,6 +107,34 @@ module AgentHarness
 
         def binary_name
           "codex"
+        end
+
+        # Classify a chunk of output text from the provider CLI in real-time
+        #
+        # Can be called during streaming to classify both stdout and stderr
+        # chunks as they arrive. For stdout, attempts to parse JSONL events
+        # and extract error information from structured output.
+        #
+        # Because CommandExecutor reads arbitrary 4096-byte chunks, a single
+        # JSONL event may be split across consecutive calls. Pass a String
+        # buffer via +stdout_buffer+ that persists across calls so incomplete
+        # trailing lines are re-assembled before parsing.
+        #
+        # @param text [String] the output chunk to classify
+        # @param stream [:stdout, :stderr] which stream the text came from
+        # @param stdout_buffer [String, nil] mutable String accumulator for
+        #   incomplete stdout lines across calls (ignored for stderr)
+        # @return [nil, Hash] nil if no error detected, or a Hash with
+        #   :reason (Symbol)
+        def classify_output_chunk(text, stream:, stdout_buffer: nil)
+          return nil if text.nil? || text.strip.empty?
+
+          case normalize_output_stream(stream)
+          when :stdout
+            classify_stdout_chunk(text, stdout_buffer)
+          when :stderr
+            classify_stderr_chunk(text)
+          end
         end
 
         def available?
@@ -168,8 +254,127 @@ module AgentHarness
 
         private
 
+        def classify_stdout_chunk(text, buffer)
+          # Prepend any leftover data from a previous partial chunk.
+          data = buffer ? (buffer.slice!(0..-1) + text) : text
+
+          lines = data.split("\n", -1)
+
+          # If the chunk does not end with a newline the last element is an
+          # incomplete line — stash it in the buffer for the next call.
+          if buffer && !data.end_with?("\n")
+            buffer.replace(lines.pop.to_s)
+          end
+
+          lines.each do |line|
+            stripped = line.strip
+            next if stripped.empty?
+
+            event = parse_stdout_jsonl_event(stripped)
+            next unless event
+
+            result = classify_jsonl_event(event)
+            return result if result
+          end
+
+          nil
+        end
+
+        def classify_stderr_chunk(text)
+          match_patterns(text, STDERR_ERROR_PATTERNS)
+        end
+
+        def normalize_output_stream(stream)
+          normalized_stream = case stream
+          when Symbol
+            stream
+          when String
+            stream.strip.to_sym
+          end
+
+          return normalized_stream if %i[stdout stderr].include?(normalized_stream)
+
+          raise ArgumentError, "Unknown stream: #{stream.inspect}"
+        end
+
+        def parse_stdout_jsonl_event(text)
+          escaped_newline_trimmed = text.sub(/(?:\\r)?\\n\z/, "")
+          candidates = if escaped_newline_trimmed == text
+            [text]
+          else
+            [text, escaped_newline_trimmed]
+          end
+
+          candidates.each do |candidate|
+            return JSON.parse(candidate)
+          rescue JSON::ParserError
+            next
+          end
+
+          # Non-JSON stdout line — skip, only classify explicit error events
+          nil
+        end
+
+        def classify_jsonl_event(event)
+          return nil unless event.is_a?(Hash)
+
+          payload = unwrap_classification_event(event)
+          event = payload if payload.is_a?(Hash)
+
+          # Only classify events with explicit error payloads — not normal
+          # assistant messages whose text happens to contain error-ish words.
+          error_text = extract_jsonl_error_text(event)
+          return nil unless error_text
+
+          match_patterns(error_text, STDOUT_ERROR_PATTERNS)
+        end
+
+        def extract_jsonl_error_text(event)
+          # Direct error field (top-level "error" key)
+          error = event["error"]
+          return error if error.is_a?(String) && !error.empty?
+
+          if error.is_a?(Hash)
+            msg = error["message"]
+            return msg if msg.is_a?(String) && !msg.empty?
+          end
+
+          return nil unless explicit_jsonl_error_event?(event["type"])
+
+          # "message" appears on both error events and normal assistant output.
+          # Restricting message-based extraction to explicit error event types
+          # avoids false positives from user-facing assistant content.
+          message = event["message"]
+          return message if message.is_a?(String) && !message.empty?
+
+          nil
+        end
+
+        def match_patterns(text, pattern_groups)
+          pattern_groups.each do |category, patterns|
+            if patterns.any? { |p| text.match?(p) }
+              return {reason: category}
+            end
+          end
+
+          nil
+        end
+
         def parser_instance
           @parser_instance ||= allocate.freeze
+        end
+
+        def unwrap_classification_event(event)
+          case event["type"]
+          when "event_msg", "response_item"
+            event["payload"]
+          else
+            event
+          end
+        end
+
+        def explicit_jsonl_error_event?(event_type)
+          %w[error turn.failed].include?(event_type)
         end
 
         def tail_nonempty_lines(text, limit:)
@@ -317,7 +522,10 @@ module AgentHarness
           ],
           abort: [
             /free tier limit reached/i,
-            /please upgrade to a paid plan/i
+            /please upgrade to a paid plan/i,
+            /bwrap.*no permissions/i,
+            /no permissions to create a new namespace/i,
+            /unprivileged.*namespace/i
           ]
         )
       end
@@ -331,30 +539,7 @@ module AgentHarness
       end
 
       def auth_status
-        api_key = ENV["OPENAI_API_KEY"]
-        if api_key && !api_key.strip.empty?
-          if api_key.strip.start_with?("sk-")
-            return {valid: true, expires_at: nil, error: nil, auth_method: :api_key}
-          else
-            return {valid: false, expires_at: nil, error: "OPENAI_API_KEY is set but does not appear to be a valid OpenAI API key", auth_method: nil}
-          end
-        end
-
-        credentials = read_codex_credentials
-        if credentials
-          key = credentials["api_key"] || credentials["apiKey"] || credentials["OPENAI_API_KEY"]
-          if key.is_a?(String) && !key.strip.empty?
-            if key.strip.start_with?("sk-")
-              return {valid: true, expires_at: nil, error: nil, auth_method: :config_file}
-            else
-              return {valid: false, expires_at: nil, error: "Config file API key is set but does not appear to be a valid OpenAI API key", auth_method: nil}
-            end
-          end
-        end
-
-        {valid: false, expires_at: nil, error: "No OpenAI API key found. Set OPENAI_API_KEY or configure in #{codex_config_path}", auth_method: nil}
-      rescue IOError, JSON::ParserError => e
-        {valid: false, expires_at: nil, error: e.message, auth_method: nil}
+        auth_status_for_env({})
       end
 
       def health_status
@@ -368,6 +553,32 @@ module AgentHarness
         end
 
         {healthy: true, message: "Codex CLI available and authenticated"}
+      end
+
+      def preflight_check(env:, timeout: 10)
+        auth = auth_status_for_env(env)
+        return {healthy: false, reason: auth[:error], error_category: :authentication} unless auth[:valid]
+
+        version = codex_cli_version(env: env, timeout: timeout)
+        unless version
+          return {
+            healthy: false,
+            reason: "Codex CLI version check failed. Ensure 'codex' is installed and available in PATH.",
+            error_category: :installation
+          }
+        end
+
+        unless SUPPORTED_CLI_REQUIREMENT.satisfied_by?(version)
+          return {
+            healthy: false,
+            reason: "Unsupported Codex CLI version #{version}. Expected #{SUPPORTED_CLI_REQUIREMENT}.",
+            error_category: :installation
+          }
+        end
+
+        check_base_url_reachability(env: env, timeout: timeout)
+      rescue => e
+        {healthy: false, reason: "Codex preflight failed: #{e.message}"}
       end
 
       def validate_config
@@ -527,6 +738,150 @@ module AgentHarness
       end
 
       private
+
+      def auth_status_for_env(env)
+        api_key = env_fetch(env, "OPENAI_API_KEY")
+        # Fall back to process ENV when the provided env hash does not override auth keys
+        if api_key.nil? && !env.key?("OPENAI_API_KEY") && !env.key?(:OPENAI_API_KEY)
+          api_key = ENV["OPENAI_API_KEY"]
+        end
+
+        if api_key.nil? || api_key.strip.empty?
+          credentials = read_codex_credentials_for_env(env)
+          if credentials
+            key = credentials["api_key"] || credentials["apiKey"] || credentials["OPENAI_API_KEY"]
+            if key.is_a?(String) && !key.strip.empty?
+              if key.strip.start_with?("sk-")
+                return {valid: true, expires_at: nil, error: nil, auth_method: :config_file}
+              end
+
+              return {
+                valid: false,
+                expires_at: nil,
+                error: "Config file API key is set but does not appear to be a valid OpenAI API key",
+                auth_method: nil
+              }
+            end
+          end
+
+          return {
+            valid: false,
+            expires_at: nil,
+            error: "No OpenAI API key found. Set OPENAI_API_KEY or configure in #{codex_config_path_for_env(env)}",
+            auth_method: nil
+          }
+        end
+
+        if api_key.strip.start_with?("sk-")
+          {valid: true, expires_at: nil, error: nil, auth_method: :api_key}
+        else
+          {
+            valid: false,
+            expires_at: nil,
+            error: "OPENAI_API_KEY is set but does not appear to be a valid OpenAI API key",
+            auth_method: nil
+          }
+        end
+      rescue IOError, JSON::ParserError => e
+        {valid: false, expires_at: nil, error: e.message, auth_method: nil}
+      end
+
+      def codex_cli_version(env:, timeout:)
+        result = @executor.execute([self.class.binary_name, "--version"], timeout: timeout, env: env)
+        version_string = [result.stdout, result.stderr].join("\n")[/(\d+\.\d+\.\d+)/, 1]
+        return nil unless version_string
+
+        Gem::Version.new(version_string)
+      rescue # rubocop prefers bare rescue; in Ruby this catches StandardError, not Exception/SignalException
+        nil
+      end
+
+      def check_base_url_reachability(env:, timeout:)
+        uri = codex_base_url_uri(env)
+        http = Net::HTTP.new(uri.host, uri.port)
+        http.use_ssl = uri.scheme == "https"
+        http.open_timeout = timeout
+        http.read_timeout = timeout
+        http.write_timeout = timeout if http.respond_to?(:write_timeout=)
+
+        response = http.start do |client|
+          head_response = client.request(Net::HTTP::Head.new(uri))
+
+          if http_success_or_redirect?(head_response) || http_auth_rejection?(head_response)
+            head_response
+          else
+            client.request(Net::HTTP::Get.new(uri))
+          end
+        end
+
+        return {healthy: true} if http_success_or_redirect?(response)
+
+        response_code = response.code.to_i
+        # 401/403 confirm the endpoint exists and is reachable; auth is
+        # validated separately by auth_status_for_env.
+        return {healthy: true} if http_auth_rejection?(response)
+        if invalid_base_url_response_code?(response_code)
+          return {
+            healthy: false,
+            reason: "Codex API base URL #{uri} returned HTTP #{response.code}. Check OPENAI_BASE_URL; the configured URL appears to point at an invalid API path.",
+            error_category: :configuration
+          }
+        end
+
+        {
+          healthy: false,
+          reason: "Codex API base URL #{uri} returned HTTP #{response.code}. Check OPENAI_BASE_URL, proxy configuration, and network policy.",
+          error_category: (response_code >= 500) ? :transient : :configuration
+        }
+      rescue URI::InvalidURIError => e
+        {
+          healthy: false,
+          reason: e.message.start_with?("OPENAI_BASE_URL") ? e.message : "OPENAI_BASE_URL is invalid. Check the configured URL format.",
+          error_category: :configuration
+        }
+      rescue SocketError, SystemCallError, IOError, Timeout::Error, OpenSSL::SSL::SSLError => e
+        {
+          healthy: false,
+          reason: "Codex API base URL #{env_fetch(env, "OPENAI_BASE_URL") || "https://api.openai.com"} is unreachable: #{e.message}. Check DNS, proxy settings, and network policy.",
+          error_category: :transient
+        }
+      end
+
+      def codex_base_url_uri(env)
+        raw_url = env_fetch(env, "OPENAI_BASE_URL")
+        # Only fall back to the default URL; do not read process ENV here, as the
+        # caller may have intentionally omitted OPENAI_BASE_URL to use the default.
+        raw_url = "https://api.openai.com" if raw_url.nil? || raw_url.empty?
+
+        uri = URI.parse(raw_url)
+
+        unless uri.is_a?(URI::HTTP) && uri.host && !uri.host.empty?
+          raise URI::InvalidURIError,
+            "OPENAI_BASE_URL must be an absolute HTTP or HTTPS URL (got #{raw_url.inspect})"
+        end
+
+        uri.path = "/" if uri.path.nil? || uri.path.empty?
+        uri
+      end
+
+      def env_fetch(env, key)
+        return env[key] if env.key?(key)
+        return env[key.to_sym] if env.key?(key.to_sym)
+
+        nil
+      end
+
+      def http_success_or_redirect?(response)
+        response.is_a?(Net::HTTPSuccess) || response.is_a?(Net::HTTPRedirection)
+      end
+
+      def http_auth_rejection?(response)
+        [401, 403].include?(response.code.to_i)
+      end
+
+      def invalid_base_url_response_code?(response_code)
+        [404, 410].include?(response_code)
+      end
 
       def build_streaming_event(event)
         raw_event, payload, dispatch_type = unwrap_streaming_event(event)
@@ -1017,7 +1372,11 @@ module AgentHarness
             total: total_tokens
           } : nil
         }
-      rescue
+      rescue JSON::ParserError => e
+        AgentHarness.logger&.warn("[AgentHarness::Codex] JSONL parse error: #{e.message}")
+        nil
+      rescue => e
+        AgentHarness.logger&.warn("[AgentHarness::Codex] Unexpected error parsing JSONL output: #{e.class}: #{e.message}")
         nil
       end
 
@@ -1434,7 +1793,11 @@ module AgentHarness
       end
 
       def read_codex_credentials
-        path = codex_config_path
+        read_codex_credentials_for_env({})
+      end
+
+      def read_codex_credentials_for_env(env)
+        path = codex_config_path_for_env(env)
         return nil unless File.exist?(path)
 
         parsed = JSON.parse(File.read(path))
@@ -1450,7 +1813,13 @@ module AgentHarness
       end
 
       def codex_config_path
-        config_dir = ENV["CODEX_CONFIG_DIR"] || File.expand_path("~/.codex")
+        codex_config_path_for_env({})
+      end
+
+      def codex_config_path_for_env(env)
+        config_dir = env_fetch(env, "CODEX_CONFIG_DIR")
+        config_dir = ENV["CODEX_CONFIG_DIR"] if config_dir.nil? || config_dir.empty?
+        config_dir = File.expand_path("~/.codex") if config_dir.nil? || config_dir.empty?
         File.join(config_dir, "config.json")
       end
 

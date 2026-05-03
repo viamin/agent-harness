@@ -1051,6 +1051,15 @@ module AgentHarness
         {healthy: true, message: "OK"}
       end
 
+      # Lightweight provider-owned preflight check executed before smoke tests.
+      #
+      # @param env [Hash] request-scoped environment overrides
+      # @param timeout [Numeric] time budget in seconds
+      # @return [Hash] with :healthy and optional :reason keys
+      def preflight_check(env:, timeout: 10)
+        {healthy: true}
+      end
+
       # Canonical smoke-test contract for this provider instance.
       #
       # @return [Hash, nil] smoke-test metadata
