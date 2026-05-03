@@ -47,6 +47,52 @@ RSpec.describe AgentHarness do
     end
   end
 
+  describe ".providers" do
+    it "returns an array of registered provider name symbols" do
+      result = AgentHarness.providers
+      expect(result).to be_an(Array)
+      expect(result).to include(:claude, :cursor, :gemini)
+    end
+
+    it "delegates to Registry#all" do
+      expect(AgentHarness.providers).to eq(AgentHarness::Providers::Registry.instance.all)
+    end
+  end
+
+  describe ".provider_class" do
+    it "returns the provider class for a known provider" do
+      expect(AgentHarness.provider_class(:claude)).to eq(AgentHarness::Providers::Anthropic)
+    end
+
+    it "resolves aliases" do
+      expect(AgentHarness.provider_class(:anthropic)).to eq(AgentHarness::Providers::Anthropic)
+    end
+
+    it "raises ConfigurationError for an unknown provider" do
+      expect { AgentHarness.provider_class(:nonexistent) }.to raise_error(AgentHarness::ConfigurationError)
+    end
+  end
+
+  describe ".build_config" do
+    it "returns a ProviderConfig with the given name" do
+      config = AgentHarness.build_config(:claude)
+      expect(config).to be_a(AgentHarness::ProviderConfig)
+      expect(config.name).to eq(:claude)
+    end
+
+    it "applies default values" do
+      config = AgentHarness.build_config(:cursor)
+      expect(config.enabled).to be true
+      expect(config.priority).to eq(10)
+    end
+
+    it "merges provided options" do
+      config = AgentHarness.build_config(:claude, priority: 5, model: "opus")
+      expect(config.priority).to eq(5)
+      expect(config.model).to eq("opus")
+    end
+  end
+
   describe ".sub_agent" do
     it "resolves configured sub-agents" do
       AgentHarness.configure do |config|

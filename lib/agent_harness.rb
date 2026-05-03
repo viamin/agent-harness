@@ -142,6 +142,33 @@ module AgentHarness
       conductor.provider_manager.get_provider(name)
     end
 
+    # List all registered provider names
+    #
+    # @return [Array<Symbol>] canonical provider names
+    def providers
+      Providers::Registry.instance.all
+    end
+
+    # Look up the provider class for a given name or alias
+    #
+    # @param name [Symbol, String] the provider name or alias
+    # @return [Class] the provider class
+    # @raise [ConfigurationError] if provider not found
+    def provider_class(name)
+      Providers::Registry.instance.get(name)
+    end
+
+    # Build a new ProviderConfig with defaults for the given provider
+    #
+    # @param name [Symbol, String] the provider name
+    # @param options [Hash] optional attribute overrides to merge
+    # @return [ProviderConfig] a new config instance
+    def build_config(name, **options)
+      config = ProviderConfig.new(name)
+      config.merge!(options) unless options.empty?
+      config
+    end
+
     # Get install contract metadata for a provider
     # @param name [Symbol, String] the provider name
     # @return [Hash] install contract metadata
