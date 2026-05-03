@@ -1,5 +1,12 @@
 ## [Unreleased]
 
+## [0.16.0](https://github.com/viamin/agent-harness/compare/agent-harness/v0.15.0...agent-harness/v0.16.0) (2026-05-03)
+
+
+### Features
+
+* Add plan-only / dry-run API returning command+env without execution ([#192](https://github.com/viamin/agent-harness/issues/192)) ([0e6a105](https://github.com/viamin/agent-harness/commit/0e6a1053515e0495900b67c5845a2f95c571f055))
+
 ## [0.15.0](https://github.com/viamin/agent-harness/compare/agent-harness/v0.14.1...agent-harness/v0.15.0) (2026-05-03)
 
 
