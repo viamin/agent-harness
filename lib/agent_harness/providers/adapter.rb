@@ -765,6 +765,11 @@ module AgentHarness
       #   For providers that delegate to Providers::Base#send_message, a plain Hash
       #   is automatically coerced into a ProviderRuntime. Providers that override
       #   #send_message directly are responsible for handling this option.
+      # @option options [Boolean] :smoke_test when +true+, signals that this
+      #   invocation is a lightweight connectivity/health check issued by
+      #   {#smoke_test}. Providers may use this flag to adjust command-line
+      #   arguments (e.g. Kilocode appends +--auto --print-logs+) or skip
+      #   interactive features that would cause the process to hang.
       # @return [Response] response object with output and metadata
       def send_message(prompt:, **options)
         raise NotImplementedError, "#{self.class} must implement #send_message"
@@ -1061,7 +1066,8 @@ module AgentHarness
         response = send_message(
           prompt: prompt,
           timeout: timeout || contract[:timeout],
-          provider_runtime: provider_runtime
+          provider_runtime: provider_runtime,
+          smoke_test: true
         )
 
         output = response.output.to_s.strip

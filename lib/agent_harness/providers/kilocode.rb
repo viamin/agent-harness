@@ -157,6 +157,7 @@ module AgentHarness
 
       def build_command(prompt, options)
         cmd = [self.class.binary_name, "run", "--format", "json"]
+        cmd.concat(test_command_overrides) if options[:smoke_test]
         cmd << prompt
         cmd
       end
