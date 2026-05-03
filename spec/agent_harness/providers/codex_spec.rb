@@ -6067,6 +6067,17 @@ RSpec.describe AgentHarness::Providers::Codex do
         result = described_class.classify_output_chunk(msg, stream: :stderr)
         expect(result).to eq({reason: :transient_error})
       end
+
+      it "accepts string stream names" do
+        result = described_class.classify_output_chunk("quota exceeded for this account", stream: "stderr")
+        expect(result).to eq({reason: :quota_exceeded})
+      end
+    end
+
+    it "raises for unknown stream names" do
+      expect do
+        described_class.classify_output_chunk("rate limit exceeded", stream: :other)
+      end.to raise_error(ArgumentError, /Unknown stream/)
     end
 
     describe "with stream: :stdout" do
@@ -6108,6 +6119,12 @@ RSpec.describe AgentHarness::Providers::Codex do
         jsonl = '{"type": "error", "error": "authentication_error: invalid token"}'
         result = described_class.classify_output_chunk(jsonl, stream: :stdout)
         expect(result).to eq({reason: :auth_expired})
+      end
+
+      it "classifies explicit error events using the message field" do
+        jsonl = '{"type":"error","message":"free tier limit reached"}'
+        result = described_class.classify_output_chunk(jsonl, stream: :stdout)
+        expect(result).to eq({reason: :quota_exceeded})
       end
 
       it "returns nil for plain-text stdout (only JSONL error events are classified)" do
@@ -6212,19 +6229,22 @@ RSpec.describe AgentHarness::Providers::Codex do
     let(:executor) { instance_double(AgentHarness::CommandExecutor, which: "/usr/bin/codex") }
     let(:provider) { described_class.new(executor: executor) }
 
-    it "logs and returns nil on malformed JSONL causing StandardError" do
+    it "logs and returns nil on unexpected parsing errors" do
       logger = instance_double("Logger")
       allow(AgentHarness).to receive(:logger).and_return(logger)
       allow(logger).to receive(:warn)
+      allow(JSON).to receive(:parse).and_raise(StandardError, "boom")
 
-      # Force a StandardError by passing something that causes an unexpected error
-      # The method should catch it and return nil with logging
-      result = described_class.parse_cli_jsonl_transcript("{not valid\x00json")
-      # Even with bad input, the method handles it gracefully
-      expect(result).not_to be_nil # parse_jsonl_output skips unparseable lines
+      result = described_class.parse_cli_jsonl_transcript('{"type":"message.delta"}')
+
+      expect(result).to be_nil
+      expect(logger).to have_received(:warn).with(/Unexpected error parsing JSONL output: StandardError: boom/)
     end
 
-    it "skips malformed JSON lines gracefully" do
+    it "skips malformed JSON lines without logging warnings" do
+      logger = instance_double("Logger", warn: nil)
+      allow(AgentHarness).to receive(:logger).and_return(logger)
+
       mixed_output = [
         "this is not json at all",
         '{"type": "message.delta", "delta": {"text": "hello"}}',
@@ -6235,6 +6255,7 @@ RSpec.describe AgentHarness::Providers::Codex do
       result = described_class.parse_cli_jsonl_transcript(mixed_output)
       expect(result).not_to be_nil
       expect(result[:text]).to eq("hello")
+      expect(logger).not_to have_received(:warn)
     end
   end
 

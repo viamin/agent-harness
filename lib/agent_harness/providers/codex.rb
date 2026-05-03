@@ -42,7 +42,7 @@ module AgentHarness
         /failed to refresh token\b.*service(?:\s+(?:is|was))?\s+(?:temporarily\s+)?unavailable/im
       ].freeze
 
-      STDOUT_ERROR_PATTERNS = {
+      SHARED_OUTPUT_ERROR_PATTERNS = {
         quota_exceeded: [
           /free tier limit reached/i,
           /please upgrade to a paid plan/i,
@@ -76,19 +76,16 @@ module AgentHarness
         ]
       }.tap { |h| h.each_value(&:freeze) }.freeze
 
-      STDERR_ERROR_PATTERNS = {
-        quota_exceeded: [
-          /free tier limit reached/i,
-          /please upgrade to a paid plan/i,
-          /quota.*exceeded/i,
-          /insufficient.*quota/i,
-          /billing/i
-        ],
-        rate_limited: [
-          /rate.?limit/i,
-          /too.?many.?requests/i,
-          /\b429\b/
-        ],
+      STDOUT_ERROR_PATTERNS = SHARED_OUTPUT_ERROR_PATTERNS.merge(
+        auth_expired: [
+          /authentication_error/i,
+          /invalid_grant/i,
+          /Token is expired or invalid/i,
+          /unauthorized/i
+        ]
+      ).tap { |h| h.each_value(&:freeze) }.freeze
+
+      STDERR_ERROR_PATTERNS = SHARED_OUTPUT_ERROR_PATTERNS.merge(
         auth_expired: OAUTH_REFRESH_FAILURE_PATTERNS + [
           /invalid.*api.*key/i,
           /unauthorized/i,
@@ -98,20 +95,8 @@ module AgentHarness
           /\b401\b/,
           /incorrect.*api.*key/i
         ],
-        sandbox_failure: [
-          /bwrap.*no permissions/i,
-          /no permissions to create a new namespace/i,
-          /unprivileged.*namespace/i
-        ],
-        transient_error: OAUTH_REFRESH_TRANSIENT_PATTERNS + [
-          /timeout/i,
-          /connection.*error/i,
-          /service.*unavailable/i,
-          /\b503\b/,
-          /\b502\b/,
-          /connection.*reset/i
-        ]
-      }.tap { |h| h.each_value(&:freeze) }.freeze
+        transient_error: OAUTH_REFRESH_TRANSIENT_PATTERNS + SHARED_OUTPUT_ERROR_PATTERNS[:transient_error]
+      ).tap { |h| h.each_value(&:freeze) }.freeze
 
       class << self
         def provider_name
@@ -142,9 +127,10 @@ module AgentHarness
         def classify_output_chunk(text, stream:, stdout_buffer: nil)
           return nil if text.nil? || text.strip.empty?
 
-          if stream == :stdout
+          case normalize_output_stream(stream)
+          when :stdout
             classify_stdout_chunk(text, stdout_buffer)
-          else
+          when :stderr
             classify_stderr_chunk(text)
           end
         end
@@ -296,6 +282,19 @@ module AgentHarness
           match_patterns(text, STDERR_ERROR_PATTERNS)
         end
 
+        def normalize_output_stream(stream)
+          normalized_stream = case stream
+          when Symbol
+            stream
+          when String
+            stream.strip.to_sym
+          end
+
+          return normalized_stream if %i[stdout stderr].include?(normalized_stream)
+
+          raise ArgumentError, "Unknown stream: #{stream.inspect}"
+        end
+
         def parse_stdout_jsonl_event(text)
           escaped_newline_trimmed = text.sub(/(?:\\r)?\\n\z/, "")
           candidates = if escaped_newline_trimmed == text
@@ -338,10 +337,14 @@ module AgentHarness
             return msg if msg.is_a?(String) && !msg.empty?
           end
 
-          # Only extract from "message" when the event type is explicitly an
-          # error event — normal assistant output (agent_message, response_item,
-          # etc.) also carries a "message" field with user-facing text that
-          # would false-positive on patterns like /429/.
+          return nil unless explicit_jsonl_error_event?(event["type"])
+
+          # "message" appears on both error events and normal assistant output.
+          # Restricting message-based extraction to explicit error event types
+          # avoids false positives from user-facing assistant content.
+          message = event["message"]
+          return message if message.is_a?(String) && !message.empty?
+
           nil
         end
 
@@ -366,6 +369,10 @@ module AgentHarness
           else
             event
           end
+        end
+
+        def explicit_jsonl_error_event?(event_type)
+          %w[error turn.failed].include?(event_type)
         end
 
         def tail_nonempty_lines(text, limit:)
