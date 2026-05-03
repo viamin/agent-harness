@@ -333,30 +333,7 @@ module AgentHarness
       end
 
       def auth_status
-        api_key = ENV["OPENAI_API_KEY"]
-        if api_key && !api_key.strip.empty?
-          if api_key.strip.start_with?("sk-")
-            return {valid: true, expires_at: nil, error: nil, auth_method: :api_key}
-          else
-            return {valid: false, expires_at: nil, error: "OPENAI_API_KEY is set but does not appear to be a valid OpenAI API key", auth_method: nil}
-          end
-        end
-
-        credentials = read_codex_credentials
-        if credentials
-          key = credentials["api_key"] || credentials["apiKey"] || credentials["OPENAI_API_KEY"]
-          if key.is_a?(String) && !key.strip.empty?
-            if key.strip.start_with?("sk-")
-              return {valid: true, expires_at: nil, error: nil, auth_method: :config_file}
-            else
-              return {valid: false, expires_at: nil, error: "Config file API key is set but does not appear to be a valid OpenAI API key", auth_method: nil}
-            end
-          end
-        end
-
-        {valid: false, expires_at: nil, error: "No OpenAI API key found. Set OPENAI_API_KEY or configure in #{codex_config_path}", auth_method: nil}
-      rescue IOError, JSON::ParserError => e
-        {valid: false, expires_at: nil, error: e.message, auth_method: nil}
+        auth_status_for_env({})
       end
 
       def health_status
@@ -558,6 +535,11 @@ module AgentHarness
 
       def auth_status_for_env(env)
         api_key = env_fetch(env, "OPENAI_API_KEY")
+        # Fall back to process ENV when the provided env hash does not override auth keys
+        if api_key.nil? && !env.key?("OPENAI_API_KEY") && !env.key?(:OPENAI_API_KEY)
+          api_key = ENV["OPENAI_API_KEY"]
+        end
+
         if api_key.nil? || api_key.strip.empty?
           credentials = read_codex_credentials_for_env(env)
           if credentials
@@ -575,9 +557,6 @@ module AgentHarness
               }
             end
           end
-
-          return auth_status unless env.key?("OPENAI_API_KEY") || env.key?(:OPENAI_API_KEY) ||
-            env.key?("CODEX_CONFIG_DIR") || env.key?(:CODEX_CONFIG_DIR)
 
           return {
             valid: false,
@@ -597,6 +576,8 @@ module AgentHarness
             auth_method: nil
           }
         end
+      rescue IOError, JSON::ParserError => e
+        {valid: false, expires_at: nil, error: e.message, auth_method: nil}
       end
 
       def codex_cli_version(env:, timeout:)
@@ -1594,19 +1575,7 @@ module AgentHarness
       end
 
       def read_codex_credentials
-        path = codex_config_path
-        return nil unless File.exist?(path)
-
-        parsed = JSON.parse(File.read(path))
-        return nil unless parsed.is_a?(Hash)
-
-        parsed
-      rescue Errno::ENOENT
-        nil
-      rescue Errno::EACCES => e
-        raise IOError, "Permission denied reading Codex config at #{path}: #{e.message}"
-      rescue JSON::ParserError
-        raise JSON::ParserError, "Invalid JSON in Codex config at #{path}"
+        read_codex_credentials_for_env({})
       end
 
       def read_codex_credentials_for_env(env)
@@ -1626,8 +1595,7 @@ module AgentHarness
       end
 
       def codex_config_path
-        config_dir = ENV["CODEX_CONFIG_DIR"] || File.expand_path("~/.codex")
-        File.join(config_dir, "config.json")
+        codex_config_path_for_env({})
       end
 
       def codex_config_path_for_env(env)
