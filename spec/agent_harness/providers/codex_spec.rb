@@ -6107,4 +6107,35 @@ RSpec.describe AgentHarness::Providers::Codex do
       expect(provider.test_command_overrides).to eq(["--skip-git-repo-check", "--output-last-message"])
     end
   end
+
+  describe "#parse_container_output" do
+    subject(:provider) { described_class.new }
+
+    it "parses plain text output" do
+      response = provider.parse_container_output(
+        stdout: "Hello from Codex",
+        stderr: "",
+        exit_code: 0,
+        duration: 3.0
+      )
+
+      expect(response).to be_a(AgentHarness::Response)
+      expect(response.output).to eq("Hello from Codex")
+      expect(response.success?).to be true
+      expect(response.duration).to eq(3.0)
+      expect(response.provider).to eq(:codex)
+    end
+
+    it "captures errors for non-zero exit codes" do
+      response = provider.parse_container_output(
+        stdout: "",
+        stderr: "command failed",
+        exit_code: 1,
+        duration: 0.5
+      )
+
+      expect(response.failed?).to be true
+      expect(response.error).to include("command failed")
+    end
+  end
 end

@@ -265,6 +265,29 @@ module AgentHarness
         handle_error(e, prompt: (last_msg&.dig(:content) || last_msg&.dig("content")).to_s, options: options)
       end
 
+      # Parse raw container output into a Response.
+      #
+      # This is the public interface for parsing CLI output captured from
+      # external execution (e.g. Docker containers) without going through
+      # send_message. It accepts the same data a CommandExecutor::Result
+      # holds and returns an AgentHarness::Response.
+      #
+      # @param stdout [String] captured standard output
+      # @param stderr [String] captured standard error
+      # @param exit_code [Integer] process exit code
+      # @param duration [Float] execution duration in seconds
+      # @param options [Hash] additional provider-specific options
+      # @return [Response] parsed response
+      def parse_container_output(stdout:, stderr: "", exit_code: 0, duration: 0.0, **options)
+        result = CommandExecutor::Result.new(
+          stdout: stdout,
+          stderr: stderr,
+          exit_code: exit_code,
+          duration: duration
+        )
+        parse_response(result, duration: duration)
+      end
+
       # Provider name for display
       #
       # @return [String] display name
