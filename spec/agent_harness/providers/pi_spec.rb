@@ -95,10 +95,10 @@ RSpec.describe AgentHarness::Providers::Pi do
     end
 
     describe "#capabilities" do
-      it "reports json mode and tool support" do
+      it "reports tool support without json mode" do
         caps = provider.capabilities
 
-        expect(caps[:json_mode]).to be true
+        expect(caps[:json_mode]).to be false
         expect(caps[:tool_use]).to be true
         expect(caps[:vision]).to be true
       end
@@ -147,6 +147,31 @@ RSpec.describe AgentHarness::Providers::Pi do
         provider.send_message(prompt: "Hello", provider_runtime: runtime)
       end
 
+      it "treats blank runtime provider and model overrides as absent" do
+        config.provider = "anthropic"
+        config.model = "claude-opus"
+        runtime = AgentHarness::ProviderRuntime.new(
+          api_provider: "   ",
+          model: "   "
+        )
+
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "response",
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        expect(mock_executor).to receive(:execute).with(
+          ["pi", "--no-session", "--provider", "anthropic", "--model", "claude-opus", "-p", "Hello"],
+          anything
+        )
+
+        provider.send_message(prompt: "Hello", provider_runtime: runtime)
+      end
+
       it "uses configured provider and model when runtime overrides are absent" do
         config.provider = "anthropic"
         config.model = "claude-opus"
@@ -186,6 +211,48 @@ RSpec.describe AgentHarness::Providers::Pi do
         )
 
         provider.send_message(prompt: "Hello")
+      end
+
+      it "appends runtime flags after configured default flags" do
+        config.default_flags = ["--provider", "anthropic", "--model", "claude-opus"]
+        runtime = AgentHarness::ProviderRuntime.new(
+          api_provider: "openai",
+          model: "gpt-4.1",
+          flags: ["--provider", "openai", "--model", "gpt-4.1"]
+        )
+
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "response",
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        expect(mock_executor).to receive(:execute).with(
+          [
+            "pi",
+            "--no-session",
+            "--provider",
+            "anthropic",
+            "--model",
+            "claude-opus",
+            "--provider",
+            "openai",
+            "--model",
+            "gpt-4.1",
+            "--provider",
+            "openai",
+            "--model",
+            "gpt-4.1",
+            "-p",
+            "Hello"
+          ],
+          anything
+        )
+
+        provider.send_message(prompt: "Hello", provider_runtime: runtime)
       end
 
       it "prefers runtime provider and model over configured defaults" do

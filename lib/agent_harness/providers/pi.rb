@@ -155,7 +155,7 @@ module AgentHarness
           file_upload: true,
           vision: true,
           tool_use: true,
-          json_mode: true,
+          json_mode: false,
           mcp: false,
           dangerous_mode: false
         }
@@ -190,12 +190,12 @@ module AgentHarness
 
       def build_command(prompt, options)
         runtime = options[:provider_runtime]
-        provider = runtime&.api_provider || @config.provider
-        model = runtime&.model || @config.model
+        provider = normalized_runtime_value(runtime&.api_provider) || @config.provider
+        model = normalized_runtime_value(runtime&.model) || @config.model
 
         cmd = [self.class.binary_name, "--no-session"]
-        cmd += runtime.flags if runtime
         cmd += @config.default_flags if @config.default_flags&.any?
+        cmd += runtime.flags if runtime
         cmd += ["--provider", provider] if provider
         cmd += ["--model", model] if model
         cmd << "--no-tools" if options[:tools] == :none
@@ -206,6 +206,13 @@ module AgentHarness
 
       def default_timeout
         300
+      end
+
+      def normalized_runtime_value(value)
+        return value unless value.respond_to?(:strip)
+
+        normalized = value.strip
+        normalized.empty? ? nil : normalized
       end
     end
   end
