@@ -32,6 +32,24 @@ RSpec.describe AgentHarness::ProviderRuntime do
       expect(runtime.metadata).to eq({})
     end
 
+    it "normalizes blank string overrides to nil" do
+      runtime = described_class.new(
+        model: "  ",
+        base_url: "  ",
+        api_provider: "  ",
+        chat_base_url: "  ",
+        chat_model: "  ",
+        chat_api_key: "  "
+      )
+
+      expect(runtime.model).to be_nil
+      expect(runtime.base_url).to be_nil
+      expect(runtime.api_provider).to be_nil
+      expect(runtime.chat_base_url).to be_nil
+      expect(runtime.chat_model).to be_nil
+      expect(runtime.chat_api_key).to be_nil
+    end
+
     it "converts symbol env keys to strings" do
       runtime = described_class.new(env: {MY_VAR: "val"})
       expect(runtime.env).to eq("MY_VAR" => "val")
