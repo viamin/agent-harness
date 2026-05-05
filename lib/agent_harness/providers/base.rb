@@ -550,7 +550,7 @@ module AgentHarness
 
         skill_runtime = skills.map { |skill| ProviderRuntime.wrap(skill.provider_override_for(self.class.provider_name)) }
           .compact
-          .reduce(nil) { |merged, skill_runtime| merged ? merged.merge(skill_runtime) : skill_runtime }
+          .reduce(nil) { |merged, sr| merged ? merged.merge(sr) : sr }
 
         runtime = skill_runtime&.merge(options[:provider_runtime]) || options[:provider_runtime]
         merged_options = options.merge(provider_runtime: runtime)
