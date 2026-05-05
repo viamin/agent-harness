@@ -1072,6 +1072,51 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
       end
     end
 
+    context "when caller timeout exceeds contract timeout" do
+      let(:provider_class) do
+        Class.new(AgentHarness::Providers::Base) do
+          class << self
+            attr_reader :last_timeout
+
+            def provider_name
+              :test_provider
+            end
+
+            def binary_name
+              "test-cli"
+            end
+
+            def available?
+              true
+            end
+
+            def smoke_test_contract
+              {prompt: "Reply with exactly OK.", expected_output: "OK", timeout: 30, require_output: true}
+            end
+          end
+
+          def smoke_test(timeout: nil, provider_runtime: nil)
+            self.class.instance_variable_set(:@last_timeout, timeout)
+            {ok: true, status: "ok", message: "Smoke test passed", error_category: nil}
+          end
+        end
+      end
+
+      before do
+        registry.register(:test_provider, provider_class)
+        allow(AgentHarness::Authentication).to receive(:auth_status)
+          .with(:test_provider)
+          .and_return({valid: true, expires_at: nil, error: nil})
+      end
+
+      it "forwards the caller timeout to smoke_test when it exceeds the contract timeout" do
+        described_class.check(:test_provider, timeout: 60)
+
+        # smoke_test receives 60 because 60 > contract timeout (30)
+        expect(provider_class.last_timeout).to eq(60)
+      end
+    end
+
     context "when a local CommandExecutor subclass is provided explicitly" do
       let(:logging_executor_class) do
         Class.new(AgentHarness::CommandExecutor) do

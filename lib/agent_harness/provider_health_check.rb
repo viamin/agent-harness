@@ -324,7 +324,17 @@ module AgentHarness
         # contract[:timeout]. When the provider overrides #smoke_test without
         # publishing a contract, forward the validated health-check timeout so
         # the override can honour it instead of running without any limit.
-        smoke_timeout = smoke_contract ? nil : timeout
+        # However, when the caller explicitly provides a timeout that exceeds
+        # the contract timeout, honour the caller's intent so slow models
+        # are not prematurely killed by the contract default.
+        contract_timeout = smoke_contract&.dig(:timeout)
+        smoke_timeout = if contract_timeout && timeout && timeout > contract_timeout
+          timeout
+        elsif smoke_contract
+          nil
+        else
+          timeout
+        end
         smoke = provider_instance.smoke_test(timeout: smoke_timeout, provider_runtime: provider_runtime)
         unless smoke[:ok]
           return build_result(
