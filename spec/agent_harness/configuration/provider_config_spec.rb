@@ -33,6 +33,13 @@ RSpec.describe AgentHarness::ProviderConfig do
       expect(config.priority).to eq(5)
     end
 
+    it "merges provider-specific runtime defaults" do
+      config.merge!(provider: "openai", model: "sonnet")
+
+      expect(config.provider).to eq("openai")
+      expect(config.model).to eq("sonnet")
+    end
+
     it "returns self" do
       result = config.merge!(enabled: false)
       expect(result).to be(config)

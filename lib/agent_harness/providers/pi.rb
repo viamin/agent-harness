@@ -190,11 +190,13 @@ module AgentHarness
 
       def build_command(prompt, options)
         runtime = options[:provider_runtime]
+        provider = runtime&.api_provider || @config.provider
+        model = runtime&.model || @config.model
 
         cmd = [self.class.binary_name, "--no-session"]
         cmd += runtime.flags if runtime
-        cmd += ["--provider", runtime.api_provider] if runtime&.api_provider
-        cmd += ["--model", runtime.model] if runtime&.model
+        cmd += ["--provider", provider] if provider
+        cmd += ["--model", model] if model
         cmd << "--no-tools" if options[:tools] == :none
         cmd += ["-p", prompt]
 

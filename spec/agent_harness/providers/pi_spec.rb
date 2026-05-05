@@ -78,7 +78,9 @@ RSpec.describe AgentHarness::Providers::Pi do
   describe "instance" do
     let(:mock_executor) { instance_double(AgentHarness::CommandExecutor) }
 
-    subject(:provider) { described_class.new(executor: mock_executor) }
+    let(:config) { AgentHarness::ProviderConfig.new(:pi) }
+
+    subject(:provider) { described_class.new(config: config, executor: mock_executor) }
 
     describe "#display_name" do
       it "returns Pi Coding Agent" do
@@ -139,6 +141,52 @@ RSpec.describe AgentHarness::Providers::Pi do
 
         expect(mock_executor).to receive(:execute).with(
           ["pi", "--no-session", "--quiet-startup", "--provider", "openai", "--model", "gpt-4.1", "-p", "Hello"],
+          anything
+        )
+
+        provider.send_message(prompt: "Hello", provider_runtime: runtime)
+      end
+
+      it "uses configured provider and model when runtime overrides are absent" do
+        config.provider = "anthropic"
+        config.model = "claude-opus"
+
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "response",
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        expect(mock_executor).to receive(:execute).with(
+          ["pi", "--no-session", "--provider", "anthropic", "--model", "claude-opus", "-p", "Hello"],
+          anything
+        )
+
+        provider.send_message(prompt: "Hello")
+      end
+
+      it "prefers runtime provider and model over configured defaults" do
+        config.provider = "anthropic"
+        config.model = "claude-opus"
+        runtime = AgentHarness::ProviderRuntime.new(
+          api_provider: "openai",
+          model: "gpt-4.1"
+        )
+
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "response",
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        expect(mock_executor).to receive(:execute).with(
+          ["pi", "--no-session", "--provider", "openai", "--model", "gpt-4.1", "-p", "Hello"],
           anything
         )
 
