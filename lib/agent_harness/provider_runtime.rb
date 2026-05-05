@@ -46,9 +46,9 @@ module AgentHarness
       validate_optional_string!(:base_url, base_url)
       validate_optional_string!(:api_provider, api_provider)
 
-      @model = model
-      @base_url = base_url
-      @api_provider = api_provider
+      @model = normalize_optional_string(model)
+      @base_url = normalize_optional_string(base_url)
+      @api_provider = normalize_optional_string(api_provider)
 
       env_hash = env.nil? ? {} : env
       unless env_hash.is_a?(Hash)
@@ -113,9 +113,9 @@ module AgentHarness
             "chat_tools must be an Array of Hashes; invalid element at index #{index}: #{tool.inspect} (#{tool.class})"
         end
       end
-      @chat_base_url = chat_base_url
-      @chat_model = chat_model
-      @chat_api_key = chat_api_key
+      @chat_base_url = normalize_optional_string(chat_base_url)
+      @chat_model = normalize_optional_string(chat_model)
+      @chat_api_key = normalize_optional_string(chat_api_key)
       @chat_max_tokens = chat_max_tokens
       @chat_tools = normalized_chat_tools&.freeze
 
@@ -190,6 +190,13 @@ module AgentHarness
       return if value.is_a?(String)
 
       raise ArgumentError, "#{name} must be a String or nil (got #{value.class})"
+    end
+
+    def normalize_optional_string(value)
+      return value unless value.respond_to?(:strip)
+
+      normalized = value.strip
+      normalized.empty? ? nil : normalized
     end
   end
 end

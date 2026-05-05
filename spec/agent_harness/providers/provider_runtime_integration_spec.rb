@@ -165,6 +165,47 @@ RSpec.describe "ProviderRuntime integration" do
       expect(response.model).to eq("runtime-model")
     end
 
+    it "treats a blank runtime model as absent in the response metadata" do
+      config = AgentHarness::ProviderConfig.new(:test_runtime)
+      config.model = "config-model"
+      provider_with_model = test_provider_class.new(config: config, executor: mock_executor)
+      runtime = AgentHarness::ProviderRuntime.new(model: "   ")
+
+      allow(mock_executor).to receive(:execute).and_return(success_result)
+
+      response = provider_with_model.send_message(prompt: "Hello", provider_runtime: runtime)
+      expect(response.model).to eq("config-model")
+    end
+
+    it "records the configured model when the runtime model is blank" do
+      config = AgentHarness::ProviderConfig.new(:test_runtime)
+      config.model = "config-model"
+      provider_with_model = test_provider_class.new(config: config, executor: mock_executor)
+      runtime = AgentHarness::ProviderRuntime.new(model: "   ")
+
+      token_response = AgentHarness::Response.new(
+        output: "ok",
+        exit_code: 0,
+        duration: 1.0,
+        provider: :test_runtime,
+        model: "config-model",
+        tokens: {input: 10, output: 20, total: 30}
+      )
+
+      allow(mock_executor).to receive(:execute).and_return(success_result)
+      allow(provider_with_model).to receive(:parse_response).and_return(token_response)
+
+      tracker = instance_double(AgentHarness::TokenTracker)
+      allow(AgentHarness).to receive(:token_tracker).and_return(tracker)
+      allow(tracker).to receive(:record)
+
+      provider_with_model.send_message(prompt: "Hello", provider_runtime: runtime)
+
+      expect(tracker).to have_received(:record).with(
+        hash_including(model: "config-model")
+      )
+    end
+
     it "does not leak inherited host env into executor overrides" do
       runtime = AgentHarness::ProviderRuntime.new(env: {"CUSTOM_KEY" => "custom_value"})
 

@@ -377,7 +377,7 @@ module AgentHarness
   # Provider-specific configuration
   class ProviderConfig
     attr_accessor :enabled, :type, :priority, :models, :default_flags, :timeout, :model,
-      :externally_sandboxed
+      :provider, :externally_sandboxed
 
     attr_reader :name
 
@@ -390,6 +390,7 @@ module AgentHarness
       @default_flags = []
       @timeout = nil
       @model = nil
+      @provider = nil
       @externally_sandboxed = false
     end
 
