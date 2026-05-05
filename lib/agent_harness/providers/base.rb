@@ -545,7 +545,9 @@ module AgentHarness
 
       def resolve_skills(options)
         skill_refs = options[:skills]
-        skills = Skills.resolve_all(skill_refs)
+        cwd = options.fetch(:cwd, Dir.pwd)
+        home = options.fetch(:home, Dir.home)
+        skills = Skills.resolve_all(skill_refs, cwd: cwd, home: home)
         return {skills: [], options: options, instructions: nil, tools: [], runtime_tools: []} if skills.empty?
 
         skill_runtime = skills.map { |skill| ProviderRuntime.wrap(skill.provider_override_for(self.class.provider_name)) }
@@ -636,7 +638,15 @@ module AgentHarness
         instructions = skill_context[:instructions]
         return messages if instructions.nil? || instructions.empty?
 
-        [{role: "system", content: instructions}] + messages
+        # Prepend skill instructions to the first system message if one exists,
+        # rather than inserting a separate system turn that could be overridden.
+        if messages.any? && messages.first[:role] == "system"
+          merged = messages.dup
+          merged[0] = merged[0].merge(content: "#{instructions}\n\n#{merged[0][:content]}")
+          merged
+        else
+          [{role: "system", content: instructions}] + messages
+        end
       end
 
       def apply_sub_agent_to_messages(messages, translated_sub_agent)
