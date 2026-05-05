@@ -104,6 +104,15 @@ RSpec.describe AgentHarness::Providers::Pi do
       end
     end
 
+    describe "#execution_semantics" do
+      it "declares text output via print mode" do
+        expect(provider.execution_semantics).to include(
+          output_format: :text,
+          non_interactive_flag: "-p"
+        )
+      end
+    end
+
     describe "#send_message" do
       it "executes pi in print mode without session persistence" do
         allow(mock_executor).to receive(:execute).and_return(

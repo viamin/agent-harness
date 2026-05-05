@@ -155,6 +155,8 @@ module AgentHarness
           file_upload: true,
           vision: true,
           tool_use: true,
+          # Pi's non-interactive CLI currently exposes only text print mode.
+          # Keep JSON mode disabled until the CLI ships a structured output flag.
           json_mode: false,
           mcp: false,
           dangerous_mode: false
