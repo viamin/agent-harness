@@ -1,5 +1,12 @@
 ## [Unreleased]
 
+## [0.17.1](https://github.com/viamin/agent-harness/compare/agent-harness/v0.17.0...agent-harness/v0.17.1) (2026-05-05)
+
+
+### Bug Fixes
+
+* 173: Smoke test contract timeout (30s) overrides caller timeout, breaking slow models ([#205](https://github.com/viamin/agent-harness/issues/205)) ([3a1e301](https://github.com/viamin/agent-harness/commit/3a1e301e36ef8957fd440f2782b3b8e4687b473c))
+
 ## [0.17.0](https://github.com/viamin/agent-harness/compare/agent-harness/v0.16.1...agent-harness/v0.17.0) (2026-05-03)
 
 
