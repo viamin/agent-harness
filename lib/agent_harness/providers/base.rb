@@ -224,6 +224,9 @@ module AgentHarness
         end
 
         options = normalize_provider_runtime(options)
+        skill_context = resolve_skills(options)
+        prompt = apply_skills_to_prompt(prompt, skill_context)
+        options = skill_context[:options]
 
         extension_context = apply_extensions_to_prompt(prompt, options)
         prompt = extension_context.prompt

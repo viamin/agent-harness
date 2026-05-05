@@ -55,15 +55,10 @@ module AgentHarness
 
     def provider_override_for(provider)
       provider_key = provider_lookup_key(provider)
-      merged = {}
+      merged = ProviderRuntime.wrap(@provider_overrides[:all])
+      merged = merged ? merged.merge(@provider_overrides[provider_key]) : ProviderRuntime.wrap(@provider_overrides[provider_key])
 
-      all_override = @provider_overrides[:all]
-      merged.merge!(deep_dup(all_override)) if all_override
-
-      specific_override = @provider_overrides[provider_key]
-      merged.merge!(deep_dup(specific_override)) if specific_override
-
-      merged
+      merged ? merged.to_h : {}
     end
 
     def to_h

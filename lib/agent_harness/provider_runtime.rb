@@ -174,6 +174,23 @@ module AgentHarness
         chat_tools.nil?
     end
 
+    def to_h
+      {
+        model: model,
+        base_url: base_url,
+        api_provider: api_provider,
+        env: env.empty? ? nil : env.dup,
+        flags: flags.empty? ? nil : flags.dup,
+        unset_env: unset_env.empty? ? nil : unset_env.dup,
+        metadata: metadata.empty? ? nil : metadata.dup,
+        chat_base_url: chat_base_url,
+        chat_model: chat_model,
+        chat_api_key: chat_api_key,
+        chat_max_tokens: chat_max_tokens,
+        chat_tools: chat_tools&.dup
+      }.compact
+    end
+
     def merge(other)
       other_runtime = ProviderRuntime.wrap(other)
       return self if other_runtime.nil? || other_runtime.empty?
@@ -189,7 +206,7 @@ module AgentHarness
         chat_base_url: other_runtime.chat_base_url || chat_base_url,
         chat_model: other_runtime.chat_model || chat_model,
         chat_api_key: other_runtime.chat_api_key || chat_api_key,
-        chat_max_tokens: other_runtime.chat_max_tokens || chat_max_tokens,
+        chat_max_tokens: other_runtime.chat_max_tokens.nil? ? chat_max_tokens : other_runtime.chat_max_tokens,
         chat_tools: merge_chat_tools(chat_tools, other_runtime.chat_tools)
       )
     end

@@ -345,6 +345,38 @@ RSpec.describe AgentHarness::Providers::Cursor do
         provider.send_message(prompt: "Hello", timeout: 60)
       end
 
+      it "prepends skill instructions and merges skill runtime overrides" do
+        AgentHarness::Skills.register(:code_review, {
+          description: "Reviews code",
+          instructions: "Review the changed files before answering.",
+          providers: {
+            all: {
+              env: {"CURSOR_SKILL_ENV" => "1"},
+              flags: ["--skill-flag"]
+            }
+          }
+        })
+
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "ok",
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        expect(mock_executor).to receive(:execute).with(
+          [described_class.binary_name, "-p", "--skill-flag"],
+          hash_including(
+            env: {"CURSOR_SKILL_ENV" => "1"},
+            stdin_data: "Review the changed files before answering.\n\nHello"
+          )
+        )
+
+        provider.send_message(prompt: "Hello", skills: [:code_review])
+      end
+
       it "passes through execution hooks" do
         allow(mock_executor).to receive(:execute).and_return(
           AgentHarness::CommandExecutor::Result.new(
@@ -585,6 +617,28 @@ RSpec.describe AgentHarness::Providers::Cursor do
         plan = provider.plan_execution(prompt: "Hello", provider_runtime: runtime)
 
         expect(plan[:command]).to eq([described_class.binary_name, "-p", "--verbose"])
+      end
+
+      it "applies skill runtime overrides to the planned command" do
+        AgentHarness::Skills.register(:code_review, {
+          description: "Reviews code",
+          instructions: "Review the changed files before answering.",
+          providers: {
+            all: {
+              env: {"CURSOR_SKILL_ENV" => "1"},
+              flags: ["--skill-flag"]
+            }
+          }
+        })
+        expect(mock_executor).not_to receive(:execute)
+
+        plan = provider.plan_execution(prompt: "Hello", skills: [:code_review])
+
+        expect(plan).to eq(
+          command: [described_class.binary_name, "-p", "--skill-flag"],
+          env: {"CURSOR_SKILL_ENV" => "1"},
+          preparation: nil
+        )
       end
     end
 

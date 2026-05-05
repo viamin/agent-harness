@@ -1194,6 +1194,51 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         provider.send_message(prompt: "Hello", provider_runtime: runtime)
       end
 
+      it "prepends skill instructions and merges skill runtime overrides" do
+        AgentHarness::Skills.register(:code_review, {
+          description: "Reviews code",
+          instructions: "Review the changed files before answering.",
+          providers: {
+            all: {
+              env: {"COPILOT_SKILL_ENV" => "1"},
+              model: "gpt-4o-mini"
+            }
+          }
+        })
+        jsonl_output = [
+          {"text" => "response"},
+          {"usage" => {"input_tokens" => 10, "output_tokens" => 5}}
+        ].map { |o| JSON.generate(o) }.join("\n")
+
+        allow(mock_executor).to receive(:execute).with(
+          ["github-copilot-cli", "--version"],
+          timeout: 5,
+          env: {"COPILOT_SKILL_ENV" => "1"}
+        ).and_return(version_result)
+
+        expect(mock_executor).to receive(:execute).with(
+          [
+            "github-copilot-cli",
+            "-p",
+            "Review the changed files before answering.\n\nHello",
+            "--output-format",
+            "json",
+            "--model",
+            "gpt-4o-mini"
+          ],
+          hash_including(env: {"COPILOT_SKILL_ENV" => "1"})
+        ).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: jsonl_output,
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        provider.send_message(prompt: "Hello", skills: [:code_review])
+      end
+
       it "uses the remaining request timeout budget for the prompt command and includes probe time in duration" do
         allow(mock_executor).to receive(:execute).with(
           ["github-copilot-cli", "--version"],
@@ -3180,6 +3225,39 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         expect(plan).to eq(
           command: ["github-copilot-cli", "-p", "Hello", "-s"],
           env: {},
+          preparation: nil
+        )
+      end
+
+      it "applies skill instructions and runtime overrides to the planned command" do
+        AgentHarness::Skills.register(:code_review, {
+          description: "Reviews code",
+          instructions: "Review the changed files before answering.",
+          providers: {
+            all: {
+              env: {"COPILOT_SKILL_ENV" => "1"},
+              model: "gpt-4o-mini"
+            }
+          }
+        })
+        provider.instance_variable_set(:@copilot_cli_versions, {
+          provider.send(:version_probe_cache_key, {"COPILOT_SKILL_ENV" => "1"}) => Gem::Version.new("0.0.422")
+        })
+        expect(mock_executor).not_to receive(:execute)
+
+        plan = provider.plan_execution(prompt: "Hello", skills: [:code_review])
+
+        expect(plan).to eq(
+          command: [
+            "github-copilot-cli",
+            "-p",
+            "Review the changed files before answering.\n\nHello",
+            "--output-format",
+            "json",
+            "--model",
+            "gpt-4o-mini"
+          ],
+          env: {"COPILOT_SKILL_ENV" => "1"},
           preparation: nil
         )
       end

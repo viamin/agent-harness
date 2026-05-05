@@ -25,6 +25,38 @@ RSpec.describe AgentHarness::Skill do
       expect(skill.provider_override_for(:codex)).to eq(flags: ["--verbose"], model: "gpt-5-codex")
     end
 
+    it "deep merges provider-specific runtime overrides with the shared baseline" do
+      skill = described_class.from_hash(
+        name: "code-review",
+        description: "Review code",
+        instructions: "Inspect the diff",
+        providers: {
+          all: {
+            env: {"A" => "1"},
+            flags: ["--shared"],
+            metadata: {tier: "shared"},
+            unset_env: ["OLD_TOKEN"],
+            chat_tools: [{name: "shared_tool"}]
+          },
+          codex: {
+            env: {"B" => "2"},
+            flags: ["--provider"],
+            metadata: {mode: "provider"},
+            unset_env: ["LEGACY_TOKEN"],
+            chat_tools: [{name: "provider_tool"}]
+          }
+        }
+      )
+
+      expect(skill.provider_override_for(:codex)).to eq(
+        env: {"A" => "1", "B" => "2"},
+        flags: ["--shared", "--provider"],
+        metadata: {tier: "shared", mode: "provider"},
+        unset_env: ["OLD_TOKEN", "LEGACY_TOKEN"],
+        chat_tools: [{name: "shared_tool"}, {name: "provider_tool"}]
+      )
+    end
+
     it "requires the name, description, and instructions" do
       expect {
         described_class.from_hash(description: "Missing name", instructions: "Body")

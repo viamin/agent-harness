@@ -255,6 +255,9 @@ module AgentHarness
 
         # Coerce provider_runtime from Hash if needed (same as Base#send_message)
         options = normalize_provider_runtime(options)
+        skill_context = resolve_skills(options)
+        prompt = apply_skills_to_prompt(prompt, skill_context)
+        options = skill_context[:options]
         runtime = options[:provider_runtime]
 
         # Normalize and validate MCP servers (same as Base#send_message)
@@ -316,6 +319,9 @@ module AgentHarness
         log_debug("plan_execution_start", prompt_length: prompt.length, options: options.keys)
 
         options = normalize_provider_runtime(options)
+        skill_context = resolve_skills(options)
+        prompt = apply_skills_to_prompt(prompt, skill_context)
+        options = skill_context[:options]
         options = normalize_mcp_servers(options)
         validate_mcp_servers!(options[:mcp_servers]) if options[:mcp_servers]&.any?
 

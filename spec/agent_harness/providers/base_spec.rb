@@ -92,6 +92,27 @@ RSpec.describe AgentHarness::Providers::Base do
         "Sub-agent role: code_reviewer\nDescription: Reviews code\n\nFollow these sub-agent instructions exactly:\nReview the provided changes\n\nUser task:\nHello"
       ])
     end
+
+    it "applies skill instructions and runtime overrides to the planned command" do
+      AgentHarness::Skills.register(:code_review, {
+        description: "Reviews code",
+        instructions: "Review the changed files before answering.",
+        providers: {
+          all: {
+            flags: ["--from-skill"],
+            env: {"SKILL_ENV" => "1"}
+          }
+        }
+      })
+
+      plan = provider.plan_execution(prompt: "Hello", skills: [:code_review])
+
+      expect(plan).to eq(
+        command: ["echo", "Review the changed files before answering.\n\nHello"],
+        env: {"SKILL_ENV" => "1"},
+        preparation: nil
+      )
+    end
   end
 
   describe "#name" do
