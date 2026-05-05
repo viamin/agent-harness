@@ -168,6 +168,26 @@ RSpec.describe AgentHarness::Providers::Pi do
         provider.send_message(prompt: "Hello")
       end
 
+      it "includes configured default flags in the CLI command" do
+        config.default_flags = ["--quiet-startup", "--log-level", "debug"]
+
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "response",
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        expect(mock_executor).to receive(:execute).with(
+          ["pi", "--no-session", "--quiet-startup", "--log-level", "debug", "-p", "Hello"],
+          anything
+        )
+
+        provider.send_message(prompt: "Hello")
+      end
+
       it "prefers runtime provider and model over configured defaults" do
         config.provider = "anthropic"
         config.model = "claude-opus"

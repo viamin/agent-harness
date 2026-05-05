@@ -195,6 +195,7 @@ module AgentHarness
 
         cmd = [self.class.binary_name, "--no-session"]
         cmd += runtime.flags if runtime
+        cmd += @config.default_flags if @config.default_flags&.any?
         cmd += ["--provider", provider] if provider
         cmd += ["--model", model] if model
         cmd << "--no-tools" if options[:tools] == :none
