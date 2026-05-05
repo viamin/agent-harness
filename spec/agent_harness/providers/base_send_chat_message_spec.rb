@@ -208,6 +208,65 @@ RSpec.describe AgentHarness::Providers::Base, "#send_chat_message" do
     )
   end
 
+  it "merges explicit chat tools with provider-specific skill chat tools" do
+    explicit_tool = {type: "function", function: {name: "explicit_tool"}}
+    AgentHarness::Skills.register(:repo_access, {
+      description: "Adds repo helpers",
+      instructions: "Use repo helpers when needed.",
+      providers: {
+        all: {
+          chat_tools: [{type: "function", function: {name: "skill_tool"}}]
+        }
+      }
+    })
+
+    transport = instance_double("chat transport")
+    provider.send(:set_chat_transport, transport)
+
+    expect(transport).to receive(:chat) do |messages:, tools:, **|
+      expect(messages.first).to eq({role: "system", content: "Use repo helpers when needed."})
+      expect(tools).to eq([
+        explicit_tool,
+        {type: "function", function: {name: "skill_tool"}}
+      ])
+
+      AgentHarness::Response.new(
+        output: "done", exit_code: 0, duration: 1.0,
+        provider: :test_provider, model: "test-model"
+      )
+    end
+
+    provider.send_chat_message(
+      conversation: [{role: "user", content: "Hello"}],
+      tools: [explicit_tool],
+      skills: [:repo_access]
+    )
+  end
+
+  it "raises when explicit chat tools conflict with provider-specific skill chat tools" do
+    explicit_tool = {type: "function", function: {name: "shared_tool"}}
+    AgentHarness::Skills.register(:repo_access, {
+      description: "Adds repo helpers",
+      instructions: "Use repo helpers when needed.",
+      providers: {
+        all: {
+          chat_tools: [{type: "function", function: {name: "shared_tool"}}]
+        }
+      }
+    })
+
+    transport = instance_double("chat transport")
+    provider.send(:set_chat_transport, transport)
+
+    expect {
+      provider.send_chat_message(
+        conversation: [{role: "user", content: "Hello"}],
+        tools: [explicit_tool],
+        skills: [:repo_access]
+      )
+    }.to raise_error(AgentHarness::ConfigurationError, /shared_tool/)
+  end
+
   it "raises when a skill requires MCP servers in chat mode" do
     AgentHarness::Skills.register(:repo_access, {
       description: "Adds repo MCP access",

@@ -288,7 +288,7 @@ module AgentHarness
         runtime = options[:provider_runtime]
         conversation ||= messages
         raise ArgumentError, "conversation or messages is required" unless conversation
-        tools = runtime.chat_tools if tools.nil? && runtime&.chat_tools
+        tools = merge_skill_chat_tools(tools, runtime&.chat_tools || [])
 
         transport = resolve_chat_transport(options)
         messages = format_messages_for_transport(conversation, transport)
@@ -318,7 +318,7 @@ module AgentHarness
         log_debug("send_chat_message_complete", duration: response.duration, tokens: response.tokens)
 
         response
-      rescue ExtensionCompatibilityError, ProviderError, AuthenticationError, RateLimitError, TimeoutError
+      rescue ExtensionCompatibilityError, ConfigurationError, ProviderError, AuthenticationError, RateLimitError, TimeoutError
         raise
       rescue => e
         last_msg = conversation&.last || messages&.last
@@ -766,6 +766,7 @@ module AgentHarness
       def merge_skill_message_tools(options, skills)
         return options if skills.empty?
         return options if options[:tools] == :none
+        return options unless supports_message_tool_injection?
 
         skill_tools = skills.flat_map { |skill| skill.tools.map { |tool| resolve_skill_message_tool(tool) } }.compact
         return options if skill_tools.empty?

@@ -950,6 +950,15 @@ module AgentHarness
         false
       end
 
+      # Check if provider message mode can inject available tool definitions
+      # through the +tools:+ option. Providers that use +tools:+ strictly for
+      # disallow lists should leave this as +false+.
+      #
+      # @return [Boolean] true if skill tools can be merged into message mode
+      def supports_message_tool_injection?
+        false
+      end
+
       # Check if provider supports text-only mode via direct HTTP transport.
       #
       # Providers that return +true+ will route +mode: :text+ requests

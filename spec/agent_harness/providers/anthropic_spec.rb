@@ -1136,6 +1136,23 @@ RSpec.describe AgentHarness::Providers::Anthropic do
 
           provider.send_message(prompt: "Hello")
         end
+
+        it "does not convert skill tools into disallowed tools" do
+          AgentHarness.configuration.register_tool(:read_file, anthropic: "Read")
+          AgentHarness::Skills.register(:code_review, {
+            description: "Reviews code",
+            instructions: "Review the changed files before answering.",
+            tools: [:read_file]
+          })
+
+          allow(mock_executor).to receive(:execute) do |cmd, **_opts|
+            expect(cmd).not_to include("--disallowedTools")
+            expect(cmd).not_to include("--permission-mode")
+            success_result
+          end
+
+          provider.send_message(prompt: "Hello", skills: [:code_review])
+        end
       end
 
       context "when tools: is an empty array" do
