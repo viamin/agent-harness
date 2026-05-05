@@ -5,7 +5,7 @@ A unified Ruby interface for CLI-based AI coding agents like Claude Code, Cursor
 ## Features
 
 - **Unified Interface**: Single API for multiple AI coding agents
-- **9 Built-in Providers**: Claude Code, Cursor, Gemini CLI, GitHub Copilot, Codex, Aider, OpenCode, Kilocode, Mistral Vibe
+- **10 Built-in Providers**: Claude Code, Cursor, Gemini CLI, GitHub Copilot, Codex, Pi, Aider, OpenCode, Kilocode, Mistral Vibe
 - **Full Orchestration**: Provider switching, circuit breakers, rate limiting, and health monitoring
 - **Flexible Configuration**: YAML, Ruby DSL, or environment variables
 - **Token Tracking**: Monitor usage across providers for cost and limit management
@@ -104,6 +104,7 @@ end
 | `:gemini` | `gemini` | Google Gemini CLI |
 | `:github_copilot` | `copilot` | GitHub Copilot CLI |
 | `:codex` | `codex` | OpenAI Codex CLI |
+| `:pi` | `pi` | Pi coding agent CLI |
 | `:aider` | `aider` | Aider coding assistant |
 | `:opencode` | `opencode` | OpenCode CLI |
 | `:kilocode` | `kilo` | Kilocode CLI |
@@ -187,7 +188,7 @@ puts contract[:supported_versions][:requirement]
 
 # List all registered providers
 AgentHarness::Providers::Registry.instance.all
-# => [:claude, :cursor, :gemini, :github_copilot, :codex, :opencode, :kilocode, :aider, :mistral_vibe]
+# => [:claude, :cursor, :gemini, :github_copilot, :pi, :codex, :opencode, :kilocode, :aider, :mistral_vibe]
 ```
 
 For Claude, the install contract is the first-class source of truth for:

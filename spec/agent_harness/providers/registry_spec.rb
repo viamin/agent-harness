@@ -398,6 +398,16 @@ RSpec.describe AgentHarness::Providers::Registry do
       )
     end
 
+    it "returns install metadata for the Pi provider" do
+      contract = registry.installation_contract(:pi)
+
+      expect(contract).to include(
+        source: :npm,
+        package_name: "@mariozechner/pi-coding-agent",
+        binary_name: "pi"
+      )
+    end
+
     it "returns the Aider installation contract" do
       contract = registry.installation_contract(:aider)
 
@@ -439,7 +449,7 @@ RSpec.describe AgentHarness::Providers::Registry do
     it "returns providers with installation contracts" do
       contracts = registry.installation_contracts
 
-      expect(contracts).to include(:codex, :aider, :opencode)
+      expect(contracts).to include(:codex, :aider, :opencode, :pi)
       expect(contracts[:codex][:install_command]).to eq(
         ["npm", "install", "-g", "--ignore-scripts", "@openai/codex@0.116.0"]
       )
@@ -448,6 +458,9 @@ RSpec.describe AgentHarness::Providers::Registry do
       )
       expect(contracts[:opencode][:install_command]).to eq(
         ["npm", "install", "-g", "--ignore-scripts", "opencode-ai@1.3.2"]
+      )
+      expect(contracts[:pi][:install_command]).to eq(
+        ["npm", "install", "-g", "--ignore-scripts", "@mariozechner/pi-coding-agent@0.73.0"]
       )
     end
 
@@ -1194,10 +1207,14 @@ RSpec.describe AgentHarness::Providers::Registry do
     it "returns metadata for all registered providers" do
       catalog = registry.provider_metadata_catalog
 
-      expect(catalog).to include(:claude, :codex, :gemini)
+      expect(catalog).to include(:claude, :codex, :gemini, :pi)
       expect(catalog[:codex][:auth]).to include(
         service: :openai,
         api_family: :openai
+      )
+      expect(catalog[:pi][:auth]).to include(
+        service: :pi,
+        api_family: :multi_provider
       )
       expect(catalog[:codex][:identity]).to eq(
         bot_usernames: ["codex"]

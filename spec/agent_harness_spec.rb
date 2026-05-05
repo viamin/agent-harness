@@ -288,6 +288,16 @@ RSpec.describe AgentHarness do
       )
     end
 
+    it "returns Pi provider install metadata" do
+      contract = AgentHarness.installation_contract(:pi)
+
+      expect(contract).to include(
+        source: :npm,
+        package_name: "@mariozechner/pi-coding-agent",
+        binary_name: "pi"
+      )
+    end
+
     it "preserves provider normalization for generic-contract version lookups" do
       contract = AgentHarness.installation_contract(:opencode, version: " 1.3.9 ")
 
@@ -306,7 +316,7 @@ RSpec.describe AgentHarness do
     it "returns all registered provider installation contracts" do
       contracts = AgentHarness.installation_contracts
 
-      expect(contracts).to include(:codex, :aider, :gemini, :opencode)
+      expect(contracts).to include(:codex, :aider, :gemini, :opencode, :pi)
     end
   end
 
