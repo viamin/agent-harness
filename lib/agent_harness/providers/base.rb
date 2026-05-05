@@ -838,9 +838,8 @@ module AgentHarness
       end
 
       def normalize_skill_chat_tool_for_provider(tool)
-        return normalize_extension_tool_for_provider(tool) if tool.is_a?(Hash)
-
-        {name: tool.to_s}
+        normalized_tool = tool.is_a?(Hash) ? tool : {name: tool.to_s}
+        normalize_extension_tool_for_provider(normalized_tool)
       end
 
       def duplicate_skill_mcp_server_names(existing_servers, skill_servers)

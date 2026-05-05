@@ -208,6 +208,39 @@ RSpec.describe AgentHarness::Providers::Base, "#send_chat_message" do
     )
   end
 
+  it "normalizes bare skill tool refs for OpenAI-compatible chat transports" do
+    openai_provider_class = Class.new(test_provider_class) do
+      def chat_transport_type
+        :openai_compatible
+      end
+    end
+
+    openai_provider = openai_provider_class.new(config: config, executor: mock_executor)
+    AgentHarness::Skills.register(:repo_access, {
+      description: "Adds repo helpers",
+      instructions: "Use repo helpers when needed.",
+      tools: [:read_file]
+    })
+
+    transport = instance_double("chat transport")
+    openai_provider.send(:set_chat_transport, transport)
+
+    expect(transport).to receive(:chat) do |messages:, tools:, **|
+      expect(messages.first).to eq({role: "system", content: "Use repo helpers when needed."})
+      expect(tools).to eq([{type: "function", function: {name: "read_file"}}])
+
+      AgentHarness::Response.new(
+        output: "done", exit_code: 0, duration: 1.0,
+        provider: :test_provider, model: "test-model"
+      )
+    end
+
+    openai_provider.send_chat_message(
+      conversation: [{role: "user", content: "Hello"}],
+      skills: [:repo_access]
+    )
+  end
+
   it "merges explicit chat tools with provider-specific skill chat tools" do
     explicit_tool = {type: "function", function: {name: "explicit_tool"}}
     AgentHarness::Skills.register(:repo_access, {
