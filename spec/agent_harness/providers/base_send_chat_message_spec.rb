@@ -177,4 +177,52 @@ RSpec.describe AgentHarness::Providers::Base, "#send_chat_message" do
       extensions: [:schema_ext]
     )
   end
+
+  it "prepends skill instructions and skill tools in chat mode" do
+    AgentHarness.configuration.register_tool(
+      :read_file,
+      test_provider: {name: "read_file", description: "Read a file", parameters: {type: "object"}}
+    )
+    AgentHarness::Skills.register(:code_review, {
+      description: "Reviews code",
+      instructions: "Review the code before responding.",
+      tools: [:read_file]
+    })
+
+    transport = instance_double("chat transport")
+    provider.send(:set_chat_transport, transport)
+
+    expect(transport).to receive(:chat) do |messages:, tools:, **|
+      expect(messages.first).to eq({role: "system", content: "Review the code before responding."})
+      expect(tools).to eq([{name: "read_file", description: "Read a file", input_schema: {type: "object"}}])
+
+      AgentHarness::Response.new(
+        output: "done", exit_code: 0, duration: 1.0,
+        provider: :test_provider, model: "test-model"
+      )
+    end
+
+    provider.send_chat_message(
+      conversation: [{role: "user", content: "Hello"}],
+      skills: [:code_review]
+    )
+  end
+
+  it "raises when a skill requires MCP servers in chat mode" do
+    AgentHarness::Skills.register(:repo_access, {
+      description: "Adds repo MCP access",
+      instructions: "Use MCP when needed.",
+      mcp_servers: [{name: "github", transport: "http", url: "https://example.test/mcp"}]
+    })
+
+    transport = instance_double("chat transport")
+    provider.send(:set_chat_transport, transport)
+
+    expect {
+      provider.send_chat_message(
+        conversation: [{role: "user", content: "Hello"}],
+        skills: [:repo_access]
+      )
+    }.to raise_error(AgentHarness::McpUnsupportedError, /Chat mode does not support request-scoped MCP servers/)
+  end
 end

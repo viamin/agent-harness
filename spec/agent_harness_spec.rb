@@ -39,6 +39,19 @@ RSpec.describe AgentHarness do
 
       expect(AgentHarness.configuration.default_provider).to eq(:cursor)
     end
+
+    it "clears registered skills" do
+      AgentHarness::Skills.register(:code_review, {
+        description: "Review code",
+        instructions: "Body"
+      })
+
+      AgentHarness.reset!
+
+      expect {
+        AgentHarness::Skills.find(:code_review)
+      }.to raise_error(AgentHarness::ConfigurationError, /Unknown skill/)
+    end
   end
 
   describe ".token_tracker" do

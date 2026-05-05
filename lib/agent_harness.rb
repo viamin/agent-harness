@@ -47,6 +47,7 @@ module AgentHarness
       @configuration = nil
       @conductor = nil
       @token_tracker = nil
+      Skills.reset! if defined?(Skills)
     end
 
     # Returns the global logger
@@ -346,6 +347,8 @@ end
 # Core components
 require_relative "agent_harness/errors"
 require_relative "agent_harness/extensions"
+require_relative "agent_harness/skill"
+require_relative "agent_harness/skills"
 require_relative "agent_harness/mcp_server"
 require_relative "agent_harness/mcp_config_loader"
 require_relative "agent_harness/mcp_config_translator"

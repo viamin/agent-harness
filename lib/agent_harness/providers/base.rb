@@ -129,6 +129,9 @@ module AgentHarness
 
         # Coerce provider_runtime from Hash if needed
         options = normalize_provider_runtime(options)
+        skill_context = resolve_skills(options)
+        prompt = apply_skills_to_prompt(prompt, skill_context)
+        options = skill_context[:options]
 
         # Capture execution options (callbacks, observer) before extensions
         # processing deep-dups the options hash, which would replace identity-
@@ -276,6 +279,8 @@ module AgentHarness
         end
 
         options = normalize_provider_runtime(options)
+        skill_context = resolve_skills(options)
+        options = skill_context[:options]
         options = normalize_sub_agent(options)
         runtime = options[:provider_runtime]
         conversation ||= messages
@@ -284,6 +289,8 @@ module AgentHarness
 
         transport = resolve_chat_transport(options)
         messages = format_messages_for_transport(conversation, transport)
+        messages = apply_skills_to_messages(messages, skill_context)
+        tools = merge_skill_chat_tools(tools, skill_context[:tools])
         extension_context = apply_extensions_to_chat(messages, tools, options)
         messages = extension_context.messages
         tools = extension_context.tools
@@ -525,6 +532,28 @@ module AgentHarness
         options.merge(provider_runtime: ProviderRuntime.wrap(raw))
       end
 
+      def resolve_skills(options)
+        skill_refs = options[:skills]
+        skills = Skills.resolve_all(skill_refs)
+        return {skills: [], options: options, instructions: nil, tools: []} if skills.empty?
+
+        runtime = skills.map { |skill| ProviderRuntime.wrap(skill.provider_override_for(self.class.provider_name)) }
+          .compact
+          .reduce(nil) { |merged, skill_runtime| merged ? merged.merge(skill_runtime) : skill_runtime }
+
+        runtime = runtime&.merge(options[:provider_runtime]) || options[:provider_runtime]
+        merged_options = options.merge(provider_runtime: runtime)
+        merged_options = merge_skill_message_tools(merged_options, skills)
+        merged_options = merge_skill_mcp_servers(merged_options, skills)
+
+        {
+          skills: skills,
+          options: merged_options,
+          instructions: skills.map(&:instructions).join("\n\n"),
+          tools: resolve_skill_chat_tools(skills)
+        }
+      end
+
       def normalize_mcp_servers(options)
         if options.key?(:mcp_servers)
           servers = options[:mcp_servers]
@@ -582,6 +611,20 @@ module AgentHarness
         return prompt unless translated_sub_agent
 
         [translated_sub_agent[:runtime_instructions], "User task:\n#{prompt}"].join("\n\n")
+      end
+
+      def apply_skills_to_prompt(prompt, skill_context)
+        instructions = skill_context[:instructions]
+        return prompt if instructions.nil? || instructions.empty?
+
+        [instructions, prompt].join("\n\n")
+      end
+
+      def apply_skills_to_messages(messages, skill_context)
+        instructions = skill_context[:instructions]
+        return messages if instructions.nil? || instructions.empty?
+
+        [{role: "system", content: instructions}] + messages
       end
 
       def apply_sub_agent_to_messages(messages, translated_sub_agent)
@@ -715,6 +758,80 @@ module AgentHarness
             "Tool name conflict between user-provided and extension tools: #{duplicates.join(", ")}"
         end
         merged
+      end
+
+      def merge_skill_message_tools(options, skills)
+        return options if skills.empty?
+        return options if options[:tools] == :none
+
+        skill_tools = skills.flat_map { |skill| skill.tools.map { |tool| resolve_skill_message_tool(tool) } }.compact
+        return options if skill_tools.empty?
+
+        current_tools = options[:tools]
+        merged_tools = Array(current_tools) + skill_tools
+        duplicates = merged_tools.group_by(&:itself).select { |_, entries| entries.size > 1 }.keys
+        unless duplicates.empty?
+          raise ConfigurationError, "Tool name conflict between explicit and skill tools: #{duplicates.join(", ")}"
+        end
+
+        options.merge(tools: merged_tools)
+      end
+
+      def merge_skill_mcp_servers(options, skills)
+        skill_servers = skills.flat_map(&:mcp_servers)
+        return options if skill_servers.empty?
+
+        merged = Array(options[:mcp_servers]) + deep_dup(skill_servers)
+        options.merge(mcp_servers: merged)
+      end
+
+      def resolve_skill_chat_tools(skills)
+        skills.flat_map do |skill|
+          skill.tools.map { |tool| normalize_skill_chat_tool_for_provider(resolve_skill_tool_mapping(tool)) }
+        end
+      end
+
+      def merge_skill_chat_tools(tools, skill_tools)
+        return tools if skill_tools.empty?
+
+        merged = Array(tools) + skill_tools
+        names = merged.map { |tool| extract_tool_name(tool) }.compact
+        duplicates = names.group_by { |name| name }.select { |_, entries| entries.size > 1 }.keys
+        unless duplicates.empty?
+          raise ConfigurationError, "Tool name conflict between explicit and skill tools: #{duplicates.join(", ")}"
+        end
+
+        merged
+      end
+
+      def resolve_skill_message_tool(tool)
+        resolved = resolve_skill_tool_mapping(tool)
+        return resolved if resolved.is_a?(String)
+        return extract_tool_name(resolved) if resolved.is_a?(Hash)
+
+        raise ConfigurationError, "Unsupported skill tool mapping for message mode: #{resolved.inspect}"
+      end
+
+      def normalize_skill_chat_tool_for_provider(tool)
+        return normalize_extension_tool_for_provider(tool) if tool.is_a?(Hash)
+
+        {name: tool.to_s}
+      end
+
+      def resolve_skill_tool_mapping(tool)
+        case tool
+        when Symbol, String
+          if @configuration.tool_registry.registered?(tool)
+            mapping = @configuration.tool_registry.fetch(tool).mapping_for(self.class.provider_name)
+            mapping.nil? ? tool.to_s : mapping
+          else
+            tool.to_s
+          end
+        when Hash
+          deep_dup(tool)
+        else
+          raise ConfigurationError, "Unsupported tool reference #{tool.inspect} in skill definition"
+        end
       end
 
       def extract_tool_name(tool)

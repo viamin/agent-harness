@@ -156,6 +156,58 @@ RSpec.describe AgentHarness::Providers::Base, "#send_message" do
       expect(response.output).to eq("response output [extended]")
     end
 
+    it "prepends skill instructions and merges provider runtime overrides" do
+      AgentHarness::Skills.register(:code_review, {
+        description: "Reviews code",
+        instructions: "Review the changed files before answering.",
+        providers: {
+          all: {
+            model: "skill-model",
+            flags: ["--from-skill"],
+            env: {"SKILL_ENV" => "1"}
+          }
+        }
+      })
+
+      expect(mock_executor).to receive(:execute) do |command, env:, **|
+        expect(command).to include("Review the changed files before answering.\n\nHello")
+        expect(env).to include("SKILL_ENV" => "1")
+
+        AgentHarness::CommandExecutor::Result.new(
+          stdout: "response output",
+          stderr: "",
+          exit_code: 0,
+          duration: 1.0
+        )
+      end
+
+      response = provider.send_message(prompt: "Hello", skills: [:code_review])
+      expect(response.model).to eq("skill-model")
+    end
+
+    it "merges skill mcp servers into message-mode options" do
+      AgentHarness::Skills.register(:repo_access, {
+        description: "Adds repo MCP access",
+        instructions: "Use MCP when needed.",
+        mcp_servers: [{name: "github", transport: "stdio", command: "npx", args: ["server-github"]}]
+      })
+
+      capable_provider_class = Class.new(test_provider_class) do
+        def capabilities
+          super.merge(mcp: true)
+        end
+      end
+      capable_provider = capable_provider_class.new(config: config, executor: mock_executor)
+
+      expect(capable_provider).to receive(:build_command).and_wrap_original do |original, prompt, options|
+        expect(prompt).to include("Use MCP when needed.")
+        expect(options[:mcp_servers].map(&:name)).to eq(["github"])
+        original.call(prompt, options)
+      end
+
+      capable_provider.send_message(prompt: "Hello", skills: [:repo_access])
+    end
+
     it "rejects extensions with tools in message mode" do
       # Use a provider that supports tool_use so capability validation passes
       # and the message-mode rejection is what fires.

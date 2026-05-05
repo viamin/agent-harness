@@ -174,6 +174,26 @@ module AgentHarness
         chat_tools.nil?
     end
 
+    def merge(other)
+      other_runtime = ProviderRuntime.wrap(other)
+      return self if other_runtime.nil? || other_runtime.empty?
+
+      ProviderRuntime.new(
+        model: other_runtime.model || model,
+        base_url: other_runtime.base_url || base_url,
+        api_provider: other_runtime.api_provider || api_provider,
+        env: env.merge(other_runtime.env),
+        flags: flags + other_runtime.flags,
+        unset_env: unset_env + other_runtime.unset_env,
+        metadata: metadata.merge(other_runtime.metadata),
+        chat_base_url: other_runtime.chat_base_url || chat_base_url,
+        chat_model: other_runtime.chat_model || chat_model,
+        chat_api_key: other_runtime.chat_api_key || chat_api_key,
+        chat_max_tokens: other_runtime.chat_max_tokens || chat_max_tokens,
+        chat_tools: merge_chat_tools(chat_tools, other_runtime.chat_tools)
+      )
+    end
+
     private_class_method def self.hash_value(hash, key)
       sym_value = hash[key]
       str_value = hash[key.to_s]
@@ -184,6 +204,13 @@ module AgentHarness
     end
 
     private
+
+    def merge_chat_tools(base_tools, override_tools)
+      return override_tools unless base_tools
+      return base_tools unless override_tools
+
+      base_tools + override_tools
+    end
 
     def validate_optional_string!(name, value)
       return if value.nil?
