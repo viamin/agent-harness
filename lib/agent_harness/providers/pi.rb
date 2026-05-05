@@ -190,8 +190,8 @@ module AgentHarness
 
       def build_command(prompt, options)
         runtime = options[:provider_runtime]
-        provider = normalized_runtime_value(runtime&.api_provider) || @config.provider
-        model = normalized_runtime_value(runtime&.model) || @config.model
+        provider = runtime&.api_provider || @config.provider
+        model = runtime&.model || @config.model
 
         cmd = [self.class.binary_name, "--no-session"]
         cmd += @config.default_flags if @config.default_flags&.any?
@@ -206,13 +206,6 @@ module AgentHarness
 
       def default_timeout
         300
-      end
-
-      def normalized_runtime_value(value)
-        return value unless value.respond_to?(:strip)
-
-        normalized = value.strip
-        normalized.empty? ? nil : normalized
       end
     end
   end
