@@ -1,5 +1,12 @@
 ## [Unreleased]
 
+## [0.17.2](https://github.com/viamin/agent-harness/compare/agent-harness/v0.17.1...agent-harness/v0.17.2) (2026-05-05)
+
+
+### Bug Fixes
+
+* 160: Add support for the pi agent CLI ([#203](https://github.com/viamin/agent-harness/issues/203)) ([0aeb607](https://github.com/viamin/agent-harness/commit/0aeb607ea98b52ba8202726dc946b8c1db09a3cd))
+
 ## [0.17.1](https://github.com/viamin/agent-harness/compare/agent-harness/v0.17.0...agent-harness/v0.17.1) (2026-05-05)
 
 
