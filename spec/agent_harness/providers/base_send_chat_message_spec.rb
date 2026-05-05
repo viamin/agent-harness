@@ -243,6 +243,45 @@ RSpec.describe AgentHarness::Providers::Base, "#send_chat_message" do
     )
   end
 
+  it "prefers explicit chat tools over runtime chat_tools while still merging skill chat tools" do
+    explicit_tool = {type: "function", function: {name: "explicit_tool"}}
+    runtime = AgentHarness::ProviderRuntime.new(
+      chat_tools: [{type: "function", function: {name: "runtime_tool"}}]
+    )
+    AgentHarness::Skills.register(:repo_access, {
+      description: "Adds repo helpers",
+      instructions: "Use repo helpers when needed.",
+      providers: {
+        all: {
+          chat_tools: [{type: "function", function: {name: "skill_tool"}}]
+        }
+      }
+    })
+
+    transport = instance_double("chat transport")
+    provider.send(:set_chat_transport, transport)
+
+    expect(transport).to receive(:chat) do |messages:, tools:, **|
+      expect(messages.first).to eq({role: "system", content: "Use repo helpers when needed."})
+      expect(tools).to eq([
+        explicit_tool,
+        {type: "function", function: {name: "skill_tool"}}
+      ])
+
+      AgentHarness::Response.new(
+        output: "done", exit_code: 0, duration: 1.0,
+        provider: :test_provider, model: "test-model"
+      )
+    end
+
+    provider.send_chat_message(
+      conversation: [{role: "user", content: "Hello"}],
+      tools: [explicit_tool],
+      provider_runtime: runtime,
+      skills: [:repo_access]
+    )
+  end
+
   it "raises when explicit chat tools conflict with provider-specific skill chat tools" do
     explicit_tool = {type: "function", function: {name: "shared_tool"}}
     AgentHarness::Skills.register(:repo_access, {
@@ -283,5 +322,31 @@ RSpec.describe AgentHarness::Providers::Base, "#send_chat_message" do
         skills: [:repo_access]
       )
     }.to raise_error(AgentHarness::McpUnsupportedError, /Chat mode does not support request-scoped MCP servers/)
+  end
+
+  it "raises when skill MCP servers conflict with explicit MCP servers" do
+    AgentHarness::Skills.register(:repo_access, {
+      description: "Adds repo MCP access",
+      instructions: "Use MCP when needed.",
+      mcp_servers: [{name: "github", transport: "http", url: "https://example.test/skill-mcp"}]
+    })
+
+    capable_provider_class = Class.new(test_provider_class) do
+      def capabilities
+        super.merge(mcp: true)
+      end
+    end
+    capable_provider = capable_provider_class.new(config: config, executor: mock_executor)
+
+    expect {
+      capable_provider.send_message(
+        prompt: "Hello",
+        mcp_servers: [{name: "github", transport: "http", url: "https://example.test/explicit-mcp"}],
+        skills: [:repo_access]
+      )
+    }.to raise_error(
+      AgentHarness::ConfigurationError,
+      /MCP server name conflict across explicit and skill servers: github \(explicit, skill: repo_access\)/
+    )
   end
 end

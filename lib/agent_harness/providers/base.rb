@@ -194,7 +194,8 @@ module AgentHarness
         log_debug("send_message_complete", duration: duration, tokens: response.tokens)
 
         response
-      rescue ExtensionCompatibilityError, McpConfigurationError, McpUnsupportedError, McpTransportUnsupportedError
+      rescue ExtensionCompatibilityError, ConfigurationError, McpConfigurationError, McpUnsupportedError,
+        McpTransportUnsupportedError
         raise
       rescue => e
         handle_error(e, prompt: prompt, options: options)
@@ -288,7 +289,7 @@ module AgentHarness
         runtime = options[:provider_runtime]
         conversation ||= messages
         raise ArgumentError, "conversation or messages is required" unless conversation
-        tools = merge_skill_chat_tools(tools, runtime&.chat_tools || [])
+        tools = runtime.chat_tools if tools.nil? && runtime&.chat_tools
 
         transport = resolve_chat_transport(options)
         messages = format_messages_for_transport(conversation, transport)
@@ -540,11 +541,11 @@ module AgentHarness
         skills = Skills.resolve_all(skill_refs)
         return {skills: [], options: options, instructions: nil, tools: []} if skills.empty?
 
-        runtime = skills.map { |skill| ProviderRuntime.wrap(skill.provider_override_for(self.class.provider_name)) }
+        skill_runtime = skills.map { |skill| ProviderRuntime.wrap(skill.provider_override_for(self.class.provider_name)) }
           .compact
           .reduce(nil) { |merged, skill_runtime| merged ? merged.merge(skill_runtime) : skill_runtime }
 
-        runtime = runtime&.merge(options[:provider_runtime]) || options[:provider_runtime]
+        runtime = skill_runtime&.merge(options[:provider_runtime]) || options[:provider_runtime]
         merged_options = options.merge(provider_runtime: runtime)
         merged_options = merge_skill_message_tools(merged_options, skills)
         merged_options = merge_skill_mcp_servers(merged_options, skills)
@@ -553,7 +554,7 @@ module AgentHarness
           skills: skills,
           options: merged_options,
           instructions: skills.map(&:instructions).join("\n\n"),
-          tools: resolve_skill_chat_tools(skills)
+          tools: resolve_skill_chat_tools(skills, runtime: skill_runtime)
         }
       end
 
@@ -782,17 +783,31 @@ module AgentHarness
       end
 
       def merge_skill_mcp_servers(options, skills)
-        skill_servers = skills.flat_map(&:mcp_servers)
+        skill_servers = skills.flat_map do |skill|
+          skill.mcp_servers.map { |server| [skill.name, server] }
+        end
         return options if skill_servers.empty?
 
-        merged = Array(options[:mcp_servers]) + deep_dup(skill_servers)
+        merged = Array(options[:mcp_servers]) + deep_dup(skill_servers.map(&:last))
+        duplicates = duplicate_skill_mcp_server_names(Array(options[:mcp_servers]), skill_servers)
+        unless duplicates.empty?
+          conflicts = duplicates.map do |name, owners|
+            formatted_owners = owners.map { |owner| (owner == :explicit) ? "explicit" : "skill: #{owner}" }.join(", ")
+            "#{name} (#{formatted_owners})"
+          end
+          raise ConfigurationError,
+            "MCP server name conflict across explicit and skill servers: #{conflicts.join(", ")}"
+        end
+
         options.merge(mcp_servers: merged)
       end
 
-      def resolve_skill_chat_tools(skills)
-        skills.flat_map do |skill|
+      def resolve_skill_chat_tools(skills, runtime: nil)
+        skill_tools = skills.flat_map do |skill|
           skill.tools.map { |tool| normalize_skill_chat_tool_for_provider(resolve_skill_tool_mapping(tool)) }
         end
+
+        merge_skill_chat_tools(skill_tools, Array(runtime&.chat_tools))
       end
 
       def merge_skill_chat_tools(tools, skill_tools)
@@ -820,6 +835,23 @@ module AgentHarness
         return normalize_extension_tool_for_provider(tool) if tool.is_a?(Hash)
 
         {name: tool.to_s}
+      end
+
+      def duplicate_skill_mcp_server_names(existing_servers, skill_servers)
+        owners_by_name = Hash.new { |hash, key| hash[key] = [] }
+        existing_servers.each do |server|
+          name = server[:name] || server["name"]
+          owners_by_name[name] << :explicit if name
+        end
+
+        skill_servers.each do |(skill_name, server)|
+          name = server[:name] || server["name"]
+          owners_by_name[name] << skill_name if name
+        end
+
+        owners_by_name.each_with_object({}) do |(name, owners), duplicates|
+          duplicates[name] = owners if owners.uniq.size > 1
+        end
       end
 
       def resolve_skill_tool_mapping(tool)

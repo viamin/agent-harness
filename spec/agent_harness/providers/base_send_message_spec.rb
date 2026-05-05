@@ -208,6 +208,33 @@ RSpec.describe AgentHarness::Providers::Base, "#send_message" do
       capable_provider.send_message(prompt: "Hello", skills: [:repo_access])
     end
 
+    it "raises a skill-aware error when multiple skills define the same MCP server name" do
+      AgentHarness::Skills.register(:repo_access, {
+        description: "Adds repo MCP access",
+        instructions: "Use repo MCP when needed.",
+        mcp_servers: [{name: "github", transport: "stdio", command: "npx", args: ["repo-server"]}]
+      })
+      AgentHarness::Skills.register(:docs_access, {
+        description: "Adds docs MCP access",
+        instructions: "Use docs MCP when needed.",
+        mcp_servers: [{name: "github", transport: "stdio", command: "npx", args: ["docs-server"]}]
+      })
+
+      capable_provider_class = Class.new(test_provider_class) do
+        def capabilities
+          super.merge(mcp: true)
+        end
+      end
+      capable_provider = capable_provider_class.new(config: config, executor: mock_executor)
+
+      expect {
+        capable_provider.send_message(prompt: "Hello", skills: %i[repo_access docs_access])
+      }.to raise_error(
+        AgentHarness::ConfigurationError,
+        /MCP server name conflict across explicit and skill servers: github \(skill: repo_access, skill: docs_access\)/
+      )
+    end
+
     it "rejects extensions with tools in message mode" do
       # Use a provider that supports tool_use so capability validation passes
       # and the message-mode rejection is what fires.

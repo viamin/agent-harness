@@ -159,17 +159,14 @@ RSpec.describe "Provider chat capability" do
         )
       end
 
-      it "merges explicit tools with runtime chat_tools" do
+      it "prefers explicit tools over runtime chat_tools" do
         runtime = AgentHarness::ProviderRuntime.new(
           chat_tools: [{type: "function", function: {name: "runtime_tool"}}]
         )
         explicit_tools = [{type: "function", function: {name: "explicit_tool"}}]
 
         expect(mock_transport).to receive(:chat).with(
-          hash_including(tools: [
-            {type: "function", function: {name: "explicit_tool"}},
-            {type: "function", function: {name: "runtime_tool"}}
-          ])
+          hash_including(tools: explicit_tools)
         ).and_return(response)
 
         provider.send_chat_message(
