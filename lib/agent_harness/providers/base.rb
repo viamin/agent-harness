@@ -243,7 +243,8 @@ module AgentHarness
           env: build_env(options),
           preparation: build_execution_preparation(options)
         }
-      rescue ExtensionCompatibilityError, McpConfigurationError, McpUnsupportedError, McpTransportUnsupportedError
+      rescue ExtensionCompatibilityError, ConfigurationError, McpConfigurationError, McpUnsupportedError,
+        McpTransportUnsupportedError
         raise
       rescue => e
         handle_error(e, prompt: prompt, options: options)
@@ -289,12 +290,18 @@ module AgentHarness
         runtime = options[:provider_runtime]
         conversation ||= messages
         raise ArgumentError, "conversation or messages is required" unless conversation
-        tools = runtime.chat_tools if tools.nil? && runtime&.chat_tools
+        use_runtime_chat_tools = tools.nil?
+        tools = runtime.chat_tools if use_runtime_chat_tools && runtime&.chat_tools
 
         transport = resolve_chat_transport(options)
         messages = format_messages_for_transport(conversation, transport)
         messages = apply_skills_to_messages(messages, skill_context)
-        tools = merge_skill_chat_tools(tools, skill_context[:tools])
+        skill_tools = if use_runtime_chat_tools
+          skill_context[:tools]
+        else
+          merge_skill_chat_tools(skill_context[:tools], skill_context[:runtime_tools])
+        end
+        tools = merge_skill_chat_tools(tools, skill_tools)
         extension_context = apply_extensions_to_chat(messages, tools, options)
         messages = extension_context.messages
         tools = extension_context.tools
@@ -539,7 +546,7 @@ module AgentHarness
       def resolve_skills(options)
         skill_refs = options[:skills]
         skills = Skills.resolve_all(skill_refs)
-        return {skills: [], options: options, instructions: nil, tools: []} if skills.empty?
+        return {skills: [], options: options, instructions: nil, tools: [], runtime_tools: []} if skills.empty?
 
         skill_runtime = skills.map { |skill| ProviderRuntime.wrap(skill.provider_override_for(self.class.provider_name)) }
           .compact
@@ -554,7 +561,8 @@ module AgentHarness
           skills: skills,
           options: merged_options,
           instructions: skills.map(&:instructions).join("\n\n"),
-          tools: resolve_skill_chat_tools(skills, runtime: skill_runtime)
+          tools: resolve_skill_chat_tools(skills),
+          runtime_tools: Array(skill_runtime&.chat_tools)
         }
       end
 
@@ -802,12 +810,10 @@ module AgentHarness
         options.merge(mcp_servers: merged)
       end
 
-      def resolve_skill_chat_tools(skills, runtime: nil)
-        skill_tools = skills.flat_map do |skill|
+      def resolve_skill_chat_tools(skills)
+        skills.flat_map do |skill|
           skill.tools.map { |tool| normalize_skill_chat_tool_for_provider(resolve_skill_tool_mapping(tool)) }
         end
-
-        merge_skill_chat_tools(skill_tools, Array(runtime&.chat_tools))
       end
 
       def merge_skill_chat_tools(tools, skill_tools)

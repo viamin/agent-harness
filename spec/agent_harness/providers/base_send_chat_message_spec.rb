@@ -243,6 +243,36 @@ RSpec.describe AgentHarness::Providers::Base, "#send_chat_message" do
     )
   end
 
+  it "does not double-merge provider-specific skill chat tools when tools are omitted" do
+    AgentHarness::Skills.register(:repo_access, {
+      description: "Adds repo helpers",
+      instructions: "Use repo helpers when needed.",
+      providers: {
+        all: {
+          chat_tools: [{type: "function", function: {name: "skill_tool"}}]
+        }
+      }
+    })
+
+    transport = instance_double("chat transport")
+    provider.send(:set_chat_transport, transport)
+
+    expect(transport).to receive(:chat) do |messages:, tools:, **|
+      expect(messages.first).to eq({role: "system", content: "Use repo helpers when needed."})
+      expect(tools).to eq([{type: "function", function: {name: "skill_tool"}}])
+
+      AgentHarness::Response.new(
+        output: "done", exit_code: 0, duration: 1.0,
+        provider: :test_provider, model: "test-model"
+      )
+    end
+
+    provider.send_chat_message(
+      conversation: [{role: "user", content: "Hello"}],
+      skills: [:repo_access]
+    )
+  end
+
   it "prefers explicit chat tools over runtime chat_tools while still merging skill chat tools" do
     explicit_tool = {type: "function", function: {name: "explicit_tool"}}
     runtime = AgentHarness::ProviderRuntime.new(

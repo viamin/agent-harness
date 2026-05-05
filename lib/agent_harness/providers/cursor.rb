@@ -309,7 +309,7 @@ module AgentHarness
         log_debug("send_message_complete", duration: duration)
 
         response
-      rescue McpConfigurationError, McpUnsupportedError, McpTransportUnsupportedError
+      rescue ConfigurationError, McpConfigurationError, McpUnsupportedError, McpTransportUnsupportedError
         raise
       rescue => e
         handle_error(e, prompt: prompt, options: options)
@@ -334,7 +334,7 @@ module AgentHarness
           env: build_env(options),
           preparation: build_execution_preparation(options)
         }
-      rescue McpConfigurationError, McpUnsupportedError, McpTransportUnsupportedError
+      rescue ConfigurationError, McpConfigurationError, McpUnsupportedError, McpTransportUnsupportedError
         raise
       rescue => e
         handle_error(e, prompt: prompt, options: options)

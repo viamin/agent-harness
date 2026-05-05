@@ -113,6 +113,12 @@ RSpec.describe AgentHarness::Providers::Base do
         preparation: nil
       )
     end
+
+    it "preserves configuration errors for unknown skills" do
+      expect {
+        provider.plan_execution(prompt: "Hello", skills: [:missing_skill])
+      }.to raise_error(AgentHarness::ConfigurationError, /Unknown skill: missing_skill/)
+    end
   end
 
   describe "#name" do

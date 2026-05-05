@@ -1239,6 +1239,12 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         provider.send_message(prompt: "Hello", skills: [:code_review])
       end
 
+      it "preserves configuration errors for unknown skills" do
+        expect {
+          provider.send_message(prompt: "Hello", skills: [:missing_skill])
+        }.to raise_error(AgentHarness::ConfigurationError, /Unknown skill: missing_skill/)
+      end
+
       it "uses the remaining request timeout budget for the prompt command and includes probe time in duration" do
         allow(mock_executor).to receive(:execute).with(
           ["github-copilot-cli", "--version"],
@@ -3260,6 +3266,12 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
           env: {"COPILOT_SKILL_ENV" => "1"},
           preparation: nil
         )
+      end
+
+      it "preserves configuration errors for unknown skills" do
+        expect {
+          provider.plan_execution(prompt: "Hello", skills: [:missing_skill])
+        }.to raise_error(AgentHarness::ConfigurationError, /Unknown skill: missing_skill/)
       end
     end
 

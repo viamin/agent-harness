@@ -478,6 +478,12 @@ RSpec.describe AgentHarness::Providers::Aider do
         provider.send_message(prompt: "Hello", skills: [:code_review])
       end
 
+      it "preserves configuration errors for unknown skills" do
+        expect {
+          provider.send_message(prompt: "Hello", skills: [:missing_skill])
+        }.to raise_error(AgentHarness::ConfigurationError, /Unknown skill: missing_skill/)
+      end
+
       it "parses comma-delimited token counts from command output when history lacks usage" do
         allow(mock_executor).to receive(:execute) do |cmd, **kwargs|
           history_path = cmd[cmd.index("--llm-history-file") + 1]
@@ -879,6 +885,12 @@ RSpec.describe AgentHarness::Providers::Aider do
         expect(history_path).to match(%r{/tmp/aider_llm_history_})
         expect(plan[:env]).to eq({"AIDER_SKILL_ENV" => "1"})
         expect(plan[:preparation]).to be_nil
+      end
+
+      it "preserves configuration errors for unknown skills" do
+        expect {
+          provider.plan_execution(prompt: "Hello", skills: [:missing_skill])
+        }.to raise_error(AgentHarness::ConfigurationError, /Unknown skill: missing_skill/)
       end
     end
 
