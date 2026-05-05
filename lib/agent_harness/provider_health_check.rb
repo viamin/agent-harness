@@ -328,7 +328,8 @@ module AgentHarness
         # the contract timeout, honour the caller's intent so slow models
         # are not prematurely killed by the contract default.
         contract_timeout = smoke_contract&.dig(:timeout)
-        smoke_timeout = if contract_timeout && timeout && timeout > contract_timeout
+        valid_contract_timeout = contract_timeout.is_a?(Numeric) && contract_timeout.positive?
+        smoke_timeout = if valid_contract_timeout && timeout && timeout > contract_timeout
           timeout
         elsif smoke_contract
           nil

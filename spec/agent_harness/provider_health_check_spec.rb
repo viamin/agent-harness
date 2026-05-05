@@ -1117,6 +1117,52 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
       end
     end
 
+    context "when the smoke test contract timeout is malformed" do
+      let(:provider_class) do
+        Class.new(AgentHarness::Providers::Base) do
+          class << self
+            attr_reader :last_timeout
+
+            def provider_name
+              :test_provider
+            end
+
+            def binary_name
+              "test-cli"
+            end
+
+            def available?
+              true
+            end
+
+            def smoke_test_contract
+              {prompt: "Reply with exactly OK.", expected_output: "OK", timeout: "30", require_output: true}
+            end
+          end
+
+          def smoke_test(timeout: nil, provider_runtime: nil)
+            self.class.instance_variable_set(:@last_timeout, timeout)
+            {ok: true, status: "ok", message: "Smoke test passed", error_category: nil}
+          end
+        end
+      end
+
+      before do
+        registry.register(:test_provider, provider_class)
+        allow(AgentHarness::Authentication).to receive(:auth_status)
+          .with(:test_provider)
+          .and_return({valid: true, expires_at: nil, error: nil})
+      end
+
+      it "treats the contract timeout as absent and avoids comparing incompatible types" do
+        expect { described_class.check(:test_provider, timeout: 60) }.not_to raise_error
+
+        # smoke_test receives nil so the contract remains the source of truth
+        # when it exists, even if its timeout metadata is malformed.
+        expect(provider_class.last_timeout).to be_nil
+      end
+    end
+
     context "when a local CommandExecutor subclass is provided explicitly" do
       let(:logging_executor_class) do
         Class.new(AgentHarness::CommandExecutor) do
