@@ -284,7 +284,7 @@ module AgentHarness
         end
 
         options = normalize_provider_runtime(options)
-        skill_context = resolve_skills(options)
+        skill_context = resolve_skills(options, mode: :chat)
         options = skill_context[:options]
         options = normalize_sub_agent(options)
         runtime = options[:provider_runtime]
@@ -543,7 +543,7 @@ module AgentHarness
         options.merge(provider_runtime: ProviderRuntime.wrap(raw))
       end
 
-      def resolve_skills(options)
+      def resolve_skills(options, mode: :message)
         skill_refs = options[:skills]
         cwd = options.fetch(:cwd, Dir.pwd)
         home = options.fetch(:home, Dir.home)
@@ -556,7 +556,7 @@ module AgentHarness
 
         runtime = skill_runtime&.merge(options[:provider_runtime]) || options[:provider_runtime]
         merged_options = options.merge(provider_runtime: runtime)
-        merged_options = merge_skill_message_tools(merged_options, skills)
+        merged_options = merge_skill_message_tools(merged_options, skills) if mode == :message
         merged_options = merge_skill_mcp_servers(merged_options, skills)
 
         {
@@ -788,10 +788,17 @@ module AgentHarness
       def merge_skill_message_tools(options, skills)
         return options if skills.empty?
         return options if options[:tools] == :none
-        return options unless supports_message_tool_injection?
 
         skill_tools = skills.flat_map { |skill| skill.tools.map { |tool| resolve_skill_message_tool(tool) } }.compact
         return options if skill_tools.empty?
+
+        unless supports_message_tool_injection?
+          tool_names = skill_tools.map { |t| t.is_a?(Hash) ? extract_tool_name(t) : t }.compact
+          skill_names = skills.select { |s| s.tools.any? }.map(&:name)
+          raise ConfigurationError,
+            "Skills #{skill_names.join(", ")} define message-mode tools (#{tool_names.join(", ")}) " \
+            "but provider #{self.class.provider_name} does not support message-mode tool injection"
+        end
 
         current_tools = options[:tools]
         merged_tools = Array(current_tools) + skill_tools

@@ -1137,7 +1137,7 @@ RSpec.describe AgentHarness::Providers::Anthropic do
           provider.send_message(prompt: "Hello")
         end
 
-        it "does not convert skill tools into disallowed tools" do
+        it "raises when a skill defines message-mode tools" do
           AgentHarness.configuration.register_tool(:read_file, anthropic: "Read")
           AgentHarness::Skills.register(:code_review, {
             description: "Reviews code",
@@ -1145,13 +1145,12 @@ RSpec.describe AgentHarness::Providers::Anthropic do
             tools: [:read_file]
           })
 
-          allow(mock_executor).to receive(:execute) do |cmd, **_opts|
-            expect(cmd).not_to include("--disallowedTools")
-            expect(cmd).not_to include("--permission-mode")
-            success_result
-          end
-
-          provider.send_message(prompt: "Hello", skills: [:code_review])
+          expect {
+            provider.send_message(prompt: "Hello", skills: [:code_review])
+          }.to raise_error(
+            AgentHarness::ConfigurationError,
+            /does not support message-mode tool injection/
+          )
         end
       end
 

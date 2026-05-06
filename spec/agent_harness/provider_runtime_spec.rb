@@ -334,5 +334,19 @@ RSpec.describe AgentHarness::ProviderRuntime do
         {type: "function", function: {name: "user_tool"}}
       ])
     end
+
+    it "raises ConfigurationError when chat_tools contain duplicate tool names" do
+      base = described_class.new(
+        chat_tools: [{type: "function", function: {name: "dup_tool"}}]
+      )
+      other = described_class.new(
+        chat_tools: [{type: "function", function: {name: "dup_tool"}}]
+      )
+
+      expect { base.merge(other) }.to raise_error(
+        AgentHarness::ConfigurationError,
+        /Duplicate chat tool names.*dup_tool/
+      )
+    end
   end
 end

@@ -226,7 +226,21 @@ module AgentHarness
       return override_tools unless base_tools
       return base_tools unless override_tools
 
-      base_tools + override_tools
+      merged = base_tools + override_tools
+      names = merged.map { |t| tool_name(t) }.compact
+      duplicates = names.group_by { |n| n }.select { |_, v| v.size > 1 }.keys
+      unless duplicates.empty?
+        raise AgentHarness::ConfigurationError,
+          "Duplicate chat tool names across merged runtimes: #{duplicates.join(", ")}"
+      end
+      merged
+    end
+
+    def tool_name(tool)
+      return unless tool.is_a?(Hash)
+
+      tool[:name] || tool["name"] ||
+        tool.dig(:function, :name) || tool.dig("function", "name")
     end
 
     def validate_optional_string!(name, value)

@@ -264,6 +264,21 @@ RSpec.describe AgentHarness::Providers::Base, "#send_message" do
       )
     end
 
+    it "raises when a skill defines message-mode tools but the provider does not support tool injection" do
+      AgentHarness::Skills.register(:code_tools, {
+        description: "Adds coding tools",
+        instructions: "Use coding tools.",
+        tools: [{name: "lint"}]
+      })
+
+      expect {
+        provider.send_message(prompt: "Hello", skills: [:code_tools])
+      }.to raise_error(
+        AgentHarness::ConfigurationError,
+        /does not support message-mode tool injection/
+      )
+    end
+
     it "rejects extensions with tools in message mode" do
       # Use a provider that supports tool_use so capability validation passes
       # and the message-mode rejection is what fires.
