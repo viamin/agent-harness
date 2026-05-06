@@ -1,5 +1,12 @@
 ## [Unreleased]
 
+## [0.18.0](https://github.com/viamin/agent-harness/compare/agent-harness/v0.17.3...agent-harness/v0.18.0) (2026-05-06)
+
+
+### Features
+
+* **copilot:** add GitHub Copilot CLI (`copilot`) support with --autopilot mode ([#210](https://github.com/viamin/agent-harness/issues/210)) ([0138f3c](https://github.com/viamin/agent-harness/commit/0138f3c9f91e5e871383b771c287495217f084d8))
+
 ## [0.17.3](https://github.com/viamin/agent-harness/compare/agent-harness/v0.17.2...agent-harness/v0.17.3) (2026-05-06)
 
 
