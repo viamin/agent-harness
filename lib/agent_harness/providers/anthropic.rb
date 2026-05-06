@@ -378,7 +378,10 @@ module AgentHarness
 
       def send_message(prompt:, **options)
         if options[:mode] == :text
-          return send_text_message(prompt, **options.except(:mode))
+          options = normalize_provider_runtime(options)
+          skill_context = resolve_skills(options)
+          prompt = apply_skills_to_prompt(prompt, skill_context)
+          return send_text_message(prompt, **skill_context[:options].except(:mode, :skills))
         end
 
         super

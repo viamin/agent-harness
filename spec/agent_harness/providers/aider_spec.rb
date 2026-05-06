@@ -454,6 +454,36 @@ RSpec.describe AgentHarness::Providers::Aider do
         expect(response.model).to eq("claude-3-5-sonnet")
       end
 
+      it "prepends skill instructions and merges skill runtime overrides" do
+        AgentHarness::Skills.register(:code_review, {
+          description: "Reviews code",
+          instructions: "Review the changed files before answering.",
+          providers: {
+            all: {
+              env: {"AIDER_SKILL_ENV" => "1"},
+              flags: ["--skill-flag"]
+            }
+          }
+        })
+
+        expect(mock_executor).to receive(:execute) do |cmd, env:, **|
+          expect(cmd).to include("--skill-flag")
+          expect(cmd).to include("Review the changed files before answering.\n\nHello")
+          expect(env).to eq({"AIDER_SKILL_ENV" => "1"})
+          history_path = cmd[cmd.index("--llm-history-file") + 1]
+          File.write(history_path, "")
+          result
+        end
+
+        provider.send_message(prompt: "Hello", skills: [:code_review])
+      end
+
+      it "preserves configuration errors for unknown skills" do
+        expect {
+          provider.send_message(prompt: "Hello", skills: [:missing_skill])
+        }.to raise_error(AgentHarness::ConfigurationError, /Unknown skill: missing_skill/)
+      end
+
       it "parses comma-delimited token counts from command output when history lacks usage" do
         allow(mock_executor).to receive(:execute) do |cmd, **kwargs|
           history_path = cmd[cmd.index("--llm-history-file") + 1]
@@ -832,6 +862,35 @@ RSpec.describe AgentHarness::Providers::Aider do
         expect(history_path).to match(%r{/tmp/aider_llm_history_})
         expect(plan[:env]).to eq({})
         expect(plan[:preparation]).to be_nil
+      end
+
+      it "applies skill runtime overrides to the planned command" do
+        AgentHarness::Skills.register(:code_review, {
+          description: "Reviews code",
+          instructions: "Review the changed files before answering.",
+          providers: {
+            all: {
+              env: {"AIDER_SKILL_ENV" => "1"},
+              flags: ["--skill-flag"]
+            }
+          }
+        })
+        expect(mock_executor).not_to receive(:execute)
+
+        plan = provider.plan_execution(prompt: "Hello", skills: [:code_review])
+
+        expect(plan[:command]).to include("--skill-flag")
+        expect(plan[:command]).to include("Review the changed files before answering.\n\nHello")
+        history_path = plan[:command][plan[:command].index("--llm-history-file") + 1]
+        expect(history_path).to match(%r{/tmp/aider_llm_history_})
+        expect(plan[:env]).to eq({"AIDER_SKILL_ENV" => "1"})
+        expect(plan[:preparation]).to be_nil
+      end
+
+      it "preserves configuration errors for unknown skills" do
+        expect {
+          provider.plan_execution(prompt: "Hello", skills: [:missing_skill])
+        }.to raise_error(AgentHarness::ConfigurationError, /Unknown skill: missing_skill/)
       end
     end
 

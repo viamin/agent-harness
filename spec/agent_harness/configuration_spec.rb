@@ -146,6 +146,14 @@ RSpec.describe AgentHarness::Configuration do
       expect(tool.mapping_for(:anthropic)).to eq("Read")
       expect(tool.mapping_for(:openai)).to eq({type: "function", name: "read_file"})
     end
+
+    it "falls back from concrete providers to provider family mappings" do
+      config.register_tool(:read_file, anthropic: "Read", openai: {type: "function", name: "read_file"})
+
+      tool = config.tool_registry.fetch(:read_file)
+      expect(tool.mapping_for(:claude)).to eq("Read")
+      expect(tool.mapping_for(:github_copilot)).to eq({type: "function", name: "read_file"})
+    end
   end
 
   describe "#register_mcp_server" do

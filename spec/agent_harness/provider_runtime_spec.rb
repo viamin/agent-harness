@@ -305,4 +305,48 @@ RSpec.describe AgentHarness::ProviderRuntime do
       expect(runtime).not_to be_empty
     end
   end
+
+  describe "#merge" do
+    it "merges hashes and arrays while letting explicit overrides win" do
+      base = described_class.new(
+        model: "skill-model",
+        env: {"SKILL_ENV" => "1"},
+        flags: ["--from-skill"],
+        metadata: {skill: true},
+        chat_tools: [{type: "function", function: {name: "skill_tool"}}]
+      )
+      override = described_class.new(
+        model: "user-model",
+        env: {"USER_ENV" => "1"},
+        flags: ["--from-user"],
+        metadata: {user: true},
+        chat_tools: [{type: "function", function: {name: "user_tool"}}]
+      )
+
+      merged = base.merge(override)
+
+      expect(merged.model).to eq("user-model")
+      expect(merged.env).to eq("SKILL_ENV" => "1", "USER_ENV" => "1")
+      expect(merged.flags).to eq(["--from-skill", "--from-user"])
+      expect(merged.metadata).to eq(skill: true, user: true)
+      expect(merged.chat_tools).to eq([
+        {type: "function", function: {name: "skill_tool"}},
+        {type: "function", function: {name: "user_tool"}}
+      ])
+    end
+
+    it "raises ConfigurationError when chat_tools contain duplicate tool names" do
+      base = described_class.new(
+        chat_tools: [{type: "function", function: {name: "dup_tool"}}]
+      )
+      other = described_class.new(
+        chat_tools: [{type: "function", function: {name: "dup_tool"}}]
+      )
+
+      expect { base.merge(other) }.to raise_error(
+        AgentHarness::ConfigurationError,
+        /Duplicate chat tool names.*dup_tool/
+      )
+    end
+  end
 end

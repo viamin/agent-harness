@@ -115,6 +115,13 @@ RSpec.describe AgentHarness::SubAgentTranslator do
       expect(translated[:format]).to eq(:adk)
     end
 
+    it "uses provider-family tool mappings for OpenAI-family concrete providers" do
+      translated = described_class.for_provider(:github_copilot, config)
+
+      expect(translated[:provider]).to eq(:github_copilot)
+      expect(translated[:definition][:tools]).to eq([{type: "function", name: "read_file"}])
+    end
+
     it "accepts a Hash instead of SubAgentConfig" do
       translated = described_class.for_provider(:anthropic, {
         name: "test_agent",

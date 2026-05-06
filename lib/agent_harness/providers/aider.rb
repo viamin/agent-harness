@@ -211,6 +211,9 @@ module AgentHarness
         log_debug("send_message_start", prompt_length: prompt.length, options: options.keys)
 
         options = normalize_provider_runtime(options)
+        skill_context = resolve_skills(options)
+        prompt = apply_skills_to_prompt(prompt, skill_context)
+        options = skill_context[:options]
         runtime = options[:provider_runtime]
 
         options = normalize_mcp_servers(options)
@@ -255,7 +258,7 @@ module AgentHarness
         log_debug("send_message_complete", duration: duration, tokens: response.tokens)
 
         response
-      rescue McpConfigurationError, McpUnsupportedError, McpTransportUnsupportedError
+      rescue ConfigurationError, McpConfigurationError, McpUnsupportedError, McpTransportUnsupportedError
         raise
       rescue => e
         handle_error(e, prompt: prompt, options: options)
@@ -267,6 +270,9 @@ module AgentHarness
         log_debug("plan_execution_start", prompt_length: prompt.length, options: options.keys)
 
         options = normalize_provider_runtime(options)
+        skill_context = resolve_skills(options)
+        prompt = apply_skills_to_prompt(prompt, skill_context)
+        options = skill_context[:options]
         options = normalize_mcp_servers(options)
         validate_mcp_servers!(options[:mcp_servers]) if options[:mcp_servers]&.any?
 
@@ -277,7 +283,7 @@ module AgentHarness
           env: build_env(options),
           preparation: build_execution_preparation(options)
         }
-      rescue McpConfigurationError, McpUnsupportedError, McpTransportUnsupportedError
+      rescue ConfigurationError, McpConfigurationError, McpUnsupportedError, McpTransportUnsupportedError
         raise
       rescue => e
         handle_error(e, prompt: prompt, options: options)

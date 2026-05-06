@@ -177,4 +177,348 @@ RSpec.describe AgentHarness::Providers::Base, "#send_chat_message" do
       extensions: [:schema_ext]
     )
   end
+
+  it "prepends skill instructions and skill tools in chat mode" do
+    AgentHarness.configuration.register_tool(
+      :read_file,
+      test_provider: {name: "read_file", description: "Read a file", parameters: {type: "object"}}
+    )
+    AgentHarness::Skills.register(:code_review, {
+      description: "Reviews code",
+      instructions: "Review the code before responding.",
+      tools: [:read_file]
+    })
+
+    transport = instance_double("chat transport")
+    provider.send(:set_chat_transport, transport)
+
+    expect(transport).to receive(:chat) do |messages:, tools:, **|
+      expect(messages.first).to eq({role: "system", content: "Review the code before responding."})
+      expect(tools).to eq([{name: "read_file", description: "Read a file", input_schema: {type: "object"}}])
+
+      AgentHarness::Response.new(
+        output: "done", exit_code: 0, duration: 1.0,
+        provider: :test_provider, model: "test-model"
+      )
+    end
+
+    provider.send_chat_message(
+      conversation: [{role: "user", content: "Hello"}],
+      skills: [:code_review]
+    )
+  end
+
+  it "preserves structured system message content when prepending skill instructions" do
+    AgentHarness::Skills.register(:code_review, {
+      description: "Reviews code",
+      instructions: "Review the code before responding."
+    })
+
+    transport = instance_double("chat transport")
+    provider.send(:set_chat_transport, transport)
+
+    expect(transport).to receive(:chat) do |messages:, **|
+      expect(messages.first).to eq({
+        role: "system",
+        content: [
+          {type: "text", text: "Review the code before responding.\n\n"},
+          {type: "text", text: "Keep JSON schema"}
+        ]
+      })
+
+      AgentHarness::Response.new(
+        output: "done", exit_code: 0, duration: 1.0,
+        provider: :test_provider, model: "test-model"
+      )
+    end
+
+    provider.send_chat_message(
+      conversation: [
+        {role: "system", content: [{type: "text", text: "Keep JSON schema"}]},
+        {role: "user", content: "Hello"}
+      ],
+      skills: [:code_review]
+    )
+  end
+
+  it "normalizes bare skill tool refs for OpenAI-compatible chat transports" do
+    openai_provider_class = Class.new(test_provider_class) do
+      def chat_transport_type
+        :openai_compatible
+      end
+    end
+
+    openai_provider = openai_provider_class.new(config: config, executor: mock_executor)
+    AgentHarness::Skills.register(:repo_access, {
+      description: "Adds repo helpers",
+      instructions: "Use repo helpers when needed.",
+      tools: [:read_file]
+    })
+
+    transport = instance_double("chat transport")
+    openai_provider.send(:set_chat_transport, transport)
+
+    expect(transport).to receive(:chat) do |messages:, tools:, **|
+      expect(messages.first).to eq({role: "system", content: "Use repo helpers when needed."})
+      expect(tools).to eq([{type: "function", function: {name: "read_file"}}])
+
+      AgentHarness::Response.new(
+        output: "done", exit_code: 0, duration: 1.0,
+        provider: :test_provider, model: "test-model"
+      )
+    end
+
+    openai_provider.send_chat_message(
+      conversation: [{role: "user", content: "Hello"}],
+      skills: [:repo_access]
+    )
+  end
+
+  it "resolves OpenAI-family skill tool mappings for concrete providers" do
+    concrete_provider_class = Class.new(test_provider_class) do
+      class << self
+        def provider_name
+          :github_copilot
+        end
+      end
+
+      def chat_transport_type
+        :openai_compatible
+      end
+    end
+
+    concrete_provider = concrete_provider_class.new(config: config, executor: mock_executor)
+    AgentHarness.configuration.register_tool(
+      :read_file,
+      openai: {name: "read_file", description: "Read a file", parameters: {type: "object"}}
+    )
+    AgentHarness::Skills.register(:repo_access, {
+      description: "Adds repo helpers",
+      instructions: "Use repo helpers when needed.",
+      tools: [:read_file]
+    })
+
+    transport = instance_double("chat transport")
+    concrete_provider.send(:set_chat_transport, transport)
+
+    expect(transport).to receive(:chat) do |tools:, **|
+      expect(tools).to eq([{
+        type: "function",
+        function: {
+          name: "read_file",
+          description: "Read a file",
+          parameters: {type: "object"}
+        }
+      }])
+
+      AgentHarness::Response.new(
+        output: "done", exit_code: 0, duration: 1.0,
+        provider: :github_copilot, model: "test-model"
+      )
+    end
+
+    concrete_provider.send_chat_message(
+      conversation: [{role: "user", content: "Hello"}],
+      skills: [:repo_access]
+    )
+  end
+
+  it "merges explicit chat tools with provider-specific skill chat tools" do
+    explicit_tool = {type: "function", function: {name: "explicit_tool"}}
+    AgentHarness::Skills.register(:repo_access, {
+      description: "Adds repo helpers",
+      instructions: "Use repo helpers when needed.",
+      providers: {
+        all: {
+          chat_tools: [{type: "function", function: {name: "skill_tool"}}]
+        }
+      }
+    })
+
+    transport = instance_double("chat transport")
+    provider.send(:set_chat_transport, transport)
+
+    expect(transport).to receive(:chat) do |messages:, tools:, **|
+      expect(messages.first).to eq({role: "system", content: "Use repo helpers when needed."})
+      expect(tools).to eq([
+        explicit_tool,
+        {type: "function", function: {name: "skill_tool"}}
+      ])
+
+      AgentHarness::Response.new(
+        output: "done", exit_code: 0, duration: 1.0,
+        provider: :test_provider, model: "test-model"
+      )
+    end
+
+    provider.send_chat_message(
+      conversation: [{role: "user", content: "Hello"}],
+      tools: [explicit_tool],
+      skills: [:repo_access]
+    )
+  end
+
+  it "does not double-merge provider-specific skill chat tools when tools are omitted" do
+    AgentHarness::Skills.register(:repo_access, {
+      description: "Adds repo helpers",
+      instructions: "Use repo helpers when needed.",
+      providers: {
+        all: {
+          chat_tools: [{type: "function", function: {name: "skill_tool"}}]
+        }
+      }
+    })
+
+    transport = instance_double("chat transport")
+    provider.send(:set_chat_transport, transport)
+
+    expect(transport).to receive(:chat) do |messages:, tools:, **|
+      expect(messages.first).to eq({role: "system", content: "Use repo helpers when needed."})
+      expect(tools).to eq([{type: "function", function: {name: "skill_tool"}}])
+
+      AgentHarness::Response.new(
+        output: "done", exit_code: 0, duration: 1.0,
+        provider: :test_provider, model: "test-model"
+      )
+    end
+
+    provider.send_chat_message(
+      conversation: [{role: "user", content: "Hello"}],
+      skills: [:repo_access]
+    )
+  end
+
+  it "prefers explicit chat tools over runtime chat_tools while still merging skill chat tools" do
+    explicit_tool = {type: "function", function: {name: "explicit_tool"}}
+    runtime = AgentHarness::ProviderRuntime.new(
+      chat_tools: [{type: "function", function: {name: "runtime_tool"}}]
+    )
+    AgentHarness::Skills.register(:repo_access, {
+      description: "Adds repo helpers",
+      instructions: "Use repo helpers when needed.",
+      providers: {
+        all: {
+          chat_tools: [{type: "function", function: {name: "skill_tool"}}]
+        }
+      }
+    })
+
+    transport = instance_double("chat transport")
+    provider.send(:set_chat_transport, transport)
+
+    expect(transport).to receive(:chat) do |messages:, tools:, **|
+      expect(messages.first).to eq({role: "system", content: "Use repo helpers when needed."})
+      expect(tools).to eq([
+        explicit_tool,
+        {type: "function", function: {name: "skill_tool"}}
+      ])
+
+      AgentHarness::Response.new(
+        output: "done", exit_code: 0, duration: 1.0,
+        provider: :test_provider, model: "test-model"
+      )
+    end
+
+    provider.send_chat_message(
+      conversation: [{role: "user", content: "Hello"}],
+      tools: [explicit_tool],
+      provider_runtime: runtime,
+      skills: [:repo_access]
+    )
+  end
+
+  it "raises when explicit chat tools conflict with provider-specific skill chat tools" do
+    explicit_tool = {type: "function", function: {name: "shared_tool"}}
+    AgentHarness::Skills.register(:repo_access, {
+      description: "Adds repo helpers",
+      instructions: "Use repo helpers when needed.",
+      providers: {
+        all: {
+          chat_tools: [{type: "function", function: {name: "shared_tool"}}]
+        }
+      }
+    })
+
+    transport = instance_double("chat transport")
+    provider.send(:set_chat_transport, transport)
+
+    expect {
+      provider.send_chat_message(
+        conversation: [{role: "user", content: "Hello"}],
+        tools: [explicit_tool],
+        skills: [:repo_access]
+      )
+    }.to raise_error(AgentHarness::ConfigurationError, /shared_tool/)
+  end
+
+  it "raises when a skill requires MCP servers in chat mode" do
+    AgentHarness::Skills.register(:repo_access, {
+      description: "Adds repo MCP access",
+      instructions: "Use MCP when needed.",
+      mcp_servers: [{name: "github", transport: "http", url: "https://example.test/mcp"}]
+    })
+
+    transport = instance_double("chat transport")
+    provider.send(:set_chat_transport, transport)
+
+    expect {
+      provider.send_chat_message(
+        conversation: [{role: "user", content: "Hello"}],
+        skills: [:repo_access]
+      )
+    }.to raise_error(AgentHarness::McpUnsupportedError, /Chat mode does not support request-scoped MCP servers/)
+  end
+
+  it "ignores globally configured MCP servers when chat requests do not opt into MCP" do
+    AgentHarness.configuration.register_mcp_server(
+      :github,
+      transport: "http",
+      url: "https://example.test/mcp"
+    )
+
+    transport = instance_double("chat transport")
+    provider.send(:set_chat_transport, transport)
+
+    expect(transport).to receive(:chat) do |messages:, tools:, **|
+      expect(messages).to eq([{role: "user", content: "Hello"}])
+      expect(tools).to be_nil
+
+      AgentHarness::Response.new(
+        output: "done", exit_code: 0, duration: 1.0,
+        provider: :test_provider, model: "test-model"
+      )
+    end
+
+    response = provider.send_chat_message(
+        conversation: [{role: "user", content: "Hello"}]
+      )
+
+    expect(response.output).to eq("done")
+  end
+
+  it "raises when skill MCP servers conflict with explicit MCP servers" do
+    AgentHarness::Skills.register(:repo_access, {
+      description: "Adds repo MCP access",
+      instructions: "Use MCP when needed.",
+      mcp_servers: [{name: "github", transport: "http", url: "https://example.test/skill-mcp"}]
+    })
+
+    capable_provider_class = Class.new(test_provider_class) do
+      def capabilities
+        super.merge(mcp: true)
+      end
+    end
+    capable_provider = capable_provider_class.new(config: config, executor: mock_executor)
+
+    expect {
+      capable_provider.send_message(
+        prompt: "Hello",
+        mcp_servers: [{name: "github", transport: "http", url: "https://example.test/explicit-mcp"}],
+        skills: [:repo_access]
+      )
+    }.to raise_error(
+      AgentHarness::ConfigurationError,
+      /MCP server name conflict across explicit and skill servers: github \(explicit, skill: repo_access\)/
+    )
+  end
 end

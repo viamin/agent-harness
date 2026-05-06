@@ -129,6 +129,9 @@ module AgentHarness
 
         # Coerce provider_runtime from Hash if needed
         options = normalize_provider_runtime(options)
+        skill_context = resolve_skills(options)
+        prompt = apply_skills_to_prompt(prompt, skill_context)
+        options = skill_context[:options]
 
         # Capture execution options (callbacks, observer) before extensions
         # processing deep-dups the options hash, which would replace identity-
@@ -191,7 +194,8 @@ module AgentHarness
         log_debug("send_message_complete", duration: duration, tokens: response.tokens)
 
         response
-      rescue ExtensionCompatibilityError, McpConfigurationError, McpUnsupportedError, McpTransportUnsupportedError
+      rescue ExtensionCompatibilityError, ConfigurationError, McpConfigurationError, McpUnsupportedError,
+        McpTransportUnsupportedError
         raise
       rescue => e
         handle_error(e, prompt: prompt, options: options)
@@ -221,6 +225,9 @@ module AgentHarness
         end
 
         options = normalize_provider_runtime(options)
+        skill_context = resolve_skills(options)
+        prompt = apply_skills_to_prompt(prompt, skill_context)
+        options = skill_context[:options]
 
         extension_context = apply_extensions_to_prompt(prompt, options)
         prompt = extension_context.prompt
@@ -236,7 +243,8 @@ module AgentHarness
           env: build_env(options),
           preparation: build_execution_preparation(options)
         }
-      rescue ExtensionCompatibilityError, McpConfigurationError, McpUnsupportedError, McpTransportUnsupportedError
+      rescue ExtensionCompatibilityError, ConfigurationError, McpConfigurationError, McpUnsupportedError,
+        McpTransportUnsupportedError
         raise
       rescue => e
         handle_error(e, prompt: prompt, options: options)
@@ -276,20 +284,30 @@ module AgentHarness
         end
 
         options = normalize_provider_runtime(options)
+        skill_context = resolve_skills(options, mode: :chat)
+        options = skill_context[:options]
         options = normalize_sub_agent(options)
         runtime = options[:provider_runtime]
         conversation ||= messages
         raise ArgumentError, "conversation or messages is required" unless conversation
-        tools = runtime.chat_tools if tools.nil? && runtime&.chat_tools
+        use_runtime_chat_tools = tools.nil?
+        tools = runtime.chat_tools if use_runtime_chat_tools && runtime&.chat_tools
 
         transport = resolve_chat_transport(options)
         messages = format_messages_for_transport(conversation, transport)
+        messages = apply_skills_to_messages(messages, skill_context)
+        skill_tools = if use_runtime_chat_tools
+          skill_context[:tools]
+        else
+          merge_skill_chat_tools(skill_context[:tools], skill_context[:runtime_tools])
+        end
+        tools = merge_skill_chat_tools(tools, skill_tools)
         extension_context = apply_extensions_to_chat(messages, tools, options)
         messages = extension_context.messages
         tools = extension_context.tools
         options = extension_context.options
         messages = apply_sub_agent_to_messages(messages, options[:translated_sub_agent])
-        validate_chat_mcp_servers!(options[:mcp_servers])
+        validate_chat_mcp_servers!(options)
         transport_opts = chat_transport_options(runtime, options)
         transport_opts[:on_chat_chunk] = on_chat_chunk if on_chat_chunk
         transport_opts[:observer] = observer if observer
@@ -308,7 +326,7 @@ module AgentHarness
         log_debug("send_chat_message_complete", duration: response.duration, tokens: response.tokens)
 
         response
-      rescue ExtensionCompatibilityError, ProviderError, AuthenticationError, RateLimitError, TimeoutError
+      rescue ExtensionCompatibilityError, ConfigurationError, ProviderError, AuthenticationError, RateLimitError, TimeoutError
         raise
       rescue => e
         last_msg = conversation&.last || messages&.last
@@ -525,22 +543,49 @@ module AgentHarness
         options.merge(provider_runtime: ProviderRuntime.wrap(raw))
       end
 
+      def resolve_skills(options, mode: :message)
+        skill_refs = options[:skills]
+        cwd = options.fetch(:cwd, Dir.pwd)
+        home = options.fetch(:home, Dir.home)
+        skills = Skills.resolve_all(skill_refs, cwd: cwd, home: home)
+        return {skills: [], options: options, instructions: nil, tools: [], runtime_tools: []} if skills.empty?
+
+        skill_runtime = skills.map { |skill| ProviderRuntime.wrap(skill.provider_override_for(self.class.provider_name)) }
+          .compact
+          .reduce(nil) { |merged, sr| merged ? merged.merge(sr) : sr }
+
+        runtime = skill_runtime&.merge(options[:provider_runtime]) || options[:provider_runtime]
+        merged_options = options.merge(provider_runtime: runtime)
+        merged_options = merge_skill_message_tools(merged_options, skills) if mode == :message
+        merged_options = merge_skill_mcp_servers(merged_options, skills)
+
+        {
+          skills: skills,
+          options: merged_options,
+          instructions: skills.map(&:instructions).join("\n\n"),
+          tools: resolve_skill_chat_tools(skills),
+          runtime_tools: Array(skill_runtime&.chat_tools)
+        }
+      end
+
       def normalize_mcp_servers(options)
-        if options.key?(:mcp_servers)
-          servers = options[:mcp_servers]
+        base_servers = if options.key?(:mcp_servers)
+          options[:mcp_servers]
         else
           # Configuration stores mcp_servers as a Hash keyed by name; extract values.
           config_servers = @configuration.mcp_servers
-          servers = config_servers.is_a?(Hash) ? config_servers.values : config_servers
+          config_servers.is_a?(Hash) ? config_servers.values : config_servers
         end
-        return options if servers.nil?
+        skill_servers = Array(options[:skill_mcp_servers])
+        return options.except(:skill_mcp_servers) if base_servers.nil? && skill_servers.empty?
 
-        unless servers.is_a?(Array)
+        unless base_servers.nil? || base_servers.is_a?(Array)
           raise McpConfigurationError,
-            "mcp_servers must be an Array of Hash or McpServer, got #{servers.class}"
+            "mcp_servers must be an Array of Hash or McpServer, got #{base_servers.class}"
         end
 
-        return options if servers.empty?
+        servers = Array(base_servers) + skill_servers
+        return options.except(:skill_mcp_servers) if servers.empty?
 
         normalized = servers.map do |server|
           if server.is_a?(McpServer)
@@ -560,7 +605,7 @@ module AgentHarness
             "Duplicate MCP server names detected: #{duplicate_names.join(", ")}"
         end
 
-        options.merge(mcp_servers: normalized)
+        options.except(:skill_mcp_servers).merge(mcp_servers: normalized)
       end
 
       def normalize_sub_agent(options)
@@ -582,6 +627,28 @@ module AgentHarness
         return prompt unless translated_sub_agent
 
         [translated_sub_agent[:runtime_instructions], "User task:\n#{prompt}"].join("\n\n")
+      end
+
+      def apply_skills_to_prompt(prompt, skill_context)
+        instructions = skill_context[:instructions]
+        return prompt if instructions.nil? || instructions.empty?
+
+        [instructions, prompt].join("\n\n")
+      end
+
+      def apply_skills_to_messages(messages, skill_context)
+        instructions = skill_context[:instructions]
+        return messages if instructions.nil? || instructions.empty?
+
+        # Prepend skill instructions to the first system message if one exists,
+        # rather than inserting a separate system turn that could be overridden.
+        if messages.any? && messages.first[:role] == "system"
+          merged = messages.dup
+          merged[0] = merged[0].merge(content: prepend_text_to_message_content(merged[0][:content], instructions))
+          merged
+        else
+          [{role: "system", content: instructions}] + messages
+        end
       end
 
       def apply_sub_agent_to_messages(messages, translated_sub_agent)
@@ -659,8 +726,12 @@ module AgentHarness
         end
       end
 
-      def validate_chat_mcp_servers!(mcp_servers)
-        return if mcp_servers.nil? || mcp_servers.empty?
+      def validate_chat_mcp_servers!(options)
+        # Chat mode only needs to reject MCP servers introduced by the
+        # current request. Global configuration may still define default MCP
+        # servers for non-chat flows and should not make every chat call fail.
+        mcp_servers = Array(options[:mcp_servers]) + Array(options[:skill_mcp_servers])
+        return if mcp_servers.empty?
 
         # Chat transports do not support request-scoped MCP servers.
         # Raise early so extensions with MCP requirements are not silently ignored.
@@ -715,6 +786,149 @@ module AgentHarness
             "Tool name conflict between user-provided and extension tools: #{duplicates.join(", ")}"
         end
         merged
+      end
+
+      def merge_skill_message_tools(options, skills)
+        return options if skills.empty?
+        return options if options[:tools] == :none
+
+        skill_tools = skills.flat_map { |skill| skill.tools.map { |tool| resolve_skill_message_tool(tool) } }.compact
+        return options if skill_tools.empty?
+
+        unless supports_message_tool_injection?
+          tool_names = skill_tools.map { |t| t.is_a?(Hash) ? extract_tool_name(t) : t }.compact
+          skill_names = skills.select { |s| s.tools.any? }.map(&:name)
+          raise ConfigurationError,
+            "Skills #{skill_names.join(", ")} define message-mode tools (#{tool_names.join(", ")}) " \
+            "but provider #{self.class.provider_name} does not support message-mode tool injection"
+        end
+
+        current_tools = options[:tools]
+        merged_tools = Array(current_tools) + skill_tools
+        duplicates = merged_tools.group_by(&:itself).select { |_, entries| entries.size > 1 }.keys
+        unless duplicates.empty?
+          raise ConfigurationError, "Tool name conflict between explicit and skill tools: #{duplicates.join(", ")}"
+        end
+
+        options.merge(tools: merged_tools)
+      end
+
+      def merge_skill_mcp_servers(options, skills)
+        skill_servers = skills.flat_map do |skill|
+          skill.mcp_servers.map { |server| [skill.name, server] }
+        end
+        return options if skill_servers.empty?
+
+        existing_servers = normalized_mcp_server_sources(options)
+        duplicates = duplicate_skill_mcp_server_names(existing_servers, skill_servers)
+        unless duplicates.empty?
+          conflicts = duplicates.map do |name, owners|
+            formatted_owners = owners.map { |owner| (owner == :explicit) ? "explicit" : "skill: #{owner}" }.join(", ")
+            "#{name} (#{formatted_owners})"
+          end
+          raise ConfigurationError,
+            "MCP server name conflict across explicit and skill servers: #{conflicts.join(", ")}"
+        end
+
+        options.merge(skill_mcp_servers: deep_dup(skill_servers.map(&:last)))
+      end
+
+      def resolve_skill_chat_tools(skills)
+        skills.flat_map do |skill|
+          skill.tools.map { |tool| normalize_skill_chat_tool_for_provider(resolve_skill_tool_mapping(tool)) }
+        end
+      end
+
+      def merge_skill_chat_tools(tools, skill_tools)
+        return tools if skill_tools.empty?
+
+        merged = Array(tools) + skill_tools
+        names = merged.map { |tool| extract_tool_name(tool) }.compact
+        duplicates = names.group_by { |name| name }.select { |_, entries| entries.size > 1 }.keys
+        unless duplicates.empty?
+          raise ConfigurationError, "Tool name conflict between explicit and skill tools: #{duplicates.join(", ")}"
+        end
+
+        merged
+      end
+
+      def resolve_skill_message_tool(tool)
+        resolved = resolve_skill_tool_mapping(tool)
+        return resolved if resolved.is_a?(String)
+        return extract_tool_name(resolved) if resolved.is_a?(Hash)
+
+        raise ConfigurationError, "Unsupported skill tool mapping for message mode: #{resolved.inspect}"
+      end
+
+      def normalize_skill_chat_tool_for_provider(tool)
+        normalized_tool = tool.is_a?(Hash) ? tool : {name: tool.to_s}
+        normalize_extension_tool_for_provider(normalized_tool)
+      end
+
+      def duplicate_skill_mcp_server_names(existing_servers, skill_servers)
+        owners_by_name = Hash.new { |hash, key| hash[key] = [] }
+        existing_servers.each do |server|
+          name = server_name(server)
+          owners_by_name[name] << :explicit if name
+        end
+
+        skill_servers.each do |(skill_name, server)|
+          name = server_name(server)
+          owners_by_name[name] << skill_name if name
+        end
+
+        owners_by_name.each_with_object({}) do |(name, owners), duplicates|
+          duplicates[name] = owners if owners.uniq.size > 1
+        end
+      end
+
+      def normalized_mcp_server_sources(options)
+        if options.key?(:mcp_servers)
+          Array(options[:mcp_servers])
+        else
+          config_servers = @configuration.mcp_servers
+          config_servers = config_servers.values if config_servers.is_a?(Hash)
+          Array(config_servers)
+        end
+      end
+
+      def server_name(server)
+        if server.is_a?(McpServer)
+          server.name
+        else
+          server[:name] || server["name"]
+        end
+      end
+
+      def resolve_skill_tool_mapping(tool)
+        case tool
+        when Symbol, String
+          if @configuration.tool_registry.registered?(tool)
+            mapping = @configuration.tool_registry.fetch(tool).mapping_for(self.class.provider_name)
+            mapping.nil? ? tool.to_s : mapping
+          else
+            tool.to_s
+          end
+        when Hash
+          deep_dup(tool)
+        else
+          raise ConfigurationError, "Unsupported tool reference #{tool.inspect} in skill definition"
+        end
+      end
+
+      def prepend_text_to_message_content(content, text)
+        case content
+        when nil
+          text
+        when String
+          "#{text}\n\n#{content}"
+        when Array
+          [{type: "text", text: "#{text}\n\n"}] + deep_dup(content)
+        when Hash
+          [{type: "text", text: "#{text}\n\n"}, deep_dup(content)]
+        else
+          raise ConfigurationError, "Unsupported system message content type for skill instructions: #{content.class}"
+        end
       end
 
       def extract_tool_name(tool)
