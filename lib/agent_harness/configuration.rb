@@ -420,7 +420,10 @@ module AgentHarness
     end
 
     def mapping_for(provider)
-      deep_dup(@provider_mappings[provider.to_sym])
+      provider_key = provider.to_sym
+      mapping = @provider_mappings[provider_key]
+      mapping ||= @provider_mappings[normalize_provider_family(provider_key)]
+      deep_dup(mapping)
     end
 
     def to_h
@@ -428,6 +431,15 @@ module AgentHarness
     end
 
     private
+
+    def normalize_provider_family(provider)
+      case provider
+      when :claude then :anthropic
+      when :gemini then :google
+      when :cursor, :github_copilot, :codex, :opencode, :openai_compatible then :openai
+      else provider
+      end
+    end
 
     def deep_dup(value)
       case value

@@ -241,6 +241,55 @@ RSpec.describe AgentHarness::Providers::Base, "#send_chat_message" do
     )
   end
 
+  it "resolves OpenAI-family skill tool mappings for concrete providers" do
+    concrete_provider_class = Class.new(test_provider_class) do
+      class << self
+        def provider_name
+          :github_copilot
+        end
+      end
+
+      def chat_transport_type
+        :openai_compatible
+      end
+    end
+
+    concrete_provider = concrete_provider_class.new(config: config, executor: mock_executor)
+    AgentHarness.configuration.register_tool(
+      :read_file,
+      openai: {name: "read_file", description: "Read a file", parameters: {type: "object"}}
+    )
+    AgentHarness::Skills.register(:repo_access, {
+      description: "Adds repo helpers",
+      instructions: "Use repo helpers when needed.",
+      tools: [:read_file]
+    })
+
+    transport = instance_double("chat transport")
+    concrete_provider.send(:set_chat_transport, transport)
+
+    expect(transport).to receive(:chat) do |tools:, **|
+      expect(tools).to eq([{
+        type: "function",
+        function: {
+          name: "read_file",
+          description: "Read a file",
+          parameters: {type: "object"}
+        }
+      }])
+
+      AgentHarness::Response.new(
+        output: "done", exit_code: 0, duration: 1.0,
+        provider: :github_copilot, model: "test-model"
+      )
+    end
+
+    concrete_provider.send_chat_message(
+      conversation: [{role: "user", content: "Hello"}],
+      skills: [:repo_access]
+    )
+  end
+
   it "merges explicit chat tools with provider-specific skill chat tools" do
     explicit_tool = {type: "function", function: {name: "explicit_tool"}}
     AgentHarness::Skills.register(:repo_access, {
