@@ -1,5 +1,12 @@
 ## [Unreleased]
 
+## [0.17.3](https://github.com/viamin/agent-harness/compare/agent-harness/v0.17.2...agent-harness/v0.17.3) (2026-05-06)
+
+
+### Bug Fixes
+
+* 161: Support provider-agnostic skills system ([#204](https://github.com/viamin/agent-harness/issues/204)) ([20a6ed5](https://github.com/viamin/agent-harness/commit/20a6ed5a8e6701ad7730d88b8037145d86b39c37))
+
 ## [0.17.2](https://github.com/viamin/agent-harness/compare/agent-harness/v0.17.1...agent-harness/v0.17.2) (2026-05-05)
 
 
