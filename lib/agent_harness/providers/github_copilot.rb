@@ -1,20 +1,25 @@
 # frozen_string_literal: true
 
-require "digest"
 require "json"
 require "pathname"
+require "securerandom"
+require "tmpdir"
 
 module AgentHarness
   module Providers
     class GithubCopilot < Base
+      include McpConfigFileSupport
       include TokenUsageParsing
 
+      CLI_PACKAGE = "@github/copilot"
+      INSTALL_COMMAND_PREFIX = ["npm", "install", "-g"].freeze
+      DEFAULT_MAX_AUTOPILOT_CONTINUES = 50
+      LEGACY_BINARY_NAME = "github-copilot-cli"
       MODEL_PATTERN = /^gpt-[\d.o-]+(?:-turbo)?(?:-mini)?$/i
-      JSON_OUTPUT_MIN_VERSION = Gem::Version.new("0.0.422").freeze
-      SUBCOMMAND_CLI_MIN_VERSION = Gem::Version.new("0.1.0").freeze
-      UNSUPPORTED_SUBCOMMAND_CLI_MESSAGE =
-        "github-copilot-cli 0.1.x does not expose a non-interactive send interface; " \
-        "the what-the-shell subcommand is interactive and cannot be used by AgentHarness."
+
+      GITHUB_MODELS_BASE_URL = "https://models.inference.ai.azure.com"
+      CHAT_DEFAULT_MODEL = "gpt-4o"
+      CHAT_MODELS = %w[gpt-4o gpt-4o-mini gpt-4-turbo].freeze
 
       SMOKE_TEST_CONTRACT = {
         prompt: "Reply with exactly OK.",
@@ -30,27 +35,41 @@ module AgentHarness
         end
 
         def binary_name
-          "github-copilot-cli"
+          "copilot"
         end
 
         def available?
           executor = AgentHarness.configuration.command_executor
           return false unless executor.which(binary_name)
 
-          !subcommand_cli_version?(copilot_cli_version(executor: executor))
+          true
         rescue
           false
         end
 
         def installation_contract(version: nil)
-          # The published @githubnext/github-copilot-cli package only has
-          # 0.1.x releases, and those expose an interactive subcommand instead
-          # of the non-interactive -p prompt path AgentHarness uses.
-          nil
+          normalized_version = normalize_install_version(version)
+          package = normalized_version ? "#{CLI_PACKAGE}@#{normalized_version}" : CLI_PACKAGE
+          install_command = (INSTALL_COMMAND_PREFIX + [package]).freeze
+
+          contract = {
+            source: :npm,
+            package: package,
+            package_name: CLI_PACKAGE,
+            version: normalized_version,
+            binary_name: binary_name,
+            install_command_prefix: INSTALL_COMMAND_PREFIX,
+            install_command: install_command
+          }
+
+          contract.each_value do |value|
+            value.freeze if value.is_a?(String)
+          end
+          contract.freeze
         end
 
         def install_command(version: nil)
-          installation_contract(version: version)&.fetch(:install_command)
+          installation_contract(version: version)[:install_command]
         end
 
         def provider_metadata_overrides
@@ -120,26 +139,14 @@ module AgentHarness
 
         private
 
-        def copilot_cli_version(executor:)
-          result = executor.execute([binary_name, "--version"], timeout: 5, env: {})
-          extract_version(result)
-        rescue
-          nil
-        end
+        def normalize_install_version(version)
+          return nil if version.nil?
 
-        def subcommand_cli_version?(version)
-          !version.nil? && version >= SUBCOMMAND_CLI_MIN_VERSION
-        end
+          unless version.is_a?(String) && !version.strip.empty?
+            raise ArgumentError, "Unsupported GitHub Copilot CLI version #{version.inspect}"
+          end
 
-        def extract_version(result)
-          return nil unless result.success?
-
-          version_string = [result.stdout, result.stderr].compact.join("\n")[/\d+\.\d+\.\d+(?:[-+][A-Za-z0-9.-]+)?/]
-          return nil if version_string.nil? || version_string.empty?
-
-          Gem::Version.new(version_string)
-        rescue ArgumentError
-          nil
+          version.strip
         end
       end
 
@@ -174,34 +181,11 @@ module AgentHarness
           file_upload: false,
           vision: false,
           tool_use: true,
-          json_mode: false,
-          mcp: false,
+          json_mode: true,
+          mcp: true,
           dangerous_mode: true
         }
       end
-
-      def dangerous_mode_flags(probe_timeout: nil, env: {}, version: nil)
-        version ||= copilot_cli_version(probe_timeout: probe_timeout, env: env)
-        return [] if subcommand_cli_version?(version)
-        return [] unless supports_json_output_format?(version: version)
-
-        ["--allow-all"]
-      end
-
-      def supports_sessions?(probe_timeout: nil, env: {}, version: :not_provided)
-        legacy_prompt_cli?(version: version, probe_timeout: probe_timeout, env: env)
-      end
-
-      def session_flags(session_id, version: :not_provided, probe_timeout: nil, env: {})
-        return [] unless session_id && !session_id.empty?
-        return [] unless legacy_prompt_cli?(version: version, probe_timeout: probe_timeout, env: env)
-
-        ["--resume", session_id]
-      end
-
-      GITHUB_MODELS_BASE_URL = "https://models.inference.ai.azure.com"
-      CHAT_DEFAULT_MODEL = "gpt-4o"
-      CHAT_MODELS = %w[gpt-4o gpt-4o-mini gpt-4-turbo].freeze
 
       def supports_chat?
         true
@@ -233,19 +217,51 @@ module AgentHarness
         :openai_compatible
       end
 
+      def api_key_env_var_names
+        ["COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN"]
+      end
+
+      def api_key_unset_vars
+        ["COPILOT_PROVIDER_API_KEY", "COPILOT_PROVIDER_BASE_URL"]
+      end
+
+      def subscription_unset_vars
+        api_key_env_var_names + api_key_unset_vars
+      end
+
       def auth_type
         :oauth
+      end
+
+      def dangerous_mode_flags
+        ["--yolo"]
+      end
+
+      def supports_mcp?
+        true
+      end
+
+      def supported_mcp_transports
+        %w[stdio http sse]
+      end
+
+      def build_mcp_flags(mcp_servers, options:)
+        return [] if mcp_servers.empty?
+
+        ["--additional-mcp-config", "@#{mcp_config_plan(options, mcp_servers).fetch(:path)}"]
+      end
+
+      def supports_sessions?
+        false
       end
 
       def execution_semantics
         {
           prompt_delivery: :arg,
-          # Older Copilot CLIs fall back to plain-text prompt mode, so metadata
-          # must not claim JSON-only output even though newer versions support it.
-          output_format: :text,
+          output_format: :json,
           sandbox_aware: false,
           uses_subcommand: false,
-          non_interactive_flag: nil,
+          non_interactive_flag: "--autopilot",
           legitimate_exit_codes: [0],
           stderr_is_diagnostic: true,
           parses_rate_limit_reset: false
@@ -255,214 +271,135 @@ module AgentHarness
       def error_patterns
         {
           auth_expired: [
+            /not.?logged.?in/i,
             /not.?authorized/i,
-            /access.?denied/i,
-            /permission.?denied/i,
-            /not.?enabled/i,
-            /subscription.?required/i
+            /authentication/i,
+            /token.*invalid/i,
+            /copilot requests/i
           ],
           rate_limited: [
-            /usage.?limit/i,
-            /rate.?limit/i
+            /rate.?limit/i,
+            /too.?many.?requests/i,
+            /\b429\b/
           ],
           transient: [
             /connection.?error/i,
             /timeout/i,
-            /try.?again/i
+            /try.?again/i,
+            /\b502\b/,
+            /\b503\b/
           ],
           permanent: [
-            /invalid.?command/i,
-            /unknown.?flag/i
+            /unknown.?flag/i,
+            /invalid.?value/i,
+            /continuation limit/i,
+            /max.?autopilot.?continues/i
           ]
         }
       end
 
       def translate_error(message)
         case message
-        when /github-copilot-cli.*not found/i then "GitHub Copilot CLI not installed."
-        else message
+        when /copilot.*not found/i, /No such file or directory - copilot/i
+          "GitHub Copilot CLI not installed."
+        else
+          message
         end
       end
 
       def supports_token_counting?
-        supports_json_output_format?
+        true
       end
 
       def send_message(prompt:, **options)
-        log_debug("send_message_start", prompt_length: prompt.length, options: options.keys)
+        super
+      ensure
+        cleanup_mcp_tempfiles!
+      end
 
-        options = normalize_provider_runtime(options)
-        skill_context = resolve_skills(options)
-        prompt = apply_skills_to_prompt(prompt, skill_context)
-        options = skill_context[:options]
-        options = normalize_mcp_servers(options)
-        validate_mcp_servers!(options[:mcp_servers]) if options[:mcp_servers]&.any?
-
-        timeout = options[:timeout] || @config.timeout || default_timeout
-        raise TimeoutError, "Command timed out before execution started" if timeout <= 0
-
-        env = build_env(options)
-        options = options.merge(_version_probe_timeout: [timeout, 5].min, _command_env: env)
-
-        start_time = Time.now
-        command = build_command(prompt, options)
-        preparation = build_execution_preparation(options)
-        remaining_timeout = timeout - (Time.now - start_time)
-        raise TimeoutError, "Command timed out before execution started" if remaining_timeout <= 0
-
-        json_output_requested = command.include?("--output-format") && command.include?("json")
-
-        result = execute_with_timeout(
-          command,
-          timeout: remaining_timeout,
-          env: env,
-          preparation: preparation,
-          **command_execution_options(options)
-        )
-        duration = Time.now - start_time
-
-        response = parse_response(result, duration: duration, json_output_requested: json_output_requested)
+      def build_command(prompt, options)
         runtime = options[:provider_runtime]
-        effective_runtime_model = normalized_model_name(runtime&.model)
-        if effective_runtime_model
-          response = Response.new(
-            output: response.output,
-            exit_code: response.exit_code,
-            duration: response.duration,
-            provider: response.provider,
-            model: effective_runtime_model,
-            tokens: response.tokens,
-            metadata: response.metadata,
-            error: response.error
-          )
+        cmd = [
+          self.class.binary_name,
+          "--autopilot",
+          "--max-autopilot-continues",
+          max_autopilot_continues(options).to_s,
+          "--output-format",
+          "json"
+        ]
+        # Smoke tests must run non-interactively; force full-permission mode
+        # so autopilot does not stall on permission prompts.
+        cmd += dangerous_mode_flags if (options[:dangerous_mode] || options[:smoke_test]) && supports_dangerous_mode?
+
+        if options[:mcp_servers]&.any?
+          cmd += build_mcp_flags(options[:mcp_servers], options: options)
         end
 
-        track_tokens(response) if response.tokens
+        cmd += @config.default_flags if @config.default_flags&.any?
 
-        log_debug("send_message_complete", duration: duration, tokens: response.tokens)
+        model = effective_model_name(runtime)
+        cmd += ["--model", model] if model
 
-        response
-      rescue ConfigurationError, McpConfigurationError, McpUnsupportedError, McpTransportUnsupportedError
-        raise
-      rescue => e
-        handle_error(e, prompt: prompt, options: options)
+        if runtime
+          runtime_flags = runtime.flags
+          cmd += runtime_flags unless runtime_flags.empty?
+        end
+
+        cmd += test_command_overrides if options[:smoke_test]
+        cmd += ["-p", prompt]
+        cmd
       end
 
-      def plan_execution(prompt:, **options)
-        log_debug("plan_execution_start", prompt_length: prompt.length, options: options.keys)
+      def build_env(options)
+        env = super
+        needs_full_permissions = options[:dangerous_mode] || options[:smoke_test]
+        return env unless needs_full_permissions && supports_dangerous_mode?
 
-        options = normalize_provider_runtime(options)
-        skill_context = resolve_skills(options)
-        prompt = apply_skills_to_prompt(prompt, skill_context)
-        options = skill_context[:options]
-        options = normalize_mcp_servers(options)
-        validate_mcp_servers!(options[:mcp_servers]) if options[:mcp_servers]&.any?
-
-        env = build_env(options)
-        version = planned_copilot_cli_version(env)
-        raise unsupported_subcommand_cli_error if subcommand_cli_version?(version)
-
-        options = options.merge(_command_env: env, _planned_cli_version: version)
-
-        {
-          command: build_command(prompt, options),
-          env: env,
-          preparation: build_execution_preparation(options)
-        }
-      rescue ConfigurationError, McpConfigurationError, McpUnsupportedError, McpTransportUnsupportedError
-        raise
-      rescue => e
-        handle_error(e, prompt: prompt, options: options)
+        env.merge("COPILOT_ALLOW_ALL" => "true")
       end
 
-      # Parse raw container output into a Response.
-      #
-      # Overrides the base implementation to support the
-      # +json_output_requested+ option, which controls whether JSONL
-      # output is parsed for token extraction.
-      #
-      # @param stdout [String] captured standard output
-      # @param stderr [String] captured standard error
-      # @param exit_code [Integer] process exit code
-      # @param duration [Float] execution duration in seconds
-      # @param options [Hash] additional options
-      # @option options [Boolean] :json_output_requested whether to parse JSONL output
-      # @return [Response] parsed response
-      def parse_container_output(stdout:, stderr: "", exit_code: 0, duration: 0.0, **options)
+      def build_execution_preparation(options)
+        return nil unless options[:mcp_servers]&.any?
+
+        plan = mcp_config_plan(options, options[:mcp_servers])
+        ExecutionPreparation.new(
+          file_writes: [
+            {
+              path: plan.fetch(:path),
+              content: plan.fetch(:content),
+              mode: 0o600
+            }
+          ]
+        )
+      end
+
+      def parse_container_output(stdout:, stderr: "", exit_code: 0, duration: 0.0, **_options)
         result = CommandExecutor::Result.new(
           stdout: stdout,
           stderr: stderr,
           exit_code: exit_code,
           duration: duration
         )
-        parse_response(
-          result,
-          duration: duration,
-          json_output_requested: options.fetch(:json_output_requested, false)
-        )
+        parse_response(result, duration: duration)
       end
 
       protected
 
-      def build_command(prompt, options)
-        env = options.fetch(:_command_env) { build_env(options) }
-        runtime = options[:provider_runtime]
-        version = if options.key?(:_planned_cli_version)
-          options[:_planned_cli_version]
-        else
-          copilot_cli_version(
-            probe_timeout: options[:_version_probe_timeout],
-            env: env
-          )
-        end
-
-        raise unsupported_subcommand_cli_error if subcommand_cli_version?(version)
-
-        cmd = [self.class.binary_name, "-p", prompt]
-
-        if supports_json_output_format?(version: version)
-          cmd += ["--output-format", "json"]
-        else
-          # Silent mode suppresses the model/stats decoration older CLIs print in
-          # prompt mode, which keeps smoke-test output stable on the plain-text path.
-          cmd << "-s"
-        end
-
-        model = effective_model_name(runtime)
-        cmd += ["--model", model] if model
-        if options[:dangerous_mode] && supports_dangerous_mode?
-          cmd += programmatic_tool_approval_flags
-          cmd += dangerous_mode_flags(version: version)
-        end
-
-        if options[:session] && !options[:session].empty?
-          cmd += session_flags(options[:session], version: version)
-        end
-
-        cmd
-      end
-
-      def parse_response(result, duration:, json_output_requested: false)
-        response = super(result, duration: duration)
-        output = response.output
-        tokens = nil
-
-        parsed_lines = if json_output_requested && response.error.nil?
-          parse_jsonl_output(output)
-        end
-        if parsed_lines
-          output = extract_text_from_jsonl(parsed_lines) || output
-          tokens = extract_tokens_from_jsonl(parsed_lines)
-        end
+      def parse_response(result, duration:)
+        response = super
+        parsed_lines = parse_jsonl_output(response.output)
+        output = extract_text_from_jsonl(parsed_lines) || response.output
+        tokens = extract_tokens_from_jsonl(parsed_lines)
+        metadata = extract_metadata_from_jsonl(parsed_lines).merge(response.metadata)
 
         Response.new(
           output: output,
           exit_code: result.exit_code,
           duration: duration,
           provider: self.class.provider_name,
-          model: effective_model_name,
+          model: normalized_model_name(metadata[:model]) || effective_model_name,
           tokens: tokens,
-          metadata: response.metadata,
+          metadata: metadata,
           error: response.error
         )
       end
@@ -473,219 +410,74 @@ module AgentHarness
 
       private
 
-      def programmatic_tool_approval_flags
-        ["--allow-all-tools"]
-      end
-
-      def supports_json_output_format?(probe_timeout: nil, env: {}, version: :not_provided)
-        version = copilot_cli_version(probe_timeout: probe_timeout, env: env) if version == :not_provided
-        !version.nil? && !subcommand_cli_version?(version) && version >= JSON_OUTPUT_MIN_VERSION
-      end
-
-      def legacy_prompt_cli?(probe_timeout: nil, env: {}, version: :not_provided)
-        version = copilot_cli_version(probe_timeout: probe_timeout, env: env) if version == :not_provided
-        !version.nil? && !subcommand_cli_version?(version)
-      end
-
-      def subcommand_cli_version?(version)
-        self.class.send(:subcommand_cli_version?, version)
-      end
-
-      def unsupported_subcommand_cli_error
-        ProviderError.new(UNSUPPORTED_SUBCOMMAND_CLI_MESSAGE)
-      end
-
-      def copilot_cli_version(probe_timeout: nil, env: {})
-        return nil if env.empty? && !copilot_cli_binary_available?
-
-        cache_key = version_probe_cache_key(env)
-        @copilot_cli_versions ||= {}
-        return @copilot_cli_versions[cache_key] if @copilot_cli_versions.key?(cache_key)
-
-        result = @executor.execute([self.class.binary_name, "--version"], timeout: probe_timeout || 5, env: env)
-        version = extract_version(result)
-        @copilot_cli_versions[cache_key] = version
-        version
-      rescue => e
-        log_debug("copilot_cli_version_check_failed", error: e.message)
-        @copilot_cli_versions ||= {}
-        @copilot_cli_versions[cache_key] = nil if defined?(cache_key)
-      end
-
-      def planned_copilot_cli_version(env)
-        cache_key = version_probe_cache_key(env)
-        @copilot_cli_versions ||= {}
-        return @copilot_cli_versions[cache_key] if @copilot_cli_versions.key?(cache_key)
-
-        # When no cached version is available (cold start), return nil so
-        # build_command falls back to the conservative -s flag path, matching
-        # the behavior of send_message when the version probe returns nil.
-        nil
-      end
-
-      def version_probe_cache_key(env)
-        [
-          probe_env_cache_component(env, "PATH", inherited_label: :inherited_path, override_label: :path_override),
-          probe_env_cache_component(env, "PATHEXT", inherited_label: :inherited_pathext, override_label: :pathext_override)
-        ]
-      end
-
-      def probe_env_cache_component(env, key, inherited_label:, override_label:)
-        label, value = if env_override_present?(env, key)
-          [override_label, env_override_value(env, key)]
-        else
-          [inherited_label, ENV[key]]
-        end
-        return [label, :unset] if value.nil?
-
-        [label, Digest::SHA256.hexdigest(value)]
-      end
-
-      def env_override_present?(env, key)
-        env.key?(key) || env.key?(key.to_sym)
-      end
-
-      def env_override_value(env, key)
-        return env[key] if env.key?(key)
-
-        env[key.to_sym]
-      end
-
-      def copilot_cli_binary_available?
-        @executor.which(self.class.binary_name)
-      rescue => e
-        log_debug("copilot_cli_binary_check_failed", error: e.message)
-        nil
-      end
-
-      def extract_version(result)
-        self.class.send(:extract_version, result)
+      def max_autopilot_continues(options)
+        runtime = options[:provider_runtime]
+        candidate = runtime&.metadata&.[](:max_autopilot_continues) ||
+          runtime&.metadata&.[]("max_autopilot_continues") ||
+          options[:max_autopilot_continues]
+        value = Integer(candidate, exception: false)
+        (value && value > 0) ? value : DEFAULT_MAX_AUTOPILOT_CONTINUES
       end
 
       def parse_jsonl_output(output)
-        return nil if output.nil? || output.strip.empty?
+        return [] if output.nil? || output.strip.empty?
 
-        parsed = output.each_line(chomp: true).filter_map do |line|
+        output.each_line(chomp: true).filter_map do |line|
           next if line.strip.empty?
 
           JSON.parse(line)
         rescue JSON::ParserError
           next
         end
+      end
 
-        parsed.empty? ? nil : parsed
+      def extract_metadata_from_jsonl(parsed_lines)
+        metadata = {}
+        parsed_lines.each do |obj|
+          next unless obj.is_a?(Hash)
+
+          model = normalized_model_name(
+            obj["model"] ||
+            nested_hash_value(obj, "message", "model") ||
+            nested_hash_value(obj, "data", "model") ||
+            nested_hash_value(obj, "data", "message", "model")
+          )
+          metadata[:model] = model if model
+        end
+        metadata
       end
 
       def extract_text_from_jsonl(parsed_lines)
-        output = +""
-        saw_text = false
-        saw_delta = false
+        return nil if parsed_lines.empty?
 
-        parsed_lines.each do |obj|
-          next unless obj.is_a?(Hash)
+        # Track snapshots and deltas with their position so we can merge
+        # a final snapshot with any deltas that follow it.
+        last_snapshot = nil
+        last_snapshot_index = -1
+        deltas = []
+
+        parsed_lines.each_with_index do |obj, index|
           next unless assistant_output_event?(obj)
 
-          full_text = extract_non_delta_text(obj)
-          if full_text
-            output = if replace_output_with_full_text?(
-              output,
-              full_text,
-              saw_delta: saw_delta,
-              authoritative_snapshot: authoritative_full_snapshot?(obj)
-            )
-              full_text.dup
-            else
-              output + full_text
-            end
-            saw_text = true
-            saw_delta = false
+          snapshot = extract_non_delta_text(obj)
+          if snapshot && !snapshot.empty?
+            last_snapshot = snapshot
+            last_snapshot_index = index
           end
 
-          delta_text = extract_delta_text(obj)
-          next unless delta_text
-
-          output << delta_text
-          saw_text = true
-          saw_delta = true
+          delta = extract_delta_text(obj)
+          deltas << [index, delta] if delta && !delta.empty?
         end
 
-        saw_text ? output : nil
-      end
-
-      def replace_output_with_full_text?(existing_output, full_text, saw_delta:, authoritative_snapshot:)
-        saw_delta ||
-          authoritative_snapshot_replacement?(existing_output, full_text, authoritative_snapshot: authoritative_snapshot) ||
-          (!existing_output.empty? && (
-            full_text.start_with?(existing_output) ||
-            existing_output.start_with?(full_text)
-          ))
-      end
-
-      def authoritative_snapshot_replacement?(existing_output, full_text, authoritative_snapshot:)
-        authoritative_snapshot &&
-          !existing_output.empty? &&
-          (
-            existing_output.length == full_text.length ||
-            full_text.start_with?(existing_output) ||
-            existing_output.start_with?(full_text) ||
-            longest_common_substring_length(existing_output, full_text) >= [[existing_output.length, full_text.length].min / 2, 1].max
-          )
-      end
-
-      def longest_common_substring_length(left, right)
-        return 0 if left.empty? || right.empty?
-
-        longest = 0
-        row = Array.new(right.length + 1, 0)
-
-        left.each_char do |left_char|
-          previous = 0
-
-          right.each_char.with_index(1) do |right_char, index|
-            current = row[index]
-            row[index] = if left_char == right_char
-              previous + 1
-            else
-              0
-            end
-            longest = [longest, row[index]].max
-            previous = current
-          end
+        if last_snapshot
+          # Append any delta events that arrived after the last snapshot
+          trailing = deltas.select { |i, _| i > last_snapshot_index }.map(&:last)
+          return trailing.any? ? last_snapshot + trailing.join : last_snapshot
         end
 
-        longest
-      end
+        return deltas.map(&:last).join if deltas.any?
 
-      def authoritative_full_snapshot?(obj)
-        obj["type"].to_s.match?(/\A(?:assistant\.message|turn\.)/) ||
-          obj["message"].is_a?(Hash) ||
-          nested_hash_value(obj, "data", "message").is_a?(Hash)
-      end
-
-      def assistant_output_event?(obj)
-        type = obj["type"]
-        return true if type.nil? && !role_key_present?(obj)
-
-        role = extract_event_role(obj)
-        return true if role.nil? && type.to_s.match?(/\A(?:assistant\.|turn\.)/)
-
-        role == "assistant"
-      end
-
-      def role_key_present?(obj)
-        obj.key?("role") ||
-          hash_key_present?(obj["data"], "role") ||
-          hash_key_present?(obj["message"], "role") ||
-          hash_key_present?(nested_hash_value(obj, "data", "message"), "role")
-      end
-
-      def extract_event_role(obj)
-        [
-          obj["role"],
-          nested_hash_value(obj, "data", "role"),
-          nested_hash_value(obj, "message", "role"),
-          nested_hash_value(obj, "data", "message", "role")
-        ].compact.first&.to_s
+        nil
       end
 
       def extract_tokens_from_jsonl(parsed_lines)
@@ -717,6 +509,39 @@ module AgentHarness
         {input: input, output: output, total: input + output}
       end
 
+      def find_usages(obj)
+        return [] unless obj.is_a?(Hash)
+
+        direct_usage = select_best_usage_payload([
+          obj["usage"],
+          obj["tokens"],
+          usage_payload?(obj) ? obj : nil,
+          usage_payload?(obj["data"]) ? obj["data"] : nil,
+          usage_payload?(obj["message"]) ? obj["message"] : nil,
+          usage_payload?(nested_hash_value(obj, "data", "message")) ? nested_hash_value(obj, "data", "message") : nil,
+          nested_hash_value(obj, "data", "usage"),
+          nested_hash_value(obj, "data", "tokens"),
+          nested_hash_value(obj, "message", "usage"),
+          nested_hash_value(obj, "message", "tokens"),
+          nested_hash_value(obj, "data", "message", "usage"),
+          nested_hash_value(obj, "data", "message", "tokens")
+        ])
+        metrics_usages =
+          model_metrics_usages(obj["modelMetrics"]) +
+          model_metrics_usages(obj["model_metrics"]) +
+          model_metrics_usages(nested_hash_value(obj, "data", "modelMetrics")) +
+          model_metrics_usages(nested_hash_value(obj, "data", "model_metrics")) +
+          model_metrics_usages(nested_hash_value(obj, "message", "modelMetrics")) +
+          model_metrics_usages(nested_hash_value(obj, "message", "model_metrics")) +
+          model_metrics_usages(nested_hash_value(obj, "data", "message", "modelMetrics")) +
+          model_metrics_usages(nested_hash_value(obj, "data", "message", "model_metrics"))
+
+        return metrics_usages if prefer_usage_set?(aggregate_usage_payload(metrics_usages), direct_usage)
+        return [direct_usage] if direct_usage
+
+        metrics_usages
+      end
+
       def aggregate_token_totals(usages)
         total_input = 0
         total_output = 0
@@ -724,11 +549,11 @@ module AgentHarness
 
         usages.each do |usage|
           input = token_count_for(usage, "input_tokens", "prompt_tokens", "inputTokens", "promptTokens")
-          output_tok = token_count_for(usage, "output_tokens", "completion_tokens", "outputTokens", "completionTokens")
-          next if input.nil? && output_tok.nil?
+          output = token_count_for(usage, "output_tokens", "completion_tokens", "outputTokens", "completionTokens")
+          next if input.nil? && output.nil?
 
           total_input += input || 0
-          total_output += output_tok || 0
+          total_output += output || 0
           found = true
         end
 
@@ -778,44 +603,10 @@ module AgentHarness
           nested_hash_value(obj, "data", "message", "model_metrics").is_a?(Hash)
       end
 
-      def find_usages(obj)
-        return [] unless obj.is_a?(Hash)
-
-        direct_usage = select_best_usage_payload([
-          obj["usage"],
-          obj["tokens"],
-          usage_payload?(obj) ? obj : nil,
-          usage_payload?(obj["data"]) ? obj["data"] : nil,
-          usage_payload?(obj["message"]) ? obj["message"] : nil,
-          usage_payload?(nested_hash_value(obj, "data", "message")) ? nested_hash_value(obj, "data", "message") : nil,
-          nested_hash_value(obj, "data", "usage"),
-          nested_hash_value(obj, "data", "tokens"),
-          nested_hash_value(obj, "message", "usage"),
-          nested_hash_value(obj, "message", "tokens"),
-          nested_hash_value(obj, "data", "message", "usage"),
-          nested_hash_value(obj, "data", "message", "tokens")
-        ])
-        metrics_usages =
-          model_metrics_usages(obj["modelMetrics"]) +
-          model_metrics_usages(obj["model_metrics"]) +
-          model_metrics_usages(nested_hash_value(obj, "data", "modelMetrics")) +
-          model_metrics_usages(nested_hash_value(obj, "data", "model_metrics")) +
-          model_metrics_usages(nested_hash_value(obj, "message", "modelMetrics")) +
-          model_metrics_usages(nested_hash_value(obj, "message", "model_metrics")) +
-          model_metrics_usages(nested_hash_value(obj, "data", "message", "modelMetrics")) +
-          model_metrics_usages(nested_hash_value(obj, "data", "message", "model_metrics"))
-
-        return metrics_usages if prefer_usage_set?(aggregate_usage_payload(metrics_usages), direct_usage)
-        return [direct_usage] if direct_usage
-
-        metrics_usages
-      end
-
       MAX_METRICS_DEPTH = 5
 
       def model_metrics_usages(metrics, depth: 0)
         return [] unless metrics.is_a?(Hash)
-
         return [metrics] if usage_with_token_counts?(metrics)
 
         direct_usage = [
@@ -825,7 +616,6 @@ module AgentHarness
           metrics["aggregate"]
         ].find { |value| usage_with_token_counts?(value) }
         return [direct_usage] if direct_usage
-
         return [] if depth >= MAX_METRICS_DEPTH
 
         metrics.each_value.flat_map { |value| model_metrics_usages(value, depth: depth + 1) }
@@ -854,24 +644,16 @@ module AgentHarness
         ) == 1
       end
 
-      def extract_text_value(value)
-        case value
-        when String
-          value
-        when Array
-          parts = value.filter_map { |part| extract_text_value(part) }
-          parts.empty? ? nil : parts.join
-        when Hash
-          extract_text_value(value["text"]) ||
-            extract_text_value(value["content"]) ||
-            extract_text_value(value["parts"]) ||
-            extract_text_value(value["result"]) ||
-            extract_text_value(value["deltaContent"]) ||
-            extract_text_value(value["delta_content"]) ||
-            extract_text_value(value["delta"]) ||
-            extract_text_value(value["message"]) ||
-            extract_text_value(value["data"])
-        end
+      def assistant_output_event?(obj)
+        return false unless obj.is_a?(Hash)
+
+        type = obj["type"]
+        return true if type.nil? && !role_key_present?(obj)
+
+        role = extract_event_role(obj)
+        return true if role.nil? && type.to_s.match?(/\A(?:assistant\.|turn\.)/)
+
+        role == "assistant"
       end
 
       def extract_non_delta_text(obj)
@@ -908,8 +690,44 @@ module AgentHarness
           extract_text_value(nested_hash_value(obj, "data", "message", "delta"))
       end
 
+      def extract_text_value(value)
+        case value
+        when String
+          value
+        when Array
+          parts = value.filter_map { |part| extract_text_value(part) }
+          parts.empty? ? nil : parts.join
+        when Hash
+          extract_text_value(value["text"]) ||
+            extract_text_value(value["content"]) ||
+            extract_text_value(value["parts"]) ||
+            extract_text_value(value["result"]) ||
+            extract_text_value(value["deltaContent"]) ||
+            extract_text_value(value["delta_content"]) ||
+            extract_text_value(value["delta"]) ||
+            extract_text_value(value["message"]) ||
+            extract_text_value(value["data"])
+        end
+      end
+
       def usage_payload?(value)
         value.is_a?(Hash) && token_count_keys.any? { |key| value.key?(key) }
+      end
+
+      def role_key_present?(obj)
+        obj.key?("role") ||
+          hash_key_present?(obj["data"], "role") ||
+          hash_key_present?(obj["message"], "role") ||
+          hash_key_present?(nested_hash_value(obj, "data", "message"), "role")
+      end
+
+      def extract_event_role(obj)
+        [
+          obj["role"],
+          nested_hash_value(obj, "data", "role"),
+          nested_hash_value(obj, "message", "role"),
+          nested_hash_value(obj, "data", "message", "role")
+        ].compact.first&.to_s
       end
 
       def hash_key_present?(value, key)
@@ -917,11 +735,11 @@ module AgentHarness
       end
 
       def resolve_chat_api_key
-        key = ENV["GITHUB_TOKEN"] || ENV["GH_TOKEN"] || read_copilot_cli_access_token
+        key = ENV["COPILOT_GITHUB_TOKEN"] || ENV["GH_TOKEN"] || ENV["GITHUB_TOKEN"] || read_copilot_cli_access_token
 
         if key.nil? || key.strip.empty?
           raise AuthenticationError.new(
-            "Chat mode requires a GitHub token. Set GITHUB_TOKEN or GH_TOKEN, or authenticate the Copilot CLI.",
+            "Chat mode requires a GitHub token. Set COPILOT_GITHUB_TOKEN, GH_TOKEN, or GITHUB_TOKEN, or authenticate the Copilot CLI.",
             provider: :github_copilot
           )
         end
@@ -930,12 +748,47 @@ module AgentHarness
       end
 
       def read_copilot_cli_access_token
+        token = read_token_from_copilot_config
+        return token if token
+
         path = Pathname.new(File.join(Dir.home, ".copilot-cli-access-token"))
         return nil unless path.file?
 
         path.read
       rescue Errno::ENOENT, Errno::EACCES, IOError
         nil
+      end
+
+      def read_token_from_copilot_config
+        config_home = ENV["COPILOT_HOME"]
+        base_dir = if config_home && !config_home.strip.empty?
+          config_home
+        else
+          File.join(Dir.home, ".copilot")
+        end
+        path = Pathname.new(File.join(base_dir, "config.json"))
+        return nil unless path.file?
+
+        config = JSON.parse(path.read)
+        normalized_model_name(
+          config["oauth_token"] ||
+          config["oauthToken"] ||
+          config["token"] ||
+          nested_hash_value(config, "auth", "token")
+        )
+      rescue JSON::ParserError, Errno::ENOENT, Errno::EACCES, IOError
+        nil
+      end
+
+      def mcp_provider_key
+        :github_copilot
+      end
+
+      def mcp_config_plan(options, mcp_servers)
+        options[:_github_copilot_mcp_config] ||= {
+          path: File.join(Dir.tmpdir, "agent_harness_copilot_mcp_#{SecureRandom.hex(8)}.json"),
+          content: JSON.generate(McpConfigTranslator.for_provider(mcp_provider_key, mcp_servers))
+        }
       end
     end
   end

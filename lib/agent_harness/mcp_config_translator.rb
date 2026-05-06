@@ -10,6 +10,8 @@ module AgentHarness
       case provider.to_sym
       when :anthropic, :claude, :claude_code
         translate_for_claude(servers)
+      when :github_copilot, :copilot
+        translate_for_copilot(servers)
       when :codex
         translate_for_codex(servers)
       when :openai
@@ -49,6 +51,31 @@ module AgentHarness
         mcp_servers: mcp_servers.each_with_object({}) do |server, memo|
           entry = server.stdio? ? {command: server.command, transport: server.transport} : {url: server.url, transport: server.transport}
           entry[:args] = server.args if server.stdio? && !server.args.empty?
+          entry[:env] = server.env unless server.env.empty?
+          entry[:headers] = server.headers if server.http? && !server.headers.empty?
+          memo[server.name] = entry
+        end
+      }
+    end
+
+    def translate_for_copilot(mcp_servers)
+      {
+        mcpServers: mcp_servers.each_with_object({}) do |server, memo|
+          entry = if server.stdio?
+            {
+              type: "local",
+              command: server.command,
+              args: server.args,
+              tools: ["*"]
+            }
+          else
+            {
+              type: server.transport,
+              url: server.url,
+              tools: ["*"]
+            }
+          end
+
           entry[:env] = server.env unless server.env.empty?
           entry[:headers] = server.headers if server.http? && !server.headers.empty?
           memo[server.name] = entry

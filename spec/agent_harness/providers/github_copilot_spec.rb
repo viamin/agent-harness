@@ -1,3325 +1,407 @@
 # frozen_string_literal: true
 
 RSpec.describe AgentHarness::Providers::GithubCopilot do
-  describe ".provider_name" do
-    it "returns :github_copilot" do
-      expect(described_class.provider_name).to eq(:github_copilot)
-    end
-  end
-
   describe ".binary_name" do
-    it "returns github-copilot-cli" do
-      expect(described_class.binary_name).to eq("github-copilot-cli")
+    it "returns the modern copilot binary" do
+      expect(described_class.binary_name).to eq("copilot")
     end
   end
 
   describe ".available?" do
-    let(:availability_executor) do
-      instance_double(
-        AgentHarness::CommandExecutor,
-        which: "/usr/bin/github-copilot-cli"
-      )
-    end
+    let(:executor) { instance_double(AgentHarness::CommandExecutor) }
 
     before do
-      allow(AgentHarness.configuration).to receive(:command_executor).and_return(availability_executor)
+      allow(AgentHarness.configuration).to receive(:command_executor).and_return(executor)
     end
 
-    it "returns true for legacy prompt-mode CLIs" do
-      allow(availability_executor).to receive(:execute).with(
-        ["github-copilot-cli", "--version"],
-        timeout: 5,
-        env: {}
-      ).and_return(
-        AgentHarness::CommandExecutor::Result.new(
-          stdout: "github-copilot-cli 0.0.422",
-          stderr: "",
-          exit_code: 0,
-          duration: 0.1
-        )
-      )
+    it "returns true when the modern copilot binary is present" do
+      allow(executor).to receive(:which).with("copilot").and_return("/usr/bin/copilot")
 
       expect(described_class.available?).to be true
     end
 
-    it "returns false when the CLI is missing" do
-      allow(availability_executor).to receive(:which).with("github-copilot-cli").and_return(nil)
-      expect(availability_executor).not_to receive(:execute)
-
-      expect(described_class.available?).to be false
-    end
-
-    it "returns false for the interactive-only 0.1.x CLI" do
-      allow(availability_executor).to receive(:execute).with(
-        ["github-copilot-cli", "--version"],
-        timeout: 5,
-        env: {}
-      ).and_return(
-        AgentHarness::CommandExecutor::Result.new(
-          stdout: "github-copilot-cli 0.1.36",
-          stderr: "",
-          exit_code: 0,
-          duration: 0.1
-        )
-      )
+    it "returns false when only the legacy binary is present" do
+      allow(executor).to receive(:which).with("copilot").and_return(nil)
 
       expect(described_class.available?).to be false
     end
   end
 
   describe ".installation_contract" do
-    it "does not advertise an install contract for the interactive-only npm CLI" do
-      expect(described_class.installation_contract).to be_nil
-      expect(described_class.installation_contract(version: "0.1.36")).to be_nil
-    end
-  end
+    it "exposes npm install metadata for the modern CLI" do
+      contract = described_class.installation_contract
 
-  describe ".install_command" do
-    it "returns nil when no non-interactive install target is available" do
-      expect(described_class.install_command).to be_nil
-      expect(described_class.install_command(version: "0.1.36")).to be_nil
-    end
-  end
-
-  describe ".firewall_requirements" do
-    it "returns required domains" do
-      requirements = described_class.firewall_requirements
-      expect(requirements[:domains]).to include("api.githubcopilot.com")
-    end
-  end
-
-  describe ".instruction_file_paths" do
-    it "returns copilot-instructions.md" do
-      paths = described_class.instruction_file_paths
-      expect(paths.first[:path]).to eq(".github/copilot-instructions.md")
-    end
-  end
-
-  describe ".provider_metadata_overrides" do
-    it "exposes the GitHub bot actor identity for downstream metadata consumers" do
-      expect(described_class.provider_metadata_overrides).to include(
-        identity: {
-          bot_usernames: ["github-copilot[bot]"]
-        }
+      expect(contract).to include(
+        source: :npm,
+        package_name: "@github/copilot",
+        binary_name: "copilot"
       )
-    end
-  end
-
-  describe ".provider_metadata" do
-    let(:metadata_executor) do
-      instance_double(
-        AgentHarness::CommandExecutor,
-        which: "/usr/bin/github-copilot-cli"
-      )
+      expect(contract[:install_command]).to eq(["npm", "install", "-g", "@github/copilot"])
+      expect(contract[:version]).to be_nil
     end
 
-    before do
-      allow(AgentHarness.configuration).to receive(:command_executor).and_return(metadata_executor)
-      allow(metadata_executor).to receive(:execute).with(
-        ["github-copilot-cli", "--version"],
-        timeout: 5,
-        env: {}
-      ).and_return(
-        AgentHarness::CommandExecutor::Result.new(
-          stdout: "github-copilot-cli 0.0.422",
-          stderr: "",
-          exit_code: 0,
-          duration: 0.1
-        )
-      )
-    end
+    it "supports an explicit version override" do
+      contract = described_class.installation_contract(version: "1.0.0")
 
-    it "publishes the runtime token-counting contract for programmatic prompt mode" do
-      metadata = described_class.provider_metadata
-
-      expect(metadata[:runtime]).to include(
-        installable: false,
-        installation: nil,
-        output_format: :text,
-        supports_token_counting: true,
-        supports_sessions: true,
-        supports_dangerous_mode: true
-      )
-      expect(metadata[:runtime]).not_to have_key(:non_interactive_flag)
-      expect(metadata[:capabilities]).to include(
-        tool_use: true,
-        dangerous_mode: true
-      )
-    end
-
-    it "reports token counting as unavailable without probing when the CLI is missing" do
-      allow(metadata_executor).to receive(:which).with("github-copilot-cli").and_return(nil)
-      expect(metadata_executor).not_to receive(:execute).with(["github-copilot-cli", "--version"], any_args)
-
-      metadata = described_class.provider_metadata(refresh: true)
-
-      expect(metadata[:runtime]).to include(
-        available: false,
-        installable: false,
-        installation: nil,
-        output_format: :text,
-        supports_token_counting: false,
-        supports_sessions: false,
-        supports_dangerous_mode: true
-      )
-      expect(metadata[:runtime]).not_to have_key(:non_interactive_flag)
-      expect(metadata[:capabilities]).to include(
-        tool_use: true,
-        dangerous_mode: true
-      )
-    end
-
-    it "reports token counting as unavailable when the installed CLI lacks JSON output support" do
-      allow(metadata_executor).to receive(:execute).with(
-        ["github-copilot-cli", "--version"],
-        timeout: 5,
-        env: {}
-      ).and_return(
-        AgentHarness::CommandExecutor::Result.new(
-          stdout: "github-copilot-cli 0.0.421",
-          stderr: "",
-          exit_code: 0,
-          duration: 0.1
-        )
-      )
-
-      metadata = described_class.provider_metadata(refresh: true)
-
-      expect(metadata[:runtime]).to include(
-        available: true,
-        installable: false,
-        installation: nil,
-        output_format: :text,
-        supports_token_counting: false,
-        supports_sessions: true,
-        supports_dangerous_mode: true
-      )
-      expect(metadata[:runtime]).not_to have_key(:non_interactive_flag)
-      expect(metadata[:capabilities]).to include(
-        tool_use: true,
-        dangerous_mode: true
-      )
-    end
-
-    it "reports the interactive-only 0.1.x CLI as unavailable for sends" do
-      allow(metadata_executor).to receive(:execute).with(
-        ["github-copilot-cli", "--version"],
-        timeout: 5,
-        env: {}
-      ).and_return(
-        AgentHarness::CommandExecutor::Result.new(
-          stdout: "github-copilot-cli 0.1.36",
-          stderr: "",
-          exit_code: 0,
-          duration: 0.1
-        )
-      )
-
-      metadata = described_class.provider_metadata(refresh: true)
-
-      expect(metadata[:runtime]).to include(
-        available: false,
-        installable: false,
-        installation: nil,
-        supports_token_counting: false,
-        supports_sessions: false
-      )
-    end
-  end
-
-  describe ".discover_models" do
-    let(:discovery_executor) do
-      instance_double(
-        AgentHarness::CommandExecutor,
-        which: "/usr/bin/github-copilot-cli"
-      )
-    end
-
-    before do
-      allow(AgentHarness.configuration).to receive(:command_executor).and_return(discovery_executor)
-      allow(discovery_executor).to receive(:execute).with(
-        ["github-copilot-cli", "--version"],
-        timeout: 5,
-        env: {}
-      ).and_return(
-        AgentHarness::CommandExecutor::Result.new(
-          stdout: "github-copilot-cli 0.1.36",
-          stderr: "",
-          exit_code: 0,
-          duration: 0.1
-        )
-      )
-    end
-
-    it "does not discover models for the interactive-only 0.1.x CLI" do
-      expect(described_class.discover_models).to eq([])
-    end
-  end
-
-  describe ".smoke_test_contract" do
-    it "returns a Copilot-specific contract that requires the exact OK response" do
-      contract = described_class.smoke_test_contract
-      expect(contract).to eq(AgentHarness::Providers::GithubCopilot::SMOKE_TEST_CONTRACT)
-      expect(contract[:prompt]).to eq("Reply with exactly OK.")
-      expect(contract[:expected_output]).to eq("OK")
-      expect(contract[:require_output]).to be true
-    end
-  end
-
-  describe ".supports_model_family?" do
-    it "returns true for GPT models" do
-      expect(described_class.supports_model_family?("gpt-4o")).to be true
-      expect(described_class.supports_model_family?("gpt-4-turbo")).to be true
-    end
-
-    it "returns false for non-GPT models" do
-      expect(described_class.supports_model_family?("claude-3-sonnet")).to be false
+      expect(contract[:package]).to eq("@github/copilot@1.0.0")
+      expect(contract[:version]).to eq("1.0.0")
+      expect(contract[:install_command]).to eq(["npm", "install", "-g", "@github/copilot@1.0.0"])
     end
   end
 
   describe "instance" do
-    let(:mock_executor) do
-      instance_double(AgentHarness::CommandExecutor)
-    end
-
+    let(:executor) { instance_double(AgentHarness::CommandExecutor) }
     let(:config) { AgentHarness::ProviderConfig.new(:github_copilot) }
-    let(:version_result) do
-      AgentHarness::CommandExecutor::Result.new(
-        stdout: "github-copilot-cli 0.0.422",
-        stderr: "",
-        exit_code: 0,
-        duration: 0.1
-      )
-    end
 
-    subject(:provider) { described_class.new(config: config, executor: mock_executor) }
-
-    before do
-      allow(mock_executor).to receive(:which).with("github-copilot-cli").and_return("/usr/bin/github-copilot-cli")
-      allow(mock_executor).to receive(:execute).with(
-        ["github-copilot-cli", "--version"],
-        timeout: 5,
-        env: {}
-      ).and_return(version_result)
-    end
-
-    describe "#name" do
-      it "returns github_copilot" do
-        expect(provider.name).to eq("github_copilot")
-      end
-    end
-
-    describe "#display_name" do
-      it "returns GitHub Copilot CLI" do
-        expect(provider.display_name).to eq("GitHub Copilot CLI")
-      end
-    end
-
-    describe "#configuration_schema" do
-      it "includes an optional model field" do
-        expect(provider.configuration_schema[:fields]).to include(
-          hash_including(
-            name: :model,
-            type: :string,
-            required: false,
-            accepts_arbitrary: true
-          )
-        )
-      end
-
-      it "uses oauth auth mode" do
-        expect(provider.configuration_schema[:auth_modes]).to eq([:oauth])
-      end
-
-      it "is not openai compatible" do
-        expect(provider.configuration_schema[:openai_compatible]).to be false
-      end
-    end
+    subject(:provider) { described_class.new(config: config, executor: executor) }
 
     describe "#capabilities" do
-      it "advertises dangerous_mode as an explicit opt-in capability" do
-        expect(provider.capabilities[:dangerous_mode]).to be true
+      it "advertises json, MCP, and dangerous mode support" do
+        expect(provider.capabilities).to include(
+          json_mode: true,
+          mcp: true,
+          dangerous_mode: true,
+          tool_use: true
+        )
       end
     end
 
-    describe "#supports_dangerous_mode?" do
-      it "returns true" do
-        expect(provider.supports_dangerous_mode?).to be true
+    describe "#execution_semantics" do
+      it "declares non-interactive autopilot json execution" do
+        expect(provider.execution_semantics).to include(
+          prompt_delivery: :arg,
+          output_format: :json,
+          non_interactive_flag: "--autopilot",
+          uses_subcommand: false
+        )
       end
     end
 
-    describe "#dangerous_mode_flags" do
-      it "uses --allow-all for JSON-capable CLIs" do
-        expect(provider.dangerous_mode_flags).to eq(["--allow-all"])
-      end
-
-      it "adds no extra approval flag for older CLIs" do
-        allow(mock_executor).to receive(:execute).with(
-          ["github-copilot-cli", "--version"],
-          timeout: 5,
-          env: {}
-        ).and_return(
-          AgentHarness::CommandExecutor::Result.new(
-            stdout: "github-copilot-cli 0.0.421",
-            stderr: "",
-            exit_code: 0,
-            duration: 0.1
-          )
-        )
-
-        expect(provider.dangerous_mode_flags).to eq([])
+    describe "#api_key_env_var_names" do
+      it "includes modern Copilot auth env vars" do
+        expect(provider.api_key_env_var_names).to eq(["COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN"])
       end
     end
 
-    describe "#supports_sessions?" do
-      it "returns true for legacy prompt-mode CLIs" do
-        expect(provider.supports_sessions?).to be true
-      end
-
-      it "returns false for the interactive-only 0.1.x CLI" do
-        allow(mock_executor).to receive(:execute).with(
-          ["github-copilot-cli", "--version"],
-          timeout: 5,
-          env: {}
-        ).and_return(
-          AgentHarness::CommandExecutor::Result.new(
-            stdout: "github-copilot-cli 0.1.36",
-            stderr: "",
-            exit_code: 0,
-            duration: 0.1
-          )
+    describe "#subscription_unset_vars" do
+      it "unsets env vars that would override stored subscription auth" do
+        expect(provider.subscription_unset_vars).to include(
+          "COPILOT_GITHUB_TOKEN",
+          "GH_TOKEN",
+          "GITHUB_TOKEN",
+          "COPILOT_PROVIDER_API_KEY",
+          "COPILOT_PROVIDER_BASE_URL"
         )
-
-        expect(provider.supports_sessions?).to be false
       end
     end
 
-    describe "#session_flags" do
-      it "returns legacy resume flags when the prompt-mode CLI is installed" do
-        flags = provider.session_flags("session-123")
-        expect(flags).to eq(["--resume", "session-123"])
-      end
+    describe "#build_command" do
+      it "builds an autopilot command with json output" do
+        command = provider.send(:build_command, "Hello", {})
 
-      it "returns empty flags for the pinned 0.1.x CLI" do
-        allow(mock_executor).to receive(:execute).with(
-          ["github-copilot-cli", "--version"],
-          timeout: 5,
-          env: {}
-        ).and_return(
-          AgentHarness::CommandExecutor::Result.new(
-            stdout: "github-copilot-cli 0.1.36",
-            stderr: "",
-            exit_code: 0,
-            duration: 0.1
-          )
-        )
-
-        expect(provider.session_flags("session-123")).to eq([])
-      end
-
-      it "returns empty when no session" do
-        expect(provider.session_flags(nil)).to eq([])
-        expect(provider.session_flags("")).to eq([])
-      end
-    end
-
-    describe "#auth_type" do
-      it "returns :oauth" do
-        expect(provider.auth_type).to eq(:oauth)
-      end
-    end
-
-    describe "#supports_token_counting?" do
-      it "returns true" do
-        expect(provider.supports_token_counting?).to be true
-      end
-
-      it "returns false without probing when the CLI is unavailable" do
-        allow(mock_executor).to receive(:which).with("github-copilot-cli").and_return(nil)
-        expect(mock_executor).not_to receive(:execute).with(["github-copilot-cli", "--version"], any_args)
-
-        expect(provider.supports_token_counting?).to be false
-      end
-
-      it "returns false when the installed CLI does not support JSON output" do
-        allow(mock_executor).to receive(:execute).with(
-          ["github-copilot-cli", "--version"],
-          timeout: 5,
-          env: {}
-        ).and_return(
-          AgentHarness::CommandExecutor::Result.new(
-            stdout: "github-copilot-cli 0.0.421",
-            stderr: "",
-            exit_code: 0,
-            duration: 0.1
-          )
-        )
-
-        expect(provider.supports_token_counting?).to be false
-      end
-
-      it "returns false when the version probe fails" do
-        allow(mock_executor).to receive(:execute).with(
-          ["github-copilot-cli", "--version"],
-          timeout: 5,
-          env: {}
-        ).and_raise(StandardError, "temporary failure")
-
-        expect(provider.supports_token_counting?).to be false
-      end
-
-      it "returns false when the version probe output is unparsable" do
-        allow(mock_executor).to receive(:execute).with(
-          ["github-copilot-cli", "--version"],
-          timeout: 5,
-          env: {}
-        ).and_return(
-          AgentHarness::CommandExecutor::Result.new(
-            stdout: "github-copilot-cli version unknown",
-            stderr: "",
-            exit_code: 0,
-            duration: 0.1
-          )
-        )
-
-        expect(provider.supports_token_counting?).to be false
-      end
-
-      it "hashes explicit probe path overrides in the version cache key" do
-        env = {"PATH" => "/tmp/request-secret/bin", "PATHEXT" => ".EXE:.CMD"}
-        allow(mock_executor).to receive(:execute).with(
-          ["github-copilot-cli", "--version"],
-          timeout: 5,
-          env: env
-        ).and_return(
-          AgentHarness::CommandExecutor::Result.new(
-            stdout: "github-copilot-cli 0.0.422",
-            stderr: "",
-            exit_code: 0,
-            duration: 0.1
-          )
-        )
-
-        expect(provider.send(:supports_json_output_format?, env: env)).to be true
-
-        cache_keys = provider.instance_variable_get(:@copilot_cli_versions).keys
-
-        expect(cache_keys.flatten).not_to include("/tmp/request-secret/bin", ".EXE:.CMD")
-        expect(cache_keys).to include([
-          [:path_override, a_string_matching(/\A\h{64}\z/)],
-          [:pathext_override, a_string_matching(/\A\h{64}\z/)]
+        expect(command).to eq([
+          "copilot",
+          "--autopilot",
+          "--max-autopilot-continues",
+          "50",
+          "--output-format",
+          "json",
+          "-p",
+          "Hello"
         ])
       end
 
-      it "hashes symbol-keyed probe path overrides in the version cache key" do
-        env = {PATH: "/tmp/request-secret/bin", PATHEXT: ".EXE:.CMD"}
-        allow(mock_executor).to receive(:execute).with(
-          ["github-copilot-cli", "--version"],
-          timeout: 5,
-          env: env
-        ).and_return(
-          AgentHarness::CommandExecutor::Result.new(
-            stdout: "github-copilot-cli 0.0.422",
-            stderr: "",
-            exit_code: 0,
-            duration: 0.1
-          )
-        )
+      it "enables full permissions when dangerous mode is requested" do
+        command = provider.send(:build_command, "Hello", {dangerous_mode: true})
 
-        expect(provider.send(:supports_json_output_format?, env: env)).to be true
-
-        cache_keys = provider.instance_variable_get(:@copilot_cli_versions).keys
-
-        expect(cache_keys.flatten).not_to include("/tmp/request-secret/bin", ".EXE:.CMD")
-        expect(cache_keys).to include([
-          [:path_override, a_string_matching(/\A\h{64}\z/)],
-          [:pathext_override, a_string_matching(/\A\h{64}\z/)]
+        expect(command).to eq([
+          "copilot",
+          "--autopilot",
+          "--max-autopilot-continues",
+          "50",
+          "--output-format",
+          "json",
+          "--yolo",
+          "-p",
+          "Hello"
         ])
       end
 
-      it "rehashes inherited PATH changes into distinct cache keys" do
-        allow(ENV).to receive(:[]).and_call_original
-        allow(ENV).to receive(:[]).with("PATHEXT").and_return(nil)
-        allow(ENV).to receive(:[]).with("PATH").and_return("/first/path", "/second/path")
+      it "forces full-permission mode for smoke tests so autopilot runs non-interactively" do
+        command = provider.send(:build_command, "Hello", {smoke_test: true})
 
-        allow(mock_executor).to receive(:execute).with(
-          ["github-copilot-cli", "--version"],
-          timeout: 5,
-          env: {}
-        ).and_return(version_result)
+        expect(command).to include("--yolo")
+      end
 
-        2.times { provider.send(:supports_json_output_format?) }
+      it "includes configured and runtime model overrides and runtime flags" do
+        config.model = "gpt-4o"
+        runtime = AgentHarness::ProviderRuntime.new(model: "gpt-4o-mini", flags: ["--stream=off"])
 
-        cache_keys = provider.instance_variable_get(:@copilot_cli_versions).keys
+        command = provider.send(:build_command, "Hello", {provider_runtime: runtime})
 
-        expect(cache_keys).to contain_exactly(
-          [
-            [:inherited_path, Digest::SHA256.hexdigest("/first/path")],
-            [:inherited_pathext, :unset]
+        expect(command).to eq([
+          "copilot",
+          "--autopilot",
+          "--max-autopilot-continues",
+          "50",
+          "--output-format",
+          "json",
+          "--model",
+          "gpt-4o-mini",
+          "--stream=off",
+          "-p",
+          "Hello"
+        ])
+      end
+
+      it "accepts runtime metadata for the autopilot continuation limit" do
+        runtime = AgentHarness::ProviderRuntime.new(metadata: {max_autopilot_continues: 12})
+
+        command = provider.send(:build_command, "Hello", {provider_runtime: runtime})
+
+        expect(command.each_cons(2).find { |flag, _value| flag == "--max-autopilot-continues" }&.last).to eq("12")
+      end
+
+      it "adds request-scoped MCP configuration" do
+        server = AgentHarness::McpServer.new(
+          name: "filesystem",
+          transport: "stdio",
+          command: "npx",
+          args: ["-y", "@modelcontextprotocol/server-filesystem", "/workspace"]
+        )
+
+        command = provider.send(:build_command, "Hello", {mcp_servers: [server]})
+
+        config_flag = command.each_cons(2).find { |flag, _value| flag == "--additional-mcp-config" }
+        expect(config_flag).not_to be_nil
+        expect(config_flag.last).to match(%r{\A@/tmp/agent_harness_copilot_mcp_[0-9a-f]{16}\.json\z})
+      end
+    end
+
+    describe "#plan_execution" do
+      it "returns a command, env, and preparation tuple" do
+        plan = provider.plan_execution(prompt: "Hello")
+
+        expect(plan).to eq(
+          command: [
+            "copilot",
+            "--autopilot",
+            "--max-autopilot-continues",
+            "50",
+            "--output-format",
+            "json",
+            "-p",
+            "Hello"
           ],
-          [
-            [:inherited_path, Digest::SHA256.hexdigest("/second/path")],
-            [:inherited_pathext, :unset]
+          env: {},
+          preparation: nil
+        )
+      end
+
+      it "keeps MCP config alive through preparation instead of planning side effects" do
+        server = AgentHarness::McpServer.new(
+          name: "filesystem",
+          transport: "stdio",
+          command: "npx",
+          args: ["-y", "@modelcontextprotocol/server-filesystem", "/workspace"]
+        )
+
+        plan = provider.plan_execution(prompt: "Hello", mcp_servers: [server])
+
+        expect(plan[:command]).to include("--additional-mcp-config")
+        config_path = plan[:command].each_cons(2).find { |flag, _value| flag == "--additional-mcp-config" }.last.delete_prefix("@")
+        expect(plan[:preparation]).to have_attributes(
+          file_writes: [
+            have_attributes(
+              path: config_path,
+              content: include("\"mcpServers\""),
+              mode: 0o600
+            )
           ]
         )
       end
     end
 
-    describe "#error_patterns" do
-      it "includes auth patterns" do
-        patterns = provider.error_patterns
-        expect(patterns[:auth_expired]).not_to be_empty
-      end
-    end
-
-    describe "#translate_error" do
-      it "translates CLI not found" do
-        expect(provider.translate_error("github-copilot-cli was not found")).to eq("GitHub Copilot CLI not installed.")
-      end
-
-      it "returns unknown messages unchanged" do
-        expect(provider.translate_error("something else")).to eq("something else")
-      end
-    end
-
-    describe "#execution_semantics" do
-      it "returns the full provider contract" do
-        semantics = provider.execution_semantics
-        expect(semantics[:prompt_delivery]).to eq(:arg)
-        expect(semantics[:output_format]).to eq(:text)
-        expect(semantics[:sandbox_aware]).to be false
-        expect(semantics[:uses_subcommand]).to be false
-        expect(semantics[:non_interactive_flag]).to be_nil
-        expect(semantics[:legitimate_exit_codes]).to eq([0])
-        expect(semantics[:stderr_is_diagnostic]).to be true
-        expect(semantics[:parses_rate_limit_reset]).to be false
-      end
-    end
-
-    describe "#build_command" do
-      it "caches negative version probes from transient failures" do
-        allow(mock_executor).to receive(:execute).with(
-          ["github-copilot-cli", "--version"],
-          timeout: 5,
-          env: {}
-        ).and_raise(StandardError, "temporary failure").once
-
-        first_command = provider.send(:build_command, "Hello", {})
-        expect(first_command).to eq([
-          "github-copilot-cli",
-          "-p",
-          "Hello",
-          "-s"
-        ])
-
-        # Second call should use cached nil without retrying the probe
-        second_command = provider.send(:build_command, "Hello", {})
-        expect(second_command).to eq([
-          "github-copilot-cli",
-          "-p",
-          "Hello",
-          "-s"
-        ])
-      end
-
-      it "fails fast for the pinned CLI because its available send flow is interactive" do
-        allow(mock_executor).to receive(:execute).with(
-          ["github-copilot-cli", "--version"],
-          timeout: 5,
-          env: {}
-        ).and_return(
-          AgentHarness::CommandExecutor::Result.new(
-            stdout: "github-copilot-cli 0.1.36",
-            stderr: "",
-            exit_code: 0,
-            duration: 0.1
-          )
-        )
-
-        expect do
-          provider.send(:build_command, "Hello", {dangerous_mode: true, session: "session-123"})
-        end.to raise_error(AgentHarness::ProviderError, /does not expose a non-interactive send interface/)
-      end
-
-      it "includes --output-format json for legacy JSON-capable CLIs" do
-        command = provider.send(:build_command, "Hello", {})
-
-        expect(command).to eq([
-          "github-copilot-cli",
-          "-p",
-          "Hello",
-          "--output-format",
-          "json"
-        ])
-      end
-
-      it "includes configured model when present" do
-        configured_provider = described_class.new(
-          config: AgentHarness::ProviderConfig.new(:github_copilot).tap { |cfg| cfg.model = "gpt-4o-mini" },
-          executor: mock_executor
-        )
-
-        command = configured_provider.send(:build_command, "Hello", {})
-
-        expect(command).to eq([
-          "github-copilot-cli",
-          "-p",
-          "Hello",
-          "--output-format",
-          "json",
-          "--model",
-          "gpt-4o-mini"
-        ])
-      end
-
-      it "omits whitespace-only configured models" do
-        configured_provider = described_class.new(
-          config: AgentHarness::ProviderConfig.new(:github_copilot).tap { |cfg| cfg.model = "   " },
-          executor: mock_executor
-        )
-
-        command = configured_provider.send(:build_command, "Hello", {})
-
-        expect(command).to eq([
-          "github-copilot-cli",
-          "-p",
-          "Hello",
-          "--output-format",
-          "json"
-        ])
-      end
-
-      it "prefers provider_runtime model over configured model" do
-        configured_provider = described_class.new(
-          config: AgentHarness::ProviderConfig.new(:github_copilot).tap { |cfg| cfg.model = "gpt-4o" },
-          executor: mock_executor
-        )
-        runtime = AgentHarness::ProviderRuntime.new(model: "gpt-4o-mini")
-
-        command = configured_provider.send(:build_command, "Hello", {provider_runtime: runtime})
-
-        expect(command).to eq([
-          "github-copilot-cli",
-          "-p",
-          "Hello",
-          "--output-format",
-          "json",
-          "--model",
-          "gpt-4o-mini"
-        ])
-      end
-
-      it "falls back to the configured model when provider_runtime model is blank" do
-        configured_provider = described_class.new(
-          config: AgentHarness::ProviderConfig.new(:github_copilot).tap { |cfg| cfg.model = "gpt-4o" },
-          executor: mock_executor
-        )
-        runtime = AgentHarness::ProviderRuntime.new(model: "   ")
-
-        command = configured_provider.send(:build_command, "Hello", {provider_runtime: runtime})
-
-        expect(command).to eq([
-          "github-copilot-cli",
-          "-p",
-          "Hello",
-          "--output-format",
-          "json",
-          "--model",
-          "gpt-4o"
-        ])
-      end
-
-      it "falls back to prompt mode without probing when the CLI is unavailable" do
-        allow(mock_executor).to receive(:which).with("github-copilot-cli").and_return(nil)
-        expect(mock_executor).not_to receive(:execute).with(["github-copilot-cli", "--version"], any_args)
-
-        command = provider.send(:build_command, "Hello", {})
-
-        expect(command).to eq([
-          "github-copilot-cli",
-          "-p",
-          "Hello",
-          "-s"
-        ])
-      end
-
-      it "omits --output-format json on older CLI versions" do
-        allow(mock_executor).to receive(:execute).with(
-          ["github-copilot-cli", "--version"],
-          timeout: 5,
-          env: {}
-        ).and_return(
-          AgentHarness::CommandExecutor::Result.new(
-            stdout: "github-copilot-cli 0.0.421",
-            stderr: "",
-            exit_code: 0,
-            duration: 0.1
-          )
-        )
-
-        command = provider.send(:build_command, "Hello", {})
-
-        expect(command).to eq([
-          "github-copilot-cli",
-          "-p",
-          "Hello",
-          "-s"
-        ])
-      end
-
-      it "preserves runtime model overrides on the older CLI fallback path" do
-        runtime = AgentHarness::ProviderRuntime.new(model: "gpt-4o-mini")
-
-        allow(mock_executor).to receive(:execute).with(
-          ["github-copilot-cli", "--version"],
-          timeout: 5,
-          env: {}
-        ).and_return(
-          AgentHarness::CommandExecutor::Result.new(
-            stdout: "github-copilot-cli 0.0.421",
-            stderr: "",
-            exit_code: 0,
-            duration: 0.1
-          )
-        )
-
-        command = provider.send(:build_command, "Hello", {provider_runtime: runtime})
-
-        expect(command).to eq([
-          "github-copilot-cli",
-          "-p",
-          "Hello",
-          "-s",
-          "--model",
-          "gpt-4o-mini"
-        ])
-      end
-
-      it "includes the configured model on the older CLI fallback path" do
-        configured_provider = described_class.new(
-          config: AgentHarness::ProviderConfig.new(:github_copilot).tap { |cfg| cfg.model = "gpt-4o-mini" },
-          executor: mock_executor
-        )
-
-        allow(mock_executor).to receive(:execute).with(
-          ["github-copilot-cli", "--version"],
-          timeout: 5,
-          env: {}
-        ).and_return(
-          AgentHarness::CommandExecutor::Result.new(
-            stdout: "github-copilot-cli 0.0.421",
-            stderr: "",
-            exit_code: 0,
-            duration: 0.1
-          )
-        )
-
-        command = configured_provider.send(:build_command, "Hello", {})
-
-        expect(command).to eq([
-          "github-copilot-cli",
-          "-p",
-          "Hello",
-          "-s",
-          "--model",
-          "gpt-4o-mini"
-        ])
-      end
-
-      it "keeps session flags on the older CLI fallback path" do
-        allow(mock_executor).to receive(:execute).with(
-          ["github-copilot-cli", "--version"],
-          timeout: 5,
-          env: {}
-        ).and_return(
-          AgentHarness::CommandExecutor::Result.new(
-            stdout: "github-copilot-cli 0.0.421",
-            stderr: "",
-            exit_code: 0,
-            duration: 0.1
-          )
-        )
-
-        command = provider.send(:build_command, "Hello", {session: "session-123"})
-
-        expect(command).to eq([
-          "github-copilot-cli",
-          "-p",
-          "Hello",
-          "-s",
-          "--resume",
-          "session-123"
-        ])
-      end
-
-      it "memoizes parsed CLI versions after a successful probe" do
-        2.times { provider.send(:build_command, "Hello", {}) }
-
-        expect(mock_executor).to have_received(:execute).with(
-          ["github-copilot-cli", "--version"],
-          timeout: 5,
-          env: {}
-        ).once
-      end
-
-      it "probes the Copilot CLI version with the same runtime env as the request command" do
-        runtime = AgentHarness::ProviderRuntime.new(
-          env: {"PATH" => "/custom/copilot/bin"},
-          unset_env: ["GITHUB_COPILOT_TOKEN"]
-        )
-
-        allow(mock_executor).to receive(:execute).with(
-          ["github-copilot-cli", "--version"],
-          timeout: 5,
-          env: {"PATH" => "/custom/copilot/bin", "GITHUB_COPILOT_TOKEN" => nil}
-        ).and_return(version_result)
-
-        command = provider.send(:build_command, "Hello", {provider_runtime: runtime})
-
-        expect(command).to eq([
-          "github-copilot-cli",
-          "-p",
-          "Hello",
-          "--output-format",
-          "json"
-        ])
-      end
-
-      it "decides session support from the already-probed runtime CLI version" do
-        runtime = AgentHarness::ProviderRuntime.new(env: {"PATH" => "/legacy/copilot/bin"})
-
-        allow(mock_executor).to receive(:execute).with(
-          ["github-copilot-cli", "--version"],
-          timeout: 5,
-          env: {"PATH" => "/legacy/copilot/bin"}
-        ).and_return(
-          AgentHarness::CommandExecutor::Result.new(
-            stdout: "github-copilot-cli 0.0.421",
-            stderr: "",
-            exit_code: 0,
-            duration: 0.1
-          )
-        )
-        expect(mock_executor).not_to receive(:execute).with(
-          ["github-copilot-cli", "--version"],
-          timeout: 5,
-          env: {}
-        )
-
-        command = provider.send(:build_command, "Hello", {provider_runtime: runtime, session: "session-123"})
-
-        expect(command).to eq([
-          "github-copilot-cli",
-          "-p",
-          "Hello",
-          "-s",
-          "--resume",
-          "session-123"
-        ])
-      end
-
-      it "caches CLI versions per effective runtime env" do
-        legacy_runtime = AgentHarness::ProviderRuntime.new(env: {"PATH" => "/legacy/copilot/bin"})
-        json_runtime = AgentHarness::ProviderRuntime.new(env: {"PATH" => "/json/copilot/bin"})
-
-        allow(mock_executor).to receive(:execute).with(
-          ["github-copilot-cli", "--version"],
-          timeout: 5,
-          env: {"PATH" => "/legacy/copilot/bin"}
-        ).and_return(
-          AgentHarness::CommandExecutor::Result.new(
-            stdout: "github-copilot-cli 0.0.421",
-            stderr: "",
-            exit_code: 0,
-            duration: 0.1
-          )
-        )
-
-        allow(mock_executor).to receive(:execute).with(
-          ["github-copilot-cli", "--version"],
-          timeout: 5,
-          env: {"PATH" => "/json/copilot/bin"}
-        ).and_return(version_result)
-
-        legacy_command = provider.send(:build_command, "Hello", {provider_runtime: legacy_runtime})
-        json_command = provider.send(:build_command, "Hello", {provider_runtime: json_runtime})
-
-        expect(legacy_command).to eq([
-          "github-copilot-cli",
-          "-p",
-          "Hello",
-          "-s"
-        ])
-        expect(json_command).to eq([
-          "github-copilot-cli",
-          "-p",
-          "Hello",
-          "--output-format",
-          "json"
-        ])
-      end
-
-      it "does not key the version cache on unrelated runtime secrets" do
-        first_runtime = AgentHarness::ProviderRuntime.new(
-          env: {"PATH" => "/json/copilot/bin", "GITHUB_TOKEN" => "secret-one"}
-        )
-        second_runtime = AgentHarness::ProviderRuntime.new(
-          env: {"PATH" => "/json/copilot/bin", "GITHUB_TOKEN" => "secret-two"}
-        )
-
-        allow(mock_executor).to receive(:execute).with(
-          ["github-copilot-cli", "--version"],
-          timeout: 5,
-          env: {"PATH" => "/json/copilot/bin", "GITHUB_TOKEN" => "secret-one"}
-        ).and_return(version_result)
-
-        first_command = provider.send(:build_command, "Hello", {provider_runtime: first_runtime})
-        second_command = provider.send(:build_command, "Hello", {provider_runtime: second_runtime})
-
-        expect(first_command).to eq([
-          "github-copilot-cli",
-          "-p",
-          "Hello",
-          "--output-format",
-          "json"
-        ])
-        expect(second_command).to eq(first_command)
-        expect(mock_executor).to have_received(:execute).with(
-          ["github-copilot-cli", "--version"],
-          timeout: 5,
-          env: {"PATH" => "/json/copilot/bin", "GITHUB_TOKEN" => "secret-one"}
-        ).once
-
-        cache_keys = provider.instance_variable_get(:@copilot_cli_versions).keys
-        expect(cache_keys.flatten).not_to include("/json/copilot/bin", "secret-one", "secret-two")
-        expect(cache_keys).to contain_exactly([
-          [:path_override, a_string_matching(/\A\h{64}\z/)],
-          [:inherited_pathext, :unset]
-        ])
-      end
-
-      it "caches unparsable probe result and does not retry" do
-        allow(mock_executor).to receive(:execute).with(
-          ["github-copilot-cli", "--version"],
-          timeout: 5,
-          env: {}
-        ).and_return(
-          AgentHarness::CommandExecutor::Result.new(
-            stdout: "github-copilot-cli version unknown",
-            stderr: "",
-            exit_code: 0,
-            duration: 0.1
-          )
-        )
-
-        first_command = provider.send(:build_command, "Hello", {})
-        second_command = provider.send(:build_command, "Hello", {})
-
-        fallback_command = [
-          "github-copilot-cli",
-          "-p",
-          "Hello",
-          "-s"
-        ]
-        expect(first_command).to eq(fallback_command)
-        expect(second_command).to eq(fallback_command)
-
-        expect(mock_executor).to have_received(:execute).with(
-          ["github-copilot-cli", "--version"],
-          timeout: 5,
-          env: {}
-        ).once
-      end
-
-      it "does not add tool approval flags without dangerous_mode" do
-        command = provider.send(:build_command, "Hello", {})
-
-        expect(command).to eq([
-          "github-copilot-cli",
-          "-p",
-          "Hello",
-          "--output-format",
-          "json"
-        ])
-      end
-
-      it "keeps session flags without tool approval when not in dangerous mode" do
-        command = provider.send(:build_command, "Hello", {session: "session-123"})
-
-        expect(command).to eq([
-          "github-copilot-cli",
-          "-p",
-          "Hello",
-          "--output-format",
-          "json",
-          "--resume",
-          "session-123"
-        ])
-      end
-
-      it "adds tool approval flags only in dangerous mode" do
-        command = provider.send(:build_command, "Hello", {session: "session-123", dangerous_mode: true})
-
-        expect(command).to eq([
-          "github-copilot-cli",
-          "-p",
-          "Hello",
-          "--output-format",
-          "json",
-          "--allow-all-tools",
-          "--allow-all",
-          "--resume",
-          "session-123"
-        ])
-      end
-
-      it "adds tool approval flags on the older CLI fallback path in dangerous_mode" do
-        allow(mock_executor).to receive(:execute).with(
-          ["github-copilot-cli", "--version"],
-          timeout: 5,
-          env: {}
-        ).and_return(
-          AgentHarness::CommandExecutor::Result.new(
-            stdout: "github-copilot-cli 0.0.421",
-            stderr: "",
-            exit_code: 0,
-            duration: 0.1
-          )
-        )
-
-        command = provider.send(:build_command, "Hello", {session: "session-123", dangerous_mode: true})
-
-        expect(command).to eq([
-          "github-copilot-cli",
-          "-p",
-          "Hello",
-          "-s",
-          "--allow-all-tools",
-          "--resume",
-          "session-123"
-        ])
-      end
-    end
-
     describe "#send_message" do
-      it "sends prompt in non-interactive mode with JSON output" do
-        jsonl_output = [
-          {"text" => "response"},
-          {"usage" => {"input_tokens" => 10, "output_tokens" => 5}}
-        ].map { |o| JSON.generate(o) }.join("\n")
-
-        allow(mock_executor).to receive(:execute).with(
-          ["github-copilot-cli", "--version"],
-          timeout: 5,
-          env: {}
-        ).and_return(version_result)
-
-        allow(mock_executor).to receive(:execute).with(
-          ["github-copilot-cli", "-p", "Hello", "--output-format", "json"],
-          anything
-        ).and_return(
-          AgentHarness::CommandExecutor::Result.new(
-            stdout: jsonl_output,
-            stderr: "",
-            exit_code: 0,
-            duration: 1.0
-          )
+      it "executes the autopilot command and parses JSON output" do
+        result = AgentHarness::CommandExecutor::Result.new(
+          stdout: [
+            '{"type":"assistant.message","message":{"role":"assistant","content":"OK"}}',
+            '{"type":"session.shutdown","usage":{"input_tokens":10,"output_tokens":5}}'
+          ].join("\n"),
+          stderr: "",
+          exit_code: 0,
+          duration: 0.2
         )
 
-        expect(mock_executor).to receive(:execute).with(
-          ["github-copilot-cli", "-p", "Hello", "--output-format", "json"],
-          anything
-        )
-
-        provider.send_message(prompt: "Hello")
-      end
-
-      it "uses the same runtime env for the version probe and prompt command" do
-        runtime = AgentHarness::ProviderRuntime.new(
-          env: {"PATH" => "/custom/copilot/bin"},
-          unset_env: ["GITHUB_COPILOT_TOKEN"]
-        )
-        jsonl_output = [
-          {"text" => "response"},
-          {"usage" => {"input_tokens" => 10, "output_tokens" => 5}}
-        ].map { |o| JSON.generate(o) }.join("\n")
-        request_env = {"PATH" => "/custom/copilot/bin", "GITHUB_COPILOT_TOKEN" => nil}
-
-        allow(mock_executor).to receive(:execute).with(
-          ["github-copilot-cli", "--version"],
-          timeout: 5,
-          env: request_env
-        ).and_return(version_result)
-
-        expect(mock_executor).to receive(:execute).with(
-          ["github-copilot-cli", "-p", "Hello", "--output-format", "json"],
-          hash_including(env: request_env)
-        ).and_return(
-          AgentHarness::CommandExecutor::Result.new(
-            stdout: jsonl_output,
-            stderr: "",
-            exit_code: 0,
-            duration: 1.0
-          )
-        )
-
-        provider.send_message(prompt: "Hello", provider_runtime: runtime)
-      end
-
-      it "passes provider_runtime model to the Copilot command" do
-        runtime = AgentHarness::ProviderRuntime.new(model: "gpt-4o-mini")
-        jsonl_output = [
-          {"text" => "response"},
-          {"usage" => {"input_tokens" => 10, "output_tokens" => 5}}
-        ].map { |o| JSON.generate(o) }.join("\n")
-
-        allow(mock_executor).to receive(:execute).with(
-          ["github-copilot-cli", "--version"],
-          timeout: 5,
-          env: {}
-        ).and_return(version_result)
-
-        expect(mock_executor).to receive(:execute).with(
-          ["github-copilot-cli", "-p", "Hello", "--output-format", "json", "--model", "gpt-4o-mini"],
-          anything
-        ).and_return(
-          AgentHarness::CommandExecutor::Result.new(
-            stdout: jsonl_output,
-            stderr: "",
-            exit_code: 0,
-            duration: 1.0
-          )
-        )
-
-        provider.send_message(prompt: "Hello", provider_runtime: runtime)
-      end
-
-      it "prepends skill instructions and merges skill runtime overrides" do
-        AgentHarness::Skills.register(:code_review, {
-          description: "Reviews code",
-          instructions: "Review the changed files before answering.",
-          providers: {
-            all: {
-              env: {"COPILOT_SKILL_ENV" => "1"},
-              model: "gpt-4o-mini"
-            }
-          }
-        })
-        jsonl_output = [
-          {"text" => "response"},
-          {"usage" => {"input_tokens" => 10, "output_tokens" => 5}}
-        ].map { |o| JSON.generate(o) }.join("\n")
-
-        allow(mock_executor).to receive(:execute).with(
-          ["github-copilot-cli", "--version"],
-          timeout: 5,
-          env: {"COPILOT_SKILL_ENV" => "1"}
-        ).and_return(version_result)
-
-        expect(mock_executor).to receive(:execute).with(
+        expect(executor).to receive(:execute).with(
           [
-            "github-copilot-cli",
-            "-p",
-            "Review the changed files before answering.\n\nHello",
+            "copilot",
+            "--autopilot",
+            "--max-autopilot-continues",
+            "50",
             "--output-format",
             "json",
-            "--model",
-            "gpt-4o-mini"
-          ],
-          hash_including(env: {"COPILOT_SKILL_ENV" => "1"})
-        ).and_return(
-          AgentHarness::CommandExecutor::Result.new(
-            stdout: jsonl_output,
-            stderr: "",
-            exit_code: 0,
-            duration: 1.0
-          )
-        )
-
-        provider.send_message(prompt: "Hello", skills: [:code_review])
-      end
-
-      it "preserves configuration errors for unknown skills" do
-        expect {
-          provider.send_message(prompt: "Hello", skills: [:missing_skill])
-        }.to raise_error(AgentHarness::ConfigurationError, /Unknown skill: missing_skill/)
-      end
-
-      it "uses the remaining request timeout budget for the prompt command and includes probe time in duration" do
-        allow(mock_executor).to receive(:execute).with(
-          ["github-copilot-cli", "--version"],
-          timeout: 2,
-          env: {}
-        ).and_return(version_result)
-
-        allow(mock_executor).to receive(:execute).with(
-          ["github-copilot-cli", "-p", "Hello", "--output-format", "json"],
-          hash_including(timeout: 1.25)
-        ).and_return(
-          AgentHarness::CommandExecutor::Result.new(
-            stdout: "plain text response",
-            stderr: "",
-            exit_code: 0,
-            duration: 1.0
-          )
-        )
-
-        times = [
-          Time.utc(2026, 4, 12, 0, 0, 0),
-          Time.utc(2026, 4, 12, 0, 0, 0, 750_000),
-          Time.utc(2026, 4, 12, 0, 0, 1, 500_000)
-        ]
-        allow(Time).to receive(:now).and_return(*times)
-
-        response = provider.send_message(prompt: "Hello", timeout: 2)
-
-        expect(response.duration).to eq(1.5)
-      end
-
-      it "times out before execution if the version probe exhausts the request budget" do
-        allow(mock_executor).to receive(:execute).with(
-          ["github-copilot-cli", "--version"],
-          timeout: 1,
-          env: {}
-        ).and_return(version_result)
-
-        times = [
-          Time.utc(2026, 4, 12, 0, 0, 0),
-          Time.utc(2026, 4, 12, 0, 0, 1)
-        ]
-        allow(Time).to receive(:now).and_return(*times)
-
-        expect do
-          provider.send_message(prompt: "Hello", timeout: 1)
-        end.to raise_error(AgentHarness::TimeoutError, "Command timed out before execution started")
-      end
-
-      it "fails fast on non-positive timeout before probing the CLI version" do
-        expect do
-          provider.send_message(prompt: "Hello", timeout: 0)
-        end.to raise_error(AgentHarness::TimeoutError, "Command timed out before execution started")
-
-        expect(mock_executor).not_to have_received(:execute).with(
-          ["github-copilot-cli", "--version"],
-          any_args
-        )
-      end
-
-      it "falls back to plain prompt mode when JSON output is unsupported" do
-        allow(mock_executor).to receive(:execute).with(
-          ["github-copilot-cli", "--version"],
-          timeout: 5,
-          env: {}
-        ).and_return(
-          AgentHarness::CommandExecutor::Result.new(
-            stdout: "github-copilot-cli 0.0.421",
-            stderr: "",
-            exit_code: 0,
-            duration: 0.1
-          )
-        )
-
-        allow(mock_executor).to receive(:execute).with(
-          ["github-copilot-cli", "-p", "Hello", "-s"],
-          anything
-        ).and_return(
-          AgentHarness::CommandExecutor::Result.new(
-            stdout: "plain text response",
-            stderr: "",
-            exit_code: 0,
-            duration: 1.0
-          )
-        )
-
-        response = provider.send_message(prompt: "Hello")
-        expect(response.output).to eq("plain text response")
-        expect(response.tokens).to be_nil
-      end
-
-      it "passes runtime model overrides through the older CLI fallback path" do
-        runtime = AgentHarness::ProviderRuntime.new(model: "gpt-4o-mini")
-
-        allow(mock_executor).to receive(:execute).with(
-          ["github-copilot-cli", "--version"],
-          timeout: 5,
-          env: {}
-        ).and_return(
-          AgentHarness::CommandExecutor::Result.new(
-            stdout: "github-copilot-cli 0.0.421",
-            stderr: "",
-            exit_code: 0,
-            duration: 0.1
-          )
-        )
-
-        expect(mock_executor).to receive(:execute).with(
-          ["github-copilot-cli", "-p", "Hello", "-s", "--model", "gpt-4o-mini"],
-          anything
-        ).and_return(
-          AgentHarness::CommandExecutor::Result.new(
-            stdout: "plain text response",
-            stderr: "",
-            exit_code: 0,
-            duration: 1.0
-          )
-        )
-
-        response = provider.send_message(prompt: "Hello", provider_runtime: runtime)
-        expect(response.output).to eq("plain text response")
-        expect(response.model).to eq("gpt-4o-mini")
-      end
-
-      it "passes the configured model through the older CLI fallback path" do
-        configured_provider = described_class.new(
-          config: AgentHarness::ProviderConfig.new(:github_copilot).tap { |cfg| cfg.model = "gpt-4o-mini" },
-          executor: mock_executor
-        )
-
-        allow(mock_executor).to receive(:execute).with(
-          ["github-copilot-cli", "--version"],
-          timeout: 5,
-          env: {}
-        ).and_return(
-          AgentHarness::CommandExecutor::Result.new(
-            stdout: "github-copilot-cli 0.0.421",
-            stderr: "",
-            exit_code: 0,
-            duration: 0.1
-          )
-        )
-
-        expect(mock_executor).to receive(:execute).with(
-          ["github-copilot-cli", "-p", "Hello", "-s", "--model", "gpt-4o-mini"],
-          anything
-        ).and_return(
-          AgentHarness::CommandExecutor::Result.new(
-            stdout: "plain text response",
-            stderr: "",
-            exit_code: 0,
-            duration: 1.0
-          )
-        )
-
-        response = configured_provider.send_message(prompt: "Hello")
-        expect(response.output).to eq("plain text response")
-        expect(response.model).to eq("gpt-4o-mini")
-      end
-
-      it "skips the version probe during send_message when the CLI is unavailable" do
-        allow(mock_executor).to receive(:which).with("github-copilot-cli").and_return(nil)
-        expect(mock_executor).not_to receive(:execute).with(["github-copilot-cli", "--version"], any_args)
-
-        allow(mock_executor).to receive(:execute).with(
-          ["github-copilot-cli", "-p", "Hello", "-s"],
-          anything
-        ).and_return(
-          AgentHarness::CommandExecutor::Result.new(
-            stdout: "plain text response",
-            stderr: "",
-            exit_code: 0,
-            duration: 1.0
-          )
-        )
-
-        response = provider.send_message(prompt: "Hello")
-        expect(response.output).to eq("plain text response")
-        expect(response.tokens).to be_nil
-      end
-
-      it "fails fast for 0.1.x instead of invoking the interactive what-the-shell flow" do
-        allow(mock_executor).to receive(:execute).with(
-          ["github-copilot-cli", "--version"],
-          timeout: 5,
-          env: {}
-        ).and_return(
-          AgentHarness::CommandExecutor::Result.new(
-            stdout: "github-copilot-cli 0.1.36",
-            stderr: "",
-            exit_code: 0,
-            duration: 0.1
-          )
-        )
-
-        expect(mock_executor).not_to receive(:execute).with(
-          ["github-copilot-cli", "what-the-shell", "Hello"],
-          anything
-        )
-
-        expect do
-          provider.send_message(prompt: "Hello")
-        end.to raise_error(AgentHarness::ProviderError, /what-the-shell subcommand is interactive/)
-      end
-
-      it "does not decode plain-text fallback output that happens to be valid JSON" do
-        allow(mock_executor).to receive(:execute).with(
-          ["github-copilot-cli", "--version"],
-          timeout: 5,
-          env: {}
-        ).and_return(
-          AgentHarness::CommandExecutor::Result.new(
-            stdout: "github-copilot-cli 0.0.421",
-            stderr: "",
-            exit_code: 0,
-            duration: 0.1
-          )
-        )
-
-        allow(mock_executor).to receive(:execute).with(
-          ["github-copilot-cli", "-p", "Hello", "-s"],
-          anything
-        ).and_return(
-          AgentHarness::CommandExecutor::Result.new(
-            stdout: JSON.generate({"text" => "plain text response"}),
-            stderr: "",
-            exit_code: 0,
-            duration: 1.0
-          )
-        )
-
-        response = provider.send_message(prompt: "Hello")
-        expect(response.output).to eq("{\"text\":\"plain text response\"}")
-        expect(response.tokens).to be_nil
-      end
-
-      context "with dangerous_mode option" do
-        it "adds blanket tool approval to the JSON output command" do
-          jsonl_output = [
-            {"text" => "response"},
-            {"usage" => {"input_tokens" => 10, "output_tokens" => 5}}
-          ].map { |o| JSON.generate(o) }.join("\n")
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "--version"],
-            timeout: 5,
-            env: {}
-          ).and_return(version_result)
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "-p", "Hello", "--output-format", "json", "--allow-all-tools", "--allow-all"],
-            anything
-          ).and_return(
-            AgentHarness::CommandExecutor::Result.new(
-              stdout: jsonl_output,
-              stderr: "",
-              exit_code: 0,
-              duration: 1.0
-            )
-          )
-
-          expect(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "-p", "Hello", "--output-format", "json", "--allow-all-tools", "--allow-all"],
-            anything
-          )
-
-          provider.send_message(prompt: "Hello", dangerous_mode: true)
-        end
-
-        it "adds blanket tool approval to the plain-text fallback command" do
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "--version"],
-            timeout: 5,
-            env: {}
-          ).and_return(
-            AgentHarness::CommandExecutor::Result.new(
-              stdout: "github-copilot-cli 0.0.421",
-              stderr: "",
-              exit_code: 0,
-              duration: 0.1
-            )
-          )
-
-          expect(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "-p", "Hello", "-s", "--allow-all-tools", "--resume", "session-123"],
-            anything
-          ).and_return(
-            AgentHarness::CommandExecutor::Result.new(
-              stdout: "plain text response",
-              stderr: "",
-              exit_code: 0,
-              duration: 1.0
-            )
-          )
-
-          response = provider.send_message(prompt: "Hello", dangerous_mode: true, session: "session-123")
-          expect(response.output).to eq("plain text response")
-          expect(response.tokens).to be_nil
-        end
-      end
-
-      context "with token usage parsing" do
-        it "extracts token usage from JSONL output with usage in separate line" do
-          jsonl_output = [
-            {"text" => "Hello! How can I help?"},
-            {"usage" => {"input_tokens" => 100, "output_tokens" => 50}}
-          ].map { |o| JSON.generate(o) }.join("\n")
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "--version"],
-            timeout: 5,
-            env: {}
-          ).and_return(version_result)
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "-p", "Hello", "--output-format", "json", "--allow-all-tools", "--allow-all"],
-            anything
-          ).and_return(
-            AgentHarness::CommandExecutor::Result.new(
-              stdout: jsonl_output,
-              stderr: "",
-              exit_code: 0,
-              duration: 1.0
-            )
-          )
-
-          response = provider.send_message(prompt: "Hello", dangerous_mode: true)
-          expect(response.output).to eq("Hello! How can I help?")
-          expect(response.tokens).to eq({input: 100, output: 50, total: 150})
-          expect(response.input_tokens).to eq(100)
-          expect(response.output_tokens).to eq(50)
-          expect(response.total_tokens).to eq(150)
-        end
-
-        it "does not use silent mode on JSON output commands so usage remains available" do
-          jsonl_output = [
-            {"text" => "response"},
-            {"usage" => {"input_tokens" => 10, "output_tokens" => 5}}
-          ].map { |o| JSON.generate(o) }.join("\n")
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "--version"],
-            timeout: 5,
-            env: {}
-          ).and_return(version_result)
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "-p", "Hello", "--output-format", "json", "--allow-all-tools", "--allow-all"],
-            anything
-          ).and_return(
-            AgentHarness::CommandExecutor::Result.new(
-              stdout: jsonl_output,
-              stderr: "",
-              exit_code: 0,
-              duration: 1.0
-            )
-          )
-
-          provider.send_message(prompt: "Hello", dangerous_mode: true)
-
-          expect(mock_executor).to have_received(:execute).with(
-            ["github-copilot-cli", "-p", "Hello", "--output-format", "json", "--allow-all-tools", "--allow-all"],
-            anything
-          )
-        end
-
-        it "extracts token usage from JSONL output with prompt_tokens format" do
-          jsonl_output = [
-            {"text" => "response"},
-            {"usage" => {"prompt_tokens" => 200, "completion_tokens" => 75}}
-          ].map { |o| JSON.generate(o) }.join("\n")
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "--version"],
-            timeout: 5,
-            env: {}
-          ).and_return(version_result)
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "-p", "Hello", "--output-format", "json", "--allow-all-tools", "--allow-all"],
-            anything
-          ).and_return(
-            AgentHarness::CommandExecutor::Result.new(
-              stdout: jsonl_output,
-              stderr: "",
-              exit_code: 0,
-              duration: 1.0
-            )
-          )
-
-          response = provider.send_message(prompt: "Hello", dangerous_mode: true)
-          expect(response.tokens).to eq({input: 200, output: 75, total: 275})
-        end
-
-        it "extracts usage from nested message.usage" do
-          jsonl_output = [
-            {"text" => "response"},
-            {"message" => {"usage" => {"input_tokens" => 30, "output_tokens" => 15}}}
-          ].map { |o| JSON.generate(o) }.join("\n")
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "--version"],
-            timeout: 5,
-            env: {}
-          ).and_return(version_result)
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "-p", "Hello", "--output-format", "json", "--allow-all-tools", "--allow-all"],
-            anything
-          ).and_return(
-            AgentHarness::CommandExecutor::Result.new(
-              stdout: jsonl_output,
-              stderr: "",
-              exit_code: 0,
-              duration: 1.0
-            )
-          )
-
-          response = provider.send_message(prompt: "Hello", dangerous_mode: true)
-          expect(response.tokens).to eq({input: 30, output: 15, total: 45})
-        end
-
-        it "prefers the most complete direct usage payload within a single JSONL event" do
-          jsonl_output = [
-            {"text" => "response"},
-            {"usage" => {"input_tokens" => 10}, "message" => {"usage" => {"input_tokens" => 10, "output_tokens" => 5}}}
-          ].map { |o| JSON.generate(o) }.join("\n")
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "--version"],
-            timeout: 5,
-            env: {}
-          ).and_return(version_result)
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "-p", "Hello", "--output-format", "json", "--allow-all-tools", "--allow-all"],
-            anything
-          ).and_return(
-            AgentHarness::CommandExecutor::Result.new(
-              stdout: jsonl_output,
-              stderr: "",
-              exit_code: 0,
-              duration: 1.0
-            )
-          )
-
-          response = provider.send_message(prompt: "Hello", dangerous_mode: true)
-          expect(response.output).to eq("response")
-          expect(response.tokens).to eq({input: 10, output: 5, total: 15})
-        end
-
-        it "extracts assistant text from event payload content and delta content" do
-          jsonl_output = [
-            {"type" => "assistant.message", "data" => {"content" => "Hello"}},
-            {"type" => "assistant.delta", "data" => {"deltaContent" => " world"}},
-            {"type" => "assistant.delta", "data" => {"deltaContent" => "!"}}
-          ].map { |o| JSON.generate(o) }.join("\n")
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "--version"],
-            timeout: 5,
-            env: {}
-          ).and_return(version_result)
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "-p", "Hello", "--output-format", "json", "--allow-all-tools", "--allow-all"],
-            anything
-          ).and_return(
-            AgentHarness::CommandExecutor::Result.new(
-              stdout: jsonl_output,
-              stderr: "",
-              exit_code: 0,
-              duration: 1.0
-            )
-          )
-
-          response = provider.send_message(prompt: "Hello", dangerous_mode: true)
-          expect(response.output).to eq("Hello world!")
-          expect(response.tokens).to be_nil
-        end
-
-        it "extracts assistant text from snake_case delta_content payloads" do
-          jsonl_output = [
-            {"type" => "assistant.message", "data" => {"content" => "Hello"}},
-            {"type" => "assistant.delta", "data" => {"delta_content" => " world"}},
-            {"type" => "assistant.delta", "data" => {"delta_content" => "!"}}
-          ].map { |o| JSON.generate(o) }.join("\n")
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "--version"],
-            timeout: 5,
-            env: {}
-          ).and_return(version_result)
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "-p", "Hello", "--output-format", "json", "--allow-all-tools", "--allow-all"],
-            anything
-          ).and_return(
-            AgentHarness::CommandExecutor::Result.new(
-              stdout: jsonl_output,
-              stderr: "",
-              exit_code: 0,
-              duration: 1.0
-            )
-          )
-
-          response = provider.send_message(prompt: "Hello", dangerous_mode: true)
-          expect(response.output).to eq("Hello world!")
-          expect(response.tokens).to be_nil
-        end
-
-        it "prefers a later full-message snapshot over earlier delta fragments" do
-          jsonl_output = [
-            {"type" => "assistant.message", "data" => {"content" => "Hel"}},
-            {"type" => "assistant.delta", "data" => {"deltaContent" => "lo"}},
-            {"type" => "turn.completed", "data" => {"message" => {"content" => "Hello"}}}
-          ].map { |o| JSON.generate(o) }.join("\n")
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "--version"],
-            timeout: 5,
-            env: {}
-          ).and_return(version_result)
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "-p", "Hello", "--output-format", "json", "--allow-all-tools", "--allow-all"],
-            anything
-          ).and_return(
-            AgentHarness::CommandExecutor::Result.new(
-              stdout: jsonl_output,
-              stderr: "",
-              exit_code: 0,
-              duration: 1.0
-            )
-          )
-
-          response = provider.send_message(prompt: "Hello", dangerous_mode: true)
-          expect(response.output).to eq("Hello")
-          expect(response.tokens).to be_nil
-        end
-
-        it "prefers a later full-message snapshot over earlier partial snapshots" do
-          jsonl_output = [
-            {"type" => "assistant.message", "data" => {"content" => "Hello"}},
-            {"type" => "turn.completed", "data" => {"message" => {"content" => "Hello world"}}}
-          ].map { |o| JSON.generate(o) }.join("\n")
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "--version"],
-            timeout: 5,
-            env: {}
-          ).and_return(version_result)
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "-p", "Hello", "--output-format", "json", "--allow-all-tools", "--allow-all"],
-            anything
-          ).and_return(
-            AgentHarness::CommandExecutor::Result.new(
-              stdout: jsonl_output,
-              stderr: "",
-              exit_code: 0,
-              duration: 1.0
-            )
-          )
-
-          response = provider.send_message(prompt: "Hello", dangerous_mode: true)
-          expect(response.output).to eq("Hello world")
-          expect(response.tokens).to be_nil
-        end
-
-        it "prefers a later shorter full-message snapshot over an earlier longer partial snapshot" do
-          jsonl_output = [
-            {"type" => "assistant.message", "data" => {"content" => "Hello world"}},
-            {"type" => "turn.completed", "data" => {"message" => {"content" => "Hello"}}}
-          ].map { |o| JSON.generate(o) }.join("\n")
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "--version"],
-            timeout: 5,
-            env: {}
-          ).and_return(version_result)
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "-p", "Hello", "--output-format", "json", "--allow-all-tools", "--allow-all"],
-            anything
-          ).and_return(
-            AgentHarness::CommandExecutor::Result.new(
-              stdout: jsonl_output,
-              stderr: "",
-              exit_code: 0,
-              duration: 1.0
-            )
-          )
-
-          response = provider.send_message(prompt: "Hello", dangerous_mode: true)
-          expect(response.output).to eq("Hello")
-          expect(response.tokens).to be_nil
-        end
-
-        it "prefers a later corrected full-message snapshot over an earlier same-length snapshot" do
-          jsonl_output = [
-            {"type" => "assistant.message", "data" => {"content" => "Hxllo"}},
-            {"type" => "turn.completed", "data" => {"message" => {"content" => "Hello"}}}
-          ].map { |o| JSON.generate(o) }.join("\n")
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "--version"],
-            timeout: 5,
-            env: {}
-          ).and_return(version_result)
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "-p", "Hello", "--output-format", "json", "--allow-all-tools", "--allow-all"],
-            anything
-          ).and_return(
-            AgentHarness::CommandExecutor::Result.new(
-              stdout: jsonl_output,
-              stderr: "",
-              exit_code: 0,
-              duration: 1.0
-            )
-          )
-
-          response = provider.send_message(prompt: "Hello", dangerous_mode: true)
-          expect(response.output).to eq("Hello")
-          expect(response.tokens).to be_nil
-        end
-
-        it "prefers a later corrected full-message snapshot even when the replacement length changes" do
-          jsonl_output = [
-            {"type" => "assistant.message", "data" => {"content" => "Hxllo"}},
-            {"type" => "turn.completed", "data" => {"message" => {"content" => "Hello!"}}}
-          ].map { |o| JSON.generate(o) }.join("\n")
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "--version"],
-            timeout: 5,
-            env: {}
-          ).and_return(version_result)
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "-p", "Hello", "--output-format", "json", "--allow-all-tools", "--allow-all"],
-            anything
-          ).and_return(
-            AgentHarness::CommandExecutor::Result.new(
-              stdout: jsonl_output,
-              stderr: "",
-              exit_code: 0,
-              duration: 1.0
-            )
-          )
-
-          response = provider.send_message(prompt: "Hello", dangerous_mode: true)
-          expect(response.output).to eq("Hello!")
-          expect(response.tokens).to be_nil
-        end
-
-        it "treats later untyped wrapped message snapshots as authoritative replacements" do
-          jsonl_output = [
-            {"message" => {"content" => "Hxllo"}},
-            {"message" => {"content" => "Hello"}}
-          ].map { |o| JSON.generate(o) }.join("\n")
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "--version"],
-            timeout: 5,
-            env: {}
-          ).and_return(version_result)
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "-p", "Hello", "--output-format", "json", "--allow-all-tools", "--allow-all"],
-            anything
-          ).and_return(
-            AgentHarness::CommandExecutor::Result.new(
-              stdout: jsonl_output,
-              stderr: "",
-              exit_code: 0,
-              duration: 1.0
-            )
-          )
-
-          response = provider.send_message(prompt: "Hello", dangerous_mode: true)
-          expect(response.output).to eq("Hello")
-          expect(response.tokens).to be_nil
-        end
-
-        it "treats later wrapped data.message snapshots as authoritative replacements" do
-          jsonl_output = [
-            {"data" => {"message" => {"content" => "Hxllo"}}},
-            {"data" => {"message" => {"content" => "Hello"}}}
-          ].map { |o| JSON.generate(o) }.join("\n")
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "--version"],
-            timeout: 5,
-            env: {}
-          ).and_return(version_result)
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "-p", "Hello", "--output-format", "json", "--allow-all-tools", "--allow-all"],
-            anything
-          ).and_return(
-            AgentHarness::CommandExecutor::Result.new(
-              stdout: jsonl_output,
-              stderr: "",
-              exit_code: 0,
-              duration: 1.0
-            )
-          )
-
-          response = provider.send_message(prompt: "Hello", dangerous_mode: true)
-          expect(response.output).to eq("Hello")
-          expect(response.tokens).to be_nil
-        end
-
-        it "does not duplicate identical back-to-back full snapshots" do
-          jsonl_output = [
-            {"type" => "assistant.message", "data" => {"content" => "OK"}},
-            {"type" => "turn.completed", "data" => {"message" => {"content" => "OK"}}}
-          ].map { |o| JSON.generate(o) }.join("\n")
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "--version"],
-            timeout: 5,
-            env: {}
-          ).and_return(version_result)
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "-p", "Hello", "--output-format", "json", "--allow-all-tools", "--allow-all"],
-            anything
-          ).and_return(
-            AgentHarness::CommandExecutor::Result.new(
-              stdout: jsonl_output,
-              stderr: "",
-              exit_code: 0,
-              duration: 1.0
-            )
-          )
-
-          response = provider.send_message(prompt: "Hello", dangerous_mode: true)
-          expect(response.output).to eq("OK")
-          expect(response.tokens).to be_nil
-        end
-
-        it "extracts assistant text from structured content parts" do
-          jsonl_output = [
-            {"type" => "assistant.message", "data" => {"content" => [{"text" => "Hello"}, {"text" => " world"}]}},
-            {"type" => "assistant.delta", "data" => {"deltaContent" => "!"}}
-          ].map { |o| JSON.generate(o) }.join("\n")
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "--version"],
-            timeout: 5,
-            env: {}
-          ).and_return(version_result)
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "-p", "Hello", "--output-format", "json", "--allow-all-tools", "--allow-all"],
-            anything
-          ).and_return(
-            AgentHarness::CommandExecutor::Result.new(
-              stdout: jsonl_output,
-              stderr: "",
-              exit_code: 0,
-              duration: 1.0
-            )
-          )
-
-          response = provider.send_message(prompt: "Hello", dangerous_mode: true)
-          expect(response.output).to eq("Hello world!")
-          expect(response.tokens).to be_nil
-        end
-
-        it "extracts assistant text from nested message content payloads" do
-          jsonl_output = [
-            {"message" => {"content" => [{"text" => "Hello"}, {"text" => " world"}]}},
-            {"data" => {"message" => {"content" => "!"}}}
-          ].map { |o| JSON.generate(o) }.join("\n")
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "--version"],
-            timeout: 5,
-            env: {}
-          ).and_return(version_result)
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "-p", "Hello", "--output-format", "json", "--allow-all-tools", "--allow-all"],
-            anything
-          ).and_return(
-            AgentHarness::CommandExecutor::Result.new(
-              stdout: jsonl_output,
-              stderr: "",
-              exit_code: 0,
-              duration: 1.0
-            )
-          )
-
-          response = provider.send_message(prompt: "Hello", dangerous_mode: true)
-          expect(response.output).to eq("Hello world!")
-          expect(response.tokens).to be_nil
-        end
-
-        it "extracts assistant text from wrapped parts payloads" do
-          jsonl_output = [
-            {"data" => {"message" => {"content" => {"parts" => [{"text" => "Hello"}, {"text" => " world"}]}}}},
-            {"data" => {"delta" => {"parts" => [{"text" => "!"}]}}}
-          ].map { |o| JSON.generate(o) }.join("\n")
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "--version"],
-            timeout: 5,
-            env: {}
-          ).and_return(version_result)
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "-p", "Hello", "--output-format", "json", "--allow-all-tools", "--allow-all"],
-            anything
-          ).and_return(
-            AgentHarness::CommandExecutor::Result.new(
-              stdout: jsonl_output,
-              stderr: "",
-              exit_code: 0,
-              duration: 1.0
-            )
-          )
-
-          response = provider.send_message(prompt: "Hello", dangerous_mode: true)
-          expect(response.output).to eq("Hello world!")
-          expect(response.tokens).to be_nil
-        end
-
-        it "extracts token usage from usage event payload camelCase fields" do
-          jsonl_output = [
-            {"type" => "assistant.message", "data" => {"content" => "response"}},
-            {"type" => "usage", "data" => {"inputTokens" => 44, "outputTokens" => 11}},
-            {"type" => "usage", "data" => {"promptTokens" => "6", "completionTokens" => 4}}
-          ].map { |o| JSON.generate(o) }.join("\n")
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "--version"],
-            timeout: 5,
-            env: {}
-          ).and_return(version_result)
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "-p", "Hello", "--output-format", "json", "--allow-all-tools", "--allow-all"],
-            anything
-          ).and_return(
-            AgentHarness::CommandExecutor::Result.new(
-              stdout: jsonl_output,
-              stderr: "",
-              exit_code: 0,
-              duration: 1.0
-            )
-          )
-
-          response = provider.send_message(prompt: "Hello", dangerous_mode: true)
-          expect(response.output).to eq("response")
-          expect(response.tokens).to eq({input: 50, output: 15, total: 65})
-        end
-
-        it "extracts token usage from event envelopes that wrap counts under data.usage" do
-          jsonl_output = [
-            {"type" => "assistant.message", "data" => {"content" => "response"}},
-            {"type" => "turn.completed", "data" => {"usage" => {"inputTokens" => 44, "outputTokens" => 11}}},
-            {"type" => "turn.completed", "data" => {"usage" => {"promptTokens" => "6", "completionTokens" => 4}}}
-          ].map { |o| JSON.generate(o) }.join("\n")
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "--version"],
-            timeout: 5,
-            env: {}
-          ).and_return(version_result)
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "-p", "Hello", "--output-format", "json", "--allow-all-tools", "--allow-all"],
-            anything
-          ).and_return(
-            AgentHarness::CommandExecutor::Result.new(
-              stdout: jsonl_output,
-              stderr: "",
-              exit_code: 0,
-              duration: 1.0
-            )
-          )
-
-          response = provider.send_message(prompt: "Hello", dangerous_mode: true)
-          expect(response.output).to eq("response")
-          expect(response.tokens).to eq({input: 50, output: 15, total: 65})
-        end
-
-        it "extracts token usage from top-level tokens payloads" do
-          jsonl_output = [
-            {"type" => "assistant.message", "data" => {"content" => "response"}},
-            {"tokens" => {"input_tokens" => 44, "output_tokens" => 11}},
-            {"tokens" => {"promptTokens" => "6", "completionTokens" => 4}}
-          ].map { |o| JSON.generate(o) }.join("\n")
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "--version"],
-            timeout: 5,
-            env: {}
-          ).and_return(version_result)
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "-p", "Hello", "--output-format", "json", "--allow-all-tools", "--allow-all"],
-            anything
-          ).and_return(
-            AgentHarness::CommandExecutor::Result.new(
-              stdout: jsonl_output,
-              stderr: "",
-              exit_code: 0,
-              duration: 1.0
-            )
-          )
-
-          response = provider.send_message(prompt: "Hello", dangerous_mode: true)
-          expect(response.output).to eq("response")
-          expect(response.tokens).to eq({input: 50, output: 15, total: 65})
-        end
-
-        it "extracts token usage from wrapped tokens payloads" do
-          jsonl_output = [
-            {"type" => "assistant.message", "data" => {"content" => "response"}},
-            {"type" => "turn.completed", "data" => {"tokens" => {"input_tokens" => 44, "output_tokens" => 11}}},
-            {"message" => {"tokens" => {"promptTokens" => "6", "completionTokens" => 4}}},
-            {"data" => {"message" => {"tokens" => {"inputTokens" => 5, "outputTokens" => 1}}}}
-          ].map { |o| JSON.generate(o) }.join("\n")
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "--version"],
-            timeout: 5,
-            env: {}
-          ).and_return(version_result)
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "-p", "Hello", "--output-format", "json", "--allow-all-tools", "--allow-all"],
-            anything
-          ).and_return(
-            AgentHarness::CommandExecutor::Result.new(
-              stdout: jsonl_output,
-              stderr: "",
-              exit_code: 0,
-              duration: 1.0
-            )
-          )
-
-          response = provider.send_message(prompt: "Hello", dangerous_mode: true)
-          expect(response.output).to eq("response")
-          expect(response.tokens).to eq({input: 55, output: 16, total: 71})
-        end
-
-        it "extracts token usage from wrapped direct token payloads" do
-          jsonl_output = [
-            {"type" => "assistant.message", "data" => {"content" => "response"}},
-            {"message" => {"input_tokens" => 44, "output_tokens" => 11}},
-            {"data" => {"message" => {"promptTokens" => "6", "completionTokens" => 4}}}
-          ].map { |o| JSON.generate(o) }.join("\n")
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "--version"],
-            timeout: 5,
-            env: {}
-          ).and_return(version_result)
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "-p", "Hello", "--output-format", "json", "--allow-all-tools", "--allow-all"],
-            anything
-          ).and_return(
-            AgentHarness::CommandExecutor::Result.new(
-              stdout: jsonl_output,
-              stderr: "",
-              exit_code: 0,
-              duration: 1.0
-            )
-          )
-
-          response = provider.send_message(prompt: "Hello", dangerous_mode: true)
-          expect(response.output).to eq("response")
-          expect(response.tokens).to eq({input: 50, output: 15, total: 65})
-        end
-
-        it "extracts token usage from shutdown metrics payloads" do
-          jsonl_output = [
-            {"type" => "assistant.message", "data" => {"content" => "response"}},
-            {"type" => "session.shutdown", "data" => {"modelMetrics" => {"inputTokens" => 44, "outputTokens" => 11}}},
-            {"type" => "session.shutdown", "data" => {"model_metrics" => {"promptTokens" => "6", "completionTokens" => 4}}}
-          ].map { |o| JSON.generate(o) }.join("\n")
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "--version"],
-            timeout: 5,
-            env: {}
-          ).and_return(version_result)
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "-p", "Hello", "--output-format", "json", "--allow-all-tools", "--allow-all"],
-            anything
-          ).and_return(
-            AgentHarness::CommandExecutor::Result.new(
-              stdout: jsonl_output,
-              stderr: "",
-              exit_code: 0,
-              duration: 1.0
-            )
-          )
-
-          response = provider.send_message(prompt: "Hello", dangerous_mode: true)
-          expect(response.output).to eq("response")
-          expect(response.tokens).to eq({input: 50, output: 15, total: 65})
-        end
-
-        it "preserves explicit zero-token shutdown metrics" do
-          jsonl_output = [
-            {"type" => "assistant.message", "data" => {"content" => "response"}},
-            {"type" => "session.shutdown", "data" => {"modelMetrics" => {"inputTokens" => 0, "outputTokens" => 0}}}
-          ].map { |o| JSON.generate(o) }.join("\n")
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "--version"],
-            timeout: 5,
-            env: {}
-          ).and_return(version_result)
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "-p", "Hello", "--output-format", "json", "--allow-all-tools", "--allow-all"],
-            anything
-          ).and_return(
-            AgentHarness::CommandExecutor::Result.new(
-              stdout: jsonl_output,
-              stderr: "",
-              exit_code: 0,
-              duration: 1.0
-            )
-          )
-
-          response = provider.send_message(prompt: "Hello", dangerous_mode: true)
-          expect(response.output).to eq("response")
-          expect(response.tokens).to eq({input: 0, output: 0, total: 0})
-        end
-
-        it "extracts token usage from per-model shutdown metrics payloads" do
-          jsonl_output = [
-            {"type" => "assistant.message", "data" => {"content" => "response"}},
-            {"type" => "session.shutdown", "data" => {"modelMetrics" => {"gpt-4o" => {"usage" => {"inputTokens" => 44, "outputTokens" => 11}}}}},
-            {"type" => "session.shutdown", "data" => {"model_metrics" => {"gpt-4o-mini" => {"usage" => {"promptTokens" => "6", "completionTokens" => 4}}}}}
-          ].map { |o| JSON.generate(o) }.join("\n")
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "--version"],
-            timeout: 5,
-            env: {}
-          ).and_return(version_result)
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "-p", "Hello", "--output-format", "json", "--allow-all-tools", "--allow-all"],
-            anything
-          ).and_return(
-            AgentHarness::CommandExecutor::Result.new(
-              stdout: jsonl_output,
-              stderr: "",
-              exit_code: 0,
-              duration: 1.0
-            )
-          )
-
-          response = provider.send_message(prompt: "Hello", dangerous_mode: true)
-          expect(response.output).to eq("response")
-          expect(response.tokens).to eq({input: 50, output: 15, total: 65})
-        end
-
-        it "aggregates all model entries within a single shutdown metrics payload" do
-          jsonl_output = [
-            {"type" => "assistant.message", "data" => {"content" => "response"}},
-            {
-              "type" => "session.shutdown",
-              "data" => {
-                "modelMetrics" => {
-                  "gpt-4o" => {"usage" => {"inputTokens" => 44, "outputTokens" => 11}},
-                  "gpt-4o-mini" => {"usage" => {"promptTokens" => "6", "completionTokens" => 4}}
-                }
-              }
-            }
-          ].map { |o| JSON.generate(o) }.join("\n")
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "--version"],
-            timeout: 5,
-            env: {}
-          ).and_return(version_result)
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "-p", "Hello", "--output-format", "json", "--allow-all-tools", "--allow-all"],
-            anything
-          ).and_return(
-            AgentHarness::CommandExecutor::Result.new(
-              stdout: jsonl_output,
-              stderr: "",
-              exit_code: 0,
-              duration: 1.0
-            )
-          )
-
-          response = provider.send_message(prompt: "Hello", dangerous_mode: true)
-          expect(response.output).to eq("response")
-          expect(response.tokens).to eq({input: 50, output: 15, total: 65})
-        end
-
-        it "extracts token usage from wrapped shutdown metrics payloads" do
-          jsonl_output = [
-            {"type" => "assistant.message", "data" => {"content" => "response"}},
-            {"message" => {"modelMetrics" => {"inputTokens" => 44, "outputTokens" => 11}}},
-            {"data" => {"message" => {"model_metrics" => {"promptTokens" => "6", "completionTokens" => 4}}}}
-          ].map { |o| JSON.generate(o) }.join("\n")
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "--version"],
-            timeout: 5,
-            env: {}
-          ).and_return(version_result)
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "-p", "Hello", "--output-format", "json", "--allow-all-tools", "--allow-all"],
-            anything
-          ).and_return(
-            AgentHarness::CommandExecutor::Result.new(
-              stdout: jsonl_output,
-              stderr: "",
-              exit_code: 0,
-              duration: 1.0
-            )
-          )
-
-          response = provider.send_message(prompt: "Hello", dangerous_mode: true)
-          expect(response.output).to eq("response")
-          expect(response.tokens).to eq({input: 50, output: 15, total: 65})
-        end
-
-        it "prefers authoritative shutdown totals over overlapping granular usage events" do
-          jsonl_output = [
-            {"type" => "assistant.message", "data" => {"content" => "response"}},
-            {"type" => "usage", "data" => {"inputTokens" => 44, "outputTokens" => 11}},
-            {"type" => "usage", "data" => {"promptTokens" => "6", "completionTokens" => 4}},
-            {"type" => "session.shutdown", "data" => {"modelMetrics" => {"inputTokens" => 50, "outputTokens" => 15}}}
-          ].map { |o| JSON.generate(o) }.join("\n")
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "--version"],
-            timeout: 5,
-            env: {}
-          ).and_return(version_result)
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "-p", "Hello", "--output-format", "json", "--allow-all-tools", "--allow-all"],
-            anything
-          ).and_return(
-            AgentHarness::CommandExecutor::Result.new(
-              stdout: jsonl_output,
-              stderr: "",
-              exit_code: 0,
-              duration: 1.0
-            )
-          )
-
-          response = provider.send_message(prompt: "Hello", dangerous_mode: true)
-          expect(response.output).to eq("response")
-          expect(response.tokens).to eq({input: 50, output: 15, total: 65})
-        end
-
-        it "supplements incomplete shutdown totals with granular usage events" do
-          jsonl_output = [
-            {"type" => "assistant.message", "data" => {"content" => "response"}},
-            {"type" => "usage", "data" => {"inputTokens" => 100}},
-            {"type" => "session.shutdown", "data" => {"outputTokens" => 50}}
-          ].map { |o| JSON.generate(o) }.join("\n")
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "--version"],
-            timeout: 5,
-            env: {}
-          ).and_return(version_result)
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "-p", "Hello", "--output-format", "json", "--allow-all-tools", "--allow-all"],
-            anything
-          ).and_return(
-            AgentHarness::CommandExecutor::Result.new(
-              stdout: jsonl_output,
-              stderr: "",
-              exit_code: 0,
-              duration: 1.0
-            )
-          )
-
-          response = provider.send_message(prompt: "Hello", dangerous_mode: true)
-          expect(response.output).to eq("response")
-          expect(response.tokens).to eq({input: 100, output: 50, total: 150})
-        end
-
-        it "ignores malformed direct usage hashes when wrapped shutdown metrics are present" do
-          jsonl_output = [
-            {"type" => "assistant.message", "data" => {"content" => "response"}},
-            {
-              "usage" => {"status" => "ignored"},
-              "data" => {
-                "modelMetrics" => {
-                  "gpt-4o" => {"usage" => {"inputTokens" => 44, "outputTokens" => 11}}
-                }
-              }
-            },
-            {
-              "tokens" => {"status" => "ignored"},
-              "message" => {
-                "model_metrics" => {
-                  "gpt-4o-mini" => {"usage" => {"promptTokens" => "6", "completionTokens" => 4}}
-                }
-              }
-            }
-          ].map { |o| JSON.generate(o) }.join("\n")
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "--version"],
-            timeout: 5,
-            env: {}
-          ).and_return(version_result)
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "-p", "Hello", "--output-format", "json", "--allow-all-tools", "--allow-all"],
-            anything
-          ).and_return(
-            AgentHarness::CommandExecutor::Result.new(
-              stdout: jsonl_output,
-              stderr: "",
-              exit_code: 0,
-              duration: 1.0
-            )
-          )
-
-          response = provider.send_message(prompt: "Hello", dangerous_mode: true)
-          expect(response.output).to eq("response")
-          expect(response.tokens).to eq({input: 50, output: 15, total: 65})
-        end
-
-        it "falls back to wrapped shutdown metrics when direct usage has unparseable token values" do
-          jsonl_output = [
-            {"type" => "assistant.message", "data" => {"content" => "response"}},
-            {
-              "usage" => {"input_tokens" => "not-a-number", "output_tokens" => []},
-              "data" => {
-                "modelMetrics" => {
-                  "gpt-4o" => {"usage" => {"inputTokens" => 44, "outputTokens" => 11}}
-                }
-              }
-            },
-            {
-              "tokens" => {"promptTokens" => {}, "completionTokens" => "NaN"},
-              "message" => {
-                "model_metrics" => {
-                  "gpt-4o-mini" => {"usage" => {"promptTokens" => "6", "completionTokens" => 4}}
-                }
-              }
-            }
-          ].map { |o| JSON.generate(o) }.join("\n")
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "--version"],
-            timeout: 5,
-            env: {}
-          ).and_return(version_result)
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "-p", "Hello", "--output-format", "json", "--allow-all-tools", "--allow-all"],
-            anything
-          ).and_return(
-            AgentHarness::CommandExecutor::Result.new(
-              stdout: jsonl_output,
-              stderr: "",
-              exit_code: 0,
-              duration: 1.0
-            )
-          )
-
-          response = provider.send_message(prompt: "Hello", dangerous_mode: true)
-          expect(response.output).to eq("response")
-          expect(response.tokens).to eq({input: 50, output: 15, total: 65})
-        end
-
-        it "falls back to wrapped shutdown metrics when direct usage has negative token values" do
-          jsonl_output = [
-            {"type" => "assistant.message", "data" => {"content" => "response"}},
-            {
-              "usage" => {"input_tokens" => -10, "output_tokens" => 11},
-              "data" => {
-                "modelMetrics" => {
-                  "gpt-4o" => {"usage" => {"inputTokens" => 44, "outputTokens" => 11}}
-                }
-              }
-            },
-            {
-              "tokens" => {"promptTokens" => "6", "completionTokens" => -4},
-              "message" => {
-                "model_metrics" => {
-                  "gpt-4o-mini" => {"usage" => {"promptTokens" => "6", "completionTokens" => 4}}
-                }
-              }
-            }
-          ].map { |o| JSON.generate(o) }.join("\n")
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "--version"],
-            timeout: 5,
-            env: {}
-          ).and_return(version_result)
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "-p", "Hello", "--output-format", "json", "--allow-all-tools", "--allow-all"],
-            anything
-          ).and_return(
-            AgentHarness::CommandExecutor::Result.new(
-              stdout: jsonl_output,
-              stderr: "",
-              exit_code: 0,
-              duration: 1.0
-            )
-          )
-
-          response = provider.send_message(prompt: "Hello", dangerous_mode: true)
-          expect(response.output).to eq("response")
-          expect(response.tokens).to eq({input: 50, output: 15, total: 65})
-        end
-
-        it "prefers fuller wrapped shutdown metrics over a partial direct usage payload in the same event" do
-          jsonl_output = [
-            {"type" => "assistant.message", "data" => {"content" => "response"}},
-            {
-              "type" => "session.shutdown",
-              "usage" => {"input_tokens" => 10},
-              "data" => {
-                "modelMetrics" => {
-                  "gpt-4o" => {"usage" => {"inputTokens" => 10, "outputTokens" => 5}},
-                  "gpt-4o-mini" => {"usage" => {"promptTokens" => "6", "completionTokens" => 4}}
-                }
-              }
-            }
-          ].map { |o| JSON.generate(o) }.join("\n")
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "--version"],
-            timeout: 5,
-            env: {}
-          ).and_return(version_result)
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "-p", "Hello", "--output-format", "json", "--allow-all-tools", "--allow-all"],
-            anything
-          ).and_return(
-            AgentHarness::CommandExecutor::Result.new(
-              stdout: jsonl_output,
-              stderr: "",
-              exit_code: 0,
-              duration: 1.0
-            )
-          )
-
-          response = provider.send_message(prompt: "Hello", dangerous_mode: true)
-          expect(response.output).to eq("response")
-          expect(response.tokens).to eq({input: 16, output: 9, total: 25})
-        end
-
-        it "filters non-assistant envelopes before reconstructing Copilot output" do
-          jsonl_output = [
-            {"type" => "user_input", "data" => {"content" => "User prompt"}},
-            {"type" => "system", "data" => {"content" => "System instructions"}},
-            {"type" => "assistant.delta", "data" => {"deltaContent" => "Hello"}},
-            {"type" => "assistant.delta", "data" => {"deltaContent" => " world"}},
-            {"type" => "turn.completed", "data" => {"usage" => {"inputTokens" => 12, "outputTokens" => 3}}}
-          ].map { |o| JSON.generate(o) }.join("\n")
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "--version"],
-            timeout: 5,
-            env: {}
-          ).and_return(version_result)
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "-p", "Hello", "--output-format", "json", "--allow-all-tools", "--allow-all"],
-            anything
-          ).and_return(
-            AgentHarness::CommandExecutor::Result.new(
-              stdout: jsonl_output,
-              stderr: "",
-              exit_code: 0,
-              duration: 1.0
-            )
-          )
-
-          response = provider.send_message(prompt: "Hello", dangerous_mode: true)
-          expect(response.output).to eq("Hello world")
-          expect(response.tokens).to eq({input: 12, output: 3, total: 15})
-        end
-
-        it "filters non-assistant envelopes when role is nested directly under data" do
-          jsonl_output = [
-            {"data" => {"role" => "user", "content" => "User prompt"}},
-            {"data" => {"role" => "system", "content" => "System instructions"}},
-            {"data" => {"role" => "assistant", "content" => "Hello"}},
-            {"data" => {"role" => "assistant", "content" => " world"}},
-            {"type" => "turn.completed", "data" => {"usage" => {"inputTokens" => 12, "outputTokens" => 3}}}
-          ].map { |o| JSON.generate(o) }.join("\n")
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "--version"],
-            timeout: 5,
-            env: {}
-          ).and_return(version_result)
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "-p", "Hello", "--output-format", "json", "--allow-all-tools", "--allow-all"],
-            anything
-          ).and_return(
-            AgentHarness::CommandExecutor::Result.new(
-              stdout: jsonl_output,
-              stderr: "",
-              exit_code: 0,
-              duration: 1.0
-            )
-          )
-
-          response = provider.send_message(prompt: "Hello", dangerous_mode: true)
-          expect(response.output).to eq("Hello world")
-          expect(response.tokens).to eq({input: 12, output: 3, total: 15})
-        end
-
-        it "filters non-assistant role envelopes nested under message payloads" do
-          jsonl_output = [
-            {"message" => {"role" => "user", "content" => "User prompt"}},
-            {"data" => {"message" => {"role" => "system", "content" => "System instructions"}}},
-            {"message" => {"role" => "assistant", "content" => "Hello"}},
-            {"data" => {"message" => {"role" => "assistant", "content" => " world"}}},
-            {"type" => "turn.completed", "data" => {"usage" => {"inputTokens" => 12, "outputTokens" => 3}}}
-          ].map { |o| JSON.generate(o) }.join("\n")
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "--version"],
-            timeout: 5,
-            env: {}
-          ).and_return(version_result)
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "-p", "Hello", "--output-format", "json", "--allow-all-tools", "--allow-all"],
-            anything
-          ).and_return(
-            AgentHarness::CommandExecutor::Result.new(
-              stdout: jsonl_output,
-              stderr: "",
-              exit_code: 0,
-              duration: 1.0
-            )
-          )
-
-          response = provider.send_message(prompt: "Hello", dangerous_mode: true)
-          expect(response.output).to eq("Hello world")
-          expect(response.tokens).to eq({input: 12, output: 3, total: 15})
-        end
-
-        it "filters non-assistant role envelopes nested directly under data payloads" do
-          jsonl_output = [
-            {"data" => {"role" => "user", "content" => "User prompt"}},
-            {"data" => {"role" => "system", "content" => "System instructions"}},
-            {"data" => {"role" => "assistant", "content" => "Hello"}},
-            {"data" => {"role" => "assistant", "content" => " world"}},
-            {"type" => "turn.completed", "data" => {"usage" => {"inputTokens" => 12, "outputTokens" => 3}}}
-          ].map { |o| JSON.generate(o) }.join("\n")
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "--version"],
-            timeout: 5,
-            env: {}
-          ).and_return(version_result)
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "-p", "Hello", "--output-format", "json", "--allow-all-tools", "--allow-all"],
-            anything
-          ).and_return(
-            AgentHarness::CommandExecutor::Result.new(
-              stdout: jsonl_output,
-              stderr: "",
-              exit_code: 0,
-              duration: 1.0
-            )
-          )
-
-          response = provider.send_message(prompt: "Hello", dangerous_mode: true)
-          expect(response.output).to eq("Hello world")
-          expect(response.tokens).to eq({input: 12, output: 3, total: 15})
-        end
-
-        it "ignores non-hash JSONL entries while preserving valid token usage" do
-          jsonl_output = [
-            {"text" => "response"},
-            ["unexpected entry"],
-            {"usage" => {"input_tokens" => 30, "output_tokens" => 15}}
-          ].map { |o| JSON.generate(o) }.join("\n")
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "--version"],
-            timeout: 5,
-            env: {}
-          ).and_return(version_result)
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "-p", "Hello", "--output-format", "json", "--allow-all-tools", "--allow-all"],
-            anything
-          ).and_return(
-            AgentHarness::CommandExecutor::Result.new(
-              stdout: jsonl_output,
-              stderr: "",
-              exit_code: 0,
-              duration: 1.0
-            )
-          )
-
-          response = provider.send_message(prompt: "Hello", dangerous_mode: true)
-          expect(response.output).to eq("response")
-          expect(response.tokens).to eq({input: 30, output: 15, total: 45})
-        end
-
-        it "skips malformed scalar envelopes while preserving assistant output and tokens" do
-          jsonl_output = [
-            {"type" => "assistant.message", "data" => "unexpected scalar"},
-            {"data" => {"role" => "assistant", "content" => "Hello"}},
-            {"type" => "turn.completed", "data" => {"usage" => {"inputTokens" => 12, "outputTokens" => 3}}}
-          ].map { |o| JSON.generate(o) }.join("\n")
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "--version"],
-            timeout: 5,
-            env: {}
-          ).and_return(version_result)
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "-p", "Hello", "--output-format", "json", "--allow-all-tools", "--allow-all"],
-            anything
-          ).and_return(
-            AgentHarness::CommandExecutor::Result.new(
-              stdout: jsonl_output,
-              stderr: "",
-              exit_code: 0,
-              duration: 1.0
-            )
-          )
-
-          response = provider.send_message(prompt: "Hello", dangerous_mode: true)
-          expect(response.output).to eq("Hello")
-          expect(response.tokens).to eq({input: 12, output: 3, total: 15})
-        end
-
-        it "skips malformed token counts while preserving valid JSONL usage lines" do
-          jsonl_output = [
-            {"text" => "response"},
-            {"usage" => {"input_tokens" => "not-a-number", "output_tokens" => {}}},
-            {"usage" => {"prompt_tokens" => "20", "completion_tokens" => 5}}
-          ].map { |o| JSON.generate(o) }.join("\n")
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "--version"],
-            timeout: 5,
-            env: {}
-          ).and_return(version_result)
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "-p", "Hello", "--output-format", "json", "--allow-all-tools", "--allow-all"],
-            anything
-          ).and_return(
-            AgentHarness::CommandExecutor::Result.new(
-              stdout: jsonl_output,
-              stderr: "",
-              exit_code: 0,
-              duration: 1.0
-            )
-          )
-
-          response = provider.send_message(prompt: "Hello", dangerous_mode: true)
-          expect(response.output).to eq("response")
-          expect(response.tokens).to eq({input: 20, output: 5, total: 25})
-        end
-
-        it "rejects negative token values while preserving later valid usage lines" do
-          jsonl_output = [
-            {"text" => "response"},
-            {"usage" => {"input_tokens" => "-2", "output_tokens" => -1}},
-            {"usage" => {"prompt_tokens" => "20", "completion_tokens" => 5}}
-          ].map { |o| JSON.generate(o) }.join("\n")
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "--version"],
-            timeout: 5,
-            env: {}
-          ).and_return(version_result)
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "-p", "Hello", "--output-format", "json", "--allow-all-tools", "--allow-all"],
-            anything
-          ).and_return(
-            AgentHarness::CommandExecutor::Result.new(
-              stdout: jsonl_output,
-              stderr: "",
-              exit_code: 0,
-              duration: 1.0
-            )
-          )
-
-          response = provider.send_message(prompt: "Hello", dangerous_mode: true)
-          expect(response.output).to eq("response")
-          expect(response.tokens).to eq({input: 20, output: 5, total: 25})
-        end
-
-        it "skips unparseable JSONL lines instead of discarding the entire output" do
-          jsonl_output = [
-            JSON.generate({"text" => "hello"}),
-            "NOT VALID JSON {{{",
-            JSON.generate({"usage" => {"input_tokens" => 10, "output_tokens" => 5}})
-          ].join("\n")
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "--version"],
-            timeout: 5,
-            env: {}
-          ).and_return(version_result)
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "-p", "Hello", "--output-format", "json", "--allow-all-tools", "--allow-all"],
-            anything
-          ).and_return(
-            AgentHarness::CommandExecutor::Result.new(
-              stdout: jsonl_output,
-              stderr: "",
-              exit_code: 0,
-              duration: 1.0
-            )
-          )
-
-          response = provider.send_message(prompt: "Hello", dangerous_mode: true)
-          expect(response.output).to eq("hello")
-          expect(response.tokens).to eq({input: 10, output: 5, total: 15})
-        end
-
-        it "handles non-JSON output gracefully" do
-          allow(mock_executor).to receive(:execute).and_return(
-            AgentHarness::CommandExecutor::Result.new(
-              stdout: "plain text response",
-              stderr: "",
-              exit_code: 0,
-              duration: 1.0
-            )
-          )
-
-          response = provider.send_message(prompt: "Hello", dangerous_mode: true)
-          expect(response.output).to eq("plain text response")
-          expect(response.tokens).to be_nil
-        end
-
-        it "falls back to plain text when output mixes raw text with JSON lines" do
-          mixed_output = [
-            "plain text response",
-            JSON.generate({"usage" => {"input_tokens" => 20, "output_tokens" => 5}})
-          ].join("\n")
-
-          allow(mock_executor).to receive(:execute).and_return(
-            AgentHarness::CommandExecutor::Result.new(
-              stdout: mixed_output,
-              stderr: "",
-              exit_code: 0,
-              duration: 1.0
-            )
-          )
-
-          response = provider.send_message(prompt: "Hello", dangerous_mode: true)
-          expect(response.output).to eq(mixed_output)
-          expect(response.tokens).to be_nil
-        end
-
-        it "handles JSONL without usage data" do
-          jsonl_output = [
-            {"text" => "Hello!"},
-            {"text" => " World!"}
-          ].map { |o| JSON.generate(o) }.join("\n")
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "--version"],
-            timeout: 5,
-            env: {}
-          ).and_return(version_result)
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "-p", "Hello", "--output-format", "json", "--allow-all-tools", "--allow-all"],
-            anything
-          ).and_return(
-            AgentHarness::CommandExecutor::Result.new(
-              stdout: jsonl_output,
-              stderr: "",
-              exit_code: 0,
-              duration: 1.0
-            )
-          )
-
-          response = provider.send_message(prompt: "Hello", dangerous_mode: true)
-          expect(response.output).to eq("Hello! World!")
-          expect(response.tokens).to be_nil
-        end
-
-        it "records tokens with the global token tracker" do
-          jsonl_output = [
-            {"text" => "Tracked response"},
-            {"usage" => {"input_tokens" => 50, "output_tokens" => 25}}
-          ].map { |o| JSON.generate(o) }.join("\n")
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "--version"],
-            timeout: 5,
-            env: {}
-          ).and_return(version_result)
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "-p", "Hello", "--output-format", "json", "--allow-all-tools", "--allow-all"],
-            anything
-          ).and_return(
-            AgentHarness::CommandExecutor::Result.new(
-              stdout: jsonl_output,
-              stderr: "",
-              exit_code: 0,
-              duration: 1.0
-            )
-          )
-
-          tracker = AgentHarness.token_tracker
-          tracker.clear!
-
-          provider.send_message(prompt: "Hello", dangerous_mode: true)
-
-          summary = tracker.summary
-          expect(summary[:total_input_tokens]).to eq(50)
-          expect(summary[:total_output_tokens]).to eq(25)
-          expect(summary[:total_tokens]).to eq(75)
-        end
-      end
-
-      context "error handling" do
-        it "preserves provider_runtime model overrides on the JSON output path" do
-          runtime = AgentHarness::ProviderRuntime.new(model: "gpt-4o-mini")
-          jsonl_output = [
-            {"text" => "response"},
-            {"usage" => {"input_tokens" => 10, "output_tokens" => 5}}
-          ].map { |o| JSON.generate(o) }.join("\n")
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "--version"],
-            timeout: 5,
-            env: {}
-          ).and_return(version_result)
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "-p", "Hello", "--output-format", "json", "--model", "gpt-4o-mini", "--allow-all-tools", "--allow-all"],
-            anything
-          ).and_return(
-            AgentHarness::CommandExecutor::Result.new(
-              stdout: jsonl_output,
-              stderr: "",
-              exit_code: 0,
-              duration: 1.0
-            )
-          )
-
-          response = provider.send_message(prompt: "Hello", dangerous_mode: true, provider_runtime: runtime)
-          expect(response.model).to eq("gpt-4o-mini")
-          expect(response.tokens).to eq({input: 10, output: 5, total: 15})
-        end
-
-        it "classifies error from combined output on failure" do
-          allow(mock_executor).to receive(:execute).and_return(
-            AgentHarness::CommandExecutor::Result.new(
-              stdout: "",
-              stderr: "not authorized",
-              exit_code: 1,
-              duration: 1.0
-            )
-          )
-
-          response = provider.send_message(prompt: "Hello", dangerous_mode: true)
-          expect(response.error).to include("not authorized")
-        end
-
-        it "preserves raw JSON-mode output and skips token extraction on failure" do
-          jsonl_output = [
-            {"text" => "response"},
-            {"usage" => {"input_tokens" => 10, "output_tokens" => 5}}
-          ].map { |o| JSON.generate(o) }.join("\n")
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "--version"],
-            timeout: 5,
-            env: {}
-          ).and_return(version_result)
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "-p", "Hello", "--output-format", "json", "--allow-all-tools", "--allow-all"],
-            anything
-          ).and_return(
-            AgentHarness::CommandExecutor::Result.new(
-              stdout: jsonl_output,
-              stderr: "not authorized",
-              exit_code: 1,
-              duration: 1.0
-            )
-          )
-
-          response = provider.send_message(prompt: "Hello", dangerous_mode: true)
-          expect(response.output).to eq(jsonl_output)
-          expect(response.tokens).to be_nil
-          expect(response.error).to include("not authorized")
-        end
-
-        it "preserves base response metadata" do
-          allow(mock_executor).to receive(:execute).and_return(
-            AgentHarness::CommandExecutor::Result.new(
-              stdout: "plain text response",
-              stderr: "",
-              exit_code: 0,
-              duration: 1.0
-            )
-          )
-
-          response = provider.send_message(prompt: "Hello", dangerous_mode: true)
-          expect(response.metadata).to eq({legitimate_exit_codes: [0]})
-        end
-
-        it "preserves the configured model when provider_runtime model is blank" do
-          configured_provider = described_class.new(
-            config: AgentHarness::ProviderConfig.new(:github_copilot).tap { |cfg| cfg.model = "gpt-4o-mini" },
-            executor: mock_executor
-          )
-          runtime = AgentHarness::ProviderRuntime.new(model: "  ")
-
-          allow(mock_executor).to receive(:execute).with(
-            ["github-copilot-cli", "-p", "Hello", "--output-format", "json", "--model", "gpt-4o-mini"],
-            anything
-          ).and_return(
-            AgentHarness::CommandExecutor::Result.new(
-              stdout: JSON.generate({"text" => "Hello"}),
-              stderr: "",
-              exit_code: 0,
-              duration: 1.0
-            )
-          )
-
-          response = configured_provider.send_message(prompt: "Hello", provider_runtime: runtime)
-
-          expect(response.model).to eq("gpt-4o-mini")
-        end
-      end
-    end
-
-    describe "#smoke_test" do
-      it "passes on JSON-capable CLIs by extracting the exact OK response from JSONL output" do
-        jsonl_output = [
-          {"text" => "OK"},
-          {"usage" => {"input_tokens" => 1, "output_tokens" => 1}}
-        ].map { |o| JSON.generate(o) }.join("\n")
-
-        allow(mock_executor).to receive(:execute).with(
-          ["github-copilot-cli", "-p", "Reply with exactly OK.", "--output-format", "json"],
-          anything
-        ).and_return(
-          AgentHarness::CommandExecutor::Result.new(
-            stdout: jsonl_output,
-            stderr: "",
-            exit_code: 0,
-            duration: 1.0
-          )
-        )
-
-        result = provider.smoke_test
-
-        expect(result).to include(
-          ok: true,
-          status: "ok",
-          message: "Smoke test passed",
-          output: "OK",
-          exit_code: 0
-        )
-      end
-
-      it "passes on JSON-capable CLIs when Copilot returns event envelopes" do
-        jsonl_output = [
-          {"type" => "assistant.message", "data" => {"content" => "O"}},
-          {"type" => "assistant.delta", "data" => {"deltaContent" => "K"}},
-          {"type" => "usage", "data" => {"inputTokens" => 1, "outputTokens" => 1}}
-        ].map { |o| JSON.generate(o) }.join("\n")
-
-        allow(mock_executor).to receive(:execute).with(
-          ["github-copilot-cli", "-p", "Reply with exactly OK.", "--output-format", "json"],
-          anything
-        ).and_return(
-          AgentHarness::CommandExecutor::Result.new(
-            stdout: jsonl_output,
-            stderr: "",
-            exit_code: 0,
-            duration: 1.0
-          )
-        )
-
-        result = provider.smoke_test
-
-        expect(result).to include(
-          ok: true,
-          status: "ok",
-          message: "Smoke test passed",
-          output: "OK",
-          exit_code: 0
-        )
-      end
-
-      it "uses silent prompt mode on older CLIs so the exact OK contract still passes" do
-        allow(mock_executor).to receive(:execute).with(
-          ["github-copilot-cli", "--version"],
-          timeout: 5,
-          env: {}
-        ).and_return(
-          AgentHarness::CommandExecutor::Result.new(
-            stdout: "github-copilot-cli 0.0.421",
-            stderr: "",
-            exit_code: 0,
-            duration: 0.1
-          )
-        )
-
-        expect(mock_executor).to receive(:execute).with(
-          ["github-copilot-cli", "-p", "Reply with exactly OK.", "-s"],
-          anything
-        ).and_return(
-          AgentHarness::CommandExecutor::Result.new(
-            stdout: "OK\n",
-            stderr: "",
-            exit_code: 0,
-            duration: 1.0
-          )
-        )
-
-        result = provider.smoke_test
-
-        expect(result).to include(
-          ok: true,
-          status: "ok",
-          message: "Smoke test passed",
-          output: "OK",
-          exit_code: 0
-        )
-      end
-    end
-
-    describe "#plan_execution" do
-      it "returns the cached CLI command plan without executing" do
-        provider.instance_variable_set(:@copilot_cli_versions, {
-          provider.send(:version_probe_cache_key, {}) => Gem::Version.new("0.0.422")
-        })
-        expect(mock_executor).not_to receive(:execute)
-
-        plan = provider.plan_execution(prompt: "Hello")
-
-        expect(plan).to eq(
-          command: ["github-copilot-cli", "-p", "Hello", "--output-format", "json"],
-          env: {},
-          preparation: nil
-        )
-      end
-
-      it "falls back to the -s flag path when the CLI version is not cached" do
-        uncached_provider = described_class.new(config: config, executor: mock_executor)
-        allow(mock_executor).to receive(:which).with("github-copilot-cli").and_return("/usr/bin/github-copilot-cli")
-        expect(mock_executor).not_to receive(:execute)
-
-        plan = uncached_provider.plan_execution(prompt: "Hello")
-
-        expect(plan).to eq(
-          command: ["github-copilot-cli", "-p", "Hello", "-s"],
-          env: {},
-          preparation: nil
-        )
-      end
-
-      it "applies skill instructions and runtime overrides to the planned command" do
-        AgentHarness::Skills.register(:code_review, {
-          description: "Reviews code",
-          instructions: "Review the changed files before answering.",
-          providers: {
-            all: {
-              env: {"COPILOT_SKILL_ENV" => "1"},
-              model: "gpt-4o-mini"
-            }
-          }
-        })
-        provider.instance_variable_set(:@copilot_cli_versions, {
-          provider.send(:version_probe_cache_key, {"COPILOT_SKILL_ENV" => "1"}) => Gem::Version.new("0.0.422")
-        })
-        expect(mock_executor).not_to receive(:execute)
-
-        plan = provider.plan_execution(prompt: "Hello", skills: [:code_review])
-
-        expect(plan).to eq(
-          command: [
-            "github-copilot-cli",
             "-p",
-            "Review the changed files before answering.\n\nHello",
+            "Reply with exactly OK."
+          ],
+          hash_including(env: {})
+        ).and_return(result)
+
+        response = provider.send_message(prompt: "Reply with exactly OK.")
+
+        expect(response.output).to eq("OK")
+        expect(response.tokens).to eq(input: 10, output: 5, total: 15)
+      end
+
+      it "sets COPILOT_ALLOW_ALL for smoke tests" do
+        result = AgentHarness::CommandExecutor::Result.new(
+          stdout: '{"type":"assistant.message","message":{"role":"assistant","content":"OK"}}',
+          stderr: "",
+          exit_code: 0,
+          duration: 0.2
+        )
+
+        expect(executor).to receive(:execute).with(
+          array_including("--yolo"),
+          hash_including(env: {"COPILOT_ALLOW_ALL" => "true"})
+        ).and_return(result)
+
+        provider.send_message(prompt: "Reply with exactly OK.", smoke_test: true)
+      end
+
+      it "passes approval bypass flags only in dangerous mode" do
+        result = AgentHarness::CommandExecutor::Result.new(
+          stdout: '{"type":"assistant.message","message":{"role":"assistant","content":"OK"}}',
+          stderr: "",
+          exit_code: 0,
+          duration: 0.2
+        )
+
+        expect(executor).to receive(:execute).with(
+          [
+            "copilot",
+            "--autopilot",
+            "--max-autopilot-continues",
+            "50",
             "--output-format",
             "json",
-            "--model",
-            "gpt-4o-mini"
+            "--yolo",
+            "-p",
+            "Reply with exactly OK."
           ],
-          env: {"COPILOT_SKILL_ENV" => "1"},
-          preparation: nil
-        )
-      end
+          hash_including(env: {"COPILOT_ALLOW_ALL" => "true"})
+        ).and_return(result)
 
-      it "preserves configuration errors for unknown skills" do
-        expect {
-          provider.plan_execution(prompt: "Hello", skills: [:missing_skill])
-        }.to raise_error(AgentHarness::ConfigurationError, /Unknown skill: missing_skill/)
+        provider.send_message(prompt: "Reply with exactly OK.", dangerous_mode: true)
       end
     end
 
     describe "#parse_container_output" do
-      it "parses plain text output" do
+      it "parses JSONL output into text and token usage" do
         response = provider.parse_container_output(
-          stdout: "Hello from Copilot",
-          stderr: "",
+          stdout: [
+            '{"type":"assistant.message","message":{"role":"assistant","content":"result text"}}',
+            '{"type":"session.shutdown","usage":{"input_tokens":10,"output_tokens":5}}'
+          ].join("\n"),
           exit_code: 0,
-          duration: 1.5
+          duration: 2.0
         )
 
-        expect(response).to be_a(AgentHarness::Response)
-        expect(response.output).to eq("Hello from Copilot")
-        expect(response.success?).to be true
-        expect(response.duration).to eq(1.5)
-      end
-
-      it "passes json_output_requested option to parse_response" do
-        jsonl_output = [
-          '{"text":"result text"}',
-          '{"usage":{"input_tokens":10,"output_tokens":5}}'
-        ].join("\n")
-
-        response = provider.parse_container_output(
-          stdout: jsonl_output,
-          stderr: "",
-          exit_code: 0,
-          duration: 2.0,
-          json_output_requested: true
-        )
-
-        expect(response).to be_a(AgentHarness::Response)
         expect(response.output).to eq("result text")
         expect(response.tokens).to eq({input: 10, output: 5, total: 15})
-        expect(response.success?).to be true
       end
 
-      it "captures errors for non-zero exit codes" do
+      it "keeps plain text output when JSON parsing is not possible" do
+        response = provider.parse_container_output(stdout: "plain text", exit_code: 0, duration: 1.0)
+
+        expect(response.output).to eq("plain text")
+      end
+
+      it "merges snapshot with trailing delta events" do
+        response = provider.parse_container_output(
+          stdout: [
+            '{"type":"assistant.message","message":{"role":"assistant","content":"Hello"}}',
+            '{"type":"assistant.delta","message":{"role":"assistant","deltaContent":" world!"}}'
+          ].join("\n"),
+          exit_code: 0,
+          duration: 1.0
+        )
+
+        expect(response.output).to eq("Hello world!")
+      end
+
+      it "extracts tokens from per-model modelMetrics trees" do
+        response = provider.parse_container_output(
+          stdout: [
+            '{"type":"assistant.message","message":{"role":"assistant","content":"OK"}}',
+            '{"type":"session.shutdown","data":{"modelMetrics":{"gpt-4o":{"usage":{"inputTokens":44,"outputTokens":11}}}}}'
+          ].join("\n"),
+          exit_code: 0,
+          duration: 1.0
+        )
+
+        expect(response.tokens).to eq({input: 44, output: 11, total: 55})
+      end
+
+      it "extracts usage counts carried directly under a usage envelope data object" do
+        response = provider.parse_container_output(
+          stdout: [
+            '{"type":"assistant.message","message":{"role":"assistant","content":"OK"}}',
+            '{"type":"usage","data":{"input_tokens":12,"output_tokens":3}}'
+          ].join("\n"),
+          exit_code: 0,
+          duration: 1.0
+        )
+
+        expect(response.tokens).to eq({input: 12, output: 3, total: 15})
+      end
+
+      it "supplements split usage envelopes that separately report prompt and completion counts" do
+        response = provider.parse_container_output(
+          stdout: [
+            '{"type":"assistant.message","message":{"role":"assistant","content":"OK"}}',
+            '{"type":"usage","data":{"input_tokens":12}}',
+            '{"type":"usage","data":{"output_tokens":3}}'
+          ].join("\n"),
+          exit_code: 0,
+          duration: 1.0
+        )
+
+        expect(response.tokens).to eq({input: 12, output: 3, total: 15})
+      end
+
+      it "parses bare assistant envelopes that only provide top-level text" do
+        response = provider.parse_container_output(
+          stdout: '{"text":"response"}',
+          exit_code: 0,
+          duration: 1.0
+        )
+
+        expect(response.output).to eq("response")
+      end
+
+      it "surfaces non-zero exit codes as failures" do
         response = provider.parse_container_output(
           stdout: "",
-          stderr: "something went wrong",
+          stderr: "continuation limit reached",
           exit_code: 1,
           duration: 0.5
         )
 
-        expect(response.failed?).to be true
-        expect(response.error).to include("something went wrong")
+        expect(response).to be_failed
+        expect(response.error).to include("continuation limit reached")
+      end
+    end
+
+    describe "#resolve_chat_api_key" do
+      it "prefers COPILOT_GITHUB_TOKEN over other token env vars" do
+        allow(ENV).to receive(:[]).and_call_original
+        allow(ENV).to receive(:[]).with("COPILOT_GITHUB_TOKEN").and_return("ghu_copilot")
+        allow(ENV).to receive(:[]).with("GH_TOKEN").and_return("ghu_gh")
+        allow(ENV).to receive(:[]).with("GITHUB_TOKEN").and_return("ghu_github")
+
+        expect(provider.send(:resolve_chat_api_key)).to eq("ghu_copilot")
       end
     end
   end

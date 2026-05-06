@@ -272,31 +272,34 @@ RSpec.describe "Provider chat capability" do
     describe "#resolve_chat_api_key" do
       it "raises AuthenticationError when no token is available" do
         allow(ENV).to receive(:[]).and_call_original
+        allow(ENV).to receive(:[]).with("COPILOT_GITHUB_TOKEN").and_return(nil)
         allow(ENV).to receive(:[]).with("GITHUB_TOKEN").and_return(nil)
         allow(ENV).to receive(:[]).with("GH_TOKEN").and_return(nil)
 
         expect {
           provider.send(:resolve_chat_api_key)
-        }.to raise_error(AgentHarness::AuthenticationError, /GITHUB_TOKEN/)
+        }.to raise_error(AgentHarness::AuthenticationError, /COPILOT_GITHUB_TOKEN/)
       end
 
-      it "uses GITHUB_TOKEN when available" do
+      it "uses COPILOT_GITHUB_TOKEN when available" do
         allow(ENV).to receive(:[]).and_call_original
-        allow(ENV).to receive(:[]).with("GITHUB_TOKEN").and_return("ghp_test123")
+        allow(ENV).to receive(:[]).with("COPILOT_GITHUB_TOKEN").and_return("ghp_test123")
 
         expect(provider.send(:resolve_chat_api_key)).to eq("ghp_test123")
       end
 
-      it "falls back to GH_TOKEN" do
+      it "falls back to GH_TOKEN before GITHUB_TOKEN" do
         allow(ENV).to receive(:[]).and_call_original
-        allow(ENV).to receive(:[]).with("GITHUB_TOKEN").and_return(nil)
+        allow(ENV).to receive(:[]).with("COPILOT_GITHUB_TOKEN").and_return(nil)
         allow(ENV).to receive(:[]).with("GH_TOKEN").and_return("ghp_fallback")
+        allow(ENV).to receive(:[]).with("GITHUB_TOKEN").and_return("ghp_lower_priority")
 
         expect(provider.send(:resolve_chat_api_key)).to eq("ghp_fallback")
       end
 
       it "falls back to the Copilot CLI access token file" do
         allow(ENV).to receive(:[]).and_call_original
+        allow(ENV).to receive(:[]).with("COPILOT_GITHUB_TOKEN").and_return(nil)
         allow(ENV).to receive(:[]).with("GITHUB_TOKEN").and_return(nil)
         allow(ENV).to receive(:[]).with("GH_TOKEN").and_return(nil)
         allow(provider).to receive(:read_copilot_cli_access_token).and_return("ghu_copilot_oauth")

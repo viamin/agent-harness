@@ -1233,13 +1233,16 @@ RSpec.describe AgentHarness::Providers::Registry do
       capabilities = registry.provider_metadata_catalog.fetch(:github_copilot).fetch(:capabilities)
 
       expect(runtime).to include(
-        output_format: :text,
+        output_format: :json,
         supports_token_counting: true,
-        supports_dangerous_mode: true
+        supports_dangerous_mode: true,
+        supports_mcp: true
       )
       expect(capabilities).to include(
         tool_use: true,
-        dangerous_mode: true
+        dangerous_mode: true,
+        json_mode: true,
+        mcp: true
       )
     end
 

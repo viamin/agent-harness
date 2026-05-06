@@ -59,6 +59,28 @@ RSpec.describe AgentHarness::McpConfigTranslator do
       )
     end
 
+    it "translates GitHub Copilot config" do
+      translated = described_class.for_provider(:github_copilot, [stdio_server, sse_server])
+
+      expect(translated).to eq(
+        mcpServers: {
+          "filesystem" => {
+            type: "local",
+            command: "npx",
+            args: ["-y", "@modelcontextprotocol/server-filesystem", "/workspace"],
+            env: {"DEBUG" => "0"},
+            tools: ["*"]
+          },
+          "remote-db" => {
+            type: "sse",
+            url: "https://mcp.example.com/db",
+            headers: {"Authorization" => "Bearer secret"},
+            tools: ["*"]
+          }
+        }
+      )
+    end
+
     it "translates OpenAI Responses API tools" do
       translated = described_class.for_provider(:openai, [sse_server])
 
