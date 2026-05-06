@@ -327,7 +327,9 @@ module AgentHarness
           "--output-format",
           "json"
         ]
-        cmd += dangerous_mode_flags if options[:dangerous_mode] && supports_dangerous_mode?
+        # Smoke tests must run non-interactively; force full-permission mode
+        # so autopilot does not stall on permission prompts.
+        cmd += dangerous_mode_flags if (options[:dangerous_mode] || options[:smoke_test]) && supports_dangerous_mode?
 
         if options[:mcp_servers]&.any?
           cmd += build_mcp_flags(options[:mcp_servers], options: options)
@@ -350,7 +352,8 @@ module AgentHarness
 
       def build_env(options)
         env = super
-        return env unless options[:dangerous_mode] && supports_dangerous_mode?
+        needs_full_permissions = options[:dangerous_mode] || options[:smoke_test]
+        return env unless needs_full_permissions && supports_dangerous_mode?
 
         env.merge("COPILOT_ALLOW_ALL" => "true")
       end

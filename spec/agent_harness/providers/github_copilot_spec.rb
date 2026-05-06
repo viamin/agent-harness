@@ -111,7 +111,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         ])
       end
 
-      it "only enables full permissions when dangerous mode is requested" do
+      it "enables full permissions when dangerous mode is requested" do
         command = provider.send(:build_command, "Hello", {dangerous_mode: true})
 
         expect(command).to eq([
@@ -125,6 +125,12 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
           "-p",
           "Hello"
         ])
+      end
+
+      it "forces full-permission mode for smoke tests so autopilot runs non-interactively" do
+        command = provider.send(:build_command, "Hello", {smoke_test: true})
+
+        expect(command).to include("--yolo")
       end
 
       it "includes configured and runtime model overrides and runtime flags" do
@@ -246,6 +252,22 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
 
         expect(response.output).to eq("OK")
         expect(response.tokens).to eq(input: 10, output: 5, total: 15)
+      end
+
+      it "sets COPILOT_ALLOW_ALL for smoke tests" do
+        result = AgentHarness::CommandExecutor::Result.new(
+          stdout: '{"type":"assistant.message","message":{"role":"assistant","content":"OK"}}',
+          stderr: "",
+          exit_code: 0,
+          duration: 0.2
+        )
+
+        expect(executor).to receive(:execute).with(
+          array_including("--yolo"),
+          hash_including(env: {"COPILOT_ALLOW_ALL" => "true"})
+        ).and_return(result)
+
+        provider.send_message(prompt: "Reply with exactly OK.", smoke_test: true)
       end
 
       it "passes approval bypass flags only in dangerous mode" do
