@@ -1305,6 +1305,36 @@ RSpec.describe AgentHarness::Providers::Anthropic do
           provider.send_message(prompt: "prompt", mode: :text)
         end
 
+        it "applies skill instructions before HTTP text-mode dispatch" do
+          AgentHarness::Skills.register(:code_review, {
+            description: "Reviews code",
+            instructions: "Review the changed files before answering."
+          })
+
+          http = instance_double(Net::HTTP)
+          allow(Net::HTTP).to receive(:new).and_return(http)
+          allow(http).to receive(:use_ssl=)
+          allow(http).to receive(:open_timeout=)
+          allow(http).to receive(:read_timeout=)
+
+          expect(http).to receive(:request) do |req|
+            body = JSON.parse(req.body)
+            expect(body.dig("messages", 0, "content")).to eq(
+              "Review the changed files before answering.\n\nprompt"
+            )
+
+            instance_double(Net::HTTPOK,
+              code: "200",
+              body: JSON.generate({
+                "content" => [{"type" => "text", "text" => "ok"}],
+                "model" => "claude-sonnet-4-20250514",
+                "usage" => {"input_tokens" => 1, "output_tokens" => 1}
+              }))
+          end
+
+          provider.send_message(prompt: "prompt", mode: :text, skills: [:code_review])
+        end
+
         it "raises AuthenticationError on 401 from API" do
           http_response = instance_double(Net::HTTPOK,
             code: "401",

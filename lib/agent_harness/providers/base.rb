@@ -307,7 +307,7 @@ module AgentHarness
         tools = extension_context.tools
         options = extension_context.options
         messages = apply_sub_agent_to_messages(messages, options[:translated_sub_agent])
-        validate_chat_mcp_servers!(options[:mcp_servers])
+        validate_chat_mcp_servers!(options)
         transport_opts = chat_transport_options(runtime, options)
         transport_opts[:on_chat_chunk] = on_chat_chunk if on_chat_chunk
         transport_opts[:observer] = observer if observer
@@ -569,21 +569,23 @@ module AgentHarness
       end
 
       def normalize_mcp_servers(options)
-        if options.key?(:mcp_servers)
-          servers = options[:mcp_servers]
+        base_servers = if options.key?(:mcp_servers)
+          options[:mcp_servers]
         else
           # Configuration stores mcp_servers as a Hash keyed by name; extract values.
           config_servers = @configuration.mcp_servers
-          servers = config_servers.is_a?(Hash) ? config_servers.values : config_servers
+          config_servers.is_a?(Hash) ? config_servers.values : config_servers
         end
-        return options if servers.nil?
+        skill_servers = Array(options[:skill_mcp_servers])
+        return options.except(:skill_mcp_servers) if base_servers.nil? && skill_servers.empty?
 
-        unless servers.is_a?(Array)
+        unless base_servers.nil? || base_servers.is_a?(Array)
           raise McpConfigurationError,
-            "mcp_servers must be an Array of Hash or McpServer, got #{servers.class}"
+            "mcp_servers must be an Array of Hash or McpServer, got #{base_servers.class}"
         end
 
-        return options if servers.empty?
+        servers = Array(base_servers) + skill_servers
+        return options.except(:skill_mcp_servers) if servers.empty?
 
         normalized = servers.map do |server|
           if server.is_a?(McpServer)
@@ -603,7 +605,7 @@ module AgentHarness
             "Duplicate MCP server names detected: #{duplicate_names.join(", ")}"
         end
 
-        options.merge(mcp_servers: normalized)
+        options.except(:skill_mcp_servers).merge(mcp_servers: normalized)
       end
 
       def normalize_sub_agent(options)
@@ -724,8 +726,9 @@ module AgentHarness
         end
       end
 
-      def validate_chat_mcp_servers!(mcp_servers)
-        return if mcp_servers.nil? || mcp_servers.empty?
+      def validate_chat_mcp_servers!(options)
+        mcp_servers = normalized_mcp_server_sources(options) + Array(options[:skill_mcp_servers])
+        return if mcp_servers.empty?
 
         # Chat transports do not support request-scoped MCP servers.
         # Raise early so extensions with MCP requirements are not silently ignored.
@@ -806,8 +809,8 @@ module AgentHarness
         end
         return options if skill_servers.empty?
 
-        merged = Array(options[:mcp_servers]) + deep_dup(skill_servers.map(&:last))
-        duplicates = duplicate_skill_mcp_server_names(Array(options[:mcp_servers]), skill_servers)
+        existing_servers = normalized_mcp_server_sources(options)
+        duplicates = duplicate_skill_mcp_server_names(existing_servers, skill_servers)
         unless duplicates.empty?
           conflicts = duplicates.map do |name, owners|
             formatted_owners = owners.map { |owner| (owner == :explicit) ? "explicit" : "skill: #{owner}" }.join(", ")
@@ -817,7 +820,7 @@ module AgentHarness
             "MCP server name conflict across explicit and skill servers: #{conflicts.join(", ")}"
         end
 
-        options.merge(mcp_servers: merged)
+        options.merge(skill_mcp_servers: deep_dup(skill_servers.map(&:last)))
       end
 
       def resolve_skill_chat_tools(skills)
@@ -855,17 +858,35 @@ module AgentHarness
       def duplicate_skill_mcp_server_names(existing_servers, skill_servers)
         owners_by_name = Hash.new { |hash, key| hash[key] = [] }
         existing_servers.each do |server|
-          name = server[:name] || server["name"]
+          name = server_name(server)
           owners_by_name[name] << :explicit if name
         end
 
         skill_servers.each do |(skill_name, server)|
-          name = server[:name] || server["name"]
+          name = server_name(server)
           owners_by_name[name] << skill_name if name
         end
 
         owners_by_name.each_with_object({}) do |(name, owners), duplicates|
           duplicates[name] = owners if owners.uniq.size > 1
+        end
+      end
+
+      def normalized_mcp_server_sources(options)
+        if options.key?(:mcp_servers)
+          Array(options[:mcp_servers])
+        else
+          config_servers = @configuration.mcp_servers
+          config_servers = config_servers.values if config_servers.is_a?(Hash)
+          Array(config_servers)
+        end
+      end
+
+      def server_name(server)
+        if server.is_a?(McpServer)
+          server.name
+        else
+          server[:name] || server["name"]
         end
       end
 

@@ -208,6 +208,35 @@ RSpec.describe AgentHarness::Providers::Base, "#send_message" do
       capable_provider.send_message(prompt: "Hello", skills: [:repo_access])
     end
 
+    it "preserves configured MCP servers when skills add request-scoped MCP servers" do
+      AgentHarness.configuration.register_mcp_server(
+        :filesystem,
+        transport: "stdio",
+        command: "npx",
+        args: ["server-filesystem"]
+      )
+      AgentHarness::Skills.register(:repo_access, {
+        description: "Adds repo MCP access",
+        instructions: "Use MCP when needed.",
+        mcp_servers: [{name: "github", transport: "stdio", command: "npx", args: ["server-github"]}]
+      })
+
+      capable_provider_class = Class.new(test_provider_class) do
+        def capabilities
+          super.merge(mcp: true)
+        end
+      end
+      capable_provider = capable_provider_class.new(config: config, executor: mock_executor)
+
+      expect(capable_provider).to receive(:build_command).and_wrap_original do |original, prompt, options|
+        expect(prompt).to include("Use MCP when needed.")
+        expect(options[:mcp_servers].map(&:name)).to eq(%w[filesystem github])
+        original.call(prompt, options)
+      end
+
+      capable_provider.send_message(prompt: "Hello", skills: [:repo_access])
+    end
+
     it "raises a skill-aware error when multiple skills define the same MCP server name" do
       AgentHarness::Skills.register(:repo_access, {
         description: "Adds repo MCP access",
