@@ -583,7 +583,7 @@ module AgentHarness
       def read_token_from_copilot_config
         config_home = ENV["COPILOT_HOME"]
         base_dir = if config_home && !config_home.strip.empty?
-          File.join(config_home, ".copilot")
+          config_home
         else
           File.join(Dir.home, ".copilot")
         end
