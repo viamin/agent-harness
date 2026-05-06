@@ -428,21 +428,32 @@ module AgentHarness
       def extract_text_from_jsonl(parsed_lines)
         return nil if parsed_lines.empty?
 
-        snapshots = []
+        # Track snapshots and deltas with their position so we can merge
+        # a final snapshot with any deltas that follow it.
+        last_snapshot = nil
+        last_snapshot_index = -1
         deltas = []
 
-        parsed_lines.each do |obj|
+        parsed_lines.each_with_index do |obj, index|
           next unless assistant_output_event?(obj)
 
           snapshot = extract_non_delta_text(obj)
-          snapshots << snapshot if snapshot && !snapshot.empty?
+          if snapshot && !snapshot.empty?
+            last_snapshot = snapshot
+            last_snapshot_index = index
+          end
 
           delta = extract_delta_text(obj)
-          deltas << delta if delta && !delta.empty?
+          deltas << [index, delta] if delta && !delta.empty?
         end
 
-        return snapshots.last if snapshots.any?
-        return deltas.join if deltas.any?
+        if last_snapshot
+          # Append any delta events that arrived after the last snapshot
+          trailing = deltas.select { |i, _| i > last_snapshot_index }.map(&:last)
+          return trailing.any? ? last_snapshot + trailing.join : last_snapshot
+        end
+
+        return deltas.map(&:last).join if deltas.any?
 
         nil
       end
@@ -467,24 +478,52 @@ module AgentHarness
         candidates = [
           obj["usage"],
           obj["tokens"],
-          obj["modelMetrics"],
-          obj["model_metrics"],
           nested_hash_value(obj, "data", "usage"),
           nested_hash_value(obj, "data", "tokens"),
-          nested_hash_value(obj, "data", "modelMetrics"),
-          nested_hash_value(obj, "data", "model_metrics"),
           nested_hash_value(obj, "message", "usage"),
           nested_hash_value(obj, "message", "tokens"),
+          nested_hash_value(obj, "data", "message", "usage"),
+          nested_hash_value(obj, "data", "message", "tokens")
+        ]
+
+        # Descend into modelMetrics / model_metrics trees which may contain
+        # per-model usage hashes (e.g. modelMetrics.gpt-4o.usage).
+        metrics_roots = [
+          obj["modelMetrics"],
+          obj["model_metrics"],
+          nested_hash_value(obj, "data", "modelMetrics"),
+          nested_hash_value(obj, "data", "model_metrics"),
           nested_hash_value(obj, "message", "modelMetrics"),
           nested_hash_value(obj, "message", "model_metrics"),
-          nested_hash_value(obj, "data", "message", "usage"),
-          nested_hash_value(obj, "data", "message", "tokens"),
           nested_hash_value(obj, "data", "message", "modelMetrics"),
           nested_hash_value(obj, "data", "message", "model_metrics")
         ]
 
+        metrics_roots.compact.each do |root|
+          next unless root.is_a?(Hash)
+
+          if usage_hash?(root)
+            candidates << root
+          else
+            # Per-model sub-trees: modelMetrics -> { "gpt-4o" -> { usage: {...} } }
+            root.each_value do |model_node|
+              next unless model_node.is_a?(Hash)
+
+              candidates << model_node["usage"] if model_node["usage"].is_a?(Hash)
+              candidates << model_node if usage_hash?(model_node)
+            end
+          end
+        end
+
         direct = select_best_usage_payload(candidates)
         direct ? [direct] : []
+      end
+
+      def usage_hash?(hash)
+        return false unless hash.is_a?(Hash)
+
+        token_keys = %w[input_tokens output_tokens prompt_tokens completion_tokens inputTokens outputTokens promptTokens completionTokens]
+        token_keys.any? { |k| hash.key?(k) }
       end
 
       def assistant_output_event?(obj)

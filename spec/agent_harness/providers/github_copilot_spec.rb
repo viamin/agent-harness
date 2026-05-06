@@ -234,6 +234,32 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         expect(response.output).to eq("plain text")
       end
 
+      it "merges snapshot with trailing delta events" do
+        response = provider.parse_container_output(
+          stdout: [
+            '{"type":"assistant.message","message":{"role":"assistant","content":"Hello"}}',
+            '{"type":"assistant.delta","message":{"role":"assistant","deltaContent":" world!"}}'
+          ].join("\n"),
+          exit_code: 0,
+          duration: 1.0
+        )
+
+        expect(response.output).to eq("Hello world!")
+      end
+
+      it "extracts tokens from per-model modelMetrics trees" do
+        response = provider.parse_container_output(
+          stdout: [
+            '{"type":"assistant.message","message":{"role":"assistant","content":"OK"}}',
+            '{"type":"session.shutdown","data":{"modelMetrics":{"gpt-4o":{"usage":{"inputTokens":44,"outputTokens":11}}}}}'
+          ].join("\n"),
+          exit_code: 0,
+          duration: 1.0
+        )
+
+        expect(response.tokens).to eq({input: 44, output: 11, total: 55})
+      end
+
       it "surfaces non-zero exit codes as failures" do
         response = provider.parse_container_output(
           stdout: "",
