@@ -322,6 +322,43 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         expect(response.tokens).to eq({input: 44, output: 11, total: 55})
       end
 
+      it "extracts usage counts carried directly under a usage envelope data object" do
+        response = provider.parse_container_output(
+          stdout: [
+            '{"type":"assistant.message","message":{"role":"assistant","content":"OK"}}',
+            '{"type":"usage","data":{"input_tokens":12,"output_tokens":3}}'
+          ].join("\n"),
+          exit_code: 0,
+          duration: 1.0
+        )
+
+        expect(response.tokens).to eq({input: 12, output: 3, total: 15})
+      end
+
+      it "supplements split usage envelopes that separately report prompt and completion counts" do
+        response = provider.parse_container_output(
+          stdout: [
+            '{"type":"assistant.message","message":{"role":"assistant","content":"OK"}}',
+            '{"type":"usage","data":{"input_tokens":12}}',
+            '{"type":"usage","data":{"output_tokens":3}}'
+          ].join("\n"),
+          exit_code: 0,
+          duration: 1.0
+        )
+
+        expect(response.tokens).to eq({input: 12, output: 3, total: 15})
+      end
+
+      it "parses bare assistant envelopes that only provide top-level text" do
+        response = provider.parse_container_output(
+          stdout: '{"text":"response"}',
+          exit_code: 0,
+          duration: 1.0
+        )
+
+        expect(response.output).to eq("response")
+      end
+
       it "surfaces non-zero exit codes as failures" do
         response = provider.parse_container_output(
           stdout: "",

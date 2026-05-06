@@ -478,85 +478,179 @@ module AgentHarness
       end
 
       def extract_tokens_from_jsonl(parsed_lines)
-        usage = select_best_usage_payload(parsed_lines.flat_map { |obj| find_usages(obj) })
-        return nil unless usage
+        authoritative = authoritative_usage_set(parsed_lines)
 
-        input = token_count_for(usage, "input_tokens", "prompt_tokens", "inputTokens", "promptTokens") || 0
-        output = token_count_for(usage, "output_tokens", "completion_tokens", "outputTokens", "completionTokens") || 0
+        if authoritative.nil?
+          usages = parsed_lines.flat_map { |obj| find_usages(obj) }
+          return aggregate_token_totals(usages)
+        end
 
-        {
-          input: input,
-          output: output,
-          total: input + output
-        }
+        auth_input = sum_token_field(authoritative, "input_tokens", "prompt_tokens", "inputTokens", "promptTokens")
+        auth_output = sum_token_field(authoritative, "output_tokens", "completion_tokens", "outputTokens", "completionTokens")
+
+        if !auth_input.nil? && !auth_output.nil?
+          return {input: auth_input, output: auth_output, total: auth_input + auth_output}
+        end
+
+        fallback_usages = parsed_lines.flat_map { |obj| find_usages(obj) }
+        fallback_input = sum_token_field(fallback_usages, "input_tokens", "prompt_tokens", "inputTokens", "promptTokens")
+        fallback_output = sum_token_field(fallback_usages, "output_tokens", "completion_tokens", "outputTokens", "completionTokens")
+
+        input = auth_input.nil? ? fallback_input : auth_input
+        output = auth_output.nil? ? fallback_output : auth_output
+
+        return nil if input.nil? && output.nil?
+
+        input ||= 0
+        output ||= 0
+        {input: input, output: output, total: input + output}
       end
 
       def find_usages(obj)
         return [] unless obj.is_a?(Hash)
 
-        candidates = [
+        direct_usage = select_best_usage_payload([
           obj["usage"],
           obj["tokens"],
+          usage_payload?(obj) ? obj : nil,
+          usage_payload?(obj["data"]) ? obj["data"] : nil,
+          usage_payload?(obj["message"]) ? obj["message"] : nil,
+          usage_payload?(nested_hash_value(obj, "data", "message")) ? nested_hash_value(obj, "data", "message") : nil,
           nested_hash_value(obj, "data", "usage"),
           nested_hash_value(obj, "data", "tokens"),
           nested_hash_value(obj, "message", "usage"),
           nested_hash_value(obj, "message", "tokens"),
           nested_hash_value(obj, "data", "message", "usage"),
           nested_hash_value(obj, "data", "message", "tokens")
-        ]
+        ])
+        metrics_usages =
+          model_metrics_usages(obj["modelMetrics"]) +
+          model_metrics_usages(obj["model_metrics"]) +
+          model_metrics_usages(nested_hash_value(obj, "data", "modelMetrics")) +
+          model_metrics_usages(nested_hash_value(obj, "data", "model_metrics")) +
+          model_metrics_usages(nested_hash_value(obj, "message", "modelMetrics")) +
+          model_metrics_usages(nested_hash_value(obj, "message", "model_metrics")) +
+          model_metrics_usages(nested_hash_value(obj, "data", "message", "modelMetrics")) +
+          model_metrics_usages(nested_hash_value(obj, "data", "message", "model_metrics"))
 
-        # Descend into modelMetrics / model_metrics trees which may contain
-        # per-model usage hashes (e.g. modelMetrics.gpt-4o.usage).
-        metrics_roots = [
-          obj["modelMetrics"],
-          obj["model_metrics"],
-          nested_hash_value(obj, "data", "modelMetrics"),
-          nested_hash_value(obj, "data", "model_metrics"),
-          nested_hash_value(obj, "message", "modelMetrics"),
-          nested_hash_value(obj, "message", "model_metrics"),
-          nested_hash_value(obj, "data", "message", "modelMetrics"),
-          nested_hash_value(obj, "data", "message", "model_metrics")
-        ]
+        return metrics_usages if prefer_usage_set?(aggregate_usage_payload(metrics_usages), direct_usage)
+        return [direct_usage] if direct_usage
 
-        metrics_roots.compact.each do |root|
-          next unless root.is_a?(Hash)
-
-          if usage_hash?(root)
-            candidates << root
-          else
-            # Per-model sub-trees: modelMetrics -> { "gpt-4o" -> { usage: {...} } }
-            root.each_value do |model_node|
-              next unless model_node.is_a?(Hash)
-
-              candidates << model_node["usage"] if model_node["usage"].is_a?(Hash)
-              candidates << model_node if usage_hash?(model_node)
-            end
-          end
-        end
-
-        direct = select_best_usage_payload(candidates)
-        direct ? [direct] : []
+        metrics_usages
       end
 
-      def usage_hash?(hash)
-        return false unless hash.is_a?(Hash)
+      def aggregate_token_totals(usages)
+        total_input = 0
+        total_output = 0
+        found = false
 
-        token_keys = %w[input_tokens output_tokens prompt_tokens completion_tokens inputTokens outputTokens promptTokens completionTokens]
-        token_keys.any? { |k| hash.key?(k) }
+        usages.each do |usage|
+          input = token_count_for(usage, "input_tokens", "prompt_tokens", "inputTokens", "promptTokens")
+          output = token_count_for(usage, "output_tokens", "completion_tokens", "outputTokens", "completionTokens")
+          next if input.nil? && output.nil?
+
+          total_input += input || 0
+          total_output += output || 0
+          found = true
+        end
+
+        return nil unless found
+
+        {input: total_input, output: total_output, total: total_input + total_output}
+      end
+
+      def sum_token_field(usages, *keys)
+        total = nil
+        usages.each do |usage|
+          value = token_count_for(usage, *keys)
+          next if value.nil?
+
+          total = total.nil? ? value : total + value
+        end
+        total
+      end
+
+      def authoritative_usage_set(parsed_lines)
+        usages = parsed_lines.flat_map do |obj|
+          next [] unless authoritative_usage_event?(obj)
+
+          find_usages(obj)
+        end
+
+        usages.any? ? usages : nil
+      end
+
+      def authoritative_usage_event?(obj)
+        return false unless obj.is_a?(Hash)
+
+        type = obj["type"].to_s
+        type == "session.shutdown" ||
+          type.end_with?(".shutdown") ||
+          model_metrics_present?(obj)
+      end
+
+      def model_metrics_present?(obj)
+        obj["modelMetrics"].is_a?(Hash) ||
+          obj["model_metrics"].is_a?(Hash) ||
+          nested_hash_value(obj, "data", "modelMetrics").is_a?(Hash) ||
+          nested_hash_value(obj, "data", "model_metrics").is_a?(Hash) ||
+          nested_hash_value(obj, "message", "modelMetrics").is_a?(Hash) ||
+          nested_hash_value(obj, "message", "model_metrics").is_a?(Hash) ||
+          nested_hash_value(obj, "data", "message", "modelMetrics").is_a?(Hash) ||
+          nested_hash_value(obj, "data", "message", "model_metrics").is_a?(Hash)
+      end
+
+      MAX_METRICS_DEPTH = 5
+
+      def model_metrics_usages(metrics, depth: 0)
+        return [] unless metrics.is_a?(Hash)
+        return [metrics] if usage_with_token_counts?(metrics)
+
+        direct_usage = [
+          metrics["usage"],
+          metrics["totals"],
+          metrics["total"],
+          metrics["aggregate"]
+        ].find { |value| usage_with_token_counts?(value) }
+        return [direct_usage] if direct_usage
+        return [] if depth >= MAX_METRICS_DEPTH
+
+        metrics.each_value.flat_map { |value| model_metrics_usages(value, depth: depth + 1) }
+      end
+
+      def aggregate_usage_payload(usages)
+        return nil if usages.empty?
+
+        input = sum_token_field(usages, "input_tokens", "prompt_tokens", "inputTokens", "promptTokens")
+        output = sum_token_field(usages, "output_tokens", "completion_tokens", "outputTokens", "completionTokens")
+        return nil if input.nil? && output.nil?
+
+        payload = {}
+        payload["input_tokens"] = input unless input.nil?
+        payload["output_tokens"] = output unless output.nil?
+        payload
+      end
+
+      def prefer_usage_set?(candidate, current)
+        return false if candidate.nil?
+        return true if current.nil?
+
+        (
+          [usage_token_field_count(candidate), usage_token_total(candidate)] <=>
+            [usage_token_field_count(current), usage_token_total(current)]
+        ) == 1
       end
 
       def assistant_output_event?(obj)
         return false unless obj.is_a?(Hash)
 
-        role = [
-          obj["role"],
-          nested_hash_value(obj, "data", "role"),
-          nested_hash_value(obj, "message", "role"),
-          nested_hash_value(obj, "data", "message", "role")
-        ].compact.first
+        type = obj["type"]
+        return true if type.nil? && !role_key_present?(obj)
 
-        type = obj["type"].to_s
-        role.to_s == "assistant" || type.start_with?("assistant.") || type.start_with?("turn.")
+        role = extract_event_role(obj)
+        return true if role.nil? && type.to_s.match?(/\A(?:assistant\.|turn\.)/)
+
+        role == "assistant"
       end
 
       def extract_non_delta_text(obj)
@@ -611,6 +705,30 @@ module AgentHarness
             extract_text_value(value["message"]) ||
             extract_text_value(value["data"])
         end
+      end
+
+      def usage_payload?(value)
+        value.is_a?(Hash) && token_count_keys.any? { |key| value.key?(key) }
+      end
+
+      def role_key_present?(obj)
+        obj.key?("role") ||
+          hash_key_present?(obj["data"], "role") ||
+          hash_key_present?(obj["message"], "role") ||
+          hash_key_present?(nested_hash_value(obj, "data", "message"), "role")
+      end
+
+      def extract_event_role(obj)
+        [
+          obj["role"],
+          nested_hash_value(obj, "data", "role"),
+          nested_hash_value(obj, "message", "role"),
+          nested_hash_value(obj, "data", "message", "role")
+        ].compact.first&.to_s
+      end
+
+      def hash_key_present?(value, key)
+        value.is_a?(Hash) && value.key?(key)
       end
 
       def resolve_chat_api_key
