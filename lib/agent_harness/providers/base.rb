@@ -642,7 +642,7 @@ module AgentHarness
         # rather than inserting a separate system turn that could be overridden.
         if messages.any? && messages.first[:role] == "system"
           merged = messages.dup
-          merged[0] = merged[0].merge(content: "#{instructions}\n\n#{merged[0][:content]}")
+          merged[0] = merged[0].merge(content: prepend_text_to_message_content(merged[0][:content], instructions))
           merged
         else
           [{role: "system", content: instructions}] + messages
@@ -882,6 +882,21 @@ module AgentHarness
           deep_dup(tool)
         else
           raise ConfigurationError, "Unsupported tool reference #{tool.inspect} in skill definition"
+        end
+      end
+
+      def prepend_text_to_message_content(content, text)
+        case content
+        when nil
+          text
+        when String
+          "#{text}\n\n#{content}"
+        when Array
+          [{type: "text", text: "#{text}\n\n"}] + deep_dup(content)
+        when Hash
+          [{type: "text", text: "#{text}\n\n"}, deep_dup(content)]
+        else
+          raise ConfigurationError, "Unsupported system message content type for skill instructions: #{content.class}"
         end
       end
 

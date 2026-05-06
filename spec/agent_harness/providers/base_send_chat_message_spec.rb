@@ -208,6 +208,39 @@ RSpec.describe AgentHarness::Providers::Base, "#send_chat_message" do
     )
   end
 
+  it "preserves structured system message content when prepending skill instructions" do
+    AgentHarness::Skills.register(:code_review, {
+      description: "Reviews code",
+      instructions: "Review the code before responding."
+    })
+
+    transport = instance_double("chat transport")
+    provider.send(:set_chat_transport, transport)
+
+    expect(transport).to receive(:chat) do |messages:, **|
+      expect(messages.first).to eq({
+        role: "system",
+        content: [
+          {type: "text", text: "Review the code before responding.\n\n"},
+          {type: "text", text: "Keep JSON schema"}
+        ]
+      })
+
+      AgentHarness::Response.new(
+        output: "done", exit_code: 0, duration: 1.0,
+        provider: :test_provider, model: "test-model"
+      )
+    end
+
+    provider.send_chat_message(
+      conversation: [
+        {role: "system", content: [{type: "text", text: "Keep JSON schema"}]},
+        {role: "user", content: "Hello"}
+      ],
+      skills: [:code_review]
+    )
+  end
+
   it "normalizes bare skill tool refs for OpenAI-compatible chat transports" do
     openai_provider_class = Class.new(test_provider_class) do
       def chat_transport_type

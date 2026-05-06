@@ -57,6 +57,29 @@ RSpec.describe AgentHarness::Skill do
       )
     end
 
+    it "applies provider-family overrides to concrete providers" do
+      skill = described_class.from_hash(
+        name: "code-review",
+        description: "Review code",
+        instructions: "Inspect the diff",
+        providers: {
+          openai: {
+            flags: ["--openai-family"],
+            env: {"OPENAI_FAMILY" => "1"}
+          },
+          github_copilot: {
+            model: "gpt-4o"
+          }
+        }
+      )
+
+      expect(skill.provider_override_for(:github_copilot)).to eq(
+        flags: ["--openai-family"],
+        env: {"OPENAI_FAMILY" => "1"},
+        model: "gpt-4o"
+      )
+    end
+
     it "requires the name, description, and instructions" do
       expect {
         described_class.from_hash(description: "Missing name", instructions: "Body")

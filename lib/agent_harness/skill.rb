@@ -5,6 +5,13 @@ require "yaml"
 module AgentHarness
   # Canonical provider-agnostic skill definition loaded from SKILL.md.
   class Skill
+    PROVIDER_FAMILY_ALIASES = {
+      anthropic: :anthropic,
+      google: :google,
+      openai: :openai,
+      openai_compatible: :openai
+    }.freeze
+
     attr_reader :name, :description, :instructions, :trigger, :tools, :mcp_servers
     attr_reader :provider_overrides, :source_path
 
@@ -54,9 +61,12 @@ module AgentHarness
     end
 
     def provider_override_for(provider)
-      provider_key = provider_lookup_key(provider)
-      merged = ProviderRuntime.wrap(@provider_overrides[:all])
-      merged = merged ? merged.merge(@provider_overrides[provider_key]) : ProviderRuntime.wrap(@provider_overrides[provider_key])
+      merged = provider_override_keys_for(provider).reduce(nil) do |runtime, key|
+        override = @provider_overrides[key]
+        next runtime unless override
+
+        runtime ? runtime.merge(override) : ProviderRuntime.wrap(override)
+      end
 
       merged ? merged.to_h : {}
     end
@@ -158,6 +168,8 @@ module AgentHarness
       key = provider.to_sym
       return :all if key == :all
 
+      return PROVIDER_FAMILY_ALIASES[key] if PROVIDER_FAMILY_ALIASES.key?(key)
+
       registry = Providers::Registry.instance
       canonical = registry.canonical_name(key)
       raise ConfigurationError, "Unknown provider in skill definition: #{provider}" unless registry.registered?(canonical)
@@ -165,13 +177,25 @@ module AgentHarness
       canonical.to_sym
     end
 
-    def provider_lookup_key(provider)
+    def provider_override_keys_for(provider)
       key = provider.to_sym
-      return :all if key == :all
+      return [:all] if key == :all
 
       registry = Providers::Registry.instance
       canonical = registry.canonical_name(key)
-      registry.registered?(canonical) ? canonical.to_sym : key
+      concrete = registry.registered?(canonical) ? canonical.to_sym : key
+      family = normalize_provider_family(concrete)
+
+      [:all, family, concrete].uniq
+    end
+
+    def normalize_provider_family(provider)
+      case provider
+      when :claude then :anthropic
+      when :gemini then :google
+      when :cursor, :github_copilot, :codex, :opencode, :openai_compatible then :openai
+      else provider
+      end
     end
 
     def deep_dup(value)
