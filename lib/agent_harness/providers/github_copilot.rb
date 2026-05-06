@@ -2,6 +2,8 @@
 
 require "json"
 require "pathname"
+require "securerandom"
+require "tmpdir"
 
 module AgentHarness
   module Providers
@@ -231,8 +233,8 @@ module AgentHarness
         :oauth
       end
 
-      def cli_env_overrides
-        {"COPILOT_ALLOW_ALL" => "true"}
+      def dangerous_mode_flags
+        ["--yolo"]
       end
 
       def supports_mcp?
@@ -243,11 +245,10 @@ module AgentHarness
         %w[stdio http sse]
       end
 
-      def build_mcp_flags(mcp_servers, working_dir: nil)
+      def build_mcp_flags(mcp_servers, options:)
         return [] if mcp_servers.empty?
 
-        config_path = write_mcp_config_file(mcp_servers, working_dir: working_dir)
-        ["--additional-mcp-config", "@#{config_path}"]
+        ["--additional-mcp-config", "@#{mcp_config_plan(options, mcp_servers).fetch(:path)}"]
       end
 
       def supports_sessions?
@@ -321,15 +322,15 @@ module AgentHarness
         cmd = [
           self.class.binary_name,
           "--autopilot",
-          "--yolo",
           "--max-autopilot-continues",
           max_autopilot_continues(options).to_s,
           "--output-format",
           "json"
         ]
+        cmd += dangerous_mode_flags if options[:dangerous_mode] && supports_dangerous_mode?
 
         if options[:mcp_servers]&.any?
-          cmd += build_mcp_flags(options[:mcp_servers])
+          cmd += build_mcp_flags(options[:mcp_servers], options: options)
         end
 
         cmd += @config.default_flags if @config.default_flags&.any?
@@ -348,7 +349,25 @@ module AgentHarness
       end
 
       def build_env(options)
-        super.merge(cli_env_overrides)
+        env = super
+        return env unless options[:dangerous_mode] && supports_dangerous_mode?
+
+        env.merge("COPILOT_ALLOW_ALL" => "true")
+      end
+
+      def build_execution_preparation(options)
+        return nil unless options[:mcp_servers]&.any?
+
+        plan = mcp_config_plan(options, options[:mcp_servers])
+        ExecutionPreparation.new(
+          file_writes: [
+            {
+              path: plan.fetch(:path),
+              content: plan.fetch(:content),
+              mode: 0o600
+            }
+          ]
+        )
       end
 
       def parse_container_output(stdout:, stderr: "", exit_code: 0, duration: 0.0, **_options)
@@ -642,6 +661,13 @@ module AgentHarness
 
       def mcp_provider_key
         :github_copilot
+      end
+
+      def mcp_config_plan(options, mcp_servers)
+        options[:_github_copilot_mcp_config] ||= {
+          path: File.join(Dir.tmpdir, "agent_harness_copilot_mcp_#{SecureRandom.hex(8)}.json"),
+          content: JSON.generate(McpConfigTranslator.for_provider(mcp_provider_key, mcp_servers))
+        }
       end
     end
   end

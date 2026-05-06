@@ -96,17 +96,32 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
     end
 
     describe "#build_command" do
-      it "builds an autopilot command with full permissions and json output" do
+      it "builds an autopilot command with json output" do
         command = provider.send(:build_command, "Hello", {})
 
         expect(command).to eq([
           "copilot",
           "--autopilot",
-          "--yolo",
           "--max-autopilot-continues",
           "50",
           "--output-format",
           "json",
+          "-p",
+          "Hello"
+        ])
+      end
+
+      it "only enables full permissions when dangerous mode is requested" do
+        command = provider.send(:build_command, "Hello", {dangerous_mode: true})
+
+        expect(command).to eq([
+          "copilot",
+          "--autopilot",
+          "--max-autopilot-continues",
+          "50",
+          "--output-format",
+          "json",
+          "--yolo",
           "-p",
           "Hello"
         ])
@@ -121,7 +136,6 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
         expect(command).to eq([
           "copilot",
           "--autopilot",
-          "--yolo",
           "--max-autopilot-continues",
           "50",
           "--output-format",
@@ -139,7 +153,7 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
 
         command = provider.send(:build_command, "Hello", {provider_runtime: runtime})
 
-        expect(command[4]).to eq("12")
+        expect(command.each_cons(2).find { |flag, _value| flag == "--max-autopilot-continues" }&.last).to eq("12")
       end
 
       it "adds request-scoped MCP configuration" do
@@ -149,11 +163,12 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
           command: "npx",
           args: ["-y", "@modelcontextprotocol/server-filesystem", "/workspace"]
         )
-        allow(provider).to receive(:write_mcp_config_file).and_return("/tmp/copilot-mcp.json")
 
         command = provider.send(:build_command, "Hello", {mcp_servers: [server]})
 
-        expect(command).to include("--additional-mcp-config", "@/tmp/copilot-mcp.json")
+        config_flag = command.each_cons(2).find { |flag, _value| flag == "--additional-mcp-config" }
+        expect(config_flag).not_to be_nil
+        expect(config_flag.last).to match(%r{\A@/tmp/agent_harness_copilot_mcp_[0-9a-f]{16}\.json\z})
       end
     end
 
@@ -165,7 +180,6 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
           command: [
             "copilot",
             "--autopilot",
-            "--yolo",
             "--max-autopilot-continues",
             "50",
             "--output-format",
@@ -173,8 +187,31 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
             "-p",
             "Hello"
           ],
-          env: {"COPILOT_ALLOW_ALL" => "true"},
+          env: {},
           preparation: nil
+        )
+      end
+
+      it "keeps MCP config alive through preparation instead of planning side effects" do
+        server = AgentHarness::McpServer.new(
+          name: "filesystem",
+          transport: "stdio",
+          command: "npx",
+          args: ["-y", "@modelcontextprotocol/server-filesystem", "/workspace"]
+        )
+
+        plan = provider.plan_execution(prompt: "Hello", mcp_servers: [server])
+
+        expect(plan[:command]).to include("--additional-mcp-config")
+        config_path = plan[:command].each_cons(2).find { |flag, _value| flag == "--additional-mcp-config" }.last.delete_prefix("@")
+        expect(plan[:preparation]).to have_attributes(
+          file_writes: [
+            have_attributes(
+              path: config_path,
+              content: include("\"mcpServers\""),
+              mode: 0o600
+            )
+          ]
         )
       end
     end
@@ -195,7 +232,6 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
           [
             "copilot",
             "--autopilot",
-            "--yolo",
             "--max-autopilot-continues",
             "50",
             "--output-format",
@@ -203,13 +239,39 @@ RSpec.describe AgentHarness::Providers::GithubCopilot do
             "-p",
             "Reply with exactly OK."
           ],
-          hash_including(env: {"COPILOT_ALLOW_ALL" => "true"})
+          hash_including(env: {})
         ).and_return(result)
 
         response = provider.send_message(prompt: "Reply with exactly OK.")
 
         expect(response.output).to eq("OK")
         expect(response.tokens).to eq(input: 10, output: 5, total: 15)
+      end
+
+      it "passes approval bypass flags only in dangerous mode" do
+        result = AgentHarness::CommandExecutor::Result.new(
+          stdout: '{"type":"assistant.message","message":{"role":"assistant","content":"OK"}}',
+          stderr: "",
+          exit_code: 0,
+          duration: 0.2
+        )
+
+        expect(executor).to receive(:execute).with(
+          [
+            "copilot",
+            "--autopilot",
+            "--max-autopilot-continues",
+            "50",
+            "--output-format",
+            "json",
+            "--yolo",
+            "-p",
+            "Reply with exactly OK."
+          ],
+          hash_including(env: {"COPILOT_ALLOW_ALL" => "true"})
+        ).and_return(result)
+
+        provider.send_message(prompt: "Reply with exactly OK.", dangerous_mode: true)
       end
     end
 
