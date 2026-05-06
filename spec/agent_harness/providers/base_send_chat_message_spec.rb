@@ -469,7 +469,7 @@ RSpec.describe AgentHarness::Providers::Base, "#send_chat_message" do
     }.to raise_error(AgentHarness::McpUnsupportedError, /Chat mode does not support request-scoped MCP servers/)
   end
 
-  it "raises when a configured MCP server is present in chat mode" do
+  it "ignores globally configured MCP servers when chat requests do not opt into MCP" do
     AgentHarness.configuration.register_mcp_server(
       :github,
       transport: "http",
@@ -479,11 +479,21 @@ RSpec.describe AgentHarness::Providers::Base, "#send_chat_message" do
     transport = instance_double("chat transport")
     provider.send(:set_chat_transport, transport)
 
-    expect {
-      provider.send_chat_message(
+    expect(transport).to receive(:chat) do |messages:, tools:, **|
+      expect(messages).to eq([{role: "user", content: "Hello"}])
+      expect(tools).to be_nil
+
+      AgentHarness::Response.new(
+        output: "done", exit_code: 0, duration: 1.0,
+        provider: :test_provider, model: "test-model"
+      )
+    end
+
+    response = provider.send_chat_message(
         conversation: [{role: "user", content: "Hello"}]
       )
-    }.to raise_error(AgentHarness::McpUnsupportedError, /Chat mode does not support request-scoped MCP servers/)
+
+    expect(response.output).to eq("done")
   end
 
   it "raises when skill MCP servers conflict with explicit MCP servers" do

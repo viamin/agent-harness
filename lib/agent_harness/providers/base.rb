@@ -727,7 +727,10 @@ module AgentHarness
       end
 
       def validate_chat_mcp_servers!(options)
-        mcp_servers = normalized_mcp_server_sources(options) + Array(options[:skill_mcp_servers])
+        # Chat mode only needs to reject MCP servers introduced by the
+        # current request. Global configuration may still define default MCP
+        # servers for non-chat flows and should not make every chat call fail.
+        mcp_servers = Array(options[:mcp_servers]) + Array(options[:skill_mcp_servers])
         return if mcp_servers.empty?
 
         # Chat transports do not support request-scoped MCP servers.
