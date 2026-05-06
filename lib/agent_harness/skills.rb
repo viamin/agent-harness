@@ -21,7 +21,7 @@ module AgentHarness
         cache_key = [File.expand_path(cwd), File.expand_path(home)]
         discover(cwd: cwd, home: home)
 
-        combined_registry(cache_key).fetch(name.to_sym) do
+        combined_registry(cache_key).fetch(normalize_lookup_key(name)) do
           raise ConfigurationError, "Unknown skill: #{name}"
         end
       end
@@ -63,6 +63,10 @@ module AgentHarness
       end
 
       private
+
+      def normalize_lookup_key(name)
+        name.to_s.tr(" -", "__").to_sym
+      end
 
       def combined_registry(cache_key)
         discovered_registry = @discovered.fetch(cache_key)

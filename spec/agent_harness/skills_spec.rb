@@ -54,6 +54,28 @@ RSpec.describe AgentHarness::Skills do
       end
     end
 
+    it "finds skills using hyphenated names" do
+      Dir.mktmpdir do |home|
+        Dir.mktmpdir do |cwd|
+          write_skill(
+            File.join(cwd, ".agent-harness", "skills"),
+            "code-review",
+            <<~MARKDOWN
+              ---
+              name: code-review
+              description: Review skill
+              ---
+              Review instructions
+            MARKDOWN
+          )
+
+          skill = described_class.find("code-review", cwd: cwd, home: home)
+          expect(skill.name).to eq(:code_review)
+          expect(skill.description).to eq("Review skill")
+        end
+      end
+    end
+
     it "supports programmatic registration overriding discovered skills" do
       Dir.mktmpdir do |home|
         Dir.mktmpdir do |cwd|
