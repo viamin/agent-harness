@@ -3,8 +3,7 @@
 module AgentHarness
   # Filesystem-backed registry for reusable agent skills.
   module Skills
-    GLOBAL_SKILLS_DIR = File.join(".agent-harness", "skills")
-    PROJECT_SKILLS_DIR = File.join(".agent-harness", "skills")
+    AGENT_HARNESS_SKILLS_DIR = File.join(".agent-harness", "skills")
     SHARED_SKILLS_DIR = File.join(".agents", "skills")
 
     class << self
@@ -79,9 +78,9 @@ module AgentHarness
 
       def skill_paths_for(cwd:, home:)
         [
-          File.join(File.expand_path(home), GLOBAL_SKILLS_DIR),
+          File.join(File.expand_path(home), AGENT_HARNESS_SKILLS_DIR),
           File.join(File.expand_path(cwd), SHARED_SKILLS_DIR),
-          File.join(File.expand_path(cwd), PROJECT_SKILLS_DIR)
+          File.join(File.expand_path(cwd), AGENT_HARNESS_SKILLS_DIR)
         ].flat_map do |directory|
           next [] unless Dir.exist?(directory)
 

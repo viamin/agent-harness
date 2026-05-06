@@ -8,7 +8,7 @@ RSpec.describe AgentHarness::Skills do
   end
 
   describe ".discover" do
-    it "loads skills from global, shared, and project directories with project precedence" do
+    it "loads skills from home, shared, and project skill directories with project precedence" do
       Dir.mktmpdir do |home|
         Dir.mktmpdir do |cwd|
           write_skill(
