@@ -787,7 +787,7 @@ module AgentHarness
 
         return [] if tool_names.empty?
 
-        flags = tool_names.flat_map { |tool| ["--disallowedTools", tool] }
+        flags = ["--disallowedTools=#{tool_names.join(",")}"]
         flags = ["--permission-mode", "plan"] + flags unless skip_permission_mode
         flags
       end
