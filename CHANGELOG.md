@@ -1,5 +1,13 @@
 ## [Unreleased]
 
+## [0.18.1](https://github.com/viamin/agent-harness/compare/agent-harness/v0.18.0...agent-harness/v0.18.1) (2026-05-12)
+
+
+### Bug Fixes
+
+* --disallowedTools varargs consumes prompt argument on Claude CLI v2.1.92+ ([e64bd62](https://github.com/viamin/agent-harness/commit/e64bd626ebdd19944920cbe43bcf8135069d0aec))
+* use comma-separated --disallowedTools= syntax to prevent varargs consuming prompt ([9a97717](https://github.com/viamin/agent-harness/commit/9a97717fd002616465ff0e0b7733aa5391ceb1cb)), closes [#212](https://github.com/viamin/agent-harness/issues/212)
+
 ## [0.18.0](https://github.com/viamin/agent-harness/compare/agent-harness/v0.17.3...agent-harness/v0.18.0) (2026-05-06)
 
 
