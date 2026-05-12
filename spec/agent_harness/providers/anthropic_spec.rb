@@ -1080,9 +1080,12 @@ RSpec.describe AgentHarness::Providers::Anthropic do
 
         it "includes --disallowedTools for all CLI tools" do
           allow(mock_executor).to receive(:execute) do |cmd, **_opts|
+            disallowed_flag = cmd.find { |arg| arg.start_with?("--disallowedTools=") }
+            expect(disallowed_flag).not_to be_nil, "Expected command to include --disallowedTools= flag"
+            tool_list = disallowed_flag.sub("--disallowedTools=", "").split(",")
             AgentHarness::Providers::Anthropic::ALL_CLI_TOOLS.each do |tool|
-              expect(cmd).to include("--disallowedTools", tool),
-                "Expected command to include --disallowedTools #{tool}"
+              expect(tool_list).to include(tool),
+                "Expected --disallowedTools to include #{tool}"
             end
             success_result
           end
@@ -1094,8 +1097,10 @@ RSpec.describe AgentHarness::Providers::Anthropic do
           expected_tools = %w[Agent Bash Read Edit Write Grep Glob WebFetch WebSearch TodoWrite NotebookEdit]
 
           allow(mock_executor).to receive(:execute) do |cmd, **_opts|
+            disallowed_flag = cmd.find { |arg| arg.start_with?("--disallowedTools=") }
+            tool_list = disallowed_flag.sub("--disallowedTools=", "").split(",")
             expected_tools.each do |tool|
-              expect(cmd).to include(tool)
+              expect(tool_list).to include(tool)
             end
             success_result
           end
@@ -1107,9 +1112,10 @@ RSpec.describe AgentHarness::Providers::Anthropic do
       context "when tools: is an explicit list" do
         it "includes --disallowedTools only for the specified tools" do
           allow(mock_executor).to receive(:execute) do |cmd, **_opts|
-            expect(cmd).to include("--disallowedTools", "Bash")
-            expect(cmd).to include("--disallowedTools", "Read")
-            expect(cmd).not_to include("Edit")
+            disallowed_flag = cmd.find { |arg| arg.start_with?("--disallowedTools=") }
+            expect(disallowed_flag).not_to be_nil
+            expect(disallowed_flag).to eq("--disallowedTools=Bash,Read")
+            expect(cmd.join(" ")).not_to include("Edit")
             success_result
           end
 
@@ -1169,8 +1175,11 @@ RSpec.describe AgentHarness::Providers::Anthropic do
       context "when tools: :none combined with dangerous_mode: true" do
         it "includes --disallowedTools but omits --permission-mode plan" do
           allow(mock_executor).to receive(:execute) do |cmd, **_opts|
+            disallowed_flag = cmd.find { |arg| arg.start_with?("--disallowedTools=") }
+            expect(disallowed_flag).not_to be_nil
+            tool_list = disallowed_flag.sub("--disallowedTools=", "").split(",")
             AgentHarness::Providers::Anthropic::ALL_CLI_TOOLS.each do |tool|
-              expect(cmd).to include("--disallowedTools", tool)
+              expect(tool_list).to include(tool)
             end
             expect(cmd).not_to include("--permission-mode")
             expect(cmd).to include("--dangerously-skip-permissions")
