@@ -956,6 +956,50 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
       end
     end
 
+    context "when smoke test returns quota_exceeded" do
+      let(:provider_class) do
+        Class.new(AgentHarness::Providers::Base) do
+          class << self
+            def provider_name
+              :test_provider
+            end
+
+            def binary_name
+              "test-cli"
+            end
+
+            def available?
+              true
+            end
+          end
+
+          def smoke_test(timeout: nil, provider_runtime: nil)
+            {
+              ok: false,
+              status: "error",
+              message: "Weekly/Monthly Limit Exhausted. Your limit will reset at 2026-05-18 11:22:32",
+              error_category: :quota_exceeded
+            }
+          end
+        end
+      end
+
+      before do
+        registry.register(:test_provider, provider_class)
+        allow(AgentHarness::Authentication).to receive(:auth_status)
+          .with(:test_provider)
+          .and_return({valid: true, expires_at: nil, error: nil})
+      end
+
+      it "normalizes quota_exceeded to :quota in check_provider" do
+        result = described_class.check(:test_provider, timeout: 7)
+
+        expect(result[:status]).to eq("error")
+        expect(result[:error_category]).to eq(:quota)
+        expect(result[:check]).to eq(:smoke_test)
+      end
+    end
+
     context "when a custom executor is provided" do
       let(:custom_executor) { instance_double(AgentHarness::CommandExecutor) }
       let(:provider_class) do

@@ -1041,6 +1041,7 @@ module AgentHarness
           RateLimitError.new(
             original_error.message,
             reset_time: parse_rate_limit_reset(original_error.message),
+            error_category: classification,
             original_error: original_error
           )
         when :auth_expired

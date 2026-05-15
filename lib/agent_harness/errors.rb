@@ -31,11 +31,12 @@ module AgentHarness
 
   # Rate limiting and circuit breaker errors
   class RateLimitError < Error
-    attr_reader :reset_time, :provider
+    attr_reader :reset_time, :provider, :error_category
 
-    def initialize(message = nil, reset_time: nil, provider: nil, **kwargs)
+    def initialize(message = nil, reset_time: nil, provider: nil, error_category: :rate_limited, **kwargs)
       @reset_time = reset_time
       @provider = provider
+      @error_category = error_category
       super(message, **kwargs)
     end
   end

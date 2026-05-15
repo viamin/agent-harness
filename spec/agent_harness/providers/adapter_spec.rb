@@ -2126,6 +2126,32 @@ RSpec.describe AgentHarness::Providers::Adapter do
         expect(result[:error_category]).to eq(:rate_limited)
       end
 
+      it "preserves quota_exceeded classification through RateLimitError" do
+        allow(adapter).to receive(:send_message).and_raise(
+          AgentHarness::RateLimitError.new(
+            "Weekly/Monthly Limit Exhausted. Your limit will reset at 2026-05-18 11:22:32",
+            error_category: :quota_exceeded,
+            reset_time: Time.new(2026, 5, 18, 11, 22, 32, "+00:00")
+          )
+        )
+
+        result = adapter.smoke_test
+
+        expect(result[:ok]).to be(false)
+        expect(result[:error_category]).to eq(:quota_exceeded)
+      end
+
+      it "defaults to rate_limited when RateLimitError has no explicit category" do
+        allow(adapter).to receive(:send_message).and_raise(
+          AgentHarness::RateLimitError.new("Rate limit exceeded")
+        )
+
+        result = adapter.smoke_test
+
+        expect(result[:ok]).to be(false)
+        expect(result[:error_category]).to eq(:rate_limited)
+      end
+
       it "fails when expected_output does not match" do
         allow(adapter).to receive(:smoke_test_contract).and_return(
           {
