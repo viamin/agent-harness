@@ -169,6 +169,7 @@ RSpec.describe AgentHarness::Providers::Base do
       expect(patterns[:quota].any? { |p| "insufficient credits" =~ p }).to be true
       expect(patterns[:quota].any? { |p| "spend limit reached" =~ p }).to be true
       expect(patterns[:quota].any? { |p| "billing limit" =~ p }).to be true
+      expect(patterns[:quota].any? { |p| "Weekly/Monthly Limit Exhausted" =~ p }).to be true
     end
   end
 
@@ -212,6 +213,15 @@ RSpec.describe AgentHarness::Providers::Base do
           described_class::COMMON_ERROR_PATTERNS
         )
       ).to eq(:transient)
+    end
+
+    it "classifies Z.ai coding plan exhaustion through the shared quota patterns" do
+      expect(
+        AgentHarness::ErrorTaxonomy.classify(
+          StandardError.new("Weekly/Monthly Limit Exhausted. Your limit will reset at 2026-05-18 11:22:32"),
+          described_class::COMMON_ERROR_PATTERNS
+        )
+      ).to eq(:quota_exceeded)
     end
 
     it "does not misclassify embedded numeric substrings as HTTP status codes" do
@@ -360,8 +370,9 @@ RSpec.describe AgentHarness::Providers::Base do
   end
 
   describe "#parse_rate_limit_reset" do
-    it "returns nil by default" do
-      expect(provider.parse_rate_limit_reset("retry after 60s")).to be_nil
+    it "parses shared reset formats from the base provider" do
+      now = Time.now.utc
+      expect(provider.parse_rate_limit_reset("retry after 60s")).to be_within(2).of(now + 60)
     end
 
     it "returns nil for nil input" do

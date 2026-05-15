@@ -55,6 +55,11 @@ RSpec.describe AgentHarness::ErrorTaxonomy do
       expect(described_class.classify_message("quota exceeded")).to eq(:quota_exceeded)
       expect(described_class.classify_message("usage limit reached")).to eq(:quota_exceeded)
       expect(described_class.classify_message("billing issue")).to eq(:quota_exceeded)
+      expect(
+        described_class.classify_message(
+          "Weekly/Monthly Limit Exhausted. Your limit will reset at 2026-05-18 11:22:32"
+        )
+      ).to eq(:quota_exceeded)
     end
 
     it "classifies auth errors" do

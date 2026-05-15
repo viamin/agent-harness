@@ -384,6 +384,20 @@ RSpec.describe AgentHarness::Providers::Opencode do
       it "reports uses_subcommand as true" do
         expect(provider.execution_semantics[:uses_subcommand]).to be true
       end
+
+      it "reports shared rate-limit reset parsing support" do
+        expect(provider.execution_semantics[:parses_rate_limit_reset]).to be true
+      end
+    end
+
+    describe "#parse_rate_limit_reset" do
+      it "parses Z.ai coding plan reset timestamps" do
+        result = provider.parse_rate_limit_reset(
+          "Weekly/Monthly Limit Exhausted. Your limit will reset at 2026-05-18 11:22:32"
+        )
+
+        expect(result).to eq(Time.utc(2026, 5, 18, 11, 22, 32))
+      end
     end
 
     describe "#supports_activity_heartbeat?" do

@@ -24,6 +24,7 @@ module AgentHarness
 
         parse_retry_after(text) ||
           parse_reset_at(text) ||
+          parse_reset_at_datetime(text) ||
           parse_resets_time(text) ||
           parse_resets_date_time(text)
       end
@@ -44,6 +45,16 @@ module AgentHarness
         return unless match
 
         Time.at(match[1].to_i).utc
+      end
+
+      # "reset at 2026-05-18 11:22:32"
+      def parse_reset_at_datetime(text)
+        match = text.match(/reset\s+at\s+(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2}:\d{2})/i)
+        return unless match
+
+        Time.strptime("#{match[1]} #{match[2]} UTC", "%Y-%m-%d %H:%M:%S %Z").utc
+      rescue ArgumentError
+        nil
       end
 
       # "resets 5am (UTC)" / "resets 5:00am (UTC)"

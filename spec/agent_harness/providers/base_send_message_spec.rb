@@ -466,6 +466,26 @@ RSpec.describe AgentHarness::Providers::Base, "#send_message" do
     end
   end
 
+  describe "quota exhaustion handling" do
+    let(:message) do
+      "Weekly/Monthly Limit Exhausted. Your limit will reset at 2026-05-18 11:22:32"
+    end
+
+    before do
+      allow(mock_executor).to receive(:execute).and_raise(StandardError.new(message))
+    end
+
+    it "raises RateLimitError for upstream quota exhaustion" do
+      expect { provider.send_message(prompt: "Hello") }.to raise_error(AgentHarness::RateLimitError)
+    end
+
+    it "parses and attaches the reset time" do
+      expect { provider.send_message(prompt: "Hello") }.to raise_error(AgentHarness::RateLimitError) do |error|
+        expect(error.reset_time).to eq(Time.utc(2026, 5, 18, 11, 22, 32))
+      end
+    end
+  end
+
   describe "auth error handling" do
     before do
       allow(mock_executor).to receive(:execute).and_raise(

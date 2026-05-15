@@ -840,7 +840,9 @@ module AgentHarness
             /insufficient credits/i,
             /credit.*exceeded/i,
             /spend limit.*reached/i,
-            /billing.*limit/i
+            /billing.*limit/i,
+            /(?:weekly|monthly)(?:\/(?:weekly|monthly))?\s+limit\s+exhausted/i,
+            /weekly\/monthly\s+limit\s+exhausted/i
           ]
         }
       end

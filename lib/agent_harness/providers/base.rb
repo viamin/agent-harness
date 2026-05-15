@@ -26,6 +26,7 @@ module AgentHarness
     class Base
       include Adapter
       include Extensions::DeepDupable
+      include RateLimitResetParsing
 
       DEFAULT_SMOKE_TEST_CONTRACT = {
         prompt: "Reply with exactly OK.",
@@ -52,7 +53,9 @@ module AgentHarness
         quota_exceeded: [
           /quota.*exceeded/i,
           /insufficient.*quota/i,
-          /billing/i
+          /billing/i,
+          /(?:weekly|monthly)(?:\/(?:weekly|monthly))?\s+limit\s+exhausted/i,
+          /weekly\/monthly\s+limit\s+exhausted/i
         ],
         transient: [
           /timeout/i,
@@ -432,10 +435,6 @@ module AgentHarness
       #
       # @param text [String, nil] error output text
       # @return [Time, nil] UTC reset time, or nil if not parseable
-      def parse_rate_limit_reset(text)
-        nil
-      end
-
       # Run a lightweight provider-owned preflight check before committing to a
       # full prompt execution.
       #
@@ -1038,8 +1037,12 @@ module AgentHarness
 
       def map_to_error_class(classification, original_error)
         case classification
-        when :rate_limited
-          RateLimitError.new(original_error.message, original_error: original_error)
+        when :rate_limited, :quota_exceeded
+          RateLimitError.new(
+            original_error.message,
+            reset_time: parse_rate_limit_reset(original_error.message),
+            original_error: original_error
+          )
         when :auth_expired
           AuthenticationError.new(
             original_error.message,
