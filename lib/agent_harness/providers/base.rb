@@ -54,8 +54,7 @@ module AgentHarness
           /quota.*exceeded/i,
           /insufficient.*quota/i,
           /billing/i,
-          /(?:weekly|monthly)(?:\/(?:weekly|monthly))?\s+limit\s+exhausted/i,
-          /weekly\/monthly\s+limit\s+exhausted/i
+          /(?:weekly|monthly)(?:\/(?:weekly|monthly))?\s+limit\s+exhausted/i
         ],
         transient: [
           /timeout/i,
