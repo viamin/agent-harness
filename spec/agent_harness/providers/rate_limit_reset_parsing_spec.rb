@@ -66,6 +66,20 @@ RSpec.describe AgentHarness::Providers::RateLimitResetParsing do
       end
     end
 
+    context "reset at datetime" do
+      it "parses 'reset at YYYY-MM-DD HH:MM:SS'" do
+        result = provider.parse_rate_limit_reset(
+          "Weekly/Monthly Limit Exhausted. Your limit will reset at 2026-05-18 11:22:32"
+        )
+
+        expect(result).to eq(Time.utc(2026, 5, 18, 11, 22, 32))
+      end
+
+      it "returns nil for invalid datetime values" do
+        expect(provider.parse_rate_limit_reset("reset at 2026-13-18 11:22:32")).to be_nil
+      end
+    end
+
     context "resets at time (UTC)" do
       it "parses 'resets 5am (UTC)'" do
         result = provider.parse_rate_limit_reset("resets 5am (UTC)")

@@ -840,7 +840,8 @@ module AgentHarness
             /insufficient credits/i,
             /credit.*exceeded/i,
             /spend limit.*reached/i,
-            /billing.*limit/i
+            /billing.*limit/i,
+            /(?:weekly|monthly)(?:\/(?:weekly|monthly))?\s+limit\s+exhausted/i
           ]
         }
       end
@@ -1130,7 +1131,7 @@ module AgentHarness
       rescue AuthenticationError => e
         failure_smoke_test_result(e.message, :auth_expired)
       rescue RateLimitError => e
-        failure_smoke_test_result(e.message, :rate_limited)
+        failure_smoke_test_result(e.message, e.error_category || :rate_limited)
       rescue ProviderError => e
         failure_smoke_test_result(e.message, classify_smoke_test_message(e.message))
       end

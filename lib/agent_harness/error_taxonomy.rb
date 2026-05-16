@@ -124,7 +124,7 @@ module AgentHarness
           :idle_timeout
         when /rate.?limit|too many requests|\b429\b/i
           :rate_limited
-        when /quota|usage.?limit|billing/i
+        when /quota|usage.?limit|billing|(?:weekly|monthly)(?:\/(?:weekly|monthly))?\s+limit\s+exhausted/i
           :quota_exceeded
         when /auth|unauthorized|forbidden|invalid.*(key|token)|\b401\b|\b403\b/i
           :auth_expired
