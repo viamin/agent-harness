@@ -838,6 +838,7 @@ module AgentHarness
           quota: [
             /requires more credits/i,
             /insufficient credits/i,
+            /insufficient balance/i,
             /credit.*exceeded/i,
             /spend limit.*reached/i,
             /billing.*limit/i,
