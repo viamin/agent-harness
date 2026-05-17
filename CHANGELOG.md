@@ -1,5 +1,13 @@
 ## [Unreleased]
 
+## [0.18.2](https://github.com/viamin/agent-harness/compare/agent-harness/v0.18.1...agent-harness/v0.18.2) (2026-05-17)
+
+
+### Bug Fixes
+
+* **release:** require conventional PR titles for release-please ([4f0054f](https://github.com/viamin/agent-harness/commit/4f0054f4c9f35251c3185fa8bbf645fcace130b5))
+* **release:** require conventional PR titles for release-please ([fd6633d](https://github.com/viamin/agent-harness/commit/fd6633dff3710ad1575af9bd172f047a93a8f647))
+
 ## [0.18.1](https://github.com/viamin/agent-harness/compare/agent-harness/v0.18.0...agent-harness/v0.18.1) (2026-05-12)
 
 
