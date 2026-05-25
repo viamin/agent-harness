@@ -31,6 +31,20 @@ RSpec.describe AgentHarness::Providers::Opencode do
       )
     end
 
+    it "declares requires_postinstall as true" do
+      contract = described_class.installation_contract
+
+      expect(contract[:requires_postinstall]).to be true
+    end
+
+    it "exposes a postinstall_command for the trusted native binary download" do
+      contract = described_class.installation_contract
+
+      expect(contract[:postinstall_command]).to eq(
+        "node $(npm root -g)/opencode-ai/postinstall.mjs"
+      )
+    end
+
     it "keeps the runtime binary aligned with the install contract" do
       contract = described_class.installation_contract
 
@@ -43,6 +57,15 @@ RSpec.describe AgentHarness::Providers::Opencode do
       expect(contract[:version]).to eq("1.3.9")
       expect(contract[:install_command]).to eq(
         ["npm", "install", "-g", "--ignore-scripts", "opencode-ai@1.3.9"]
+      )
+    end
+
+    it "preserves postinstall fields in versioned contracts" do
+      contract = described_class.installation_contract(version: "1.3.9")
+
+      expect(contract[:requires_postinstall]).to be true
+      expect(contract[:postinstall_command]).to eq(
+        "node $(npm root -g)/opencode-ai/postinstall.mjs"
       )
     end
 
@@ -111,6 +134,7 @@ RSpec.describe AgentHarness::Providers::Opencode do
       expect(contract[:package_name]).to be_frozen
       expect(contract[:version]).to be_frozen
       expect(contract[:binary_name]).to be_frozen
+      expect(contract[:postinstall_command]).to be_frozen
       expect { contract[:install_command_prefix] << "opencode-ai" }.to raise_error(FrozenError)
       expect { contract[:install_command] << "opencode-ai" }.to raise_error(FrozenError)
       expect { contract[:supported_versions] << "1.3.1" }.to raise_error(FrozenError)

@@ -14,6 +14,7 @@ module AgentHarness
       SUPPORTED_CLI_REQUIREMENT = Gem::Requirement.new(">= #{SUPPORTED_CLI_VERSION}", "< 1.4.0").freeze
       INSTALL_COMMAND_PREFIX = ["npm", "install", "-g", "--ignore-scripts"].freeze
       SUPPORTED_CLI_VERSIONS = [SUPPORTED_CLI_VERSION].freeze
+      POSTINSTALL_COMMAND = "node $(npm root -g)/opencode-ai/postinstall.mjs"
       VERSION_REQUIREMENT_STRINGS = SUPPORTED_CLI_REQUIREMENT.requirements
         .map { |op, ver| "#{op} #{ver}".freeze }
         .freeze
@@ -89,6 +90,8 @@ module AgentHarness
             binary_name: binary_name,
             install_command_prefix: INSTALL_COMMAND_PREFIX,
             install_command: install_command,
+            requires_postinstall: true,
+            postinstall_command: POSTINSTALL_COMMAND,
             supported_versions: SUPPORTED_CLI_VERSIONS
           }
 

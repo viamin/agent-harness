@@ -353,6 +353,10 @@ RSpec.describe AgentHarness::Providers::Registry do
       expect(contract[:install_command]).to eq(
         ["npm", "install", "-g", "--ignore-scripts", "opencode-ai@1.3.9"]
       )
+      expect(contract[:requires_postinstall]).to be true
+      expect(contract[:postinstall_command]).to eq(
+        "node $(npm root -g)/opencode-ai/postinstall.mjs"
+      )
     end
 
     it "preserves provider normalization for generic-contract version lookups" do
@@ -366,6 +370,7 @@ RSpec.describe AgentHarness::Providers::Registry do
       expect(contract[:install_command]).to eq(
         ["npm", "install", "-g", "--ignore-scripts", "opencode-ai@1.3.9"]
       )
+      expect(contract[:requires_postinstall]).to be true
     end
 
     it "returns nil for registered providers without installation contract support" do
@@ -458,6 +463,10 @@ RSpec.describe AgentHarness::Providers::Registry do
       )
       expect(contracts[:opencode][:install_command]).to eq(
         ["npm", "install", "-g", "--ignore-scripts", "opencode-ai@1.3.2"]
+      )
+      expect(contracts[:opencode][:requires_postinstall]).to be true
+      expect(contracts[:opencode][:postinstall_command]).to eq(
+        "node $(npm root -g)/opencode-ai/postinstall.mjs"
       )
       expect(contracts[:pi][:install_command]).to eq(
         ["npm", "install", "-g", "--ignore-scripts", "@mariozechner/pi-coding-agent@0.73.0"]
