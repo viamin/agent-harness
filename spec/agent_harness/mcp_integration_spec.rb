@@ -201,15 +201,22 @@ RSpec.describe "MCP Server Integration" do
     end
 
     context "without MCP servers" do
-      it "does not include --mcp-config flag" do
+      it "includes --mcp-config with an empty config to suppress auto-discovery" do
         allow(mock_executor).to receive(:execute).and_return(success_result)
 
-        expect(mock_executor).to receive(:execute).with(
-          satisfy { |cmd| !cmd.include?("--mcp-config") },
-          anything
-        )
+        config_content = nil
+        allow(mock_executor).to receive(:execute) do |cmd, **_opts|
+          idx = cmd.index("--mcp-config")
+          if idx
+            config_content = JSON.parse(File.read(cmd[idx + 1]))
+          end
+          success_result
+        end
 
         provider.send_message(prompt: "Hello")
+
+        expect(config_content).not_to be_nil
+        expect(config_content["mcpServers"]).to eq({})
       end
 
       it "uses globally configured MCP servers when request options omit them" do

@@ -183,7 +183,12 @@ module AgentHarness
         def parse_cli_json_envelope(json_string)
           return nil if json_string.nil? || json_string.empty?
 
-          parsed = JSON.parse(json_string)
+          cleaned = json_string.lines.reject { |line|
+            line.include?('"type":"session.') || line.include?('"type": "session.')
+          }.join.strip
+          return nil if cleaned.empty?
+
+          parsed = JSON.parse(cleaned)
           return nil unless parsed.is_a?(Hash) && parsed.key?("result")
 
           output = parsed["result"]
@@ -415,8 +420,6 @@ module AgentHarness
       end
 
       def build_mcp_flags(mcp_servers, working_dir: nil)
-        return [] if mcp_servers.empty?
-
         config_path = write_mcp_config_file(mcp_servers, working_dir: working_dir)
         ["--mcp-config", config_path]
       end
@@ -601,10 +604,10 @@ module AgentHarness
           cmd += dangerous_mode_flags
         end
 
-        # Add MCP server flags (validated/normalized by Base#send_message)
-        if options[:mcp_servers]&.any?
-          cmd += build_mcp_flags(options[:mcp_servers])
-        end
+        # Add MCP server flags (validated/normalized by Base#send_message).
+        # Always pass --mcp-config, even with an empty server list, to suppress
+        # the Claude CLI's auto-discovery of .mcp.json in the working directory.
+        cmd += build_mcp_flags(options[:mcp_servers] || [])
 
         # Add custom flags from config
         cmd += @config.default_flags if @config.default_flags&.any?
@@ -720,9 +723,18 @@ module AgentHarness
       def parse_json_output(output)
         return nil if output.nil? || output.empty?
 
-        JSON.parse(output)
+        cleaned = strip_claude_streaming_events(output)
+        return nil if cleaned.empty?
+
+        JSON.parse(cleaned)
       rescue JSON::ParserError
         nil
+      end
+
+      def strip_claude_streaming_events(output)
+        output.lines.reject { |line|
+          line.include?('"type":"session.') || line.include?('"type": "session.')
+        }.join.strip
       end
 
       # Delegate to class-level implementations so both instance and class

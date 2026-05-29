@@ -72,6 +72,44 @@ RSpec.describe AgentHarness::Providers::Anthropic do
     it "returns nil for JSON without a result field" do
       expect(described_class.parse_cli_json_envelope('{"foo":"bar"}')).to be_nil
     end
+
+    it "strips streaming session events before parsing" do
+      envelope = [
+        '{"type":"session.mcp_servers_loading","server":"playwright"}',
+        '{"type":"session.mcp_servers_loaded"}',
+        JSON.generate({
+          "type" => "result",
+          "result" => "analysis result",
+          "usage" => {"input_tokens" => 10, "output_tokens" => 5}
+        })
+      ].join("\n")
+
+      parsed = described_class.parse_cli_json_envelope(envelope)
+
+      expect(parsed[:output]).to eq("analysis result")
+      expect(parsed[:tokens]).to eq({input: 10, output: 5, total: 15})
+    end
+
+    it "strips truncated streaming session events before parsing" do
+      envelope = [
+        '{"type":"session.mcp_servers_loa',
+        JSON.generate({
+          "type" => "result",
+          "result" => "analysis result",
+          "usage" => {"input_tokens" => 10, "output_tokens" => 5}
+        })
+      ].join("\n")
+
+      parsed = described_class.parse_cli_json_envelope(envelope)
+
+      expect(parsed[:output]).to eq("analysis result")
+    end
+
+    it "returns nil when only streaming events are present" do
+      output = '{"type":"session.mcp_servers_loading"}'
+
+      expect(described_class.parse_cli_json_envelope(output)).to be_nil
+    end
   end
 
   describe ".install_contract" do
@@ -113,7 +151,8 @@ RSpec.describe AgentHarness::Providers::Anthropic do
 
       expect(contract.dig(:install, :post_install_binary_path)).to eq(contract[:binary_paths].first)
       expect(command.first(contract_build_command.length)).to eq(contract_build_command)
-      expect(command[contract_build_command.length]).to eq("prompt")
+      expect(command).to include("--mcp-config")
+      expect(command.last).to eq("prompt")
     end
 
     it "does not include a root-only copy step in the install command" do
@@ -793,6 +832,49 @@ RSpec.describe AgentHarness::Providers::Anthropic do
 
           response = provider.send_message(prompt: "Hello")
           expect(response.error).to include("Some other error occurred")
+        end
+
+        it "strips streaming session events and parses the envelope" do
+          stdout = [
+            '{"type":"session.mcp_servers_loading","server":"playwright"}',
+            '{"type":"session.mcp_servers_loaded"}',
+            JSON.generate({
+              "result" => "analysis result",
+              "usage" => {"input_tokens" => 10, "output_tokens" => 5}
+            })
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: stdout,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq("analysis result")
+          expect(response.tokens).to eq({input: 10, output: 5, total: 15})
+        end
+
+        it "handles truncated streaming events mixed with the envelope" do
+          stdout = '{"type":"session.mcp_servers_loa' + "\n" + JSON.generate({
+            "result" => "analysis result",
+            "usage" => {"input_tokens" => 10, "output_tokens" => 5}
+          })
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: stdout,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq("analysis result")
         end
       end
 
