@@ -1,5 +1,13 @@
 ## [Unreleased]
 
+## [0.19.0](https://github.com/viamin/agent-harness/compare/agent-harness/v0.18.2...agent-harness/v0.19.0) (2026-05-29)
+
+
+### Features
+
+* opencode-ai install contract should support postinstall (native binary download) ([b3eed97](https://github.com/viamin/agent-harness/commit/b3eed971b9bc46ce2bb2976b70dfd65b15ae5e9b))
+* **opencode:** add requires_postinstall and postinstall_command to install contract ([d6808fd](https://github.com/viamin/agent-harness/commit/d6808fd62476289b199202b0c20c65fc4966bfcc)), closes [#223](https://github.com/viamin/agent-harness/issues/223)
+
 ## [0.18.2](https://github.com/viamin/agent-harness/compare/agent-harness/v0.18.1...agent-harness/v0.18.2) (2026-05-17)
 
 
