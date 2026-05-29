@@ -22,7 +22,7 @@ module AgentHarness
         source = contract[:source]
         install_command = contract[:install_command]&.dup
 
-        {
+        normalized = {
           provider: provider_name.to_sym,
           source_type: normalize_metadata_source_type(contract[:source_type] || source),
           package_name: metadata_package_name(contract, source),
@@ -35,6 +35,11 @@ module AgentHarness
           install_command: install_command,
           install_command_string: contract[:install_command_string] || install_command&.join(" ")
         }
+
+        normalized[:requires_postinstall] = contract[:requires_postinstall] if contract.key?(:requires_postinstall)
+        normalized[:postinstall_command] = contract[:postinstall_command] if contract.key?(:postinstall_command)
+
+        normalized
       end
 
       def self.normalize_metadata_source_type(source)
