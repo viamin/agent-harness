@@ -1,5 +1,12 @@
 ## [Unreleased]
 
+## [0.20.0](https://github.com/viamin/agent-harness/compare/agent-harness/v0.19.0...agent-harness/v0.20.0) (2026-05-30)
+
+
+### Features
+
+* suppress Claude CLI .mcp.json auto-discovery when no MCP servers configured ([e07a25e](https://github.com/viamin/agent-harness/commit/e07a25e463becfd77da97058cb0a760eaec0920b))
+
 ## [0.19.0](https://github.com/viamin/agent-harness/compare/agent-harness/v0.18.2...agent-harness/v0.19.0) (2026-05-29)
 
 
