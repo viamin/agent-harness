@@ -2,8 +2,21 @@
 
 RSpec.describe "MCP Server Integration" do
   def extract_mcp_config_path(cmd)
-    flag = cmd.find { |arg| arg.start_with?("--mcp-config=") }
-    flag&.delete_prefix("--mcp-config=")
+    inline_flag = cmd.find { |arg| arg.start_with?("--mcp-config=") }
+    return inline_flag.delete_prefix("--mcp-config=") if inline_flag
+
+    flag_index = cmd.index("--mcp-config")
+    cmd[flag_index + 1] if flag_index
+  end
+
+  describe "#extract_mcp_config_path" do
+    it "extracts the path from the inline flag form" do
+      expect(extract_mcp_config_path(["claude", "--mcp-config=/tmp/mcp.json", "prompt"])).to eq("/tmp/mcp.json")
+    end
+
+    it "extracts the path from the space-separated flag form" do
+      expect(extract_mcp_config_path(["codex", "--mcp-config", "/tmp/mcp.json", "prompt"])).to eq("/tmp/mcp.json")
+    end
   end
 
   describe "Anthropic provider with MCP servers" do
