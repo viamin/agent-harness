@@ -421,7 +421,7 @@ module AgentHarness
 
       def build_mcp_flags(mcp_servers, working_dir: nil)
         config_path = write_mcp_config_file(mcp_servers, working_dir: working_dir)
-        ["--mcp-config", config_path]
+        ["--mcp-config=#{config_path}"]
       end
 
       def supports_tool_control?
