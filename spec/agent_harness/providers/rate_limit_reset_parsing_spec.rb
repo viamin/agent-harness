@@ -117,48 +117,104 @@ RSpec.describe AgentHarness::Providers::RateLimitResetParsing do
     end
 
     context "resets at date and time (UTC)" do
-      it "parses 'resets Jan 15, 5pm (UTC)'" do
-        result = provider.parse_rate_limit_reset("resets Jan 15, 5pm (UTC)")
-        expect(result.utc?).to be true
-        expect(result.month).to eq(1)
-        expect(result.day).to eq(15)
-        expect(result.hour).to eq(17)
-        expect(result.min).to eq(0)
-      end
-
-      it "parses 'resets Mar 1, 9:30am (UTC)'" do
-        result = provider.parse_rate_limit_reset("resets Mar 1, 9:30am (UTC)")
-        expect(result.month).to eq(3)
-        expect(result.day).to eq(1)
-        expect(result.hour).to eq(9)
-        expect(result.min).to eq(30)
-      end
-
-      it "parses without comma after day" do
-        result = provider.parse_rate_limit_reset("resets Jan 15 5pm (UTC)")
-        expect(result.month).to eq(1)
-        expect(result.day).to eq(15)
-        expect(result.hour).to eq(17)
-      end
-
-      it "parses uppercase month abbreviation (case insensitive)" do
-        result = provider.parse_rate_limit_reset("resets JAN 15, 5pm (UTC)")
-        expect(result.month).to eq(1)
-        expect(result.day).to eq(15)
-        expect(result.hour).to eq(17)
-      end
-
       it "returns nil for invalid month abbreviation" do
         expect(provider.parse_rate_limit_reset("resets Xyz 15, 5pm (UTC)")).to be_nil
       end
 
-      it "advances year when month is in the past" do
-        past_month = Time.now.utc.month - 1
-        return if past_month < 1 # skip in January
+      it "returns nil when month is far in the past (beyond 8-day ceiling)" do
+        past_month = Time.now.utc.month - 2
+        past_month += 12 if past_month < 1
+        return if past_month == Time.now.utc.month
 
         month_name = Date::ABBR_MONTHNAMES[past_month]
         result = provider.parse_rate_limit_reset("resets #{month_name} 15, 5pm (UTC)")
-        expect(result.year).to eq(Time.now.utc.year + 1)
+        expect(result).to be_nil
+      end
+
+      it "returns nil for a date more than 8 days in the future" do
+        future_month = Time.now.utc.month + 1
+        future_month -= 12 if future_month > 12
+        month_name = Date::ABBR_MONTHNAMES[future_month]
+        result = provider.parse_rate_limit_reset("resets #{month_name} 15, 5pm (UTC)")
+        expect(result).to be_nil
+      end
+
+      context "when now is 2026-06-02 12:00 UTC" do
+        before do
+          allow(Time).to receive(:now).and_return(Time.utc(2026, 6, 2, 12, 0, 0))
+        end
+
+        it "parses a near-future date in the same month" do
+          result = provider.parse_rate_limit_reset("resets Jun 4, 10pm (UTC)")
+          expect(result).to eq(Time.utc(2026, 6, 4, 22, 0, 0))
+        end
+
+        it "parses a near-future date within 8 days" do
+          result = provider.parse_rate_limit_reset("resets Jun 9, 10pm (UTC)")
+          expect(result).to eq(Time.utc(2026, 6, 9, 22, 0, 0))
+        end
+
+        it "parses without comma after day" do
+          result = provider.parse_rate_limit_reset("resets Jun 4 10pm (UTC)")
+          expect(result).to eq(Time.utc(2026, 6, 4, 22, 0))
+        end
+
+        it "parses uppercase month abbreviation (case insensitive)" do
+          result = provider.parse_rate_limit_reset("resets JUN 4, 10pm (UTC)")
+          expect(result).to eq(Time.utc(2026, 6, 4, 22, 0, 0))
+        end
+
+        it "returns nil for a date exactly 8 days from now (at the boundary)" do
+          result = provider.parse_rate_limit_reset("resets Jun 10, 12pm (UTC)")
+          expect(result).to be_nil
+        end
+
+        it "returns nil for a past month that would be almost a year away with year+1" do
+          result = provider.parse_rate_limit_reset("resets Apr 6, 10pm (UTC)")
+          expect(result).to be_nil
+        end
+
+        it "returns candidate within grace window even if slightly in the past" do
+          result = provider.parse_rate_limit_reset("resets Jun 2, 11am (UTC)")
+          expect(result).to eq(Time.utc(2026, 6, 2, 11, 0, 0))
+        end
+
+        it "returns a UTC time" do
+          result = provider.parse_rate_limit_reset("resets Jun 4, 5pm (UTC)")
+          expect(result.utc?).to be true
+          expect(result.hour).to eq(17)
+          expect(result.min).to eq(0)
+        end
+      end
+
+      context "when now is 2026-01-14 12:00 UTC" do
+        before do
+          allow(Time).to receive(:now).and_return(Time.utc(2026, 1, 14, 12, 0, 0))
+        end
+
+        it "parses 'resets Jan 15, 5pm (UTC)' as tomorrow" do
+          result = provider.parse_rate_limit_reset("resets Jan 15, 5pm (UTC)")
+          expect(result.month).to eq(1)
+          expect(result.day).to eq(15)
+          expect(result.hour).to eq(17)
+          expect(result.min).to eq(0)
+        end
+
+        it "parses 'resets Mar 1, 9:30am (UTC)' as nil (beyond 8 days)" do
+          result = provider.parse_rate_limit_reset("resets Mar 1, 9:30am (UTC)")
+          expect(result).to be_nil
+        end
+      end
+
+      context "when now is 2026-12-28 12:00 UTC" do
+        before do
+          allow(Time).to receive(:now).and_return(Time.utc(2026, 12, 28, 12, 0, 0))
+        end
+
+        it "resolves a January date from late December within 8 days" do
+          result = provider.parse_rate_limit_reset("resets Jan 3, 5pm (UTC)")
+          expect(result).to eq(Time.utc(2027, 1, 3, 17, 0, 0))
+        end
       end
     end
   end

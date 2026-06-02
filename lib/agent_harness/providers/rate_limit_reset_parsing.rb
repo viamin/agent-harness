@@ -87,10 +87,13 @@ module AgentHarness
         meridiem = match[5].downcase
         hour = to_24h(hour, meridiem)
 
-        year = Time.now.utc.year
-        year += 1 if month < Time.now.utc.month
+        now = Time.now.utc
+        candidate = Time.utc(now.year, month, day, hour, minute)
+        candidate = Time.utc(now.year + 1, month, day, hour, minute) if candidate <= now - 7200
 
-        Time.utc(year, month, day, hour, minute)
+        return nil if candidate >= now + 8 * 86_400
+
+        candidate
       end
 
       def to_24h(hour, meridiem)
