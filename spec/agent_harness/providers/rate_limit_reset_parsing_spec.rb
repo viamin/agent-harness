@@ -121,10 +121,13 @@ RSpec.describe AgentHarness::Providers::RateLimitResetParsing do
         expect(provider.parse_rate_limit_reset("resets Xyz 15, 5pm (UTC)")).to be_nil
       end
 
+      it "returns nil for an impossible date like Feb 31" do
+        expect(provider.parse_rate_limit_reset("resets Feb 31, 5pm (UTC)")).to be_nil
+      end
+
       it "returns nil when month is far in the past (beyond 8-day ceiling)" do
         past_month = Time.now.utc.month - 2
         past_month += 12 if past_month < 1
-        return if past_month == Time.now.utc.month
 
         month_name = Date::ABBR_MONTHNAMES[past_month]
         result = provider.parse_rate_limit_reset("resets #{month_name} 15, 5pm (UTC)")
@@ -177,6 +180,11 @@ RSpec.describe AgentHarness::Providers::RateLimitResetParsing do
         it "returns candidate within grace window even if slightly in the past" do
           result = provider.parse_rate_limit_reset("resets Jun 2, 11am (UTC)")
           expect(result).to eq(Time.utc(2026, 6, 2, 11, 0, 0))
+        end
+
+        it "returns candidate at exactly the 2-hour grace boundary" do
+          result = provider.parse_rate_limit_reset("resets Jun 2, 10am (UTC)")
+          expect(result).to eq(Time.utc(2026, 6, 2, 10, 0, 0))
         end
 
         it "returns a UTC time" do

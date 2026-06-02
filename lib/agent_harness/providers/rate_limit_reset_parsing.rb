@@ -89,11 +89,13 @@ module AgentHarness
 
         now = Time.now.utc
         candidate = Time.utc(now.year, month, day, hour, minute)
-        candidate = Time.utc(now.year + 1, month, day, hour, minute) if candidate <= now - 7200
+        candidate = Time.utc(now.year + 1, month, day, hour, minute) if candidate < now - 7200
 
         return nil if candidate >= now + 8 * 86_400
 
         candidate
+      rescue ArgumentError
+        nil
       end
 
       def to_24h(hour, meridiem)
