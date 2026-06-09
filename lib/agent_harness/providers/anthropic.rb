@@ -586,9 +586,16 @@ module AgentHarness
 
         cmd += ["--print", "--output-format=json"]
 
-        # Add model if specified
-        if @config.model && !@config.model.empty?
-          cmd += ["--model", @config.model]
+        # Add model if specified — prefer config, fall back to runtime override
+        runtime = options[:provider_runtime]
+        runtime = ProviderRuntime.wrap(runtime) if runtime.is_a?(Hash)
+        model = if @config.model && !@config.model.empty?
+          @config.model
+        else
+          runtime&.model
+        end
+        if model && !model.empty?
+          cmd += ["--model", model]
         end
 
         # Add permission mode for tool-disabled requests (belt-and-suspenders)

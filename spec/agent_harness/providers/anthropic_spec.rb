@@ -708,6 +708,51 @@ RSpec.describe AgentHarness::Providers::Anthropic do
           provider.send_message(prompt: "Hello")
         end
 
+        it "includes model from provider_runtime when config.model is nil" do
+          config_no_model = AgentHarness::ProviderConfig.new(:claude).tap do |c|
+            c.model = nil
+            c.default_flags = ["--verbose"]
+          end
+          provider_no_model = described_class.new(config: config_no_model, executor: mock_executor)
+          runtime = AgentHarness::ProviderRuntime.new(model: "claude-opus-4-6")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: '{"result":"response","usage":{"input_tokens":10,"output_tokens":5}}',
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          expect(mock_executor).to receive(:execute).with(
+            array_including("--model", "claude-opus-4-6"),
+            anything
+          )
+
+          provider_no_model.send_message(prompt: "Hello", provider_runtime: runtime)
+        end
+
+        it "prefers config.model over provider_runtime.model" do
+          runtime = AgentHarness::ProviderRuntime.new(model: "claude-opus-4-6")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: '{"result":"response","usage":{"input_tokens":10,"output_tokens":5}}',
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          expect(mock_executor).to receive(:execute).with(
+            array_including("--model", "claude-3-5-sonnet"),
+            anything
+          )
+
+          provider.send_message(prompt: "Hello", provider_runtime: runtime)
+        end
+
         it "includes dangerous mode flags when requested" do
           allow(mock_executor).to receive(:execute).and_return(
             AgentHarness::CommandExecutor::Result.new(
