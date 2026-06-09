@@ -151,7 +151,7 @@ RSpec.describe AgentHarness::Providers::Anthropic do
 
       expect(contract.dig(:install, :post_install_binary_path)).to eq(contract[:binary_paths].first)
       expect(command.first(contract_build_command.length)).to eq(contract_build_command)
-      expect(command).to include("--mcp-config")
+      expect(command).to include(a_string_starting_with("--mcp-config="))
       expect(command.last).to eq("prompt")
     end
 

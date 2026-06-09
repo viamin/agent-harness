@@ -1,6 +1,24 @@
 # frozen_string_literal: true
 
 RSpec.describe "MCP Server Integration" do
+  def extract_mcp_config_path(cmd)
+    inline_flag = cmd.find { |arg| arg.start_with?("--mcp-config=") }
+    return inline_flag.delete_prefix("--mcp-config=") if inline_flag
+
+    flag_index = cmd.index("--mcp-config")
+    cmd[flag_index + 1] if flag_index
+  end
+
+  describe "#extract_mcp_config_path" do
+    it "extracts the path from the inline flag form" do
+      expect(extract_mcp_config_path(["claude", "--mcp-config=/tmp/mcp.json", "prompt"])).to eq("/tmp/mcp.json")
+    end
+
+    it "extracts the path from the space-separated flag form" do
+      expect(extract_mcp_config_path(["codex", "--mcp-config", "/tmp/mcp.json", "prompt"])).to eq("/tmp/mcp.json")
+    end
+  end
+
   describe "Anthropic provider with MCP servers" do
     let(:config) do
       AgentHarness::ProviderConfig.new(:claude).tap do |c|
@@ -39,7 +57,7 @@ RSpec.describe "MCP Server Integration" do
         allow(mock_executor).to receive(:execute).and_return(success_result)
 
         expect(mock_executor).to receive(:execute).with(
-          array_including("--mcp-config"),
+          array_including(a_string_starting_with("--mcp-config=")),
           anything
         )
 
@@ -49,10 +67,8 @@ RSpec.describe "MCP Server Integration" do
       it "generates a valid MCP config file" do
         config_content = nil
         allow(mock_executor).to receive(:execute) do |cmd, **_opts|
-          idx = cmd.index("--mcp-config")
-          if idx
-            config_content = JSON.parse(File.read(cmd[idx + 1]))
-          end
+          config_path = extract_mcp_config_path(cmd)
+          config_content = JSON.parse(File.read(config_path)) if config_path
           success_result
         end
 
@@ -91,10 +107,8 @@ RSpec.describe "MCP Server Integration" do
       it "generates config with url for HTTP servers" do
         config_content = nil
         allow(mock_executor).to receive(:execute) do |cmd, **_opts|
-          idx = cmd.index("--mcp-config")
-          if idx
-            config_content = JSON.parse(File.read(cmd[idx + 1]))
-          end
+          config_path = extract_mcp_config_path(cmd)
+          config_content = JSON.parse(File.read(config_path)) if config_path
           success_result
         end
 
@@ -126,10 +140,8 @@ RSpec.describe "MCP Server Integration" do
       it "includes both servers in config" do
         config_content = nil
         allow(mock_executor).to receive(:execute) do |cmd, **_opts|
-          idx = cmd.index("--mcp-config")
-          if idx
-            config_content = JSON.parse(File.read(cmd[idx + 1]))
-          end
+          config_path = extract_mcp_config_path(cmd)
+          config_content = JSON.parse(File.read(config_path)) if config_path
           success_result
         end
 
@@ -172,8 +184,7 @@ RSpec.describe "MCP Server Integration" do
       it "cleans up MCP config tempfiles after execution" do
         config_path = nil
         allow(mock_executor).to receive(:execute) do |cmd, **_opts|
-          idx = cmd.index("--mcp-config")
-          config_path = cmd[idx + 1] if idx
+          config_path = extract_mcp_config_path(cmd)
           success_result
         end
 
@@ -186,8 +197,7 @@ RSpec.describe "MCP Server Integration" do
       it "cleans up tempfiles even when execution raises" do
         config_path = nil
         allow(mock_executor).to receive(:execute) do |cmd, **_opts|
-          idx = cmd.index("--mcp-config")
-          config_path = cmd[idx + 1] if idx
+          config_path = extract_mcp_config_path(cmd)
           raise StandardError, "execution failed"
         end
 
@@ -206,10 +216,8 @@ RSpec.describe "MCP Server Integration" do
 
         config_content = nil
         allow(mock_executor).to receive(:execute) do |cmd, **_opts|
-          idx = cmd.index("--mcp-config")
-          if idx
-            config_content = JSON.parse(File.read(cmd[idx + 1]))
-          end
+          config_path = extract_mcp_config_path(cmd)
+          config_content = JSON.parse(File.read(config_path)) if config_path
           success_result
         end
 
@@ -231,8 +239,8 @@ RSpec.describe "MCP Server Integration" do
 
         config_content = nil
         allow(mock_executor).to receive(:execute) do |cmd, **_opts|
-          idx = cmd.index("--mcp-config")
-          config_content = JSON.parse(File.read(cmd[idx + 1])) if idx
+          config_path = extract_mcp_config_path(cmd)
+          config_content = JSON.parse(File.read(config_path)) if config_path
           success_result
         end
 
@@ -519,8 +527,7 @@ RSpec.describe "MCP Server Integration" do
           write_result
         else
           # Second call is the actual command
-          idx = cmd.index("--mcp-config")
-          config_path = cmd[idx + 1] if idx
+          config_path ||= extract_mcp_config_path(cmd)
           success_result
         end
       end
@@ -546,7 +553,7 @@ RSpec.describe "MCP Server Integration" do
           container_path = cmd[2]
           write_result
         else
-          # Second call: actual command
+          # Second call is the actual command
           success_result
         end
       end
