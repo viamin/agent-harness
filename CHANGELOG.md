@@ -1,5 +1,12 @@
 ## [Unreleased]
 
+## [0.21.0](https://github.com/viamin/agent-harness/compare/agent-harness/v0.20.1...agent-harness/v0.21.0) (2026-06-09)
+
+
+### Features
+
+* Anthropic#build_command ignores provider_runtime.model for CLI execution plans ([025ff6e](https://github.com/viamin/agent-harness/commit/025ff6e0a0a1ae8bea3a607873460af7d9838d54))
+
 ## [0.20.1](https://github.com/viamin/agent-harness/compare/agent-harness/v0.20.0...agent-harness/v0.20.1) (2026-06-09)
 
 
