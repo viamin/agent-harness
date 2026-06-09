@@ -1,5 +1,13 @@
 ## [Unreleased]
 
+## [0.20.1](https://github.com/viamin/agent-harness/compare/agent-harness/v0.20.0...agent-harness/v0.20.1) (2026-06-09)
+
+
+### Bug Fixes
+
+* **anthropic:** --mcp-config space-form swallows the positional prompt (variadic flag) ([e52d38f](https://github.com/viamin/agent-harness/commit/e52d38fe97cdcc093860f4fda1de9e10c08f54c7))
+* **anthropic:** use equals form for mcp config ([481d734](https://github.com/viamin/agent-harness/commit/481d734e389e66056bfc82d4dfeb31ba76ba1128))
+
 ## [0.20.0](https://github.com/viamin/agent-harness/compare/agent-harness/v0.19.0...agent-harness/v0.20.0) (2026-05-30)
 
 
