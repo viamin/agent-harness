@@ -47,6 +47,7 @@ module AgentHarness
       @configuration = nil
       @conductor = nil
       @token_tracker = nil
+      @dependency_updater = nil
       Skills.reset! if defined?(Skills)
     end
 
@@ -341,6 +342,30 @@ module AgentHarness
       options[:provider_runtime] = provider_runtime unless provider_runtime.nil?
       ProviderHealthCheck.check(provider_name, **options)
     end
+
+    # Returns the global dependency updater for managing agent tool versions.
+    #
+    # The dependency updater applies a configurable cooldown period before
+    # adopting new upstream releases, reducing exposure to regressions.
+    #
+    # @return [DependencyUpdater] the dependency updater instance
+    def dependency_updater
+      @dependency_updater ||= DependencyUpdater.new
+    end
+
+    # Resolve the latest eligible version for an installable provider tool,
+    # applying the configured cooldown period.
+    #
+    # @param provider_name [Symbol, String] the provider name
+    # @param bypass_cooldown [Boolean] when true, skip the cooldown check
+    # @return [Hash, nil] version info with :provider, :version, :released_at,
+    #   :installation_contract keys, or nil when no eligible version exists
+    def resolve_latest_version(provider_name, bypass_cooldown: false)
+      dependency_updater.resolve_latest_installation_contract(
+        provider_name,
+        bypass_cooldown: bypass_cooldown
+      )
+    end
   end
 end
 
@@ -368,6 +393,8 @@ require_relative "agent_harness/openai_compatible_transport"
 require_relative "agent_harness/conversation"
 require_relative "agent_harness/authentication"
 require_relative "agent_harness/provider_health_check"
+require_relative "agent_harness/release_registry"
+require_relative "agent_harness/dependency_updater"
 
 # Provider layer
 require_relative "agent_harness/providers/registry"
