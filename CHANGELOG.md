@@ -1,5 +1,12 @@
 ## [Unreleased]
 
+## [0.22.1](https://github.com/viamin/agent-harness/compare/agent-harness/v0.22.0...agent-harness/v0.22.1) (2026-06-10)
+
+
+### Bug Fixes
+
+* Rate-limit reset parser fabricates far-future resets (year over-bump in parse_resets_date_time) ([6c7a34e](https://github.com/viamin/agent-harness/commit/6c7a34e7fb6b7b3080707e752e778423d6c26238))
+
 ## [0.22.0](https://github.com/viamin/agent-harness/compare/agent-harness/v0.21.0...agent-harness/v0.22.0) (2026-06-10)
 
 
