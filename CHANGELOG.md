@@ -1,5 +1,12 @@
 ## [Unreleased]
 
+## [0.22.0](https://github.com/viamin/agent-harness/compare/agent-harness/v0.21.0...agent-harness/v0.22.0) (2026-06-10)
+
+
+### Features
+
+* automated dependency updates for installable agents with cooldown period ([#239](https://github.com/viamin/agent-harness/issues/239)) ([0682cc0](https://github.com/viamin/agent-harness/commit/0682cc0d40264f5b5431fc0a7ab0c0d76416ec64))
+
 ## [0.21.0](https://github.com/viamin/agent-harness/compare/agent-harness/v0.20.1...agent-harness/v0.21.0) (2026-06-09)
 
 
