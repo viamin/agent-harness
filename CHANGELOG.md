@@ -1,5 +1,12 @@
 ## [Unreleased]
 
+## [0.22.2](https://github.com/viamin/agent-harness/compare/agent-harness/v0.22.1...agent-harness/v0.22.2) (2026-06-11)
+
+
+### Bug Fixes
+
+* apply test_command_overrides in Codex build_command for smoke tests ([#243](https://github.com/viamin/agent-harness/issues/243)) ([7810fad](https://github.com/viamin/agent-harness/commit/7810fadd2e81db442294999fce3f504f16239dab))
+
 ## [0.22.1](https://github.com/viamin/agent-harness/compare/agent-harness/v0.22.0...agent-harness/v0.22.1) (2026-06-10)
 
 
