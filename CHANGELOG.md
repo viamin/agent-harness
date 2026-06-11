@@ -1,5 +1,12 @@
 ## [Unreleased]
 
+## [0.22.3](https://github.com/viamin/agent-harness/compare/agent-harness/v0.22.2...agent-harness/v0.22.3) (2026-06-11)
+
+
+### Bug Fixes
+
+* supply tempfile path for --output-last-message in codex test_command_overrides ([#248](https://github.com/viamin/agent-harness/issues/248)) ([86c5621](https://github.com/viamin/agent-harness/commit/86c562183d5ff00ff8b14d93942ec752e543bb59)), closes [#246](https://github.com/viamin/agent-harness/issues/246)
+
 ## [0.22.2](https://github.com/viamin/agent-harness/compare/agent-harness/v0.22.1...agent-harness/v0.22.2) (2026-06-11)
 
 
