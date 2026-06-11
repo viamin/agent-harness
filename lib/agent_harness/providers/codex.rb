@@ -448,7 +448,7 @@ module AgentHarness
       end
 
       def test_command_overrides
-        ["--skip-git-repo-check", "--output-last-message"]
+        ["--skip-git-repo-check", "--output-last-message", "/tmp/codex-smoke-output.txt"]
       end
 
       def dangerous_mode_flags
