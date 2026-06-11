@@ -18,8 +18,8 @@ module AgentHarness
         keyword_init: true
       )
 
-      SUPPORTED_CLI_VERSION = "0.116.0"
-      SUPPORTED_CLI_REQUIREMENT = Gem::Requirement.new(">= #{SUPPORTED_CLI_VERSION}", "< 0.117.0").freeze
+      SUPPORTED_CLI_VERSION = "0.122.0"
+      SUPPORTED_CLI_REQUIREMENT = Gem::Requirement.new(">= #{SUPPORTED_CLI_VERSION}", "< 0.123.0").freeze
       OAUTH_REFRESH_FAILURE_PATTERNS = [
         /refresh_token_reused/i,
         /failed to refresh token\b.*\b401\b/im,
