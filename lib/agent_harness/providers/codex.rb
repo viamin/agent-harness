@@ -719,6 +719,8 @@ module AgentHarness
           cmd += runtime_flags unless runtime_flags.empty?
         end
 
+        cmd += test_command_overrides if options[:smoke_test]
+
         cmd << prompt
 
         cmd
