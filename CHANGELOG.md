@@ -1,5 +1,12 @@
 ## [Unreleased]
 
+## [0.22.4](https://github.com/viamin/agent-harness/compare/agent-harness/v0.22.3...agent-harness/v0.22.4) (2026-06-12)
+
+
+### Bug Fixes
+
+* specify explicit model in codex smoke test overrides ([#251](https://github.com/viamin/agent-harness/issues/251)) ([0dcaf42](https://github.com/viamin/agent-harness/commit/0dcaf42c82b7b559f6bb38e7f6ee346f52fb5900))
+
 ## [0.22.3](https://github.com/viamin/agent-harness/compare/agent-harness/v0.22.2...agent-harness/v0.22.3) (2026-06-11)
 
 
