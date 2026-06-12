@@ -1,5 +1,12 @@
 ## [Unreleased]
 
+## [0.22.5](https://github.com/viamin/agent-harness/compare/agent-harness/v0.22.4...agent-harness/v0.22.5) (2026-06-12)
+
+
+### Bug Fixes
+
+* remove hardcoded o4-mini model from codex smoke test ([#254](https://github.com/viamin/agent-harness/issues/254)) ([f088cf1](https://github.com/viamin/agent-harness/commit/f088cf1d10b15867c6ee39976658e3e0fe5e6ab3))
+
 ## [0.22.4](https://github.com/viamin/agent-harness/compare/agent-harness/v0.22.3...agent-harness/v0.22.4) (2026-06-12)
 
 
