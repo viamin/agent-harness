@@ -5,6 +5,13 @@
 * add runner model compatibility contract (`AgentHarness.model_compatibility`) with structured `ModelCompatibility::Result` outcomes. Codex exposes static facts for CLI-gated models (e.g. `gpt-5.5` requires Codex CLI `>= 0.116.0`), a baseline supported-model list, supported auth modes, and a `DEFAULT_COMPATIBLE_MODEL_ID` fallback so downstream orchestrators can validate tier/model assignments before scheduling agent runs ([#259](https://github.com/viamin/agent-harness/issues/259)).
 
 
+## [0.23.0](https://github.com/viamin/agent-harness/compare/agent-harness/v0.22.5...agent-harness/v0.23.0) (2026-06-15)
+
+
+### Features
+
+* Add runner model compatibility contracts for Codex and CLI-gated models ([#260](https://github.com/viamin/agent-harness/issues/260)) ([4c192a7](https://github.com/viamin/agent-harness/commit/4c192a72f323ecaaea96e87e8ead6634e33669c0))
+
 ## [0.22.5](https://github.com/viamin/agent-harness/compare/agent-harness/v0.22.4...agent-harness/v0.22.5) (2026-06-12)
 
 
