@@ -257,6 +257,33 @@ module AgentHarness
       Providers::Registry.instance.smoke_test_contracts
     end
 
+    # Query runner/model compatibility contract.
+    #
+    # Returns a structured {AgentHarness::ModelCompatibility::Result}
+    # describing whether the named runner can execute +model_id+ under
+    # the requested runtime constraints. Downstream orchestrators should
+    # consume this contract before validating tier models, selecting a
+    # runner, or scheduling work — rather than inferring compatibility
+    # from scattered CLI version pins, smoke-test overrides, or runtime
+    # error strings.
+    #
+    # @param runner [Symbol, String] provider/runner name (e.g. :codex)
+    # @param model_id [String, Symbol] requested model identifier
+    # @param auth_mode [Symbol, nil] caller's auth mode (e.g. :api_key,
+    #   :subscription)
+    # @param cli_version [String, Gem::Version, nil] installed CLI
+    #   version, when known
+    # @return [AgentHarness::ModelCompatibility::Result]
+    # @raise [ConfigurationError] if the runner is not registered
+    def model_compatibility(runner:, model_id:, auth_mode: nil, cli_version: nil)
+      Providers::Registry.instance.model_compatibility(
+        runner,
+        model_id: model_id,
+        auth_mode: auth_mode,
+        cli_version: cli_version
+      )
+    end
+
     # Check if authentication is valid for a provider
     # @param provider_name [Symbol] the provider name
     # @return [Boolean] true if auth is valid
@@ -395,6 +422,7 @@ require_relative "agent_harness/authentication"
 require_relative "agent_harness/provider_health_check"
 require_relative "agent_harness/release_registry"
 require_relative "agent_harness/dependency_updater"
+require_relative "agent_harness/model_compatibility"
 
 # Provider layer
 require_relative "agent_harness/providers/registry"

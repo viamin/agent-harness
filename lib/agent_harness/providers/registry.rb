@@ -181,6 +181,29 @@ module AgentHarness
         end
       end
 
+      # Query runner/model compatibility contract for a provider.
+      #
+      # Delegates to the provider class's +.model_compatibility+ method,
+      # which returns a structured {AgentHarness::ModelCompatibility::Result}.
+      # The default implementation in {AgentHarness::Providers::Adapter}
+      # returns +:unknown+ for providers that have not opted in to a
+      # static contract.
+      #
+      # @param name [Symbol, String] the provider name or alias
+      # @param model_id [String, Symbol] requested model identifier
+      # @param auth_mode [Symbol, nil] caller's auth mode
+      # @param cli_version [String, Gem::Version, nil] installed CLI version
+      # @return [AgentHarness::ModelCompatibility::Result]
+      # @raise [ConfigurationError] if the provider name is not registered
+      def model_compatibility(name, model_id:, auth_mode: nil, cli_version: nil)
+        klass = get(name)
+        klass.model_compatibility(
+          model_id: model_id,
+          auth_mode: auth_mode,
+          cli_version: cli_version
+        )
+      end
+
       # Get smoke-test metadata for a provider.
       #
       # @param name [Symbol, String] the provider name

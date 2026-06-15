@@ -709,6 +709,63 @@ module AgentHarness
           nil
         end
 
+        # Runner/model compatibility contract.
+        #
+        # Returns a structured {AgentHarness::ModelCompatibility::Result}
+        # describing whether this runner can execute +model_id+ under the
+        # given +auth_mode+ and installed +cli_version+. Providers that own
+        # CLI-gated or entitlement-gated models should override this to
+        # expose stable, structured facts so downstream orchestrators do not
+        # have to parse error strings or rediscover provider knowledge.
+        #
+        # The default implementation returns an explicit +:unknown+ result
+        # rather than collapsing to "supported" — callers are expected to
+        # handle unknown outcomes explicitly.
+        #
+        # @param model_id [String, Symbol] the requested model identifier
+        # @param auth_mode [Symbol, nil] caller's auth mode (e.g. :api_key,
+        #   :subscription)
+        # @param cli_version [String, Gem::Version, nil] installed CLI
+        #   version, when known
+        # @return [AgentHarness::ModelCompatibility::Result]
+        def model_compatibility(model_id:, auth_mode: nil, cli_version: nil)
+          AgentHarness::ModelCompatibility.unknown_result(
+            runner: provider_name,
+            model_id: model_id,
+            auth_mode: auth_mode,
+            cli_version: normalize_cli_version_for_compatibility(cli_version),
+            fallback_model_id: default_compatible_model_id
+          )
+        end
+
+        # Optional default model the runner can recommend as a fallback when
+        # a requested model is unsupported or unknown. Providers override
+        # this when they own a stable default model for smoke tests or
+        # downstream tier fallback.
+        #
+        # @return [String, nil]
+        def default_compatible_model_id
+          nil
+        end
+
+        # Helper for {#model_compatibility} implementations: coerce a CLI
+        # version string into a +Gem::Version+ when possible, returning the
+        # raw value otherwise. Keeps Result#cli_version stable across
+        # callers that pass either form.
+        def normalize_cli_version_for_compatibility(value)
+          return nil if value.nil?
+          return value if value.is_a?(Gem::Version)
+
+          str = value.respond_to?(:strip) ? value.strip : value.to_s
+          return nil if str.empty?
+
+          begin
+            Gem::Version.new(str)
+          rescue ArgumentError
+            str
+          end
+        end
+
         private
 
         def versioned_installation_contract(version)
