@@ -358,9 +358,14 @@ Outcomes follow three explicit shapes:
   symbolic `reason` such as `:cli_version_too_old` or
   `:auth_mode_not_supported`, plus any version requirement and a
   contract-owned `fallback_model_id` to use instead.
-- **Unknown** — `result.unknown?` is `true`. The model is not in the
-  runner's static contract and callers must treat the answer as
-  "ask the provider," not as implicit approval.
+- **Unknown** — `result.unknown?` is `true`. The runner cannot answer
+  definitively — either the model is not in the runner's static
+  contract (`reason: :unknown_model`), or the model is CLI-gated and the
+  caller did not supply a comparable `cli_version`
+  (`reason: :cli_version_unknown`, with `minimum_cli_version` attached).
+  Callers must treat unknown as "ask the provider" — never as implicit
+  approval — so a missing CLI version cannot silently schedule a run
+  onto an older CLI that the model does not support.
 
 Providers that have not opted in to a static contract return an unknown
 result by default, so callers always get a normalized

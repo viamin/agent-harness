@@ -26,6 +26,15 @@ RSpec.describe AgentHarness::ModelCompatibility do
       expect(result.reason).to eq(described_class::UNKNOWN_REASON)
       expect(result.unknown?).to be(true)
     end
+
+    it "raises ArgumentError when supported: false is passed without an explicit reason" do
+      # Guards against collapsing unsupported into :unknown — the contract
+      # requires a specific reason (e.g. :cli_version_too_old) so callers can
+      # branch on it rather than on parsed error strings.
+      expect {
+        described_class.build_result(runner: :codex, model_id: "x", supported: false)
+      }.to raise_error(ArgumentError, /requires an explicit `reason:`/)
+    end
   end
 
   describe ".unknown_result" do

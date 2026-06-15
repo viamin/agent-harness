@@ -317,7 +317,28 @@ module AgentHarness
             requirement = Gem::Requirement.new(">= #{minimum_version}")
             comparable_version = comparable_cli_version(normalized_cli_version)
 
-            if comparable_version && !requirement.satisfied_by?(comparable_version)
+            # A CLI-gated model without a comparable installed version must
+            # stay explicit. Returning :supported here would re-introduce the
+            # exact `gpt-5.5` failure class this contract is designed to
+            # prevent — a caller that cannot supply a version would get
+            # `supported? == true` and may still schedule a run onto an old
+            # CLI (e.g. 0.115.x). Surface :unknown with the requirement
+            # attached so callers can decide deliberately.
+            if comparable_version.nil?
+              return AgentHarness::ModelCompatibility.unknown_result(
+                runner: provider_name,
+                model_id: normalized_model_id,
+                auth_mode: normalized_auth_mode,
+                cli_version: normalized_cli_version,
+                reason: AgentHarness::ModelCompatibility::UNKNOWN_CLI_VERSION_REASON,
+                minimum_cli_version: minimum_version,
+                cli_version_requirement: requirement.to_s,
+                fallback_model_id: DEFAULT_COMPATIBLE_MODEL_ID,
+                source: :static_contract
+              )
+            end
+
+            unless requirement.satisfied_by?(comparable_version)
               return AgentHarness::ModelCompatibility.build_result(
                 runner: provider_name,
                 model_id: normalized_model_id,

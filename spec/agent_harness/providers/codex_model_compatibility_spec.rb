@@ -56,18 +56,24 @@ RSpec.describe AgentHarness::Providers::Codex, ".model_compatibility" do
     expect(result.source).to eq(:unknown)
   end
 
-  it "treats CLI-gated models as supported when no CLI version is supplied" do
-    # No installed-version signal: the runner cannot say the CLI is too old,
-    # so it returns supported with the minimum requirement attached for
-    # downstream gating.
+  it "returns :unknown with the minimum requirement when no CLI version is supplied for a CLI-gated model" do
+    # No installed-version signal: the runner cannot confirm the installed
+    # CLI is new enough, so it must NOT collapse to :supported (that would
+    # re-introduce the `gpt-5.5` on old-CLI failure class). Surface :unknown
+    # with the requirement attached so callers can decide deliberately.
     result = described_class.model_compatibility(
       model_id: "gpt-5.5",
       auth_mode: :subscription,
       cli_version: nil
     )
 
-    expect(result.supported?).to be(true)
+    expect(result.unknown?).to be(true)
+    expect(result.supported).to be_nil
+    expect(result.reason).to eq(:cli_version_unknown)
     expect(result.minimum_cli_version).to eq("0.116.0")
+    expect(result.cli_version_requirement).to include("0.116.0")
+    expect(result.fallback_model_id).to eq(described_class::DEFAULT_COMPATIBLE_MODEL_ID)
+    expect(result.source).to eq(:static_contract)
   end
 
   it "returns :auth_mode_not_supported for unrecognised auth modes" do
@@ -93,17 +99,20 @@ RSpec.describe AgentHarness::Providers::Codex, ".model_compatibility" do
     expect(result.supported?).to be(true)
   end
 
-  it "treats unparseable cli_version as no signal rather than failing" do
+  it "treats unparseable cli_version as :unknown for CLI-gated models rather than upgrading to supported" do
     result = described_class.model_compatibility(
       model_id: "gpt-5.5",
       auth_mode: :subscription,
       cli_version: "not-a-version"
     )
 
-    # Cannot determine version too-old without a parseable version, so it
-    # falls through to supported with the minimum requirement attached.
-    expect(result.supported?).to be(true)
+    # Cannot determine version too-old without a parseable version. The
+    # runner stays explicit (:unknown) rather than reporting :supported, so
+    # callers do not silently schedule onto an unverified CLI.
+    expect(result.unknown?).to be(true)
+    expect(result.reason).to eq(:cli_version_unknown)
     expect(result.minimum_cli_version).to eq("0.116.0")
+    expect(result.fallback_model_id).to eq(described_class::DEFAULT_COMPATIBLE_MODEL_ID)
   end
 
   it "is reachable through AgentHarness.model_compatibility" do

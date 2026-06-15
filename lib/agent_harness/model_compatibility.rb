@@ -25,6 +25,12 @@ module AgentHarness
     UNKNOWN_REASON = :unknown
     # Issued when a runner does not advertise the requested model at all.
     UNKNOWN_MODEL_REASON = :unknown_model
+    # Issued when the runner needs a comparable CLI version to answer
+    # definitively for a CLI-gated model but the caller did not supply one
+    # (or it could not be parsed). Pairs with :minimum_cli_version on the
+    # result. Distinct from :unknown_model — the runner *does* know the
+    # model; it just cannot confirm the installed CLI is new enough.
+    UNKNOWN_CLI_VERSION_REASON = :cli_version_unknown
     # Issued when the runner supports the model but the installed CLI is too
     # old. Pairs with :minimum_cli_version on the result.
     UNSUPPORTED_CLI_VERSION_REASON = :cli_version_too_old
@@ -86,6 +92,15 @@ module AgentHarness
         normalized_model_id = model_id.is_a?(Symbol) ? model_id.to_s : model_id
         source = attributes.fetch(:source, :static_contract)
         supported = attributes[:supported]
+
+        if supported == false && attributes[:reason].nil?
+          raise ArgumentError,
+            "AgentHarness::ModelCompatibility.build_result requires an explicit " \
+            "`reason:` when `supported: false`. Pass a specific reason " \
+            "(e.g. :cli_version_too_old, :auth_mode_not_supported) so " \
+            "callers can distinguish unsupported from :unknown."
+        end
+
         reason = attributes[:reason] || default_reason_for(supported)
 
         Result.new(
@@ -122,7 +137,6 @@ module AgentHarness
       def default_reason_for(supported)
         case supported
         when true then SUPPORTED_REASON
-        when false then UNKNOWN_REASON
         else UNKNOWN_REASON
         end
       end
