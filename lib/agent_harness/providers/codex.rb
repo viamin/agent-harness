@@ -20,6 +20,43 @@ module AgentHarness
 
       SUPPORTED_CLI_VERSION = "0.122.0"
       SUPPORTED_CLI_REQUIREMENT = Gem::Requirement.new(">= #{SUPPORTED_CLI_VERSION}", "< 0.123.0").freeze
+
+      # Default model recommended by the Codex runner contract when callers
+      # have no explicit preference. Used as the {AgentHarness::ModelCompatibility::Result#fallback_model_id}
+      # for unsupported/unknown model lookups so downstream orchestrators
+      # (smoke tests, tier fallback) have a stable, contract-backed choice
+      # instead of relying on whichever model the CLI's default points at.
+      DEFAULT_COMPATIBLE_MODEL_ID = "gpt-5-codex"
+
+      # Known CLI-gated model facts. Each entry expresses the minimum Codex
+      # CLI version required to drive that model. Keep entries here only when
+      # the requirement is durable runner contract knowledge — not
+      # provider-side experiments or one-off CLI defaults.
+      #
+      # The +gpt-5.5+ entry tracks the failure class observed in
+      # viamin/agent-harness#245 and viamin/agent-harness#250: older Codex
+      # CLI builds (e.g. 0.115.x) could not drive the +gpt-5.5+ family.
+      MODEL_COMPATIBILITY_FACTS = {
+        "gpt-5.5" => {minimum_cli_version: "0.116.0"},
+        "gpt-5.5-codex" => {minimum_cli_version: "0.116.0"}
+      }.each_value(&:freeze).freeze
+
+      # Models that the runner contract considers supported on every Codex
+      # CLI release we ship. Used by {.model_compatibility} so callers can
+      # distinguish "unknown to the contract" from "explicitly supported."
+      BASELINE_SUPPORTED_MODELS = %w[
+        gpt-5
+        gpt-5-codex
+        gpt-5-mini
+        gpt-4o
+        gpt-4o-mini
+        o4-mini
+      ].freeze
+
+      # Auth modes the Codex runner accepts. Compatibility checks for an
+      # unrecognised auth mode return :auth_mode_not_supported rather than
+      # silently approving the request.
+      SUPPORTED_AUTH_MODES = %i[api_key subscription].freeze
       OAUTH_REFRESH_FAILURE_PATTERNS = [
         /refresh_token_reused/i,
         /failed to refresh token\b.*\b401\b/im,
@@ -230,6 +267,122 @@ module AgentHarness
 
         def smoke_test_contract
           Base::DEFAULT_SMOKE_TEST_CONTRACT
+        end
+
+        def default_compatible_model_id
+          DEFAULT_COMPATIBLE_MODEL_ID
+        end
+
+        # Structured Codex compatibility contract.
+        #
+        # Returns an {AgentHarness::ModelCompatibility::Result} for the
+        # combination of +model_id+, +auth_mode+, and installed
+        # +cli_version+. The contract surfaces three concrete outcomes:
+        #
+        # 1. **Supported** — the model is in {BASELINE_SUPPORTED_MODELS} (or
+        #    a known CLI-gated model whose minimum CLI version is met).
+        # 2. **Unsupported due to CLI version** — the model is known to need
+        #    a newer Codex CLI than was supplied; the result carries
+        #    +:minimum_cli_version+ so callers can act on it.
+        # 3. **Unknown / dynamic** — the model is not in this static
+        #    contract. Callers must treat this as "ask the provider" rather
+        #    than as approval.
+        #
+        # @param model_id [String, Symbol]
+        # @param auth_mode [Symbol, nil] :api_key or :subscription
+        # @param cli_version [String, Gem::Version, nil]
+        # @return [AgentHarness::ModelCompatibility::Result]
+        def model_compatibility(model_id:, auth_mode: nil, cli_version: nil)
+          normalized_model_id = model_id.to_s
+          normalized_auth_mode = auth_mode&.to_sym
+          normalized_cli_version = normalize_cli_version_for_compatibility(cli_version)
+
+          if normalized_auth_mode && !SUPPORTED_AUTH_MODES.include?(normalized_auth_mode)
+            return AgentHarness::ModelCompatibility.build_result(
+              runner: provider_name,
+              model_id: normalized_model_id,
+              auth_mode: normalized_auth_mode,
+              cli_version: normalized_cli_version,
+              supported: false,
+              reason: AgentHarness::ModelCompatibility::UNSUPPORTED_AUTH_MODE_REASON,
+              fallback_model_id: DEFAULT_COMPATIBLE_MODEL_ID,
+              source: :static_contract,
+              details: {supported_auth_modes: SUPPORTED_AUTH_MODES}
+            )
+          end
+
+          gated_fact = MODEL_COMPATIBILITY_FACTS[normalized_model_id]
+          if gated_fact
+            minimum_version = gated_fact[:minimum_cli_version]
+            requirement = Gem::Requirement.new(">= #{minimum_version}")
+            comparable_version = comparable_cli_version(normalized_cli_version)
+
+            if comparable_version && !requirement.satisfied_by?(comparable_version)
+              return AgentHarness::ModelCompatibility.build_result(
+                runner: provider_name,
+                model_id: normalized_model_id,
+                auth_mode: normalized_auth_mode,
+                cli_version: normalized_cli_version,
+                supported: false,
+                reason: AgentHarness::ModelCompatibility::UNSUPPORTED_CLI_VERSION_REASON,
+                minimum_cli_version: minimum_version,
+                cli_version_requirement: requirement.to_s,
+                fallback_model_id: DEFAULT_COMPATIBLE_MODEL_ID,
+                source: :static_contract
+              )
+            end
+
+            return AgentHarness::ModelCompatibility.build_result(
+              runner: provider_name,
+              model_id: normalized_model_id,
+              auth_mode: normalized_auth_mode,
+              cli_version: normalized_cli_version,
+              supported: true,
+              reason: AgentHarness::ModelCompatibility::SUPPORTED_REASON,
+              minimum_cli_version: minimum_version,
+              cli_version_requirement: requirement.to_s,
+              source: :static_contract
+            )
+          end
+
+          if BASELINE_SUPPORTED_MODELS.include?(normalized_model_id)
+            return AgentHarness::ModelCompatibility.build_result(
+              runner: provider_name,
+              model_id: normalized_model_id,
+              auth_mode: normalized_auth_mode,
+              cli_version: normalized_cli_version,
+              supported: true,
+              reason: AgentHarness::ModelCompatibility::SUPPORTED_REASON,
+              source: :static_contract
+            )
+          end
+
+          AgentHarness::ModelCompatibility.unknown_result(
+            runner: provider_name,
+            model_id: normalized_model_id,
+            auth_mode: normalized_auth_mode,
+            cli_version: normalized_cli_version,
+            reason: AgentHarness::ModelCompatibility::UNKNOWN_MODEL_REASON,
+            fallback_model_id: DEFAULT_COMPATIBLE_MODEL_ID
+          )
+        end
+
+        # Coerce normalized CLI version into a +Gem::Version+ usable for
+        # requirement comparison. Returns +nil+ when the value is missing or
+        # cannot be parsed — callers treat that as "no installed-version
+        # signal," not as a failure.
+        def comparable_cli_version(value)
+          return value if value.is_a?(Gem::Version)
+          return nil if value.nil?
+
+          str = value.respond_to?(:strip) ? value.strip : value.to_s
+          return nil if str.empty?
+
+          begin
+            Gem::Version.new(str)
+          rescue ArgumentError
+            nil
+          end
         end
 
         def parse_cli_jsonl_transcript(raw_output, max_events: nil)

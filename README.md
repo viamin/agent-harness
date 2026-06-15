@@ -326,6 +326,49 @@ tests assert that the expected binary remains aligned with that contract.
 `source_type`, `package_name`, version fields, and install commands so
 downstream apps do not need provider-specific branching.
 
+### Runner Model Compatibility
+
+Downstream orchestrators that map tiers or task requirements to concrete
+models should consult the runner/model compatibility contract before
+scheduling a run. The contract surfaces the runtime dimensions that
+materially affect whether a model will run — runner identity, model id,
+auth mode, and installed CLI version — and returns a structured result
+instead of forcing callers to parse error strings:
+
+```ruby
+result = AgentHarness.model_compatibility(
+  runner: :codex,
+  model_id: "gpt-5.5",
+  auth_mode: :subscription,
+  cli_version: "0.115.0"
+)
+
+result.supported?            # => false
+result.reason                # => :cli_version_too_old
+result.minimum_cli_version   # => "0.116.0"
+result.fallback_model_id     # => "gpt-5-codex"
+result.source                # => :static_contract
+```
+
+Outcomes follow three explicit shapes:
+
+- **Supported** — `result.supported?` is `true`. The runner contract
+  confirms the model can be driven under the given constraints.
+- **Unsupported** — `result.unsupported?` is `true` with a stable
+  symbolic `reason` such as `:cli_version_too_old` or
+  `:auth_mode_not_supported`, plus any version requirement and a
+  contract-owned `fallback_model_id` to use instead.
+- **Unknown** — `result.unknown?` is `true`. The model is not in the
+  runner's static contract and callers must treat the answer as
+  "ask the provider," not as implicit approval.
+
+Providers that have not opted in to a static contract return an unknown
+result by default, so callers always get a normalized
+`AgentHarness::ModelCompatibility::Result` without provider-specific
+branching. The Codex runner ships static facts for CLI-gated models
+(for example `gpt-5.5` requires Codex CLI `>= 0.116.0`) and a baseline
+list of always-supported models.
+
 ### Custom Providers
 
 ```ruby
