@@ -582,7 +582,8 @@ RSpec.describe AgentHarness::Authentication do
         auth_type: :oauth,
         auth_url: true,
         refresh: true,
-        exchange: true
+        exchange: true,
+        code_exchange: true
       )
     end
 
@@ -591,7 +592,8 @@ RSpec.describe AgentHarness::Authentication do
         auth_type: :oauth,
         auth_url: true,
         refresh: true,
-        exchange: true
+        exchange: true,
+        code_exchange: true
       )
     end
 
@@ -600,7 +602,8 @@ RSpec.describe AgentHarness::Authentication do
         auth_type: :api_key,
         auth_url: false,
         refresh: false,
-        exchange: false
+        exchange: false,
+        code_exchange: false
       )
     end
 
@@ -609,7 +612,8 @@ RSpec.describe AgentHarness::Authentication do
         auth_type: :oauth,
         auth_url: false,
         refresh: false,
-        exchange: false
+        exchange: false,
+        code_exchange: false
       )
     end
 
@@ -903,6 +907,235 @@ RSpec.describe AgentHarness::Authentication do
       it "raises UnsupportedAuthFlowError" do
         expect { described_class.exchange_refresh_token(:cursor) }
           .to raise_error(AgentHarness::UnsupportedAuthFlowError, /Token exchange is not yet implemented/)
+      end
+    end
+  end
+
+  describe ".exchange_code_supported?" do
+    it "returns true for Claude" do
+      expect(described_class.exchange_code_supported?(:claude)).to be true
+    end
+
+    it "returns true for the Anthropic alias" do
+      expect(described_class.exchange_code_supported?(:anthropic)).to be true
+    end
+
+    it "returns false for API key providers" do
+      expect(described_class.exchange_code_supported?(:codex)).to be false
+    end
+
+    it "returns false for OAuth providers without code-exchange implementations" do
+      expect(described_class.exchange_code_supported?(:cursor)).to be false
+    end
+
+    it "raises ProviderNotFoundError for unknown providers" do
+      expect { described_class.exchange_code_supported?(:unknown_provider) }
+        .to raise_error(AgentHarness::ProviderNotFoundError, "Unknown provider: unknown_provider")
+    end
+  end
+
+  describe ".exchange_code" do
+    let(:token_response) do
+      {
+        "access_token" => "exchanged-access-token",
+        "refresh_token" => "issued-refresh-token",
+        "expires_in" => 3600,
+        "token_type" => "Bearer"
+      }
+    end
+
+    let(:exchange_params) do
+      {
+        code: "auth-code-abc",
+        code_verifier: "verifier-xyz",
+        redirect_uri: "https://example.com/cb",
+        client_id: "test-client-id"
+      }
+    end
+
+    def stub_token_endpoint(status:, body:)
+      http_response = instance_double(
+        Net::HTTPOK,
+        code: status.to_s,
+        body: JSON.generate(body)
+      )
+      allow(http_response).to receive(:is_a?).and_return(false)
+      allow(http_response).to receive(:is_a?).with(Net::HTTPSuccess).and_return(status >= 200 && status < 300)
+
+      http = instance_double(Net::HTTP)
+      allow(Net::HTTP).to receive(:new).and_return(http)
+      allow(http).to receive(:use_ssl=)
+      allow(http).to receive(:open_timeout=)
+      allow(http).to receive(:read_timeout=)
+      allow(http).to receive(:request).and_return(http_response)
+      http
+    end
+
+    context "for Claude provider" do
+      it "exchanges code and returns claudeAiOauth shape" do
+        stub_token_endpoint(status: 200, body: token_response)
+
+        result = described_class.exchange_code(:claude, **exchange_params)
+
+        expect(result).to have_key(:claudeAiOauth)
+        oauth = result[:claudeAiOauth]
+        expect(oauth[:accessToken]).to eq("exchanged-access-token")
+        expect(oauth[:refreshToken]).to eq("issued-refresh-token")
+        expect(oauth[:expiresAt]).not_to be_nil
+      end
+
+      it "persists tokens to the credentials file in native shape" do
+        stub_token_endpoint(status: 200, body: token_response)
+
+        described_class.exchange_code(:claude, **exchange_params)
+
+        credentials = JSON.parse(File.read(credentials_path))
+        expect(credentials["claudeAiOauth"]["accessToken"]).to eq("exchanged-access-token")
+        expect(credentials["claudeAiOauth"]["refreshToken"]).to eq("issued-refresh-token")
+        expect(credentials["oauth_token"]).to eq("exchanged-access-token")
+      end
+
+      it "computes expiresAt from expires_in" do
+        stub_token_endpoint(status: 200, body: token_response)
+
+        before_exchange = Time.now
+        described_class.exchange_code(:claude, **exchange_params)
+
+        credentials = JSON.parse(File.read(credentials_path))
+        expires_at = Time.parse(credentials["expiresAt"])
+        expect(expires_at).to be_within(2).of(before_exchange + 3600)
+      end
+
+      it "works with the :anthropic alias" do
+        stub_token_endpoint(status: 200, body: token_response)
+
+        result = described_class.exchange_code(:anthropic, **exchange_params)
+        expect(result[:claudeAiOauth][:accessToken]).to eq("exchanged-access-token")
+      end
+
+      it "sends authorization_code grant_type with PKCE parameters" do
+        http = stub_token_endpoint(status: 200, body: token_response)
+
+        expect(http).to receive(:request) do |req|
+          body = JSON.parse(req.body)
+          expect(body["grant_type"]).to eq("authorization_code")
+          expect(body["code"]).to eq("auth-code-abc")
+          expect(body["code_verifier"]).to eq("verifier-xyz")
+          expect(body["redirect_uri"]).to eq("https://example.com/cb")
+          expect(body["client_id"]).to eq("test-client-id")
+          expect(body).not_to have_key("state")
+
+          response = instance_double(Net::HTTPOK, code: "200", body: JSON.generate(token_response))
+          allow(response).to receive(:is_a?).and_return(false)
+          allow(response).to receive(:is_a?).with(Net::HTTPSuccess).and_return(true)
+          response
+        end
+
+        described_class.exchange_code(:claude, **exchange_params)
+      end
+
+      it "includes state when provided" do
+        http = stub_token_endpoint(status: 200, body: token_response)
+
+        expect(http).to receive(:request) do |req|
+          body = JSON.parse(req.body)
+          expect(body["state"]).to eq("nonce-123")
+
+          response = instance_double(Net::HTTPOK, code: "200", body: JSON.generate(token_response))
+          allow(response).to receive(:is_a?).and_return(false)
+          allow(response).to receive(:is_a?).with(Net::HTTPSuccess).and_return(true)
+          response
+        end
+
+        described_class.exchange_code(:claude, state: "nonce-123", **exchange_params)
+      end
+
+      it "preserves existing credentials fields" do
+        File.write(credentials_path, JSON.generate({"custom_field" => "preserved"}))
+
+        stub_token_endpoint(status: 200, body: token_response)
+
+        described_class.exchange_code(:claude, **exchange_params)
+
+        updated = JSON.parse(File.read(credentials_path))
+        expect(updated["custom_field"]).to eq("preserved")
+      end
+
+      it "sets restrictive file permissions on credentials file" do
+        stub_token_endpoint(status: 200, body: token_response)
+
+        described_class.exchange_code(:claude, **exchange_params)
+
+        mode = File.stat(credentials_path).mode & 0o777
+        expect(mode).to eq(0o600)
+      end
+
+      it "creates credentials directory if missing" do
+        nested_dir = File.join(tmp_dir, "nested", "dir")
+        allow(ENV).to receive(:[]).with("CLAUDE_CONFIG_DIR").and_return(nested_dir)
+
+        stub_token_endpoint(status: 200, body: token_response)
+
+        described_class.exchange_code(:claude, **exchange_params)
+
+        expect(File.exist?(File.join(nested_dir, ".credentials.json"))).to be true
+      end
+    end
+
+    context "when the token endpoint returns a non-success status" do
+      it "raises AuthenticationError with HTTP status details" do
+        stub_token_endpoint(status: 400, body: {
+          "error" => "invalid_grant",
+          "error_description" => "Authorization code is invalid"
+        })
+
+        expect { described_class.exchange_code(:claude, **exchange_params) }
+          .to raise_error(AgentHarness::AuthenticationError, /Code exchange failed \(HTTP 400\).*Authorization code is invalid/)
+      end
+    end
+
+    context "when the response is missing access_token" do
+      it "raises AuthenticationError" do
+        stub_token_endpoint(status: 200, body: {"refresh_token" => "only-refresh"})
+
+        expect { described_class.exchange_code(:claude, **exchange_params) }
+          .to raise_error(AgentHarness::AuthenticationError, /did not include an access_token/)
+      end
+    end
+
+    context "with missing or blank parameters" do
+      it "raises ArgumentError when code is blank" do
+        expect { described_class.exchange_code(:claude, **exchange_params.merge(code: "")) }
+          .to raise_error(ArgumentError, /code must be a non-empty string/)
+      end
+
+      it "raises ArgumentError when code_verifier is blank" do
+        expect { described_class.exchange_code(:claude, **exchange_params.merge(code_verifier: "   ")) }
+          .to raise_error(ArgumentError, /code_verifier must be a non-empty string/)
+      end
+
+      it "raises ArgumentError when redirect_uri is blank" do
+        expect { described_class.exchange_code(:claude, **exchange_params.merge(redirect_uri: "")) }
+          .to raise_error(ArgumentError, /redirect_uri must be a non-empty string/)
+      end
+
+      it "raises ArgumentError when client_id is blank" do
+        expect { described_class.exchange_code(:claude, **exchange_params.merge(client_id: "")) }
+          .to raise_error(ArgumentError, /client_id must be a non-empty string/)
+      end
+    end
+
+    context "for API key provider" do
+      it "raises UnsupportedAuthFlowError" do
+        expect { described_class.exchange_code(:aider, **exchange_params) }
+          .to raise_error(AgentHarness::UnsupportedAuthFlowError, /api_key auth/)
+      end
+    end
+
+    context "for OAuth provider without code-exchange support" do
+      it "raises UnsupportedAuthFlowError" do
+        expect { described_class.exchange_code(:cursor, **exchange_params) }
+          .to raise_error(AgentHarness::UnsupportedAuthFlowError, /Code exchange is not yet implemented/)
       end
     end
   end

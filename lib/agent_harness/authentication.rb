@@ -52,7 +52,8 @@ module AgentHarness
           auth_type: provider.auth_type,
           auth_url: flow_supported,
           refresh: flow_supported,
-          exchange: flow_supported
+          exchange: flow_supported,
+          code_exchange: flow_supported
         }
       end
 
@@ -172,7 +173,73 @@ module AgentHarness
         end
       end
 
+      # Check whether PKCE authorization-code exchange is supported for a provider.
+      #
+      # @param provider_name [Symbol] the provider name
+      # @return [Boolean] true if exchange_code can be called
+      # @raise [ProviderNotFoundError] if provider is unknown
+      def exchange_code_supported?(provider_name)
+        auth_capabilities(provider_name)[:code_exchange]
+      end
+
+      # Exchange a PKCE authorization code for tokens and persist them in native shape.
+      #
+      # Posts the authorization code and PKCE verifier to the provider's OAuth
+      # token endpoint, then writes the resulting access/refresh tokens to the
+      # credentials store using the provider's native shape (e.g. +claudeAiOauth+
+      # for Claude).
+      #
+      # Serializes through a file lock so that concurrent callers do not race on
+      # credential writes.
+      #
+      # @param provider_name [Symbol] the provider name
+      # @param code [String] authorization code returned from the OAuth redirect (required)
+      # @param code_verifier [String] PKCE code verifier matching the code_challenge sent on the auth URL (required)
+      # @param redirect_uri [String] redirect URI registered with the authorization request (required)
+      # @param client_id [String] OAuth client identifier (required)
+      # @param state [String, nil] optional state parameter echoed from the authorization request
+      # @return [Hash] credential in claudeAiOauth shape for Claude:
+      #   +{ claudeAiOauth: { accessToken:, refreshToken:, expiresAt: } }+
+      # @raise [UnsupportedAuthFlowError] if provider doesn't support PKCE code exchange
+      # @raise [ArgumentError] if any required parameter is blank
+      # @raise [AuthenticationError] if the exchange fails
+      def exchange_code(provider_name, code:, code_verifier:, redirect_uri:, client_id:, state: nil)
+        provider_name = provider_name.to_sym
+        provider = resolve_provider(provider_name)
+
+        unless provider.auth_type == :oauth
+          raise UnsupportedAuthFlowError,
+            "Provider #{provider_name} uses #{provider.auth_type} auth and does not support code exchange"
+        end
+
+        validate_code_exchange_params!(code: code, code_verifier: code_verifier,
+          redirect_uri: redirect_uri, client_id: client_id)
+
+        case provider_name
+        when :claude, :anthropic
+          exchange_claude_code(
+            code: code.strip,
+            code_verifier: code_verifier.strip,
+            redirect_uri: redirect_uri.strip,
+            client_id: client_id.strip,
+            state: state
+          )
+        else
+          raise UnsupportedAuthFlowError,
+            "Code exchange is not yet implemented for provider #{provider_name}"
+        end
+      end
+
       private
+
+      def validate_code_exchange_params!(code:, code_verifier:, redirect_uri:, client_id:)
+        {code: code, code_verifier: code_verifier,
+         redirect_uri: redirect_uri, client_id: client_id}.each do |name, value|
+          unless non_blank?(value)
+            raise ArgumentError, "#{name} must be a non-empty string"
+          end
+        end
+      end
 
       def claude_oauth_flow_provider?(requested_name, canonical_name)
         [:claude, :anthropic].include?(requested_name) || canonical_name == :claude
@@ -354,6 +421,103 @@ module AgentHarness
 
           {claudeAiOauth: oauth_block.transform_keys(&:to_sym)}
         end
+      end
+
+      def exchange_claude_code(code:, code_verifier:, redirect_uri:, client_id:, state:)
+        credentials_path = claude_credentials_path
+        lock_path = "#{credentials_path}.lock"
+
+        dir = File.dirname(credentials_path)
+        FileUtils.mkdir_p(dir, mode: 0o700)
+
+        File.open(lock_path, File::RDWR | File::CREAT, 0o600) do |lock|
+          lock.flock(File::LOCK_EX)
+
+          response_body = post_code_exchange(
+            code: code,
+            code_verifier: code_verifier,
+            redirect_uri: redirect_uri,
+            client_id: client_id,
+            state: state
+          )
+
+          access_token = response_body["access_token"]
+          new_refresh_token = response_body["refresh_token"]
+          expires_in = response_body["expires_in"]
+
+          unless non_blank?(access_token)
+            raise AuthenticationError.new(
+              "Code exchange response did not include an access_token",
+              provider: :claude
+            )
+          end
+
+          expires_at = expires_in ? (Time.now + expires_in).iso8601 : nil
+
+          oauth_block = {
+            "accessToken" => access_token,
+            "refreshToken" => new_refresh_token,
+            "expiresAt" => expires_at
+          }
+
+          credentials = read_claude_credentials
+          credentials = {} unless credentials.is_a?(Hash)
+          credentials["claudeAiOauth"] = oauth_block
+          credentials["oauth_token"] = access_token
+          credentials.delete("expires_at")
+          credentials["expiresAt"] = expires_at
+
+          tmpfile = Tempfile.new(".credentials", dir)
+          begin
+            tmpfile.write(JSON.pretty_generate(credentials))
+            tmpfile.close
+            File.chmod(0o600, tmpfile.path)
+            File.rename(tmpfile.path, credentials_path)
+          rescue
+            tmpfile.close!
+            raise
+          end
+
+          {claudeAiOauth: oauth_block.transform_keys(&:to_sym)}
+        end
+      end
+
+      def post_code_exchange(code:, code_verifier:, redirect_uri:, client_id:, state:)
+        payload = {
+          grant_type: "authorization_code",
+          code: code,
+          code_verifier: code_verifier,
+          redirect_uri: redirect_uri,
+          client_id: client_id
+        }
+        payload[:state] = state if non_blank?(state)
+
+        http = Net::HTTP.new(CLAUDE_TOKEN_ENDPOINT.host, CLAUDE_TOKEN_ENDPOINT.port)
+        http.use_ssl = true
+        http.open_timeout = 10
+        http.read_timeout = 10
+
+        request = Net::HTTP::Post.new(CLAUDE_TOKEN_ENDPOINT.path)
+        request["Content-Type"] = "application/json"
+        request.body = JSON.generate(payload)
+
+        response = http.request(request)
+
+        body = begin
+          JSON.parse(response.body)
+        rescue JSON::ParserError
+          {}
+        end
+
+        unless response.is_a?(Net::HTTPSuccess)
+          error_description = body["error_description"] || body["error"] || body["message"] || response.body
+          raise AuthenticationError.new(
+            "Code exchange failed (HTTP #{response.code}): #{error_description}",
+            provider: :claude
+          )
+        end
+
+        body
       end
 
       def post_token_exchange(refresh_token)
