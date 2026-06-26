@@ -339,6 +339,23 @@ module AgentHarness
       Authentication.refresh_auth(provider_name, token: token)
     end
 
+    # Check whether refresh-token exchange is supported for a provider
+    # @param provider_name [Symbol] the provider name
+    # @return [Boolean] true if exchange_refresh_token can be called
+    # @raise [ProviderNotFoundError] if provider is unknown
+    def exchange_refresh_token_supported?(provider_name)
+      Authentication.exchange_refresh_token_supported?(provider_name)
+    end
+
+    # Exchange a stored refresh token for a fresh access token
+    # @param provider_name [Symbol] the provider name
+    # @return [Hash] credential in claudeAiOauth shape
+    # @raise [UnsupportedAuthFlowError] if provider doesn't support token exchange
+    # @raise [AuthenticationError] if the refresh token is missing, reused, or exchange fails
+    def exchange_refresh_token(provider_name)
+      Authentication.exchange_refresh_token(provider_name)
+    end
+
     # Check health of all configured providers.
     #
     # Validates each enabled provider through registration, CLI availability,
