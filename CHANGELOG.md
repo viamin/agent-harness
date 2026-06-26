@@ -5,6 +5,13 @@
 * add runner model compatibility contract (`AgentHarness.model_compatibility`) with structured `ModelCompatibility::Result` outcomes. Codex exposes static facts for CLI-gated models (e.g. `gpt-5.5` requires Codex CLI `>= 0.116.0`), a baseline supported-model list, supported auth modes, and a `DEFAULT_COMPATIBLE_MODEL_ID` fallback so downstream orchestrators can validate tier/model assignments before scheduling agent runs ([#259](https://github.com/viamin/agent-harness/issues/259)).
 
 
+## [0.25.0](https://github.com/viamin/agent-harness/compare/agent-harness/v0.24.0...agent-harness/v0.25.0) (2026-06-26)
+
+
+### Features
+
+* **auth:** add refresh-token exchange API for Claude OAuth ([#269](https://github.com/viamin/agent-harness/issues/269)) ([076b1aa](https://github.com/viamin/agent-harness/commit/076b1aa91a3dcb58280d1c550bdc4329ce162a92)), closes [#265](https://github.com/viamin/agent-harness/issues/265)
+
 ## [0.24.0](https://github.com/viamin/agent-harness/compare/agent-harness/v0.23.0...agent-harness/v0.24.0) (2026-06-26)
 
 
