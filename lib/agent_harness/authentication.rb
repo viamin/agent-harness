@@ -245,6 +245,21 @@ module AgentHarness
         "https://claude.ai/oauth/token"
       end
 
+      # Public OAuth client_id for the Claude Code CLI. This value is the
+      # well-known public client identifier used by the Claude Code CLI's
+      # PKCE login flow; callers building the auth_url must use the same
+      # client_id so the token exchange succeeds.
+      def claude_oauth_client_id
+        "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
+      end
+
+      # Redirect URI registered for the Claude Code CLI OAuth client. Must
+      # match the redirect_uri used in the authorization request — per RFC
+      # 6749 §4.1.3 the token endpoint validates that they are identical.
+      def claude_oauth_redirect_uri
+        "https://console.anthropic.com/oauth/code/callback"
+      end
+
       def exchange_claude_code(code:, code_verifier:)
         raise ArgumentError, "code must be a non-empty string" unless code.is_a?(String) && !code.strip.empty?
         raise ArgumentError, "code_verifier must be a non-empty string" unless code_verifier.is_a?(String) && !code_verifier.strip.empty?
@@ -252,8 +267,15 @@ module AgentHarness
         uri = URI.parse(claude_token_url)
         request = Net::HTTP::Post.new(uri)
         request.content_type = "application/json"
+        # Include client_id and redirect_uri per RFC 6749 §4.1.3: the token
+        # endpoint requires client_id for public clients and redirect_uri
+        # when one was sent in the authorization request. Callers using
+        # claude_auth_url are expected to build the authorization request
+        # with these same values.
         request.body = JSON.generate({
           grant_type: "authorization_code",
+          client_id: claude_oauth_client_id,
+          redirect_uri: claude_oauth_redirect_uri,
           code: code.strip,
           code_verifier: code_verifier.strip
         })

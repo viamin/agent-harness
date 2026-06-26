@@ -722,6 +722,8 @@ RSpec.describe AgentHarness::Authentication do
         expect(http).to receive(:request) do |req|
           body = JSON.parse(req.body)
           expect(body["grant_type"]).to eq("authorization_code")
+          expect(body["client_id"]).to eq("9d1c250a-e61b-44d9-88ed-5944d1962f5e")
+          expect(body["redirect_uri"]).to eq("https://console.anthropic.com/oauth/code/callback")
           expect(body["code"]).to eq("auth-code-123")
           expect(body["code_verifier"]).to eq("verifier-456")
           expect(req.content_type).to eq("application/json")
