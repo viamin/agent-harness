@@ -161,6 +161,99 @@ RSpec.describe AgentHarness::Authentication do
         expect(status[:valid]).to be true
       end
 
+      context "with native claudeAiOauth shape" do
+        it "returns valid status with accessToken present" do
+          File.write(credentials_path, JSON.generate({
+            "claudeAiOauth" => {
+              "accessToken" => "native-token",
+              "refreshToken" => "refresh-token",
+              "expiresAt" => (Time.now + 3600).to_i,
+              "scopes" => ["user:read"],
+              "subscriptionType" => "pro"
+            }
+          }))
+
+          status = described_class.auth_status(:claude)
+          expect(status[:valid]).to be true
+          expect(status[:expires_at]).to be_a(Time)
+          expect(status[:error]).to be_nil
+        end
+
+        it "returns expired status when claudeAiOauth token is expired" do
+          File.write(credentials_path, JSON.generate({
+            "claudeAiOauth" => {
+              "accessToken" => "expired-native-token",
+              "expiresAt" => (Time.now - 3600).to_i
+            }
+          }))
+
+          status = described_class.auth_status(:claude)
+          expect(status[:valid]).to be false
+          expect(status[:error]).to eq("Session expired")
+        end
+
+        it "returns invalid when claudeAiOauth has no accessToken" do
+          File.write(credentials_path, JSON.generate({
+            "claudeAiOauth" => {
+              "refreshToken" => "refresh-only"
+            }
+          }))
+
+          status = described_class.auth_status(:claude)
+          expect(status[:valid]).to be false
+          expect(status[:error]).to eq("No authentication token found")
+        end
+
+        it "returns invalid when claudeAiOauth accessToken is blank" do
+          File.write(credentials_path, JSON.generate({
+            "claudeAiOauth" => {
+              "accessToken" => "   "
+            }
+          }))
+
+          status = described_class.auth_status(:claude)
+          expect(status[:valid]).to be false
+          expect(status[:error]).to eq("No authentication token found")
+        end
+
+        it "prefers claudeAiOauth over top-level oauth_token" do
+          File.write(credentials_path, JSON.generate({
+            "claudeAiOauth" => {
+              "accessToken" => "native-token",
+              "expiresAt" => (Time.now + 3600).to_i
+            },
+            "oauth_token" => "legacy-token",
+            "expiresAt" => (Time.now - 3600).to_i
+          }))
+
+          status = described_class.auth_status(:claude)
+          # Should use the native (valid) token, not the legacy (expired) one
+          expect(status[:valid]).to be true
+        end
+
+        it "falls back to top-level token when claudeAiOauth accessToken is blank" do
+          File.write(credentials_path, JSON.generate({
+            "claudeAiOauth" => {
+              "accessToken" => ""
+            },
+            "oauth_token" => "fallback-token"
+          }))
+
+          status = described_class.auth_status(:claude)
+          expect(status[:valid]).to be true
+        end
+
+        it "handles non-hash claudeAiOauth value gracefully" do
+          File.write(credentials_path, JSON.generate({
+            "claudeAiOauth" => "not-a-hash",
+            "oauth_token" => "fallback-token"
+          }))
+
+          status = described_class.auth_status(:claude)
+          expect(status[:valid]).to be true
+        end
+      end
+
       it "returns specific error for invalid JSON in credentials file" do
         File.write(credentials_path, "not json")
 
@@ -864,6 +957,44 @@ RSpec.describe AgentHarness::Authentication do
         credentials = JSON.parse(File.read(credentials_path))
         expect(credentials["existing_key"]).to eq("existing_value")
         expect(credentials["oauth_token"]).to eq("new-token")
+      end
+
+      context "with native claudeAiOauth shape" do
+        it "updates accessToken within claudeAiOauth" do
+          File.write(credentials_path, JSON.generate({
+            "claudeAiOauth" => {
+              "accessToken" => "old-native-token",
+              "refreshToken" => "refresh-token",
+              "expiresAt" => (Time.now - 3600).to_i,
+              "scopes" => ["user:read"],
+              "subscriptionType" => "pro"
+            }
+          }))
+
+          described_class.refresh_auth(:claude, token: "new-native-token")
+
+          credentials = JSON.parse(File.read(credentials_path))
+          expect(credentials["claudeAiOauth"]["accessToken"]).to eq("new-native-token")
+          expect(credentials["claudeAiOauth"]["refreshToken"]).to eq("refresh-token")
+          expect(credentials["claudeAiOauth"]["scopes"]).to eq(["user:read"])
+          expect(credentials["claudeAiOauth"]).not_to have_key("expiresAt")
+          # Should not create a top-level oauth_token
+          expect(credentials).not_to have_key("oauth_token")
+        end
+
+        it "does not write top-level oauth_token when claudeAiOauth exists" do
+          File.write(credentials_path, JSON.generate({
+            "claudeAiOauth" => {
+              "accessToken" => "old-token"
+            }
+          }))
+
+          described_class.refresh_auth(:claude, token: "new-token")
+
+          credentials = JSON.parse(File.read(credentials_path))
+          expect(credentials).not_to have_key("oauth_token")
+          expect(credentials["claudeAiOauth"]["accessToken"]).to eq("new-token")
+        end
       end
 
       it "clears expiry metadata so refreshed tokens are not treated as expired" do

@@ -209,12 +209,8 @@ module AgentHarness
         credentials = read_claude_credentials
         return {valid: false, expires_at: nil, error: "No credentials found"} unless credentials
 
-        # Check if the credentials file has a token, preferring a non-blank oauth_token over apiKey
-        oauth_token = credentials["oauth_token"]
-        api_key = credentials["apiKey"]
-        token = [oauth_token, api_key].find { |t| t.is_a?(String) && !t.strip.empty? }
+        token, expires_at = extract_claude_token(credentials)
         if token
-          expires_at = parse_expiry(credentials["expiresAt"] || credentials["expires_at"])
           if expires_at && expires_at < Time.now
             {valid: false, expires_at: expires_at, error: "Session expired"}
           else
@@ -270,10 +266,20 @@ module AgentHarness
 
           credentials = read_claude_credentials
           credentials = {} unless credentials.is_a?(Hash)
-          credentials["oauth_token"] = token.strip
-          # Clear any existing expiry metadata so refreshed tokens are not treated as expired
-          credentials.delete("expiresAt")
-          credentials.delete("expires_at")
+
+          if credentials.key?("claudeAiOauth")
+            # Preserve the native claudeAiOauth shape
+            oauth = credentials["claudeAiOauth"]
+            oauth = {} unless oauth.is_a?(Hash)
+            oauth["accessToken"] = token.strip
+            oauth.delete("expiresAt")
+            credentials["claudeAiOauth"] = oauth
+          else
+            credentials["oauth_token"] = token.strip
+            # Clear any existing expiry metadata so refreshed tokens are not treated as expired
+            credentials.delete("expiresAt")
+            credentials.delete("expires_at")
+          end
 
           # Write under a file lock using tempfile + rename to avoid corruption and lost updates on concurrent refreshes
           tmpfile = Tempfile.new(".credentials", dir)
@@ -388,6 +394,36 @@ module AgentHarness
         end
 
         body
+      end
+
+      # Extract a usable token and expiry from Claude credentials,
+      # supporting both the native claudeAiOauth shape and the legacy
+      # top-level oauth_token/apiKey shape.
+      #
+      # @return [Array(String, Time)] token and parsed expiry, or nils
+      def extract_claude_token(credentials)
+        # Prefer the native claudeAiOauth nested shape written by the Claude CLI
+        if credentials.key?("claudeAiOauth")
+          oauth = credentials["claudeAiOauth"]
+          if oauth.is_a?(Hash)
+            access_token = oauth["accessToken"]
+            if non_blank?(access_token)
+              expires_at = parse_expiry(oauth["expiresAt"])
+              return [access_token, expires_at]
+            end
+          end
+        end
+
+        # Fall back to the legacy top-level shape
+        oauth_token = credentials["oauth_token"]
+        api_key = credentials["apiKey"]
+        token = [oauth_token, api_key].find { |t| non_blank?(t) }
+        expires_at = parse_expiry(credentials["expiresAt"] || credentials["expires_at"]) if token
+        [token, expires_at]
+      end
+
+      def non_blank?(value)
+        value.is_a?(String) && !value.strip.empty?
       end
 
       def read_claude_credentials
