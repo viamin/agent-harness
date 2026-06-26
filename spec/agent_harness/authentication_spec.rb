@@ -770,6 +770,39 @@ RSpec.describe AgentHarness::Authentication do
         expect(credentials["oauth_token"]).to eq("new-access-token")
       end
 
+      it "updates claudeAiOauth shape when present" do
+        stub_token_request
+        File.write(credentials_path, JSON.generate({
+          "claudeAiOauth" => {
+            "accessToken" => "old-token",
+            "refreshToken" => "old-refresh",
+            "scopes" => ["user:read"]
+          }
+        }))
+
+        described_class.exchange_code(:claude, code: "auth-code-123", code_verifier: "verifier-456")
+
+        credentials = JSON.parse(File.read(credentials_path))
+        expect(credentials["claudeAiOauth"]["accessToken"]).to eq("new-access-token")
+        expect(credentials["claudeAiOauth"]["refreshToken"]).to eq("new-refresh-token")
+        expect(credentials["claudeAiOauth"]["scopes"]).to eq(["user:read"])
+        expect(credentials).not_to have_key("oauth_token")
+      end
+
+      it "does not write top-level oauth_token when claudeAiOauth exists" do
+        stub_token_request
+        File.write(credentials_path, JSON.generate({
+          "claudeAiOauth" => {"accessToken" => "old"}
+        }))
+
+        described_class.exchange_code(:claude, code: "auth-code-123", code_verifier: "verifier-456")
+
+        credentials = JSON.parse(File.read(credentials_path))
+        expect(credentials["claudeAiOauth"]["accessToken"]).to eq("new-access-token")
+        expect(credentials).not_to have_key("oauth_token")
+        expect(credentials).not_to have_key("refreshToken")
+      end
+
       it "sets restrictive file permissions on credentials file" do
         stub_token_request
 

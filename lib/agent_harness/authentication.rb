@@ -292,14 +292,28 @@ module AgentHarness
           credentials = read_claude_credentials
           credentials = {} unless credentials.is_a?(Hash)
 
-          credentials["oauth_token"] = token_data["access_token"]
-          credentials["refreshToken"] = token_data["refresh_token"] if token_data["refresh_token"]
-
-          if token_data["expires_in"]
-            credentials["expiresAt"] = (Time.now + token_data["expires_in"].to_i).iso8601
+          if credentials.key?("claudeAiOauth")
+            # Preserve the native claudeAiOauth shape so extract_claude_token
+            # picks up the newly exchanged token instead of a stale nested value.
+            oauth = credentials["claudeAiOauth"]
+            oauth = {} unless oauth.is_a?(Hash)
+            oauth["accessToken"] = token_data["access_token"]
+            oauth["refreshToken"] = token_data["refresh_token"] if token_data["refresh_token"]
+            if token_data["expires_in"]
+              oauth["expiresAt"] = (Time.now + token_data["expires_in"].to_i).iso8601
+            else
+              oauth.delete("expiresAt")
+            end
+            credentials["claudeAiOauth"] = oauth
           else
-            credentials.delete("expiresAt")
-            credentials.delete("expires_at")
+            credentials["oauth_token"] = token_data["access_token"]
+            credentials["refreshToken"] = token_data["refresh_token"] if token_data["refresh_token"]
+            if token_data["expires_in"]
+              credentials["expiresAt"] = (Time.now + token_data["expires_in"].to_i).iso8601
+            else
+              credentials.delete("expiresAt")
+              credentials.delete("expires_at")
+            end
           end
 
           tmpfile = Tempfile.new(".credentials", dir)
