@@ -687,6 +687,8 @@ RSpec.describe AgentHarness::Authentication do
         allow(Net::HTTP).to receive(:start)
           .with("claude.ai", 443, use_ssl: true)
           .and_yield(http)
+        allow(http).to receive(:open_timeout=)
+        allow(http).to receive(:read_timeout=)
         allow(http).to receive(:request).and_return(response)
         http
       end

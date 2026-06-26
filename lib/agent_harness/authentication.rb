@@ -259,6 +259,8 @@ module AgentHarness
         })
 
         response = Net::HTTP.start(uri.host, uri.port, use_ssl: true) do |http|
+          http.open_timeout = 10
+          http.read_timeout = 30
           http.request(request)
         end
 
