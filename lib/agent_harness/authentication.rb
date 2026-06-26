@@ -2,8 +2,10 @@
 
 require "json"
 require "fileutils"
+require "net/http"
 require "tempfile"
 require "time"
+require "uri"
 
 module AgentHarness
   # Authentication management for CLI agent providers
@@ -49,7 +51,8 @@ module AgentHarness
         {
           auth_type: provider.auth_type,
           auth_url: flow_supported,
-          refresh: flow_supported
+          refresh: flow_supported,
+          exchange: flow_supported
         }
       end
 
@@ -123,6 +126,49 @@ module AgentHarness
         else
           raise UnsupportedAuthFlowError,
             "Credential refresh is not yet implemented for provider #{provider_name}"
+        end
+      end
+
+      # Check whether refresh-token exchange is supported for a provider.
+      #
+      # @param provider_name [Symbol] the provider name
+      # @return [Boolean] true if exchange_refresh_token can be called
+      # @raise [ProviderNotFoundError] if provider is unknown
+      def exchange_refresh_token_supported?(provider_name)
+        auth_capabilities(provider_name)[:exchange]
+      end
+
+      # Exchange a stored refresh token for a fresh access token (and rotated refresh token).
+      #
+      # Reads the refresh token from the provider's credentials store, posts it to the
+      # OAuth token endpoint, persists the rotated tokens, and returns the credential
+      # in native claudeAiOauth shape.
+      #
+      # Serializes through a file lock so that concurrent callers do not race on a
+      # single-use/rotating refresh token.  If the token server reports that the
+      # refresh token has already been consumed (`refresh_token_reused`), raises
+      # +AuthenticationError+ so the caller can trigger a full re-auth.
+      #
+      # @param provider_name [Symbol] the provider name
+      # @return [Hash] credential in claudeAiOauth shape:
+      #   +{ claudeAiOauth: { accessToken:, refreshToken:, expiresAt: } }+
+      # @raise [UnsupportedAuthFlowError] if provider doesn't support token exchange
+      # @raise [AuthenticationError] if the refresh token is missing, reused, or exchange fails
+      def exchange_refresh_token(provider_name)
+        provider_name = provider_name.to_sym
+        provider = resolve_provider(provider_name)
+
+        unless provider.auth_type == :oauth
+          raise UnsupportedAuthFlowError,
+            "Provider #{provider_name} uses #{provider.auth_type} auth and does not support token exchange"
+        end
+
+        case provider_name
+        when :claude, :anthropic
+          exchange_claude_refresh_token
+        else
+          raise UnsupportedAuthFlowError,
+            "Token exchange is not yet implemented for provider #{provider_name}"
         end
       end
 
@@ -243,6 +289,105 @@ module AgentHarness
         end
 
         {success: true}
+      end
+
+      # Token endpoint used for Claude OAuth refresh-token exchange.
+      CLAUDE_TOKEN_ENDPOINT = URI("https://claude.ai/oauth/token").freeze
+
+      def exchange_claude_refresh_token
+        credentials_path = claude_credentials_path
+        lock_path = "#{credentials_path}.lock"
+
+        dir = File.dirname(credentials_path)
+        FileUtils.mkdir_p(dir, mode: 0o700)
+
+        File.open(lock_path, File::RDWR | File::CREAT, 0o600) do |lock|
+          lock.flock(File::LOCK_EX)
+
+          credentials = read_claude_credentials
+          refresh_token = credentials&.dig("claudeAiOauth", "refreshToken")
+          refresh_token = nil if refresh_token.is_a?(String) && refresh_token.strip.empty?
+
+          unless refresh_token
+            raise AuthenticationError.new(
+              "No refresh token found in Claude credentials",
+              provider: :claude
+            )
+          end
+
+          response_body = post_token_exchange(refresh_token)
+
+          access_token = response_body["access_token"]
+          new_refresh_token = response_body["refresh_token"]
+          expires_in = response_body["expires_in"]
+
+          expires_at = expires_in ? (Time.now + expires_in).iso8601 : nil
+
+          oauth_block = {
+            "accessToken" => access_token,
+            "refreshToken" => new_refresh_token,
+            "expiresAt" => expires_at
+          }
+
+          credentials["claudeAiOauth"] = oauth_block
+          credentials["oauth_token"] = access_token
+          credentials.delete("expiresAt")
+          credentials.delete("expires_at")
+          credentials["expiresAt"] = expires_at
+
+          tmpfile = Tempfile.new(".credentials", dir)
+          begin
+            tmpfile.write(JSON.pretty_generate(credentials))
+            tmpfile.close
+            File.chmod(0o600, tmpfile.path)
+            File.rename(tmpfile.path, credentials_path)
+          rescue
+            tmpfile.close!
+            raise
+          end
+
+          {claudeAiOauth: oauth_block.transform_keys(&:to_sym)}
+        end
+      end
+
+      def post_token_exchange(refresh_token)
+        http = Net::HTTP.new(CLAUDE_TOKEN_ENDPOINT.host, CLAUDE_TOKEN_ENDPOINT.port)
+        http.use_ssl = true
+        http.open_timeout = 10
+        http.read_timeout = 10
+
+        request = Net::HTTP::Post.new(CLAUDE_TOKEN_ENDPOINT.path)
+        request["Content-Type"] = "application/json"
+        request.body = JSON.generate({
+          grant_type: "refresh_token",
+          refresh_token: refresh_token
+        })
+
+        response = http.request(request)
+
+        body = begin
+          JSON.parse(response.body)
+        rescue JSON::ParserError
+          {}
+        end
+
+        unless response.is_a?(Net::HTTPSuccess)
+          error_code = body["error"] || body["code"]
+          if error_code.to_s.match?(/refresh_token_reused/i)
+            raise AuthenticationError.new(
+              "Refresh token has already been used (refresh_token_reused). Re-authentication required.",
+              provider: :claude
+            )
+          end
+
+          error_description = body["error_description"] || body["message"] || response.body
+          raise AuthenticationError.new(
+            "Token exchange failed (HTTP #{response.code}): #{error_description}",
+            provider: :claude
+          )
+        end
+
+        body
       end
 
       def read_claude_credentials

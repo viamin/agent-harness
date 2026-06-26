@@ -488,7 +488,8 @@ RSpec.describe AgentHarness::Authentication do
       expect(described_class.auth_capabilities(:claude)).to eq(
         auth_type: :oauth,
         auth_url: true,
-        refresh: true
+        refresh: true,
+        exchange: true
       )
     end
 
@@ -496,7 +497,8 @@ RSpec.describe AgentHarness::Authentication do
       expect(described_class.auth_capabilities(:anthropic)).to eq(
         auth_type: :oauth,
         auth_url: true,
-        refresh: true
+        refresh: true,
+        exchange: true
       )
     end
 
@@ -504,7 +506,8 @@ RSpec.describe AgentHarness::Authentication do
       expect(described_class.auth_capabilities(:codex)).to eq(
         auth_type: :api_key,
         auth_url: false,
-        refresh: false
+        refresh: false,
+        exchange: false
       )
     end
 
@@ -512,7 +515,8 @@ RSpec.describe AgentHarness::Authentication do
       expect(described_class.auth_capabilities(:cursor)).to eq(
         auth_type: :oauth,
         auth_url: false,
-        refresh: false
+        refresh: false,
+        exchange: false
       )
     end
 
@@ -569,6 +573,244 @@ RSpec.describe AgentHarness::Authentication do
     it "raises ProviderNotFoundError for unknown providers" do
       expect { described_class.refresh_auth_supported?(:unknown_provider) }
         .to raise_error(AgentHarness::ProviderNotFoundError, "Unknown provider: unknown_provider")
+    end
+  end
+
+  describe ".exchange_refresh_token_supported?" do
+    it "returns true for Claude" do
+      expect(described_class.exchange_refresh_token_supported?(:claude)).to be true
+    end
+
+    it "returns true for the Anthropic alias" do
+      expect(described_class.exchange_refresh_token_supported?(:anthropic)).to be true
+    end
+
+    it "returns false for API key providers" do
+      expect(described_class.exchange_refresh_token_supported?(:codex)).to be false
+    end
+
+    it "returns false for OAuth providers without exchange implementations" do
+      expect(described_class.exchange_refresh_token_supported?(:cursor)).to be false
+    end
+
+    it "raises ProviderNotFoundError for unknown providers" do
+      expect { described_class.exchange_refresh_token_supported?(:unknown_provider) }
+        .to raise_error(AgentHarness::ProviderNotFoundError, "Unknown provider: unknown_provider")
+    end
+  end
+
+  describe ".exchange_refresh_token" do
+    let(:token_response) do
+      {
+        "access_token" => "fresh-access-token",
+        "refresh_token" => "rotated-refresh-token",
+        "expires_in" => 3600,
+        "token_type" => "Bearer"
+      }
+    end
+
+    def stub_token_endpoint(status:, body:)
+      http_response = instance_double(
+        Net::HTTPOK,
+        code: status.to_s,
+        body: JSON.generate(body)
+      )
+      allow(http_response).to receive(:is_a?).and_return(false)
+      allow(http_response).to receive(:is_a?).with(Net::HTTPSuccess).and_return(status >= 200 && status < 300)
+
+      http = instance_double(Net::HTTP)
+      allow(Net::HTTP).to receive(:new).and_return(http)
+      allow(http).to receive(:use_ssl=)
+      allow(http).to receive(:open_timeout=)
+      allow(http).to receive(:read_timeout=)
+      allow(http).to receive(:request).and_return(http_response)
+      http
+    end
+
+    context "for Claude provider" do
+      before do
+        File.write(credentials_path, JSON.generate({
+          "claudeAiOauth" => {
+            "accessToken" => "old-access-token",
+            "refreshToken" => "stored-refresh-token",
+            "expiresAt" => (Time.now - 3600).iso8601
+          },
+          "oauth_token" => "old-access-token"
+        }))
+      end
+
+      it "exchanges refresh token and returns claudeAiOauth shape" do
+        stub_token_endpoint(status: 200, body: token_response)
+
+        result = described_class.exchange_refresh_token(:claude)
+
+        expect(result).to have_key(:claudeAiOauth)
+        oauth = result[:claudeAiOauth]
+        expect(oauth[:accessToken]).to eq("fresh-access-token")
+        expect(oauth[:refreshToken]).to eq("rotated-refresh-token")
+        expect(oauth[:expiresAt]).not_to be_nil
+      end
+
+      it "persists the rotated tokens to the credentials file" do
+        stub_token_endpoint(status: 200, body: token_response)
+
+        described_class.exchange_refresh_token(:claude)
+
+        credentials = JSON.parse(File.read(credentials_path))
+        expect(credentials["claudeAiOauth"]["accessToken"]).to eq("fresh-access-token")
+        expect(credentials["claudeAiOauth"]["refreshToken"]).to eq("rotated-refresh-token")
+        expect(credentials["oauth_token"]).to eq("fresh-access-token")
+      end
+
+      it "updates expiresAt based on expires_in from the response" do
+        stub_token_endpoint(status: 200, body: token_response)
+
+        before_exchange = Time.now
+        described_class.exchange_refresh_token(:claude)
+
+        credentials = JSON.parse(File.read(credentials_path))
+        expires_at = Time.parse(credentials["expiresAt"])
+        expect(expires_at).to be_within(2).of(before_exchange + 3600)
+      end
+
+      it "works with the :anthropic alias" do
+        stub_token_endpoint(status: 200, body: token_response)
+
+        result = described_class.exchange_refresh_token(:anthropic)
+        expect(result[:claudeAiOauth][:accessToken]).to eq("fresh-access-token")
+      end
+
+      it "sends the refresh token in the HTTP request body" do
+        http = stub_token_endpoint(status: 200, body: token_response)
+
+        expect(http).to receive(:request) do |req|
+          body = JSON.parse(req.body)
+          expect(body["grant_type"]).to eq("refresh_token")
+          expect(body["refresh_token"]).to eq("stored-refresh-token")
+
+          response = instance_double(Net::HTTPOK, code: "200", body: JSON.generate(token_response))
+          allow(response).to receive(:is_a?).and_return(false)
+          allow(response).to receive(:is_a?).with(Net::HTTPSuccess).and_return(true)
+          response
+        end
+
+        described_class.exchange_refresh_token(:claude)
+      end
+
+      it "preserves existing credentials fields" do
+        credentials = JSON.parse(File.read(credentials_path))
+        credentials["custom_field"] = "preserved"
+        File.write(credentials_path, JSON.generate(credentials))
+
+        stub_token_endpoint(status: 200, body: token_response)
+
+        described_class.exchange_refresh_token(:claude)
+
+        updated = JSON.parse(File.read(credentials_path))
+        expect(updated["custom_field"]).to eq("preserved")
+      end
+
+      it "sets restrictive file permissions on credentials file" do
+        stub_token_endpoint(status: 200, body: token_response)
+
+        described_class.exchange_refresh_token(:claude)
+
+        mode = File.stat(credentials_path).mode & 0o777
+        expect(mode).to eq(0o600)
+      end
+    end
+
+    context "when no refresh token is stored" do
+      before do
+        File.write(credentials_path, JSON.generate({
+          "oauth_token" => "access-only"
+        }))
+      end
+
+      it "raises AuthenticationError" do
+        expect { described_class.exchange_refresh_token(:claude) }
+          .to raise_error(AgentHarness::AuthenticationError, /No refresh token found/)
+      end
+    end
+
+    context "when refresh token is blank" do
+      before do
+        File.write(credentials_path, JSON.generate({
+          "claudeAiOauth" => {"refreshToken" => "   "}
+        }))
+      end
+
+      it "raises AuthenticationError" do
+        expect { described_class.exchange_refresh_token(:claude) }
+          .to raise_error(AgentHarness::AuthenticationError, /No refresh token found/)
+      end
+    end
+
+    context "when no credentials file exists" do
+      it "raises AuthenticationError" do
+        expect { described_class.exchange_refresh_token(:claude) }
+          .to raise_error(AgentHarness::AuthenticationError, /No refresh token found/)
+      end
+    end
+
+    context "when the token endpoint returns refresh_token_reused" do
+      before do
+        File.write(credentials_path, JSON.generate({
+          "claudeAiOauth" => {"refreshToken" => "already-used-token"}
+        }))
+      end
+
+      it "raises AuthenticationError mentioning refresh_token_reused" do
+        stub_token_endpoint(status: 400, body: {
+          "error" => "refresh_token_reused",
+          "error_description" => "The refresh token has already been used"
+        })
+
+        expect { described_class.exchange_refresh_token(:claude) }
+          .to raise_error(AgentHarness::AuthenticationError, /refresh_token_reused/)
+      end
+
+      it "raises AuthenticationError when code field contains refresh_token_reused" do
+        stub_token_endpoint(status: 400, body: {
+          "code" => "refresh_token_reused",
+          "message" => "Token was already consumed"
+        })
+
+        expect { described_class.exchange_refresh_token(:claude) }
+          .to raise_error(AgentHarness::AuthenticationError, /refresh_token_reused/)
+      end
+    end
+
+    context "when the token endpoint returns a non-success status" do
+      before do
+        File.write(credentials_path, JSON.generate({
+          "claudeAiOauth" => {"refreshToken" => "some-refresh-token"}
+        }))
+      end
+
+      it "raises AuthenticationError with HTTP status details" do
+        stub_token_endpoint(status: 401, body: {
+          "error" => "invalid_grant",
+          "error_description" => "Refresh token expired"
+        })
+
+        expect { described_class.exchange_refresh_token(:claude) }
+          .to raise_error(AgentHarness::AuthenticationError, /Token exchange failed \(HTTP 401\)/)
+      end
+    end
+
+    context "for API key provider" do
+      it "raises UnsupportedAuthFlowError" do
+        expect { described_class.exchange_refresh_token(:aider) }
+          .to raise_error(AgentHarness::UnsupportedAuthFlowError, /api_key auth/)
+      end
+    end
+
+    context "for OAuth provider without exchange support" do
+      it "raises UnsupportedAuthFlowError" do
+        expect { described_class.exchange_refresh_token(:cursor) }
+          .to raise_error(AgentHarness::UnsupportedAuthFlowError, /Token exchange is not yet implemented/)
+      end
     end
   end
 
