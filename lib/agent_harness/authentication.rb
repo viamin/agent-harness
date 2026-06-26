@@ -2,8 +2,10 @@
 
 require "json"
 require "fileutils"
+require "net/http"
 require "tempfile"
 require "time"
+require "uri"
 
 module AgentHarness
   # Authentication management for CLI agent providers
@@ -49,6 +51,7 @@ module AgentHarness
         {
           auth_type: provider.auth_type,
           auth_url: flow_supported,
+          exchange_code: flow_supported,
           refresh: flow_supported
         }
       end
@@ -84,6 +87,45 @@ module AgentHarness
         else
           raise UnsupportedAuthFlowError,
             "OAuth URL generation is not yet implemented for provider #{provider_name}"
+        end
+      end
+
+      # Check whether PKCE code exchange is supported for a provider.
+      #
+      # @param provider_name [Symbol] the provider name
+      # @return [Boolean] true if exchange_code can be called for the provider
+      # @raise [ProviderNotFoundError] if provider is unknown
+      def exchange_code_supported?(provider_name)
+        auth_capabilities(provider_name)[:exchange_code]
+      end
+
+      # Exchange an OAuth authorization code for tokens using PKCE.
+      #
+      # Performs the code→token exchange with the provider's token endpoint
+      # and stores the resulting credentials in native shape.
+      #
+      # @param provider_name [Symbol] the provider name
+      # @param code [String] the authorization code from the OAuth redirect
+      # @param code_verifier [String] the PKCE code verifier used when generating the auth URL
+      # @return [Hash] result with :success and :credentials keys
+      # @raise [UnsupportedAuthFlowError] if provider doesn't support code exchange
+      # @raise [ArgumentError] if code or code_verifier are blank
+      # @raise [AuthenticationError] if the token exchange request fails
+      def exchange_code(provider_name, code:, code_verifier:)
+        provider_name = provider_name.to_sym
+        provider = resolve_provider(provider_name)
+
+        unless provider.auth_type == :oauth
+          raise UnsupportedAuthFlowError,
+            "Provider #{provider_name} uses #{provider.auth_type} auth and does not support PKCE code exchange"
+        end
+
+        case provider_name
+        when :claude, :anthropic
+          exchange_claude_code(code: code, code_verifier: code_verifier)
+        else
+          raise UnsupportedAuthFlowError,
+            "PKCE code exchange is not yet implemented for provider #{provider_name}"
         end
       end
 
@@ -197,6 +239,80 @@ module AgentHarness
 
       def claude_auth_url
         "https://claude.ai/oauth/authorize"
+      end
+
+      def claude_token_url
+        "https://claude.ai/oauth/token"
+      end
+
+      def exchange_claude_code(code:, code_verifier:)
+        raise ArgumentError, "code must be a non-empty string" unless code.is_a?(String) && !code.strip.empty?
+        raise ArgumentError, "code_verifier must be a non-empty string" unless code_verifier.is_a?(String) && !code_verifier.strip.empty?
+
+        uri = URI.parse(claude_token_url)
+        request = Net::HTTP::Post.new(uri)
+        request.content_type = "application/json"
+        request.body = JSON.generate({
+          grant_type: "authorization_code",
+          code: code.strip,
+          code_verifier: code_verifier.strip
+        })
+
+        response = Net::HTTP.start(uri.host, uri.port, use_ssl: true) do |http|
+          http.request(request)
+        end
+
+        unless response.is_a?(Net::HTTPSuccess)
+          error_body = begin
+            JSON.parse(response.body)
+          rescue JSON::ParserError
+            {"error" => response.body}
+          end
+          raise AuthenticationError.new(
+            "PKCE code exchange failed (HTTP #{response.code}): #{error_body["error"] || error_body["error_description"] || response.body}",
+            provider: :claude
+          )
+        end
+
+        token_data = JSON.parse(response.body)
+        store_claude_token_response(token_data)
+      end
+
+      def store_claude_token_response(token_data)
+        credentials_path = claude_credentials_path
+        dir = File.dirname(credentials_path)
+        FileUtils.mkdir_p(dir, mode: 0o700)
+
+        lock_path = "#{credentials_path}.lock"
+        File.open(lock_path, File::RDWR | File::CREAT, 0o600) do |lock|
+          lock.flock(File::LOCK_EX)
+
+          credentials = read_claude_credentials
+          credentials = {} unless credentials.is_a?(Hash)
+
+          credentials["oauth_token"] = token_data["access_token"]
+          credentials["refreshToken"] = token_data["refresh_token"] if token_data["refresh_token"]
+
+          if token_data["expires_in"]
+            credentials["expiresAt"] = (Time.now + token_data["expires_in"].to_i).iso8601
+          else
+            credentials.delete("expiresAt")
+            credentials.delete("expires_at")
+          end
+
+          tmpfile = Tempfile.new(".credentials", dir)
+          begin
+            tmpfile.write(JSON.pretty_generate(credentials))
+            tmpfile.close
+            File.chmod(0o600, tmpfile.path)
+            File.rename(tmpfile.path, credentials_path)
+          rescue
+            tmpfile.close!
+            raise
+          end
+        end
+
+        {success: true, credentials: token_data}
       end
 
       def provider_config_for(requested_name, canonical_name:)

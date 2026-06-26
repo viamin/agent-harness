@@ -581,6 +581,7 @@ RSpec.describe AgentHarness::Authentication do
       expect(described_class.auth_capabilities(:claude)).to eq(
         auth_type: :oauth,
         auth_url: true,
+        exchange_code: true,
         refresh: true
       )
     end
@@ -589,6 +590,7 @@ RSpec.describe AgentHarness::Authentication do
       expect(described_class.auth_capabilities(:anthropic)).to eq(
         auth_type: :oauth,
         auth_url: true,
+        exchange_code: true,
         refresh: true
       )
     end
@@ -597,6 +599,7 @@ RSpec.describe AgentHarness::Authentication do
       expect(described_class.auth_capabilities(:codex)).to eq(
         auth_type: :api_key,
         auth_url: false,
+        exchange_code: false,
         refresh: false
       )
     end
@@ -605,6 +608,7 @@ RSpec.describe AgentHarness::Authentication do
       expect(described_class.auth_capabilities(:cursor)).to eq(
         auth_type: :oauth,
         auth_url: false,
+        exchange_code: false,
         refresh: false
       )
     end
@@ -637,6 +641,209 @@ RSpec.describe AgentHarness::Authentication do
     it "raises ProviderNotFoundError for unknown providers" do
       expect { described_class.auth_url_supported?(:unknown_provider) }
         .to raise_error(AgentHarness::ProviderNotFoundError, "Unknown provider: unknown_provider")
+    end
+  end
+
+  describe ".exchange_code_supported?" do
+    it "returns true for Claude" do
+      expect(described_class.exchange_code_supported?(:claude)).to be true
+    end
+
+    it "returns true for the Anthropic alias" do
+      expect(described_class.exchange_code_supported?(:anthropic)).to be true
+    end
+
+    it "returns false for API key providers" do
+      expect(described_class.exchange_code_supported?(:codex)).to be false
+    end
+
+    it "returns false for OAuth providers without exchange implementations" do
+      expect(described_class.exchange_code_supported?(:cursor)).to be false
+    end
+
+    it "raises ProviderNotFoundError for unknown providers" do
+      expect { described_class.exchange_code_supported?(:unknown_provider) }
+        .to raise_error(AgentHarness::ProviderNotFoundError, "Unknown provider: unknown_provider")
+    end
+  end
+
+  describe ".exchange_code" do
+    context "for Claude provider" do
+      let(:token_response_body) do
+        {
+          "access_token" => "new-access-token",
+          "refresh_token" => "new-refresh-token",
+          "expires_in" => 3600,
+          "token_type" => "Bearer"
+        }
+      end
+
+      def stub_token_request(status: 200, body: token_response_body.to_json)
+        http = instance_double(Net::HTTP)
+        response = instance_double(Net::HTTPResponse, code: status.to_s, body: body)
+        allow(response).to receive(:is_a?).with(anything).and_return(false)
+        allow(response).to receive(:is_a?).with(Net::HTTPSuccess).and_return(status >= 200 && status < 300)
+
+        allow(Net::HTTP).to receive(:start)
+          .with("claude.ai", 443, use_ssl: true)
+          .and_yield(http)
+        allow(http).to receive(:request).and_return(response)
+        http
+      end
+
+      it "exchanges code for tokens and stores credentials" do
+        stub_token_request
+
+        result = described_class.exchange_code(:claude, code: "auth-code-123", code_verifier: "verifier-456")
+
+        expect(result[:success]).to be true
+        expect(result[:credentials]["access_token"]).to eq("new-access-token")
+
+        credentials = JSON.parse(File.read(credentials_path))
+        expect(credentials["oauth_token"]).to eq("new-access-token")
+        expect(credentials["refreshToken"]).to eq("new-refresh-token")
+        expect(credentials["expiresAt"]).not_to be_nil
+      end
+
+      it "returns success with the token data" do
+        stub_token_request
+
+        result = described_class.exchange_code(:claude, code: "auth-code-123", code_verifier: "verifier-456")
+
+        expect(result[:success]).to be true
+        expect(result[:credentials]).to eq(token_response_body)
+      end
+
+      it "sends correct request body" do
+        http = stub_token_request
+
+        expect(http).to receive(:request) do |req|
+          body = JSON.parse(req.body)
+          expect(body["grant_type"]).to eq("authorization_code")
+          expect(body["code"]).to eq("auth-code-123")
+          expect(body["code_verifier"]).to eq("verifier-456")
+          expect(req.content_type).to eq("application/json")
+
+          response = instance_double(Net::HTTPResponse, code: "200", body: token_response_body.to_json)
+          allow(response).to receive(:is_a?).with(anything).and_return(false)
+          allow(response).to receive(:is_a?).with(Net::HTTPSuccess).and_return(true)
+          response
+        end
+
+        described_class.exchange_code(:claude, code: "auth-code-123", code_verifier: "verifier-456")
+      end
+
+      it "strips whitespace from code and code_verifier" do
+        http = stub_token_request
+
+        expect(http).to receive(:request) do |req|
+          body = JSON.parse(req.body)
+          expect(body["code"]).to eq("auth-code-123")
+          expect(body["code_verifier"]).to eq("verifier-456")
+
+          response = instance_double(Net::HTTPResponse, code: "200", body: token_response_body.to_json)
+          allow(response).to receive(:is_a?).with(anything).and_return(false)
+          allow(response).to receive(:is_a?).with(Net::HTTPSuccess).and_return(true)
+          response
+        end
+
+        described_class.exchange_code(:claude, code: "  auth-code-123  ", code_verifier: "  verifier-456  ")
+      end
+
+      it "accepts :anthropic alias" do
+        stub_token_request
+
+        result = described_class.exchange_code(:anthropic, code: "auth-code-123", code_verifier: "verifier-456")
+        expect(result[:success]).to be true
+      end
+
+      it "preserves existing credentials" do
+        stub_token_request
+        File.write(credentials_path, JSON.generate({"existing_key" => "existing_value"}))
+
+        described_class.exchange_code(:claude, code: "auth-code-123", code_verifier: "verifier-456")
+
+        credentials = JSON.parse(File.read(credentials_path))
+        expect(credentials["existing_key"]).to eq("existing_value")
+        expect(credentials["oauth_token"]).to eq("new-access-token")
+      end
+
+      it "sets restrictive file permissions on credentials file" do
+        stub_token_request
+
+        described_class.exchange_code(:claude, code: "auth-code-123", code_verifier: "verifier-456")
+
+        mode = File.stat(credentials_path).mode & 0o777
+        expect(mode).to eq(0o600)
+      end
+
+      it "stores credentials without refresh_token when not provided" do
+        no_refresh_response = token_response_body.reject { |k| k == "refresh_token" }
+        stub_token_request(body: no_refresh_response.to_json)
+
+        described_class.exchange_code(:claude, code: "auth-code-123", code_verifier: "verifier-456")
+
+        credentials = JSON.parse(File.read(credentials_path))
+        expect(credentials).not_to have_key("refreshToken")
+      end
+
+      it "raises ArgumentError without code" do
+        expect { described_class.exchange_code(:claude, code: nil, code_verifier: "verifier") }
+          .to raise_error(ArgumentError, /code must be a non-empty string/)
+      end
+
+      it "raises ArgumentError with empty code" do
+        expect { described_class.exchange_code(:claude, code: "", code_verifier: "verifier") }
+          .to raise_error(ArgumentError, /code must be a non-empty string/)
+      end
+
+      it "raises ArgumentError with blank code" do
+        expect { described_class.exchange_code(:claude, code: "   ", code_verifier: "verifier") }
+          .to raise_error(ArgumentError, /code must be a non-empty string/)
+      end
+
+      it "raises ArgumentError without code_verifier" do
+        expect { described_class.exchange_code(:claude, code: "code", code_verifier: nil) }
+          .to raise_error(ArgumentError, /code_verifier must be a non-empty string/)
+      end
+
+      it "raises ArgumentError with empty code_verifier" do
+        expect { described_class.exchange_code(:claude, code: "code", code_verifier: "") }
+          .to raise_error(ArgumentError, /code_verifier must be a non-empty string/)
+      end
+
+      it "raises AuthenticationError on HTTP failure" do
+        stub_token_request(status: 400, body: {error: "invalid_grant"}.to_json)
+
+        expect { described_class.exchange_code(:claude, code: "bad-code", code_verifier: "verifier") }
+          .to raise_error(AgentHarness::AuthenticationError, /PKCE code exchange failed.*invalid_grant/)
+      end
+
+      it "raises AuthenticationError with non-JSON error response" do
+        stub_token_request(status: 500, body: "Internal Server Error")
+
+        expect { described_class.exchange_code(:claude, code: "code", code_verifier: "verifier") }
+          .to raise_error(AgentHarness::AuthenticationError, /PKCE code exchange failed.*500/)
+      end
+    end
+
+    context "for API key provider" do
+      it "raises UnsupportedAuthFlowError with provider auth details" do
+        expect { described_class.exchange_code(:aider, code: "code", code_verifier: "verifier") }
+          .to raise_error(AgentHarness::UnsupportedAuthFlowError, /Provider aider uses api_key auth/)
+      end
+
+      it "raises an AgentHarness::Error subclass" do
+        expect { described_class.exchange_code(:aider, code: "code", code_verifier: "verifier") }
+          .to raise_error(AgentHarness::Error)
+      end
+    end
+
+    context "for OAuth provider without code exchange support" do
+      it "raises UnsupportedAuthFlowError with implementation details" do
+        expect { described_class.exchange_code(:cursor, code: "code", code_verifier: "verifier") }
+          .to raise_error(AgentHarness::UnsupportedAuthFlowError, /PKCE code exchange is not yet implemented/)
+      end
     end
   end
 
