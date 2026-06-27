@@ -365,7 +365,7 @@ RSpec.describe AgentHarness do
 
   describe ".auth_capabilities" do
     it "delegates to Authentication module" do
-      capabilities = {auth_type: :oauth, auth_url: true, refresh: true}
+      capabilities = {auth_type: :oauth, auth_url: true, exchange_code: true, refresh: true}
       expect(AgentHarness::Authentication).to receive(:auth_capabilities).with(:claude).and_return(capabilities)
       expect(AgentHarness.auth_capabilities(:claude)).to eq(capabilities)
     end
@@ -382,6 +382,23 @@ RSpec.describe AgentHarness do
     it "delegates to Authentication module" do
       expect(AgentHarness::Authentication).to receive(:auth_url).with(:claude).and_return("https://example.com")
       expect(AgentHarness.auth_url(:claude)).to eq("https://example.com")
+    end
+  end
+
+  describe ".exchange_code_supported?" do
+    it "delegates to Authentication module" do
+      expect(AgentHarness::Authentication).to receive(:exchange_code_supported?).with(:claude).and_return(true)
+      expect(AgentHarness.exchange_code_supported?(:claude)).to be true
+    end
+  end
+
+  describe ".exchange_code" do
+    it "delegates to Authentication module" do
+      expect(AgentHarness::Authentication).to receive(:exchange_code)
+        .with(:claude, code: "abc", code_verifier: "xyz")
+        .and_return({success: true, credentials: {}})
+      expect(AgentHarness.exchange_code(:claude, code: "abc", code_verifier: "xyz"))
+        .to eq({success: true, credentials: {}})
     end
   end
 

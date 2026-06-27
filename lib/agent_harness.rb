@@ -322,6 +322,24 @@ module AgentHarness
       Authentication.auth_url(provider_name)
     end
 
+    # Check whether PKCE code exchange is supported for a provider
+    # @param provider_name [Symbol] the provider name
+    # @return [Boolean] true if exchange_code can be called for the provider
+    # @raise [ProviderNotFoundError] if provider is unknown
+    def exchange_code_supported?(provider_name)
+      Authentication.exchange_code_supported?(provider_name)
+    end
+
+    # Exchange an OAuth authorization code for tokens using PKCE
+    # @param provider_name [Symbol] the provider name
+    # @param code [String] the authorization code
+    # @param code_verifier [String] the PKCE code verifier
+    # @return [Hash] result with :success and :credentials keys
+    # @raise [UnsupportedAuthFlowError] if provider doesn't support code exchange
+    def exchange_code(provider_name, code:, code_verifier:)
+      Authentication.exchange_code(provider_name, code: code, code_verifier: code_verifier)
+    end
+
     # Check whether credential refresh is supported for a provider
     # @param provider_name [Symbol] the provider name
     # @return [Boolean] true if refresh_auth can be called for the provider
