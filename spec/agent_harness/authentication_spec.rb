@@ -862,6 +862,31 @@ RSpec.describe AgentHarness::Authentication do
         expect { described_class.exchange_code(:claude, code: "code", code_verifier: "verifier") }
           .to raise_error(AgentHarness::AuthenticationError, /PKCE code exchange failed.*500/)
       end
+
+      it "raises AuthenticationError when token response is missing access_token" do
+        stub_token_request(body: {"refresh_token" => "r"}.to_json)
+
+        expect { described_class.exchange_code(:claude, code: "code", code_verifier: "verifier") }
+          .to raise_error(AgentHarness::AuthenticationError, /returned no access_token/)
+
+        expect(File.exist?(credentials_path)).to be false
+      end
+
+      it "raises AuthenticationError when token response has blank access_token" do
+        stub_token_request(body: {"access_token" => "   "}.to_json)
+
+        expect { described_class.exchange_code(:claude, code: "code", code_verifier: "verifier") }
+          .to raise_error(AgentHarness::AuthenticationError, /returned no access_token/)
+
+        expect(File.exist?(credentials_path)).to be false
+      end
+
+      it "raises AuthenticationError when token response has non-string access_token" do
+        stub_token_request(body: {"access_token" => 12345}.to_json)
+
+        expect { described_class.exchange_code(:claude, code: "code", code_verifier: "verifier") }
+          .to raise_error(AgentHarness::AuthenticationError, /returned no access_token/)
+      end
     end
 
     context "for API key provider" do

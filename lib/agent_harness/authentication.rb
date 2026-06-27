@@ -299,6 +299,14 @@ module AgentHarness
         end
 
         token_data = JSON.parse(response.body)
+
+        unless token_data["access_token"].is_a?(String) && !token_data["access_token"].strip.empty?
+          raise AuthenticationError.new(
+            "PKCE code exchange returned no access_token",
+            provider: :claude
+          )
+        end
+
         store_claude_token_response(token_data)
       end
 
