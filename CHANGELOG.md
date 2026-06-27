@@ -3,7 +3,29 @@
 ### Features
 
 * add runner model compatibility contract (`AgentHarness.model_compatibility`) with structured `ModelCompatibility::Result` outcomes. Codex exposes static facts for CLI-gated models (e.g. `gpt-5.5` requires Codex CLI `>= 0.116.0`), a baseline supported-model list, supported auth modes, and a `DEFAULT_COMPATIBLE_MODEL_ID` fallback so downstream orchestrators can validate tier/model assignments before scheduling agent runs ([#259](https://github.com/viamin/agent-harness/issues/259)).
+* **auth:** add provider-owned PKCE code-exchange API for Claude OAuth (`AgentHarness::Authentication.exchange_code`). Takes an authorization code plus PKCE verifier (and `redirect_uri`/`client_id`), posts an `authorization_code` grant to the Claude token endpoint, and persists the resulting access/refresh tokens in the native `claudeAiOauth` shape. Adds `exchange_code_supported?` and a `code_exchange` key to `auth_capabilities` ([#266](https://github.com/viamin/agent-harness/issues/266)).
 
+
+## [0.26.0](https://github.com/viamin/agent-harness/compare/agent-harness/v0.25.0...agent-harness/v0.26.0) (2026-06-26)
+
+
+### Features
+
+* **auth:** add PKCE code-exchange API for Claude OAuth ([#272](https://github.com/viamin/agent-harness/issues/272)) ([22f873b](https://github.com/viamin/agent-harness/commit/22f873bb5fe58c67ab94c2a7b0c57b3bcbfe38b9)), closes [#266](https://github.com/viamin/agent-harness/issues/266)
+
+## [0.25.0](https://github.com/viamin/agent-harness/compare/agent-harness/v0.24.0...agent-harness/v0.25.0) (2026-06-26)
+
+
+### Features
+
+* **auth:** add refresh-token exchange API for Claude OAuth ([#269](https://github.com/viamin/agent-harness/issues/269)) ([076b1aa](https://github.com/viamin/agent-harness/commit/076b1aa91a3dcb58280d1c550bdc4329ce162a92)), closes [#265](https://github.com/viamin/agent-harness/issues/265)
+
+## [0.24.0](https://github.com/viamin/agent-harness/compare/agent-harness/v0.23.0...agent-harness/v0.24.0) (2026-06-26)
+
+
+### Features
+
+* **auth:** parse native Claude claudeAiOauth credentials shape ([#268](https://github.com/viamin/agent-harness/issues/268)) ([178edae](https://github.com/viamin/agent-harness/commit/178edae21e175c4744b75a151acfc6df3b4b3c5d)), closes [#264](https://github.com/viamin/agent-harness/issues/264)
 
 ## [0.23.0](https://github.com/viamin/agent-harness/compare/agent-harness/v0.22.5...agent-harness/v0.23.0) (2026-06-15)
 
