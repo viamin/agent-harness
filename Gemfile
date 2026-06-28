@@ -9,7 +9,7 @@ gem "rake", "~> 13.4"
 
 gem "rspec", "~> 3.0"
 
-gem "standard", "~> 1.54"
+gem "standard", "~> 1.55"
 
 group :test do
   gem "simplecov", require: false
