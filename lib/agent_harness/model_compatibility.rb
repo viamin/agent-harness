@@ -61,8 +61,7 @@ module AgentHarness
       :cli_version_requirement,
       :fallback_model_id,
       :source,
-      :details,
-      keyword_init: true
+      :details
     ) do
       # @return [Boolean] true when compatibility is known to be supported
       def supported? = supported == true

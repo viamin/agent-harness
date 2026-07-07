@@ -14,8 +14,7 @@ module AgentHarness
       include McpConfigFileSupport
 
       StreamingEvent = Struct.new(
-        :type, :turn, :tokens, :error_message, :tool_name, :raw_event,
-        keyword_init: true
+        :type, :turn, :tokens, :error_message, :tool_name, :raw_event
       )
 
       SUPPORTED_CLI_VERSION = "0.122.0"

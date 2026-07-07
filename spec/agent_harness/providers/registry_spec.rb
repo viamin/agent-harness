@@ -34,6 +34,21 @@ RSpec.describe AgentHarness::Providers::Registry do
       end
     end
   end
+  let(:registered_provider_without_install_metadata) do
+    Class.new do
+      def self.provider_name = :test
+      def self.available? = true
+      def self.binary_name = "test"
+      def self.install_contract = {provider: :test}
+    end
+  end
+  let(:registered_provider_without_smoke_test_metadata) do
+    Class.new do
+      def self.provider_name = :test
+      def self.available? = true
+      def self.binary_name = "test"
+    end
+  end
 
   before do
     registry.reset!
@@ -439,12 +454,7 @@ RSpec.describe AgentHarness::Providers::Registry do
     end
 
     it "returns nil for a registered provider without install metadata" do
-      registry.register(:test, Class.new do
-        def self.provider_name = :test
-        def self.available? = true
-        def self.binary_name = "test"
-        def self.install_contract = {provider: :test}
-      end)
+      registry.register(:test, registered_provider_without_install_metadata)
 
       expect(registry.installation_contract(:test)).to be_nil
     end
@@ -474,12 +484,7 @@ RSpec.describe AgentHarness::Providers::Registry do
     end
 
     it "skips registered providers without install metadata" do
-      registry.register(:test, Class.new do
-        def self.provider_name = :test
-        def self.available? = true
-        def self.binary_name = "test"
-        def self.install_contract = {provider: :test}
-      end)
+      registry.register(:test, registered_provider_without_install_metadata)
 
       expect(registry.installation_contracts).not_to include(:test)
     end
@@ -1586,11 +1591,7 @@ RSpec.describe AgentHarness::Providers::Registry do
     end
 
     it "returns nil for a registered provider without smoke-test metadata" do
-      registry.register(:test, Class.new do
-        def self.provider_name = :test
-        def self.available? = true
-        def self.binary_name = "test"
-      end)
+      registry.register(:test, registered_provider_without_smoke_test_metadata)
 
       expect(registry.smoke_test_contract(:test)).to be_nil
     end
@@ -1606,11 +1607,7 @@ RSpec.describe AgentHarness::Providers::Registry do
     end
 
     it "skips registered providers without smoke-test metadata" do
-      registry.register(:test, Class.new do
-        def self.provider_name = :test
-        def self.available? = true
-        def self.binary_name = "test"
-      end)
+      registry.register(:test, registered_provider_without_smoke_test_metadata)
 
       expect(registry.smoke_test_contracts).not_to include(:test)
     end
