@@ -22,8 +22,7 @@ module AgentHarness
     # Token usage event structure
     TokenEvent = Struct.new(
       :provider, :model, :input_tokens, :output_tokens, :total_tokens,
-      :timestamp, :request_id,
-      keyword_init: true
+      :timestamp, :request_id
     )
 
     def initialize

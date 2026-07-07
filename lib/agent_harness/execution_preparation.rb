@@ -9,7 +9,7 @@ module AgentHarness
   class ExecutionPreparation
     # Declarative file write request that executors can materialize in their
     # own runtime environment.
-    FileWrite = Struct.new(:path, :content, :mode, keyword_init: true) do
+    FileWrite = Struct.new(:path, :content, :mode) do
       def initialize(path:, content:, mode: nil)
         raise ArgumentError, "path must be a non-empty String" unless path.is_a?(String) && !path.empty?
         raise ArgumentError, "content must be a String" unless content.is_a?(String)

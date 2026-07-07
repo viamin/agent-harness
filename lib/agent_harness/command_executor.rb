@@ -27,7 +27,7 @@ module AgentHarness
     PREPARATION_LOCK_ROOT = File.join(Dir.tmpdir, "agent-harness-preparation-locks")
 
     # Result of a command execution
-    Result = Struct.new(:stdout, :stderr, :exit_code, :duration, keyword_init: true) do
+    Result = Struct.new(:stdout, :stderr, :exit_code, :duration) do
       def success?
         exit_code == 0
       end
