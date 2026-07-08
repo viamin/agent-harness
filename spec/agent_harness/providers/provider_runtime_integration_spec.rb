@@ -340,6 +340,9 @@ RSpec.describe "ProviderRuntime integration" do
                   "\"provider\": \"openrouter\"",
                   "\"model\": \"anthropic/claude-opus-4.1\"",
                   "\"baseURL\": \"https://openrouter.ai/api/v1\"",
+                  "\"permission\": {",
+                  "\"external_directory\": {",
+                  "\"/tmp/**\": \"allow\"",
                   "\"theme\": \"system\""
                 ),
                 mode: 0o600

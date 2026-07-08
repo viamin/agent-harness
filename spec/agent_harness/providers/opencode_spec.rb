@@ -329,6 +329,9 @@ RSpec.describe AgentHarness::Providers::Opencode do
                     "\"model\": \"gpt-5.4\"",
                     "\"provider\": \"openrouter\"",
                     "\"baseURL\": \"https://openrouter.ai/api/v1\"",
+                    "\"permission\": {",
+                    "\"external_directory\": {",
+                    "\"/tmp/**\": \"allow\"",
                     "\"theme\": \"system\""
                   ),
                   mode: 0o600
@@ -347,6 +350,52 @@ RSpec.describe AgentHarness::Providers::Opencode do
             metadata: {
               config: {
                 theme: "system"
+              }
+            }
+          }
+        )
+      end
+
+      it "preserves caller-supplied permission config" do
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: "response",
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        expect(mock_executor).to receive(:execute).with(
+          ["opencode", "run", "Hello"],
+          hash_including(
+            preparation: have_attributes(
+              file_writes: [
+                have_attributes(
+                  path: "~/.config/opencode/opencode.json",
+                  content: satisfy do |content|
+                    content.include?("\"permission\": {") &&
+                      content.include?("\"external_directory\": {") &&
+                      content.include?("\"/var/tmp/**\": \"allow\"") &&
+                      !content.include?("\"/tmp/**\": \"allow\"")
+                  end,
+                  mode: 0o600
+                )
+              ]
+            )
+          )
+        )
+
+        provider.send_message(
+          prompt: "Hello",
+          provider_runtime: {
+            metadata: {
+              config: {
+                permission: {
+                  external_directory: {
+                    "/var/tmp/**" => "allow"
+                  }
+                }
               }
             }
           }
