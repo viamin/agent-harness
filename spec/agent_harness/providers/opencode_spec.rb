@@ -384,6 +384,139 @@ RSpec.describe AgentHarness::Providers::Opencode do
           }
         )
       end
+
+      context "with the default external_directory permission rule" do
+        it "default-merges a permissive /tmp external_directory permission into the config" do
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: "response",
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          expect(mock_executor).to receive(:execute).with(
+            ["opencode", "run", "Hello"],
+            hash_including(
+              preparation: have_attributes(
+                file_writes: [
+                  have_attributes(
+                    path: "~/.config/opencode/opencode.json",
+                    content: include(
+                      "\"permission\":",
+                      "\"external_directory\":",
+                      "\"/tmp/**\": \"allow\""
+                    )
+                  )
+                ]
+              )
+            )
+          )
+
+          provider.send_message(
+            prompt: "Hello",
+            provider_runtime: {
+              model: "gpt-5.4"
+            }
+          )
+        end
+
+        it "writes a config file even when no other config extras are supplied" do
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: "response",
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          expect(mock_executor).to receive(:execute).with(
+            ["opencode", "run", "Hello"],
+            hash_including(
+              preparation: have_attributes(
+                file_writes: [
+                  have_attributes(
+                    path: "~/.config/opencode/opencode.json",
+                    content: include("\"external_directory\":")
+                  )
+                ]
+              )
+            )
+          )
+
+          provider.send_message(
+            prompt: "Hello",
+            provider_runtime: {
+              model: "gpt-5.4"
+            }
+          )
+        end
+
+        it "does not mutate the shared DEFAULT_PERMISSION_RULE constant across invocations" do
+          frozen_rule = described_class::DEFAULT_PERMISSION_RULE
+          expect(frozen_rule).to be_frozen
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: "response",
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          2.times do
+            provider.send_message(prompt: "Hello", provider_runtime: {model: "gpt-5.4"})
+          end
+
+          expect(frozen_rule["external_directory"]).to eq("/tmp/**" => "allow")
+        end
+
+        it "leaves a caller-supplied permission block untouched" do
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: "response",
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          expect(mock_executor).to receive(:execute).with(
+            ["opencode", "run", "Hello"],
+            hash_including(
+              preparation: have_attributes(
+                file_writes: [
+                  have_attributes(
+                    path: "~/.config/opencode/opencode.json",
+                    content: satisfy do |content|
+                      content.include?("\"bash\": \"ask\"") &&
+                        content.include?("\"edit\": \"deny\"") &&
+                        !content.include?("/tmp/**")
+                    end
+                  )
+                ]
+              )
+            )
+          )
+
+          provider.send_message(
+            prompt: "Hello",
+            provider_runtime: {
+              metadata: {
+                config: {
+                  permission: {
+                    bash: "ask",
+                    edit: "deny"
+                  }
+                }
+              }
+            }
+          )
+        end
+      end
     end
 
     describe "#error_patterns" do
