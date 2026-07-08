@@ -128,6 +128,19 @@ module AgentHarness
 
       DEFAULT_INSTALLATION_CONTRACT = build_installation_contract(SUPPORTED_CLI_VERSION)
 
+      # OpenCode's stock default only allowlists `external_directory` access to
+      # `/tmp/opencode/*`, but its own sub-agent delegation pattern (e.g. the
+      # Explore-Agent used to summarize large diffs/outputs) writes scratch
+      # files to other `/tmp/*` paths. In non-interactive execution there is no
+      # human to approve the resulting permission prompt, so the agent silently
+      # loses access to its own scratch output and never completes the task.
+      # This default rule broadens the allowlist to all of `/tmp` so the agent
+      # can read back files it (or its sub-agents) wrote there.
+      DEFAULT_PERMISSION_EXTERNAL_DIRECTORY_PATTERN = "/tmp/**"
+      DEFAULT_PERMISSION_RULE = {
+        "external_directory" => {DEFAULT_PERMISSION_EXTERNAL_DIRECTORY_PATTERN => "allow"}
+      }.freeze
+
       def name
         "opencode"
       end
@@ -265,7 +278,16 @@ module AgentHarness
         payload["model"] = runtime.model if runtime.model
         payload["provider"] = runtime.api_provider if runtime.api_provider
         payload["baseURL"] = runtime.base_url if runtime.base_url
+        apply_default_external_directory_permission(payload)
         payload.empty? ? nil : payload
+      end
+
+      def apply_default_external_directory_permission(payload)
+        # Respect any caller-supplied `permission` block verbatim: if a caller
+        # takes responsibility for permission config, we do not override it.
+        return if payload.key?("permission")
+
+        payload["permission"] = deep_dup(DEFAULT_PERMISSION_RULE)
       end
 
       def opencode_config_path(_runtime)
