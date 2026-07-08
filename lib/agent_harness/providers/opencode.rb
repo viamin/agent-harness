@@ -13,6 +13,11 @@ module AgentHarness
       SUPPORTED_CLI_VERSION = "1.3.2"
       SUPPORTED_CLI_REQUIREMENT = Gem::Requirement.new(">= #{SUPPORTED_CLI_VERSION}", "< 1.4.0").freeze
       INSTALL_COMMAND_PREFIX = ["npm", "install", "-g", "--ignore-scripts"].freeze
+      DEFAULT_PERMISSION_CONFIG = {
+        "external_directory" => {
+          "/tmp/**" => "allow"
+        }
+      }.freeze
       SUPPORTED_CLI_VERSIONS = [SUPPORTED_CLI_VERSION].freeze
       POSTINSTALL_COMMAND = "node $(npm root -g)/opencode-ai/postinstall.mjs"
       VERSION_REQUIREMENT_STRINGS = SUPPORTED_CLI_REQUIREMENT.requirements
@@ -256,6 +261,7 @@ module AgentHarness
         end
 
         payload = stringify_keys(config_extras)
+        payload["permission"] ||= DEFAULT_PERMISSION_CONFIG
         payload["model"] = runtime.model if runtime.model
         payload["provider"] = runtime.api_provider if runtime.api_provider
         payload["baseURL"] = runtime.base_url if runtime.base_url
