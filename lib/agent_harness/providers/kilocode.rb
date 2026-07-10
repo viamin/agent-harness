@@ -13,6 +13,18 @@ module AgentHarness
       DEFAULT_VERSION = "7.1.3"
       SUPPORTED_VERSION_REQUIREMENT = "= #{DEFAULT_VERSION}"
       STRUCTURED_EVENT_TYPES = %w[text error step_finish result usage].freeze
+      # Kilo CLI (an OpenCode fork) ships the same external_directory
+      # permission category as OpenCode, defaulting to "ask" for anything
+      # outside the project dir. In non-interactive execution there is no
+      # human to answer the prompt, so reads of scratch files under /tmp are
+      # auto-rejected and the agent silently loses access to its own scratch
+      # output, killing the run without a recoverable error. This default rule
+      # broadens the allowlist to all of /tmp so the agent can read back files
+      # it (or its sub-agents) wrote there. See #282 (precedent: #277/#280).
+      DEFAULT_PERMISSION_EXTERNAL_DIRECTORY_PATTERN = "/tmp/**"
+      DEFAULT_PERMISSION_CONFIG = {
+        "external_directory" => {DEFAULT_PERMISSION_EXTERNAL_DIRECTORY_PATTERN => "allow"}
+      }.freeze
       USAGE_EVENT_TYPES = %w[result usage].freeze
       TOKEN_USAGE_KEYS = %w[
         input_tokens
@@ -172,6 +184,7 @@ module AgentHarness
 
         config = {provider: {provider_name => {}}}
         config[:model] = "#{provider_name}/#{model_id}" if model_id
+        apply_default_external_directory_permission(config, options)
 
         config.to_json
       end
@@ -331,6 +344,23 @@ module AgentHarness
       end
 
       private
+
+      # Default-merge a permissive external_directory permission into the
+      # generated Kilo config unless the caller takes responsibility for
+      # permission config. A caller-supplied permission (passed via the
+      # +:permission+ option) is honored verbatim and never overridden, and an
+      # already-present permission block on the config is likewise left alone.
+      def apply_default_external_directory_permission(config, options = {})
+        caller_permission = options[:permission] || options["permission"]
+        if caller_permission.is_a?(Hash) && !caller_permission.empty?
+          config[:permission] = caller_permission
+          return
+        end
+
+        return if config.key?(:permission) || config.key?("permission")
+
+        config[:permission] = deep_dup(DEFAULT_PERMISSION_CONFIG)
+      end
 
       def heartbeat_hook_script(heartbeat_file_path)
         "touch #{Shellwords.escape(heartbeat_file_path)}"

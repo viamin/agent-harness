@@ -3658,6 +3658,89 @@ RSpec.describe AgentHarness::Providers::Kilocode do
       expect(parsed["provider"]).to eq({"openai" => {}})
       expect(parsed["model"]).to be_nil
     end
+
+    context "with the default external_directory permission rule" do
+      it "default-merges a permissive /tmp external_directory permission into the config" do
+        content = provider.config_file_content(
+          provider_name: "anthropic",
+          model_id: "claude-sonnet-4-6"
+        )
+        parsed = JSON.parse(content)
+
+        expect(parsed["permission"]).to eq({
+          "external_directory" => {"/tmp/**" => "allow"}
+        })
+      end
+
+      it "writes the permission rule even when no provider/model is supplied" do
+        parsed = JSON.parse(provider.config_file_content)
+
+        expect(parsed["permission"]).to eq({
+          "external_directory" => {"/tmp/**" => "allow"}
+        })
+      end
+
+      it "honors a caller-supplied permission block verbatim and does not inject /tmp" do
+        content = provider.config_file_content(
+          provider_name: "openai",
+          permission: {
+            "external_directory" => {"/var/tmp/**" => "allow"},
+            "bash" => "ask"
+          }
+        )
+        parsed = JSON.parse(content)
+
+        expect(parsed["permission"]).to eq({
+          "external_directory" => {"/var/tmp/**" => "allow"},
+          "bash" => "ask"
+        })
+        expect(parsed["permission"]["external_directory"]).not_to have_key("/tmp/**")
+      end
+
+      it "accepts a string-keyed caller permission option" do
+        content = provider.config_file_content(
+          "permission" => {"external_directory" => {"/workspace/**" => "allow"}}
+        )
+        parsed = JSON.parse(content)
+
+        expect(parsed["permission"]).to eq({
+          "external_directory" => {"/workspace/**" => "allow"}
+        })
+      end
+
+      it "ignores a non-Hash caller permission and falls back to the default rule" do
+        parsed = JSON.parse(provider.config_file_content(permission: "banana"))
+
+        expect(parsed["permission"]).to eq({
+          "external_directory" => {"/tmp/**" => "allow"}
+        })
+      end
+
+      it "ignores an empty caller permission hash and falls back to the default rule" do
+        parsed = JSON.parse(provider.config_file_content(permission: {}))
+
+        expect(parsed["permission"]).to eq({
+          "external_directory" => {"/tmp/**" => "allow"}
+        })
+      end
+
+      it "does not mutate the shared DEFAULT_PERMISSION_CONFIG constant across invocations" do
+        frozen_config = described_class::DEFAULT_PERMISSION_CONFIG
+        expect(frozen_config).to be_frozen
+
+        2.times { provider.config_file_content(provider_name: "openai", model_id: "gpt-4o") }
+
+        expect(frozen_config["external_directory"]).to eq("/tmp/**" => "allow")
+      end
+
+      it "returns an independent permission copy on each invocation" do
+        first = JSON.parse(provider.config_file_content)["permission"]
+        first["external_directory"]["/tmp/**"] = "deny"
+
+        second = JSON.parse(provider.config_file_content)["permission"]
+        expect(second["external_directory"]["/tmp/**"]).to eq("allow")
+      end
+    end
   end
 
   describe "#notify_hook_content" do
