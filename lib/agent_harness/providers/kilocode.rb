@@ -380,7 +380,7 @@ module AgentHarness
       def apply_default_external_directory_permission(config, options = {})
         caller_permission = options[:permission] || options["permission"] || config["permission"]
         if caller_permission.is_a?(Hash) && !caller_permission.empty?
-          config["permission"] = caller_permission
+          config["permission"] = deep_dup(caller_permission)
           return
         end
 

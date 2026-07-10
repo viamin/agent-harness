@@ -3889,6 +3889,14 @@ RSpec.describe AgentHarness::Providers::Kilocode do
         second = JSON.parse(provider.config_file_content)["permission"]
         expect(second["external_directory"]["/tmp/**"]).to eq("allow")
       end
+
+      it "does not mutate a caller-supplied permission block" do
+        caller_permission = {"external_directory" => {"/var/tmp/**" => "allow"}}
+
+        provider.config_file_content(permission: caller_permission)
+
+        expect(caller_permission).to eq("external_directory" => {"/var/tmp/**" => "allow"})
+      end
     end
   end
 
