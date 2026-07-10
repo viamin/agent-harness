@@ -188,6 +188,155 @@ RSpec.describe AgentHarness::Providers::Kilocode do
 
         provider.send_message(prompt: "Hello", smoke_test: true)
       end
+
+      it "does not write a config file when no provider_runtime is supplied" do
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: '{"type":"text","part":{"text":"response"}}',
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        expect(mock_executor).to receive(:execute).with(
+          ["kilo", "run", "--format", "json", "Hello"],
+          satisfy { |opts| !opts.key?(:preparation) }
+        )
+
+        provider.send_message(prompt: "Hello")
+      end
+
+      context "with the default external_directory permission rule" do
+        it "writes the permissive /tmp permission to ~/.config/kilocode/kilo.json via the execution preparation" do
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: '{"type":"text","part":{"text":"response"}}',
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          expect(mock_executor).to receive(:execute).with(
+            ["kilo", "run", "--format", "json", "Hello"],
+            hash_including(
+              preparation: have_attributes(
+                file_writes: [
+                  have_attributes(
+                    path: "~/.config/kilocode/kilo.json",
+                    content: include(
+                      "\"permission\":",
+                      "\"external_directory\":",
+                      "\"/tmp/**\": \"allow\"",
+                      "\"model\": \"openai/gpt-5.4\""
+                    ),
+                    mode: 0o600
+                  )
+                ]
+              )
+            )
+          )
+
+          provider.send_message(
+            prompt: "Hello",
+            provider_runtime: {model: "openai/gpt-5.4"}
+          )
+        end
+
+        it "writes a config file even when no other config extras are supplied" do
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: '{"type":"text","part":{"text":"response"}}',
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          expect(mock_executor).to receive(:execute).with(
+            ["kilo", "run", "--format", "json", "Hello"],
+            hash_including(
+              preparation: have_attributes(
+                file_writes: [
+                  have_attributes(
+                    path: "~/.config/kilocode/kilo.json",
+                    content: include("\"external_directory\":"),
+                    mode: 0o600
+                  )
+                ]
+              )
+            )
+          )
+
+          provider.send_message(
+            prompt: "Hello",
+            provider_runtime: {model: "gpt-5.4"}
+          )
+        end
+
+        it "does not mutate the shared DEFAULT_PERMISSION_CONFIG constant across invocations" do
+          frozen_config = described_class::DEFAULT_PERMISSION_CONFIG
+          expect(frozen_config).to be_frozen
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: '{"type":"text","part":{"text":"response"}}',
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          2.times { provider.send_message(prompt: "Hello", provider_runtime: {model: "gpt-5.4"}) }
+
+          expect(frozen_config["external_directory"]).to eq("/tmp/**" => "allow")
+        end
+
+        it "leaves a caller-supplied permission block untouched" do
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: '{"type":"text","part":{"text":"response"}}',
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          expect(mock_executor).to receive(:execute).with(
+            ["kilo", "run", "--format", "json", "Hello"],
+            hash_including(
+              preparation: have_attributes(
+                file_writes: [
+                  have_attributes(
+                    path: "~/.config/kilocode/kilo.json",
+                    content: satisfy do |content|
+                      content.include?("\"bash\": \"ask\"") &&
+                        content.include?("\"edit\": \"deny\"") &&
+                        !content.include?("/tmp/**")
+                    end,
+                    mode: 0o600
+                  )
+                ]
+              )
+            )
+          )
+
+          provider.send_message(
+            prompt: "Hello",
+            provider_runtime: {
+              metadata: {
+                config: {
+                  permission: {
+                    bash: "ask",
+                    edit: "deny"
+                  }
+                }
+              }
+            }
+          )
+        end
+      end
     end
 
     describe "#error_patterns" do

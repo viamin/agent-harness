@@ -182,8 +182,8 @@ module AgentHarness
         provider_name = options[:provider_name] || "openai"
         model_id = options[:model_id]
 
-        config = {provider: {provider_name => {}}}
-        config[:model] = "#{provider_name}/#{model_id}" if model_id
+        config = {"provider" => {provider_name => {}}}
+        config["model"] = "#{provider_name}/#{model_id}" if model_id
         apply_default_external_directory_permission(config, options)
 
         config.to_json
@@ -213,6 +213,31 @@ module AgentHarness
         cmd.concat(test_command_overrides) if options[:smoke_test]
         cmd << prompt
         cmd
+      end
+
+      # Materialize the permissive external_directory permission (and any other
+      # runtime config extras) to +~/.config/kilocode/kilo.json+ before the CLI
+      # boots. This is the runtime path that actually fixes #282: without it the
+      # permission lives only in {config_file_content}'s return value, which no
+      # execution caller invokes, so Kilo would boot with stock "ask" defaults
+      # and auto-reject /tmp reads in non-interactive runs. Mirrors the OpenCode
+      # precedent in #280.
+      def build_execution_preparation(options)
+        runtime = options[:provider_runtime]
+        return nil unless runtime
+
+        config_payload = kilocode_config_payload(runtime)
+        return nil unless config_payload
+
+        ExecutionPreparation.new(
+          file_writes: [
+            {
+              path: kilocode_config_path,
+              content: serialize_kilocode_config(config_payload),
+              mode: 0o600
+            }
+          ]
+        )
       end
 
       def parse_response(result, duration:)
@@ -348,18 +373,46 @@ module AgentHarness
       # Default-merge a permissive external_directory permission into the
       # generated Kilo config unless the caller takes responsibility for
       # permission config. A caller-supplied permission (passed via the
-      # +:permission+ option) is honored verbatim and never overridden, and an
-      # already-present permission block on the config is likewise left alone.
+      # +:permission+ option or already present on the config under the
+      # +"permission"+ key, e.g. from runtime metadata config extras) is
+      # honored verbatim and never overridden, and an invalid or empty
+      # caller permission is ignored in favor of the default rule.
       def apply_default_external_directory_permission(config, options = {})
-        caller_permission = options[:permission] || options["permission"]
+        caller_permission = options[:permission] || options["permission"] || config["permission"]
         if caller_permission.is_a?(Hash) && !caller_permission.empty?
-          config[:permission] = caller_permission
+          config["permission"] = caller_permission
           return
         end
 
-        return if config.key?(:permission) || config.key?("permission")
+        config["permission"] = deep_dup(DEFAULT_PERMISSION_CONFIG)
+      end
 
-        config[:permission] = deep_dup(DEFAULT_PERMISSION_CONFIG)
+      def kilocode_config_path
+        "~/.config/kilocode/kilo.json"
+      end
+
+      def kilocode_config_payload(runtime)
+        metadata = runtime.metadata
+        config_extras = metadata[:config] || metadata["config"] || {}
+        unless config_extras.is_a?(Hash)
+          raise ArgumentError,
+            "Kilocode runtime metadata config must be a Hash of provider-specific extras (got #{config_extras.class})"
+        end
+
+        payload = stringify_keys(config_extras)
+        payload["model"] = runtime.model if runtime.model
+        apply_default_external_directory_permission(payload)
+        payload.empty? ? nil : payload
+      end
+
+      def serialize_kilocode_config(payload)
+        JSON.pretty_generate(payload)
+      end
+
+      def stringify_keys(hash)
+        hash.each_with_object({}) do |(key, value), result|
+          result[key.to_s] = value
+        end
       end
 
       def heartbeat_hook_script(heartbeat_file_path)
