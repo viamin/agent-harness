@@ -42,6 +42,33 @@ RSpec.describe AgentHarness::Providers::Codex, ".model_compatibility" do
     expect(result.source).to eq(:static_contract)
   end
 
+  it "returns unsupported for models disallowed under subscription auth" do
+    result = described_class.model_compatibility(
+      model_id: "gpt-5.5-pro",
+      auth_mode: :subscription,
+      cli_version: "0.122.0"
+    )
+
+    expect(result.supported?).to be(false)
+    expect(result.unsupported?).to be(true)
+    expect(result.reason).to eq(:unsupported_auth_mode_for_model)
+    expect(result.details).to include(supported_auth_modes: [:api_key])
+    expect(result.fallback_model_id).to eq(described_class::DEFAULT_COMPATIBLE_MODEL_ID)
+    expect(result.source).to eq(:static_contract)
+  end
+
+  it "returns supported for models restricted to api_key when api_key auth is requested" do
+    result = described_class.model_compatibility(
+      model_id: "gpt-5.5-pro",
+      auth_mode: :api_key,
+      cli_version: "0.122.0"
+    )
+
+    expect(result.supported?).to be(true)
+    expect(result.reason).to eq(:supported)
+    expect(result.source).to eq(:static_contract)
+  end
+
   it "returns unknown_model for models not in the static contract" do
     result = described_class.model_compatibility(
       model_id: "gpt-future-9000",
@@ -118,13 +145,13 @@ RSpec.describe AgentHarness::Providers::Codex, ".model_compatibility" do
   it "is reachable through AgentHarness.model_compatibility" do
     result = AgentHarness.model_compatibility(
       runner: :codex,
-      model_id: "gpt-5.5",
+      model_id: "gpt-5.5-pro",
       auth_mode: :subscription,
-      cli_version: "0.115.0"
+      cli_version: "0.122.0"
     )
 
     expect(result.runner).to eq(:codex)
-    expect(result.reason).to eq(:cli_version_too_old)
+    expect(result.reason).to eq(:unsupported_auth_mode_for_model)
   end
 
   it "is reachable through Providers::Registry#model_compatibility" do
