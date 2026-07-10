@@ -3658,6 +3658,64 @@ RSpec.describe AgentHarness::Providers::Kilocode do
       expect(parsed["provider"]).to eq({"openai" => {}})
       expect(parsed["model"]).to be_nil
     end
+
+    context "with the default external_directory permission rule" do
+      it "default-merges a permissive /tmp external_directory permission into the config" do
+        content = provider.config_file_content(
+          provider_name: "anthropic",
+          model_id: "claude-sonnet-4-6"
+        )
+        parsed = JSON.parse(content)
+
+        expect(parsed["permission"]).to eq(
+          "external_directory" => {"/tmp/**" => "allow"}
+        )
+      end
+
+      it "includes the permission rule even with empty options" do
+        content = provider.config_file_content
+        parsed = JSON.parse(content)
+
+        expect(parsed["permission"]["external_directory"]).to eq("/tmp/**" => "allow")
+      end
+
+      it "does not mutate the shared DEFAULT_PERMISSION_RULE constant across invocations" do
+        frozen_rule = described_class::DEFAULT_PERMISSION_RULE
+        expect(frozen_rule).to be_frozen
+
+        2.times do
+          content = provider.config_file_content(provider_name: "openai", model_id: "gpt-4o")
+          parsed = JSON.parse(content)
+          parsed["permission"]["external_directory"]["/tmp/**"] = "banana"
+          expect(parsed["permission"]["external_directory"]).to eq("/tmp/**" => "banana")
+        end
+
+        expect(frozen_rule["external_directory"]).to eq("/tmp/**" => "allow")
+      end
+
+      it "leaves a caller-supplied permission block untouched" do
+        content = provider.config_file_content(
+          provider_name: "openai",
+          permission: {
+            "external_directory" => {"/var/tmp/**" => "allow"}
+          }
+        )
+        parsed = JSON.parse(content)
+
+        expect(parsed["permission"]).to eq(
+          "external_directory" => {"/var/tmp/**" => "allow"}
+        )
+        expect(parsed["permission"]["external_directory"]).not_to have_key("/tmp/**")
+      end
+
+      it "does not mutate a caller-supplied permission block" do
+        caller_permission = {"external_directory" => {"/var/tmp/**" => "allow"}}
+
+        provider.config_file_content(permission: caller_permission)
+
+        expect(caller_permission).to eq("external_directory" => {"/var/tmp/**" => "allow"})
+      end
+    end
   end
 
   describe "#notify_hook_content" do

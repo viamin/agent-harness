@@ -106,6 +106,21 @@ module AgentHarness
         end
       end
 
+      # Kilo CLI (an opencode fork) ships the same `external_directory`
+      # permission category as OpenCode, defaulting to `ask` for anything
+      # outside the project dir. In non-interactive execution there is no human
+      # to answer the resulting permission prompt, so reads/writes of scratch
+      # files under `/tmp/*` via the dedicated read/write/edit tools are
+      # auto-rejected — even though bash I/O to the same paths succeeds (shell
+      # redirection is not a tool call). The agent then silently loses access to
+      # its own scratch output and never completes the task. This default rule
+      # broadens the allowlist to all of `/tmp` so the agent can read back files
+      # it (or its sub-agents) wrote there.
+      DEFAULT_PERMISSION_EXTERNAL_DIRECTORY_PATTERN = "/tmp/**"
+      DEFAULT_PERMISSION_RULE = {
+        "external_directory" => {DEFAULT_PERMISSION_EXTERNAL_DIRECTORY_PATTERN => "allow"}
+      }.freeze
+
       def name
         "kilocode"
       end
@@ -172,6 +187,8 @@ module AgentHarness
 
         config = {provider: {provider_name => {}}}
         config[:model] = "#{provider_name}/#{model_id}" if model_id
+        config[:permission] = deep_dup(options[:permission]) if options[:permission]
+        apply_default_external_directory_permission(config)
 
         config.to_json
       end
@@ -331,6 +348,14 @@ module AgentHarness
       end
 
       private
+
+      def apply_default_external_directory_permission(payload)
+        # Respect any caller-supplied `permission` block verbatim: if a caller
+        # takes responsibility for permission config, we do not override it.
+        return if payload.key?(:permission) || payload.key?("permission")
+
+        payload[:permission] = deep_dup(DEFAULT_PERMISSION_RULE)
+      end
 
       def heartbeat_hook_script(heartbeat_file_path)
         "touch #{Shellwords.escape(heartbeat_file_path)}"
