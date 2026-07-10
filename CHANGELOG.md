@@ -6,6 +6,13 @@
 * **auth:** add provider-owned PKCE code-exchange API for Claude OAuth (`AgentHarness::Authentication.exchange_code`). Takes an authorization code plus PKCE verifier (and `redirect_uri`/`client_id`), posts an `authorization_code` grant to the Claude token endpoint, and persists the resulting access/refresh tokens in the native `claudeAiOauth` shape. Adds `exchange_code_supported?` and a `code_exchange` key to `auth_capabilities` ([#266](https://github.com/viamin/agent-harness/issues/266)).
 
 
+## [0.28.3](https://github.com/viamin/agent-harness/compare/agent-harness/v0.28.2...agent-harness/v0.28.3) (2026-07-10)
+
+
+### Bug Fixes
+
+* Kilocode: default external_directory permission blocks /tmp scratch files, silently killing non-interactive runs ([#285](https://github.com/viamin/agent-harness/issues/285)) ([d703c0a](https://github.com/viamin/agent-harness/commit/d703c0abb7b91fb7a5ba8081e612486edff5e8f5))
+
 ## [0.28.2](https://github.com/viamin/agent-harness/compare/agent-harness/v0.28.1...agent-harness/v0.28.2) (2026-07-10)
 
 
