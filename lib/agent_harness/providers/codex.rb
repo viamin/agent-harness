@@ -27,8 +27,8 @@ module AgentHarness
       # instead of relying on whichever model the CLI's default points at.
       DEFAULT_COMPATIBLE_MODEL_ID = "gpt-5-codex"
 
-      # Known CLI-gated model facts. Each entry expresses the minimum Codex
-      # CLI version required to drive that model, plus any auth-mode
+      # Known CLI-gated model facts. Each entry may express a minimum Codex
+      # CLI version required to drive the model, and/or auth-mode
       # restrictions that are part of the durable runner contract. Keep
       # entries here only when the requirement is durable runner contract
       # knowledge — not
@@ -279,14 +279,20 @@ module AgentHarness
         #
         # Returns an {AgentHarness::ModelCompatibility::Result} for the
         # combination of +model_id+, +auth_mode+, and installed
-        # +cli_version+. The contract surfaces three concrete outcomes:
+        # +cli_version+. The contract surfaces these concrete outcomes:
         #
-        # 1. **Supported** — the model is in {BASELINE_SUPPORTED_MODELS} (or
-        #    a known CLI-gated model whose minimum CLI version is met).
-        # 2. **Unsupported due to CLI version** — the model is known to need
+        # 1. **Supported** — the model is in {BASELINE_SUPPORTED_MODELS}, or
+        #    a known CLI-gated model whose stated restrictions are met (a
+        #    minimum Codex CLI version and/or an auth-mode restriction; some
+        #    gated models express only one of these).
+        # 2. **Unsupported due to auth mode** — the requested auth mode is
+        #    not accepted by the runner at all, or is not available for the
+        #    specific model (e.g. an api-key-only model requested with
+        #    subscription auth).
+        # 3. **Unsupported due to CLI version** — the model is known to need
         #    a newer Codex CLI than was supplied; the result carries
         #    +:minimum_cli_version+ so callers can act on it.
-        # 3. **Unknown / dynamic** — the model is not in this static
+        # 4. **Unknown / dynamic** — the model is not in this static
         #    contract. Callers must treat this as "ask the provider" rather
         #    than as approval.
         #
