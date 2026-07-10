@@ -13,6 +13,18 @@ module AgentHarness
       DEFAULT_VERSION = "7.1.3"
       SUPPORTED_VERSION_REQUIREMENT = "= #{DEFAULT_VERSION}"
       STRUCTURED_EVENT_TYPES = %w[text error step_finish result usage].freeze
+      # Kilo CLI (an OpenCode fork) ships the same external_directory
+      # permission category as OpenCode, defaulting to "ask" for anything
+      # outside the project dir. In non-interactive execution there is no
+      # human to answer the prompt, so reads of scratch files under /tmp are
+      # auto-rejected and the agent silently loses access to its own scratch
+      # output, killing the run without a recoverable error. This default rule
+      # broadens the allowlist to all of /tmp so the agent can read back files
+      # it (or its sub-agents) wrote there. See #282 (precedent: #277/#280).
+      DEFAULT_PERMISSION_EXTERNAL_DIRECTORY_PATTERN = "/tmp/**"
+      DEFAULT_PERMISSION_CONFIG = {
+        "external_directory" => {DEFAULT_PERMISSION_EXTERNAL_DIRECTORY_PATTERN => "allow"}
+      }.freeze
       USAGE_EVENT_TYPES = %w[result usage].freeze
       TOKEN_USAGE_KEYS = %w[
         input_tokens
@@ -106,21 +118,6 @@ module AgentHarness
         end
       end
 
-      # Kilo CLI (an opencode fork) ships the same `external_directory`
-      # permission category as OpenCode, defaulting to `ask` for anything
-      # outside the project dir. In non-interactive execution there is no human
-      # to answer the resulting permission prompt, so reads/writes of scratch
-      # files under `/tmp/*` via the dedicated read/write/edit tools are
-      # auto-rejected — even though bash I/O to the same paths succeeds (shell
-      # redirection is not a tool call). The agent then silently loses access to
-      # its own scratch output and never completes the task. This default rule
-      # broadens the allowlist to all of `/tmp` so the agent can read back files
-      # it (or its sub-agents) wrote there.
-      DEFAULT_PERMISSION_EXTERNAL_DIRECTORY_PATTERN = "/tmp/**"
-      DEFAULT_PERMISSION_RULE = {
-        "external_directory" => {DEFAULT_PERMISSION_EXTERNAL_DIRECTORY_PATTERN => "allow"}
-      }.freeze
-
       def name
         "kilocode"
       end
@@ -185,10 +182,9 @@ module AgentHarness
         provider_name = options[:provider_name] || "openai"
         model_id = options[:model_id]
 
-        config = {provider: {provider_name => {}}}
-        config[:model] = "#{provider_name}/#{model_id}" if model_id
-        config[:permission] = deep_dup(options[:permission]) if options[:permission]
-        apply_default_external_directory_permission(config)
+        config = {"provider" => {provider_name => {}}}
+        config["model"] = "#{provider_name}/#{model_id}" if model_id
+        apply_default_external_directory_permission(config, options)
 
         config.to_json
       end
@@ -217,6 +213,31 @@ module AgentHarness
         cmd.concat(test_command_overrides) if options[:smoke_test]
         cmd << prompt
         cmd
+      end
+
+      # Materialize the permissive external_directory permission (and any other
+      # runtime config extras) to +~/.config/kilocode/kilo.json+ before the CLI
+      # boots. This is the runtime path that actually fixes #282: without it the
+      # permission lives only in {config_file_content}'s return value, which no
+      # execution caller invokes, so Kilo would boot with stock "ask" defaults
+      # and auto-reject /tmp reads in non-interactive runs. Mirrors the OpenCode
+      # precedent in #280.
+      def build_execution_preparation(options)
+        runtime = options[:provider_runtime]
+        return nil unless runtime
+
+        config_payload = kilocode_config_payload(runtime)
+        return nil unless config_payload
+
+        ExecutionPreparation.new(
+          file_writes: [
+            {
+              path: kilocode_config_path,
+              content: serialize_kilocode_config(config_payload),
+              mode: 0o600
+            }
+          ]
+        )
       end
 
       def parse_response(result, duration:)
@@ -349,12 +370,49 @@ module AgentHarness
 
       private
 
-      def apply_default_external_directory_permission(payload)
-        # Respect any caller-supplied `permission` block verbatim: if a caller
-        # takes responsibility for permission config, we do not override it.
-        return if payload.key?(:permission) || payload.key?("permission")
+      # Default-merge a permissive external_directory permission into the
+      # generated Kilo config unless the caller takes responsibility for
+      # permission config. A caller-supplied permission (passed via the
+      # +:permission+ option or already present on the config under the
+      # +"permission"+ key, e.g. from runtime metadata config extras) is
+      # honored verbatim and never overridden, and an invalid or empty
+      # caller permission is ignored in favor of the default rule.
+      def apply_default_external_directory_permission(config, options = {})
+        caller_permission = options[:permission] || options["permission"] || config["permission"]
+        if caller_permission.is_a?(Hash) && !caller_permission.empty?
+          config["permission"] = deep_dup(caller_permission)
+          return
+        end
 
-        payload[:permission] = deep_dup(DEFAULT_PERMISSION_RULE)
+        config["permission"] = deep_dup(DEFAULT_PERMISSION_CONFIG)
+      end
+
+      def kilocode_config_path
+        "~/.config/kilocode/kilo.json"
+      end
+
+      def kilocode_config_payload(runtime)
+        metadata = runtime.metadata
+        config_extras = metadata[:config] || metadata["config"] || {}
+        unless config_extras.is_a?(Hash)
+          raise ArgumentError,
+            "Kilocode runtime metadata config must be a Hash of provider-specific extras (got #{config_extras.class})"
+        end
+
+        payload = stringify_keys(config_extras)
+        payload["model"] = runtime.model if runtime.model
+        apply_default_external_directory_permission(payload)
+        payload.empty? ? nil : payload
+      end
+
+      def serialize_kilocode_config(payload)
+        JSON.pretty_generate(payload)
+      end
+
+      def stringify_keys(hash)
+        hash.each_with_object({}) do |(key, value), result|
+          result[key.to_s] = value
+        end
       end
 
       def heartbeat_hook_script(heartbeat_file_path)

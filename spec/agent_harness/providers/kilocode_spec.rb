@@ -188,6 +188,155 @@ RSpec.describe AgentHarness::Providers::Kilocode do
 
         provider.send_message(prompt: "Hello", smoke_test: true)
       end
+
+      it "does not write a config file when no provider_runtime is supplied" do
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: '{"type":"text","part":{"text":"response"}}',
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        )
+
+        expect(mock_executor).to receive(:execute).with(
+          ["kilo", "run", "--format", "json", "Hello"],
+          satisfy { |opts| !opts.key?(:preparation) }
+        )
+
+        provider.send_message(prompt: "Hello")
+      end
+
+      context "with the default external_directory permission rule" do
+        it "writes the permissive /tmp permission to ~/.config/kilocode/kilo.json via the execution preparation" do
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: '{"type":"text","part":{"text":"response"}}',
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          expect(mock_executor).to receive(:execute).with(
+            ["kilo", "run", "--format", "json", "Hello"],
+            hash_including(
+              preparation: have_attributes(
+                file_writes: [
+                  have_attributes(
+                    path: "~/.config/kilocode/kilo.json",
+                    content: include(
+                      "\"permission\":",
+                      "\"external_directory\":",
+                      "\"/tmp/**\": \"allow\"",
+                      "\"model\": \"openai/gpt-5.4\""
+                    ),
+                    mode: 0o600
+                  )
+                ]
+              )
+            )
+          )
+
+          provider.send_message(
+            prompt: "Hello",
+            provider_runtime: {model: "openai/gpt-5.4"}
+          )
+        end
+
+        it "writes a config file even when no other config extras are supplied" do
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: '{"type":"text","part":{"text":"response"}}',
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          expect(mock_executor).to receive(:execute).with(
+            ["kilo", "run", "--format", "json", "Hello"],
+            hash_including(
+              preparation: have_attributes(
+                file_writes: [
+                  have_attributes(
+                    path: "~/.config/kilocode/kilo.json",
+                    content: include("\"external_directory\":"),
+                    mode: 0o600
+                  )
+                ]
+              )
+            )
+          )
+
+          provider.send_message(
+            prompt: "Hello",
+            provider_runtime: {model: "gpt-5.4"}
+          )
+        end
+
+        it "does not mutate the shared DEFAULT_PERMISSION_CONFIG constant across invocations" do
+          frozen_config = described_class::DEFAULT_PERMISSION_CONFIG
+          expect(frozen_config).to be_frozen
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: '{"type":"text","part":{"text":"response"}}',
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          2.times { provider.send_message(prompt: "Hello", provider_runtime: {model: "gpt-5.4"}) }
+
+          expect(frozen_config["external_directory"]).to eq("/tmp/**" => "allow")
+        end
+
+        it "leaves a caller-supplied permission block untouched" do
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: '{"type":"text","part":{"text":"response"}}',
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          expect(mock_executor).to receive(:execute).with(
+            ["kilo", "run", "--format", "json", "Hello"],
+            hash_including(
+              preparation: have_attributes(
+                file_writes: [
+                  have_attributes(
+                    path: "~/.config/kilocode/kilo.json",
+                    content: satisfy do |content|
+                      content.include?("\"bash\": \"ask\"") &&
+                        content.include?("\"edit\": \"deny\"") &&
+                        !content.include?("/tmp/**")
+                    end,
+                    mode: 0o600
+                  )
+                ]
+              )
+            )
+          )
+
+          provider.send_message(
+            prompt: "Hello",
+            provider_runtime: {
+              metadata: {
+                config: {
+                  permission: {
+                    bash: "ask",
+                    edit: "deny"
+                  }
+                }
+              }
+            }
+          )
+        end
+      end
     end
 
     describe "#error_patterns" do
@@ -3667,45 +3816,78 @@ RSpec.describe AgentHarness::Providers::Kilocode do
         )
         parsed = JSON.parse(content)
 
-        expect(parsed["permission"]).to eq(
+        expect(parsed["permission"]).to eq({
           "external_directory" => {"/tmp/**" => "allow"}
-        )
+        })
       end
 
-      it "includes the permission rule even with empty options" do
-        content = provider.config_file_content
-        parsed = JSON.parse(content)
+      it "writes the permission rule even when no provider/model is supplied" do
+        parsed = JSON.parse(provider.config_file_content)
 
-        expect(parsed["permission"]["external_directory"]).to eq("/tmp/**" => "allow")
+        expect(parsed["permission"]).to eq({
+          "external_directory" => {"/tmp/**" => "allow"}
+        })
       end
 
-      it "does not mutate the shared DEFAULT_PERMISSION_RULE constant across invocations" do
-        frozen_rule = described_class::DEFAULT_PERMISSION_RULE
-        expect(frozen_rule).to be_frozen
-
-        2.times do
-          content = provider.config_file_content(provider_name: "openai", model_id: "gpt-4o")
-          parsed = JSON.parse(content)
-          parsed["permission"]["external_directory"]["/tmp/**"] = "banana"
-          expect(parsed["permission"]["external_directory"]).to eq("/tmp/**" => "banana")
-        end
-
-        expect(frozen_rule["external_directory"]).to eq("/tmp/**" => "allow")
-      end
-
-      it "leaves a caller-supplied permission block untouched" do
+      it "honors a caller-supplied permission block verbatim and does not inject /tmp" do
         content = provider.config_file_content(
           provider_name: "openai",
           permission: {
-            "external_directory" => {"/var/tmp/**" => "allow"}
+            "external_directory" => {"/var/tmp/**" => "allow"},
+            "bash" => "ask"
           }
         )
         parsed = JSON.parse(content)
 
-        expect(parsed["permission"]).to eq(
-          "external_directory" => {"/var/tmp/**" => "allow"}
-        )
+        expect(parsed["permission"]).to eq({
+          "external_directory" => {"/var/tmp/**" => "allow"},
+          "bash" => "ask"
+        })
         expect(parsed["permission"]["external_directory"]).not_to have_key("/tmp/**")
+      end
+
+      it "accepts a string-keyed caller permission option" do
+        content = provider.config_file_content(
+          "permission" => {"external_directory" => {"/workspace/**" => "allow"}}
+        )
+        parsed = JSON.parse(content)
+
+        expect(parsed["permission"]).to eq({
+          "external_directory" => {"/workspace/**" => "allow"}
+        })
+      end
+
+      it "ignores a non-Hash caller permission and falls back to the default rule" do
+        parsed = JSON.parse(provider.config_file_content(permission: "banana"))
+
+        expect(parsed["permission"]).to eq({
+          "external_directory" => {"/tmp/**" => "allow"}
+        })
+      end
+
+      it "ignores an empty caller permission hash and falls back to the default rule" do
+        parsed = JSON.parse(provider.config_file_content(permission: {}))
+
+        expect(parsed["permission"]).to eq({
+          "external_directory" => {"/tmp/**" => "allow"}
+        })
+      end
+
+      it "does not mutate the shared DEFAULT_PERMISSION_CONFIG constant across invocations" do
+        frozen_config = described_class::DEFAULT_PERMISSION_CONFIG
+        expect(frozen_config).to be_frozen
+
+        2.times { provider.config_file_content(provider_name: "openai", model_id: "gpt-4o") }
+
+        expect(frozen_config["external_directory"]).to eq("/tmp/**" => "allow")
+      end
+
+      it "returns an independent permission copy on each invocation" do
+        first = JSON.parse(provider.config_file_content)["permission"]
+        first["external_directory"]["/tmp/**"] = "deny"
+
+        second = JSON.parse(provider.config_file_content)["permission"]
+        expect(second["external_directory"]["/tmp/**"]).to eq("allow")
       end
 
       it "does not mutate a caller-supplied permission block" do
