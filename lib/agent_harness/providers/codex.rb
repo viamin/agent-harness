@@ -293,8 +293,11 @@ module AgentHarness
         #    a newer Codex CLI than was supplied; the result carries
         #    +:minimum_cli_version+ so callers can act on it.
         # 4. **Unknown / dynamic** — the model is not in this static
-        #    contract. Callers must treat this as "ask the provider" rather
-        #    than as approval.
+        #    contract, or a gated model was queried without the gating input
+        #    needed to answer definitively (an auth mode for an
+        #    auth-restricted model, or an installed CLI version for a
+        #    version-gated model). Callers must treat this as "ask the
+        #    provider" rather than as approval.
         #
         # @param model_id [String, Symbol]
         # @param auth_mode [Symbol, nil] :api_key or :subscription
@@ -330,6 +333,29 @@ module AgentHarness
                 cli_version: normalized_cli_version,
                 supported: false,
                 reason: AgentHarness::ModelCompatibility::UNSUPPORTED_AUTH_MODE_FOR_MODEL_REASON,
+                fallback_model_id: DEFAULT_COMPATIBLE_MODEL_ID,
+                source: :static_contract,
+                details: {supported_auth_modes: supported_auth_modes}
+              )
+            end
+
+            # An auth-gated model queried without an auth mode must stay
+            # explicit. Returning :supported here would re-introduce the
+            # exact permissive false-positive this contract is designed to
+            # prevent — `auth_mode` defaults to nil on the public API, so a
+            # caller that queries availability without an auth mode and
+            # treats `supported? == true` as approval could then schedule an
+            # api-key-only model (e.g. gpt-5.5-pro) under subscription. This
+            # mirrors the sibling CLI-version dimension below: when the
+            # gating input is missing, surface :unknown with the allowed
+            # auth modes attached so callers can decide deliberately.
+            if supported_auth_modes && normalized_auth_mode.nil?
+              return AgentHarness::ModelCompatibility.unknown_result(
+                runner: provider_name,
+                model_id: normalized_model_id,
+                auth_mode: normalized_auth_mode,
+                cli_version: normalized_cli_version,
+                reason: AgentHarness::ModelCompatibility::UNKNOWN_AUTH_MODE_REASON,
                 fallback_model_id: DEFAULT_COMPATIBLE_MODEL_ID,
                 source: :static_contract,
                 details: {supported_auth_modes: supported_auth_modes}

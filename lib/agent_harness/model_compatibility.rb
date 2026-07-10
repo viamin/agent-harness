@@ -31,6 +31,12 @@ module AgentHarness
     # result. Distinct from :unknown_model — the runner *does* know the
     # model; it just cannot confirm the installed CLI is new enough.
     UNKNOWN_CLI_VERSION_REASON = :cli_version_unknown
+    # Issued when the runner needs an auth mode to answer definitively for
+    # an auth-gated model but the caller did not supply one. Pairs with
+    # :supported_auth_modes on the result details. Distinct from
+    # :unknown_model — the runner *does* know the model; it just cannot
+    # confirm the requested auth mode is allowed for it.
+    UNKNOWN_AUTH_MODE_REASON = :auth_mode_unknown
     # Issued when the runner supports the model but the installed CLI is too
     # old. Pairs with :minimum_cli_version on the result.
     UNSUPPORTED_CLI_VERSION_REASON = :cli_version_too_old

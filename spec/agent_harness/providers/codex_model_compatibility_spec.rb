@@ -69,6 +69,37 @@ RSpec.describe AgentHarness::Providers::Codex, ".model_compatibility" do
     expect(result.source).to eq(:static_contract)
   end
 
+  it "returns :auth_mode_unknown when an auth-gated model is queried without an auth mode" do
+    # `auth_mode` defaults to nil on the public API, so querying an
+    # api-key-only model without an auth mode must NOT collapse to :supported
+    # — that would let a caller treat it as approval and schedule the run
+    # under subscription. Surface :unknown with the allowed auth modes so
+    # callers decide deliberately. Mirrors the sibling CLI-version dimension.
+    result = described_class.model_compatibility(
+      model_id: "gpt-5.5-pro",
+      auth_mode: nil,
+      cli_version: "0.122.0"
+    )
+
+    expect(result.unknown?).to be(true)
+    expect(result.supported).to be_nil
+    expect(result.reason).to eq(:auth_mode_unknown)
+    expect(result.details).to include(supported_auth_modes: [:api_key])
+    expect(result.fallback_model_id).to eq(described_class::DEFAULT_COMPATIBLE_MODEL_ID)
+    expect(result.source).to eq(:static_contract)
+  end
+
+  it "returns :auth_mode_unknown through the public API default when auth_mode is omitted" do
+    result = AgentHarness.model_compatibility(
+      runner: :codex,
+      model_id: "gpt-5.5-pro"
+    )
+
+    expect(result.unknown?).to be(true)
+    expect(result.reason).to eq(:auth_mode_unknown)
+    expect(result.details).to include(supported_auth_modes: [:api_key])
+  end
+
   it "returns unknown_model for models not in the static contract" do
     result = described_class.model_compatibility(
       model_id: "gpt-future-9000",
