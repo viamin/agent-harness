@@ -208,7 +208,7 @@ RSpec.describe AgentHarness::Providers::Kilocode do
       end
 
       context "with the default external_directory permission rule" do
-        it "writes the permissive /tmp permission to ~/.config/kilocode/kilo.json via the execution preparation" do
+        it "writes the permissive /tmp and home-directory permission to ~/.config/kilocode/kilo.json via the execution preparation" do
           allow(mock_executor).to receive(:execute).and_return(
             AgentHarness::CommandExecutor::Result.new(
               stdout: '{"type":"text","part":{"text":"response"}}',
@@ -229,6 +229,7 @@ RSpec.describe AgentHarness::Providers::Kilocode do
                       "\"permission\":",
                       "\"external_directory\":",
                       "\"/tmp/**\": \"allow\"",
+                      "\"/home/agent/**\": \"allow\"",
                       "\"model\": \"openai/gpt-5.4\""
                     ),
                     mode: 0o600
@@ -290,7 +291,7 @@ RSpec.describe AgentHarness::Providers::Kilocode do
 
           2.times { provider.send_message(prompt: "Hello", provider_runtime: {model: "gpt-5.4"}) }
 
-          expect(frozen_config["external_directory"]).to eq("/tmp/**" => "allow")
+          expect(frozen_config["external_directory"]).to eq("/tmp/**" => "allow", "/home/agent/**" => "allow")
         end
 
         it "leaves a caller-supplied permission block untouched" do
@@ -3809,7 +3810,7 @@ RSpec.describe AgentHarness::Providers::Kilocode do
     end
 
     context "with the default external_directory permission rule" do
-      it "default-merges a permissive /tmp external_directory permission into the config" do
+      it "default-merges a permissive /tmp and home-directory external_directory permission into the config" do
         content = provider.config_file_content(
           provider_name: "anthropic",
           model_id: "claude-sonnet-4-6"
@@ -3817,7 +3818,7 @@ RSpec.describe AgentHarness::Providers::Kilocode do
         parsed = JSON.parse(content)
 
         expect(parsed["permission"]).to eq({
-          "external_directory" => {"/tmp/**" => "allow"}
+          "external_directory" => {"/tmp/**" => "allow", "/home/agent/**" => "allow"}
         })
       end
 
@@ -3825,7 +3826,7 @@ RSpec.describe AgentHarness::Providers::Kilocode do
         parsed = JSON.parse(provider.config_file_content)
 
         expect(parsed["permission"]).to eq({
-          "external_directory" => {"/tmp/**" => "allow"}
+          "external_directory" => {"/tmp/**" => "allow", "/home/agent/**" => "allow"}
         })
       end
 
@@ -3861,7 +3862,7 @@ RSpec.describe AgentHarness::Providers::Kilocode do
         parsed = JSON.parse(provider.config_file_content(permission: "banana"))
 
         expect(parsed["permission"]).to eq({
-          "external_directory" => {"/tmp/**" => "allow"}
+          "external_directory" => {"/tmp/**" => "allow", "/home/agent/**" => "allow"}
         })
       end
 
@@ -3869,7 +3870,7 @@ RSpec.describe AgentHarness::Providers::Kilocode do
         parsed = JSON.parse(provider.config_file_content(permission: {}))
 
         expect(parsed["permission"]).to eq({
-          "external_directory" => {"/tmp/**" => "allow"}
+          "external_directory" => {"/tmp/**" => "allow", "/home/agent/**" => "allow"}
         })
       end
 
@@ -3879,7 +3880,7 @@ RSpec.describe AgentHarness::Providers::Kilocode do
 
         2.times { provider.config_file_content(provider_name: "openai", model_id: "gpt-4o") }
 
-        expect(frozen_config["external_directory"]).to eq("/tmp/**" => "allow")
+        expect(frozen_config["external_directory"]).to eq("/tmp/**" => "allow", "/home/agent/**" => "allow")
       end
 
       it "returns an independent permission copy on each invocation" do

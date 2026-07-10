@@ -13,10 +13,14 @@ module AgentHarness
       SUPPORTED_CLI_VERSION = "1.3.2"
       SUPPORTED_CLI_REQUIREMENT = Gem::Requirement.new(">= #{SUPPORTED_CLI_VERSION}", "< 1.4.0").freeze
       INSTALL_COMMAND_PREFIX = ["npm", "install", "-g", "--ignore-scripts"].freeze
+      # Allowlist of external_directory patterns auto-approved in
+      # non-interactive execution. See the DEFAULT_PERMISSION_RULE comment
+      # below for the rationale (precedent: #289/#282/#277/#280).
+      DEFAULT_PERMISSION_EXTERNAL_DIRECTORY_PATTERNS = ["/tmp/**", "/home/agent/**"].freeze
       DEFAULT_PERMISSION_CONFIG = {
-        "external_directory" => {
-          "/tmp/**" => "allow"
-        }
+        "external_directory" => DEFAULT_PERMISSION_EXTERNAL_DIRECTORY_PATTERNS
+          .to_h { |pattern| [pattern, "allow"] }
+          .freeze
       }.freeze
       SUPPORTED_CLI_VERSIONS = [SUPPORTED_CLI_VERSION].freeze
       POSTINSTALL_COMMAND = "node $(npm root -g)/opencode-ai/postinstall.mjs"
@@ -132,13 +136,23 @@ module AgentHarness
       # `/tmp/opencode/*`, but its own sub-agent delegation pattern (e.g. the
       # Explore-Agent used to summarize large diffs/outputs) writes scratch
       # files to other `/tmp/*` paths. In non-interactive execution there is no
-      # human to approve the resulting permission prompt, so the agent silently
-      # loses access to its own scratch output and never completes the task.
-      # This default rule broadens the allowlist to all of `/tmp` so the agent
-      # can read back files it (or its sub-agents) wrote there.
-      DEFAULT_PERMISSION_EXTERNAL_DIRECTORY_PATTERN = "/tmp/**"
+      # human to approve the resulting permission prompt, so dedicated
+      # read/write/edit tool calls targeting paths outside the project dir are
+      # auto-rejected and the agent silently loses access to its own scratch
+      # output (or its own config/data files) and never completes the task.
+      #
+      # This default rule broadens the allowlist (see
+      # DEFAULT_PERMISSION_EXTERNAL_DIRECTORY_PATTERNS) to all of `/tmp` (so
+      # the agent can read back files it or its sub-agents wrote there) and to
+      # the full agent home directory (so the agent can inspect/maintain its
+      # own config, cache, and data files such as ~/.config/opencode,
+      # ~/.local/share/opencode, ~/.cache). The container is already isolated
+      # (Docker, non-root user) and the agent runs with --auto which approves
+      # everything inside the project dir. See #289 (precedent: #282/#277/#280).
       DEFAULT_PERMISSION_RULE = {
-        "external_directory" => {DEFAULT_PERMISSION_EXTERNAL_DIRECTORY_PATTERN => "allow"}
+        "external_directory" => DEFAULT_PERMISSION_EXTERNAL_DIRECTORY_PATTERNS
+          .to_h { |pattern| [pattern, "allow"] }
+          .freeze
       }.freeze
 
       def name
