@@ -332,6 +332,7 @@ RSpec.describe AgentHarness::Providers::Opencode do
                     "\"permission\": {",
                     "\"external_directory\": {",
                     "\"/tmp/**\": \"allow\"",
+                    "\"/home/agent/**\": \"allow\"",
                     "\"theme\": \"system\""
                   ),
                   mode: 0o600
@@ -435,7 +436,7 @@ RSpec.describe AgentHarness::Providers::Opencode do
       end
 
       context "with the default external_directory permission rule" do
-        it "default-merges a permissive /tmp external_directory permission into the config" do
+        it "default-merges a permissive /tmp and home-directory external_directory permission into the config" do
           allow(mock_executor).to receive(:execute).and_return(
             AgentHarness::CommandExecutor::Result.new(
               stdout: "response",
@@ -455,7 +456,8 @@ RSpec.describe AgentHarness::Providers::Opencode do
                     content: include(
                       "\"permission\":",
                       "\"external_directory\":",
-                      "\"/tmp/**\": \"allow\""
+                      "\"/tmp/**\": \"allow\"",
+                      "\"/home/agent/**\": \"allow\""
                     )
                   )
                 ]
@@ -520,7 +522,7 @@ RSpec.describe AgentHarness::Providers::Opencode do
             provider.send_message(prompt: "Hello", provider_runtime: {model: "gpt-5.4"})
           end
 
-          expect(frozen_rule["external_directory"]).to eq("/tmp/**" => "allow")
+          expect(frozen_rule["external_directory"]).to eq("/tmp/**" => "allow", "/home/agent/**" => "allow")
         end
 
         it "leaves a caller-supplied permission block untouched" do

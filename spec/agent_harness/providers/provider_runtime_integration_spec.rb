@@ -343,6 +343,7 @@ RSpec.describe "ProviderRuntime integration" do
                   "\"permission\": {",
                   "\"external_directory\": {",
                   "\"/tmp/**\": \"allow\"",
+                  "\"/home/agent/**\": \"allow\"",
                   "\"theme\": \"system\""
                 ),
                 mode: 0o600

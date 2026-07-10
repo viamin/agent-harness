@@ -16,14 +16,23 @@ module AgentHarness
       # Kilo CLI (an OpenCode fork) ships the same external_directory
       # permission category as OpenCode, defaulting to "ask" for anything
       # outside the project dir. In non-interactive execution there is no
-      # human to answer the prompt, so reads of scratch files under /tmp are
-      # auto-rejected and the agent silently loses access to its own scratch
-      # output, killing the run without a recoverable error. This default rule
-      # broadens the allowlist to all of /tmp so the agent can read back files
-      # it (or its sub-agents) wrote there. See #282 (precedent: #277/#280).
-      DEFAULT_PERMISSION_EXTERNAL_DIRECTORY_PATTERN = "/tmp/**"
+      # human to answer the prompt, so dedicated read/write/edit tool calls
+      # targeting paths outside the project dir are auto-rejected and the
+      # agent silently loses access to its own scratch output or its own
+      # config/data files, killing the run without a recoverable error.
+      #
+      # This default rule broadens the allowlist to all of /tmp (so the agent
+      # can read back files it or its sub-agents wrote there) and to the full
+      # agent home directory (so the agent can inspect/maintain its own
+      # config, cache, and data files such as ~/.config/kilocode,
+      # ~/.local/share/kilo, ~/.cache). The container is already isolated
+      # (Docker, non-root user) and the agent runs with --auto which approves
+      # everything inside the project dir. See #289 (precedent: #282/#277).
+      DEFAULT_PERMISSION_EXTERNAL_DIRECTORY_PATTERNS = ["/tmp/**", "/home/agent/**"].freeze
       DEFAULT_PERMISSION_CONFIG = {
-        "external_directory" => {DEFAULT_PERMISSION_EXTERNAL_DIRECTORY_PATTERN => "allow"}
+        "external_directory" => DEFAULT_PERMISSION_EXTERNAL_DIRECTORY_PATTERNS
+          .to_h { |pattern| [pattern, "allow"] }
+          .freeze
       }.freeze
       USAGE_EVENT_TYPES = %w[result usage].freeze
       TOKEN_USAGE_KEYS = %w[
