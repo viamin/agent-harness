@@ -27,9 +27,11 @@ module AgentHarness
       # instead of relying on whichever model the CLI's default points at.
       DEFAULT_COMPATIBLE_MODEL_ID = "gpt-5-codex"
 
-      # Known CLI-gated model facts. Each entry expresses the minimum Codex
-      # CLI version required to drive that model. Keep entries here only when
-      # the requirement is durable runner contract knowledge — not
+      # Known CLI-gated model facts. Each entry may express a minimum Codex
+      # CLI version required to drive the model, and/or auth-mode
+      # restrictions that are part of the durable runner contract. Keep
+      # entries here only when the requirement is durable runner contract
+      # knowledge — not
       # provider-side experiments or one-off CLI defaults.
       #
       # The +gpt-5.5+ entry tracks the failure class observed in
@@ -37,7 +39,8 @@ module AgentHarness
       # CLI builds (e.g. 0.115.x) could not drive the +gpt-5.5+ family.
       MODEL_COMPATIBILITY_FACTS = {
         "gpt-5.5" => {minimum_cli_version: "0.116.0"},
-        "gpt-5.5-codex" => {minimum_cli_version: "0.116.0"}
+        "gpt-5.5-codex" => {minimum_cli_version: "0.116.0"},
+        "gpt-5.5-pro" => {auth_modes: [:api_key].freeze}
       }.each_value(&:freeze).freeze
 
       # Models that the runner contract considers supported on every Codex
@@ -276,16 +279,25 @@ module AgentHarness
         #
         # Returns an {AgentHarness::ModelCompatibility::Result} for the
         # combination of +model_id+, +auth_mode+, and installed
-        # +cli_version+. The contract surfaces three concrete outcomes:
+        # +cli_version+. The contract surfaces these concrete outcomes:
         #
-        # 1. **Supported** — the model is in {BASELINE_SUPPORTED_MODELS} (or
-        #    a known CLI-gated model whose minimum CLI version is met).
-        # 2. **Unsupported due to CLI version** — the model is known to need
+        # 1. **Supported** — the model is in {BASELINE_SUPPORTED_MODELS}, or
+        #    a known CLI-gated model whose stated restrictions are met (a
+        #    minimum Codex CLI version and/or an auth-mode restriction; some
+        #    gated models express only one of these).
+        # 2. **Unsupported due to auth mode** — the requested auth mode is
+        #    not accepted by the runner at all, or is not available for the
+        #    specific model (e.g. an api-key-only model requested with
+        #    subscription auth).
+        # 3. **Unsupported due to CLI version** — the model is known to need
         #    a newer Codex CLI than was supplied; the result carries
         #    +:minimum_cli_version+ so callers can act on it.
-        # 3. **Unknown / dynamic** — the model is not in this static
-        #    contract. Callers must treat this as "ask the provider" rather
-        #    than as approval.
+        # 4. **Unknown / dynamic** — the model is not in this static
+        #    contract, or a gated model was queried without the gating input
+        #    needed to answer definitively (an auth mode for an
+        #    auth-restricted model, or an installed CLI version for a
+        #    version-gated model). Callers must treat this as "ask the
+        #    provider" rather than as approval.
         #
         # @param model_id [String, Symbol]
         # @param auth_mode [Symbol, nil] :api_key or :subscription
@@ -312,42 +324,94 @@ module AgentHarness
 
           gated_fact = MODEL_COMPATIBILITY_FACTS[normalized_model_id]
           if gated_fact
-            minimum_version = gated_fact[:minimum_cli_version]
-            requirement = Gem::Requirement.new(">= #{minimum_version}")
-            comparable_version = comparable_cli_version(normalized_cli_version)
-
-            # A CLI-gated model without a comparable installed version must
-            # stay explicit. Returning :supported here would re-introduce the
-            # exact `gpt-5.5` failure class this contract is designed to
-            # prevent — a caller that cannot supply a version would get
-            # `supported? == true` and may still schedule a run onto an old
-            # CLI (e.g. 0.115.x). Surface :unknown with the requirement
-            # attached so callers can decide deliberately.
-            if comparable_version.nil?
-              return AgentHarness::ModelCompatibility.unknown_result(
-                runner: provider_name,
-                model_id: normalized_model_id,
-                auth_mode: normalized_auth_mode,
-                cli_version: normalized_cli_version,
-                reason: AgentHarness::ModelCompatibility::UNKNOWN_CLI_VERSION_REASON,
-                minimum_cli_version: minimum_version,
-                cli_version_requirement: requirement.to_s,
-                fallback_model_id: DEFAULT_COMPATIBLE_MODEL_ID,
-                source: :static_contract
-              )
-            end
-
-            unless requirement.satisfied_by?(comparable_version)
+            supported_auth_modes = gated_fact[:auth_modes]
+            if normalized_auth_mode && supported_auth_modes && !supported_auth_modes.include?(normalized_auth_mode)
               return AgentHarness::ModelCompatibility.build_result(
                 runner: provider_name,
                 model_id: normalized_model_id,
                 auth_mode: normalized_auth_mode,
                 cli_version: normalized_cli_version,
                 supported: false,
-                reason: AgentHarness::ModelCompatibility::UNSUPPORTED_CLI_VERSION_REASON,
+                reason: AgentHarness::ModelCompatibility::UNSUPPORTED_AUTH_MODE_FOR_MODEL_REASON,
+                fallback_model_id: DEFAULT_COMPATIBLE_MODEL_ID,
+                source: :static_contract,
+                details: {supported_auth_modes: supported_auth_modes}
+              )
+            end
+
+            # An auth-gated model queried without an auth mode must stay
+            # explicit. Returning :supported here would re-introduce the
+            # exact permissive false-positive this contract is designed to
+            # prevent — `auth_mode` defaults to nil on the public API, so a
+            # caller that queries availability without an auth mode and
+            # treats `supported? == true` as approval could then schedule an
+            # api-key-only model (e.g. gpt-5.5-pro) under subscription. This
+            # mirrors the sibling CLI-version dimension below: when the
+            # gating input is missing, surface :unknown with the allowed
+            # auth modes attached so callers can decide deliberately.
+            if supported_auth_modes && normalized_auth_mode.nil?
+              return AgentHarness::ModelCompatibility.unknown_result(
+                runner: provider_name,
+                model_id: normalized_model_id,
+                auth_mode: normalized_auth_mode,
+                cli_version: normalized_cli_version,
+                reason: AgentHarness::ModelCompatibility::UNKNOWN_AUTH_MODE_REASON,
+                fallback_model_id: DEFAULT_COMPATIBLE_MODEL_ID,
+                source: :static_contract,
+                details: {supported_auth_modes: supported_auth_modes}
+              )
+            end
+
+            minimum_version = gated_fact[:minimum_cli_version]
+            if minimum_version
+              requirement = Gem::Requirement.new(">= #{minimum_version}")
+              comparable_version = comparable_cli_version(normalized_cli_version)
+
+              # A CLI-gated model without a comparable installed version must
+              # stay explicit. Returning :supported here would re-introduce the
+              # exact `gpt-5.5` failure class this contract is designed to
+              # prevent — a caller that cannot supply a version would get
+              # `supported? == true` and may still schedule a run onto an old
+              # CLI (e.g. 0.115.x). Surface :unknown with the requirement
+              # attached so callers can decide deliberately.
+              if comparable_version.nil?
+                return AgentHarness::ModelCompatibility.unknown_result(
+                  runner: provider_name,
+                  model_id: normalized_model_id,
+                  auth_mode: normalized_auth_mode,
+                  cli_version: normalized_cli_version,
+                  reason: AgentHarness::ModelCompatibility::UNKNOWN_CLI_VERSION_REASON,
+                  minimum_cli_version: minimum_version,
+                  cli_version_requirement: requirement.to_s,
+                  fallback_model_id: DEFAULT_COMPATIBLE_MODEL_ID,
+                  source: :static_contract
+                )
+              end
+
+              unless requirement.satisfied_by?(comparable_version)
+                return AgentHarness::ModelCompatibility.build_result(
+                  runner: provider_name,
+                  model_id: normalized_model_id,
+                  auth_mode: normalized_auth_mode,
+                  cli_version: normalized_cli_version,
+                  supported: false,
+                  reason: AgentHarness::ModelCompatibility::UNSUPPORTED_CLI_VERSION_REASON,
+                  minimum_cli_version: minimum_version,
+                  cli_version_requirement: requirement.to_s,
+                  fallback_model_id: DEFAULT_COMPATIBLE_MODEL_ID,
+                  source: :static_contract
+                )
+              end
+
+              return AgentHarness::ModelCompatibility.build_result(
+                runner: provider_name,
+                model_id: normalized_model_id,
+                auth_mode: normalized_auth_mode,
+                cli_version: normalized_cli_version,
+                supported: true,
+                reason: AgentHarness::ModelCompatibility::SUPPORTED_REASON,
                 minimum_cli_version: minimum_version,
                 cli_version_requirement: requirement.to_s,
-                fallback_model_id: DEFAULT_COMPATIBLE_MODEL_ID,
                 source: :static_contract
               )
             end
@@ -359,8 +423,6 @@ module AgentHarness
               cli_version: normalized_cli_version,
               supported: true,
               reason: AgentHarness::ModelCompatibility::SUPPORTED_REASON,
-              minimum_cli_version: minimum_version,
-              cli_version_requirement: requirement.to_s,
               source: :static_contract
             )
           end
