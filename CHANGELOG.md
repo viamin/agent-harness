@@ -6,6 +6,13 @@
 * **auth:** add provider-owned PKCE code-exchange API for Claude OAuth (`AgentHarness::Authentication.exchange_code`). Takes an authorization code plus PKCE verifier (and `redirect_uri`/`client_id`), posts an `authorization_code` grant to the Claude token endpoint, and persists the resulting access/refresh tokens in the native `claudeAiOauth` shape. Adds `exchange_code_supported?` and a `code_exchange` key to `auth_capabilities` ([#266](https://github.com/viamin/agent-harness/issues/266)).
 
 
+## [0.28.6](https://github.com/viamin/agent-harness/compare/agent-harness/v0.28.5...agent-harness/v0.28.6) (2026-07-12)
+
+
+### Dependencies
+
+* **deps-dev:** bump simplecov from 0.22.0 to 1.0.0 ([#293](https://github.com/viamin/agent-harness/issues/293)) ([4bd832f](https://github.com/viamin/agent-harness/commit/4bd832f2eb81c7aebb7fb37772617770adc14fcd))
+
 ## [0.28.5](https://github.com/viamin/agent-harness/compare/agent-harness/v0.28.4...agent-harness/v0.28.5) (2026-07-10)
 
 
