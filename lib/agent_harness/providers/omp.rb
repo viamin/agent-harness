@@ -19,7 +19,15 @@ module AgentHarness
       # `#!/usr/bin/env bun` and the published package metadata requires
       # Bun `>= 1.3.14`. Consumers must provision a compatible Bun runtime
       # before installing the @oh-my-pi/pi-coding-agent package.
-      BUN_PACKAGE = "bun"
+      #
+      # The `bun` npm package relies on its `postinstall` script to fetch the
+      # platform binary; installing it with `npm install --ignore-scripts`
+      # ships only the Windows shims (`bin/bun.exe`, `bunx.exe`) and leaves
+      # Linux/macOS without a working `bun` binary. Provision Bun via the
+      # official installer script instead, which fetches the correct
+      # platform binary directly.
+      BUN_BINARY = "bun"
+      BUN_INSTALL_SCRIPT_URL = "https://bun.sh/install"
       SUPPORTED_BUN_VERSION = "1.3.14"
       SUPPORTED_BUN_REQUIREMENT = Gem::Requirement.new(">= #{SUPPORTED_BUN_VERSION}").freeze
       BUN_REQUIREMENT_STRING = ">= #{SUPPORTED_BUN_VERSION}".freeze
@@ -77,15 +85,26 @@ module AgentHarness
         end
 
         def bun_runtime_contract
+          # The official Bun installer reads `BUN_VERSION` to pin the release
+          # it downloads, and fetches the platform-appropriate binary itself.
+          install_command_prefix = ["sh", "-c"].freeze
+          inner_script = "curl -fsSL #{BUN_INSTALL_SCRIPT_URL} | " \
+                          "BUN_VERSION=#{SUPPORTED_BUN_VERSION} bash"
+          install_command = (install_command_prefix + [inner_script]).freeze
+
           {
             name: :bun,
-            binary_name: BUN_PACKAGE,
-            package_name: BUN_PACKAGE,
+            binary_name: BUN_BINARY,
             pinned_version: SUPPORTED_BUN_VERSION,
             version_requirement: BUN_REQUIREMENT_STRING,
-            install_command_prefix: ["npm", "install", "-g", "--ignore-scripts"].freeze,
-            install_command: ["npm", "install", "-g", "--ignore-scripts", "#{BUN_PACKAGE}@#{SUPPORTED_BUN_VERSION}"].freeze,
-            rationale: "omp entrypoint is #!/usr/bin/env bun"
+            source: :script,
+            install_script_url: BUN_INSTALL_SCRIPT_URL,
+            install_command_prefix: install_command_prefix,
+            install_command: install_command,
+            install_command_string: inner_script,
+            rationale: "omp entrypoint is #!/usr/bin/env bun; the bun npm package relies on " \
+                       "its postinstall script to fetch the platform binary, so install Bun " \
+                       "via the official installer script rather than npm --ignore-scripts"
           }.freeze
         end
 

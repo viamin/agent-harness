@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "agent_harness/providers/omp"
+require "agent_harness/providers/pi"
 
 RSpec.describe AgentHarness::Providers::OhMyPi do
   describe ".provider_name" do
@@ -43,12 +44,16 @@ RSpec.describe AgentHarness::Providers::OhMyPi do
       bun = contract[:runtime_requirements].find { |req| req[:name] == :bun }
       expect(bun).to include(
         binary_name: "bun",
-        package_name: "bun",
         pinned_version: "1.3.14",
-        version_requirement: ">= 1.3.14"
+        version_requirement: ">= 1.3.14",
+        source: :script,
+        install_script_url: "https://bun.sh/install"
       )
       expect(bun[:install_command]).to eq(
-        ["npm", "install", "-g", "--ignore-scripts", "bun@1.3.14"]
+        ["sh", "-c", "curl -fsSL https://bun.sh/install | BUN_VERSION=1.3.14 bash"]
+      )
+      expect(bun[:install_command_string]).to eq(
+        "curl -fsSL https://bun.sh/install | BUN_VERSION=1.3.14 bash"
       )
     end
 
@@ -75,11 +80,25 @@ RSpec.describe AgentHarness::Providers::OhMyPi do
       expect(bun).to include(
         name: :bun,
         binary_name: "bun",
-        package_name: "bun",
         pinned_version: "1.3.14",
         version_requirement: ">= 1.3.14",
-        install_command: ["npm", "install", "-g", "--ignore-scripts", "bun@1.3.14"]
+        source: :script,
+        install_script_url: "https://bun.sh/install",
+        install_command: ["sh", "-c", "curl -fsSL https://bun.sh/install | BUN_VERSION=1.3.14 bash"],
+        install_command_string: "curl -fsSL https://bun.sh/install | BUN_VERSION=1.3.14 bash"
       )
+    end
+
+    it "does not advertise a broken npm --ignore-scripts install for Bun" do
+      bun = described_class.bun_runtime_contract
+
+      # The bun npm package relies on its postinstall script to fetch the
+      # platform binary; --ignore-scripts would leave Linux/macOS without a
+      # working bun binary. The contract must provision Bun some other way.
+      expect(bun[:source]).not_to eq(:npm)
+      joined = Array(bun[:install_command]).join(" ")
+      expect(joined).not_to include("--ignore-scripts")
+      expect(joined).to include("bun.sh/install")
     end
   end
 
