@@ -6,6 +6,13 @@
 * **auth:** add provider-owned PKCE code-exchange API for Claude OAuth (`AgentHarness::Authentication.exchange_code`). Takes an authorization code plus PKCE verifier (and `redirect_uri`/`client_id`), posts an `authorization_code` grant to the Claude token endpoint, and persists the resulting access/refresh tokens in the native `claudeAiOauth` shape. Adds `exchange_code_supported?` and a `code_exchange` key to `auth_capabilities` ([#266](https://github.com/viamin/agent-harness/issues/266)).
 
 
+## [0.29.0](https://github.com/viamin/agent-harness/compare/agent-harness/v0.28.6...agent-harness/v0.29.0) (2026-07-16)
+
+
+### Features
+
+* Add Oh My Pi provider metadata and install contract ([#298](https://github.com/viamin/agent-harness/issues/298)) ([3be62a8](https://github.com/viamin/agent-harness/commit/3be62a884f50ceeb903e199f4a9906cf3fecf014))
+
 ## [0.28.6](https://github.com/viamin/agent-harness/compare/agent-harness/v0.28.5...agent-harness/v0.28.6) (2026-07-12)
 
 
