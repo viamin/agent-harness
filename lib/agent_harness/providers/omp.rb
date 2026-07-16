@@ -299,7 +299,10 @@ module AgentHarness
       # Downstream-facing error classification. Augments the shared quota set
       # with auth-expiry, model-resolution, and authentication-specific
       # phrasing so consumers can route omp failures without re-deriving the
-      # CLI vocabulary.
+      # CLI vocabulary. The inherited `:quota` set is deliberately preserved
+      # (not overridden) so omp's multi-provider backends surface their full
+      # credit/balance vocabulary (requires more credits, insufficient
+      # balance, spend limit reached, billing limit, etc.).
       def error_classification_patterns
         super.merge(
           auth_expired: ERROR_PATTERNS[:auth_expired],
@@ -309,8 +312,7 @@ module AgentHarness
             /missing.*credentials/i,
             /log(?:ged)?.?in.*required/i
           ],
-          model_not_found: ERROR_PATTERNS[:model_not_found],
-          quota: ERROR_PATTERNS[:quota_exceeded]
+          model_not_found: ERROR_PATTERNS[:model_not_found]
         )
       end
 

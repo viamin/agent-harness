@@ -249,6 +249,23 @@ RSpec.describe AgentHarness::Providers::OhMyPi do
 
         expect(patterns[:authentication].any? { |p| "API key not set for provider" =~ p }).to be true
       end
+
+      it "preserves the inherited credit/balance quota vocabulary from multi-provider backends" do
+        patterns = provider.error_classification_patterns
+
+        # omp routes to multi-provider backends that emit credit/balance
+        # phrasing beyond the shared COMMON_ERROR_PATTERNS quota set. The
+        # inherited `:quota` set must remain intact rather than being replaced
+        # by the narrower COMMON_ERROR_PATTERNS set.
+        aggregate_failures do
+          expect(patterns[:quota].any? { |p| "requires more credits" =~ p }).to be true
+          expect(patterns[:quota].any? { |p| "insufficient credits" =~ p }).to be true
+          expect(patterns[:quota].any? { |p| "insufficient balance" =~ p }).to be true
+          expect(patterns[:quota].any? { |p| "spend limit reached" =~ p }).to be true
+          expect(patterns[:quota].any? { |p| "billing limit exceeded" =~ p }).to be true
+          expect(patterns[:quota].any? { |p| "Weekly/Monthly limit exhausted" =~ p }).to be true
+        end
+      end
     end
 
     describe "#noisy_error_patterns" do
