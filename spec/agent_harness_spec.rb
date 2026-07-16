@@ -67,6 +67,14 @@ RSpec.describe AgentHarness do
       expect(result).to include(:claude, :cursor, :gemini)
     end
 
+    it "lists :omp separately from :pi" do
+      providers = AgentHarness.providers
+
+      expect(providers).to include(:omp, :pi)
+      expect(providers.count(:omp)).to eq(1)
+      expect(providers.count(:pi)).to eq(1)
+    end
+
     it "delegates to Registry#all" do
       expect(AgentHarness.providers).to eq(AgentHarness::Providers::Registry.instance.all)
     end
@@ -311,6 +319,25 @@ RSpec.describe AgentHarness do
       )
     end
 
+    it "returns Oh My Pi provider install metadata with Bun runtime requirements" do
+      contract = AgentHarness.installation_contract(:omp)
+
+      expect(contract).to include(
+        source: :npm,
+        package_name: "@oh-my-pi/pi-coding-agent",
+        version: "17.0.1",
+        binary_name: "omp"
+      )
+
+      bun = contract.fetch(:runtime_requirements).find { |req| req[:name] == :bun }
+      expect(bun).to include(
+        binary_name: "bun",
+        pinned_version: "1.3.14",
+        version_requirement: ">= 1.3.14",
+        install_script_url: "https://bun.sh/install"
+      )
+    end
+
     it "preserves provider normalization for generic-contract version lookups" do
       contract = AgentHarness.installation_contract(:opencode, version: " 1.3.9 ")
 
@@ -342,6 +369,36 @@ RSpec.describe AgentHarness do
 
       expect(AgentHarness.provider_metadata(:claude)).to eq(metadata)
     end
+
+    it "returns distinct metadata for :omp" do
+      metadata = AgentHarness.provider_metadata(:omp)
+
+      expect(metadata).to include(
+        provider: :omp,
+        canonical_provider: :omp,
+        binary_name: "omp",
+        display_name: "Oh My Pi"
+      )
+      expect(metadata[:auth]).to include(
+        service: :omp,
+        api_family: :multi_provider,
+        api_key_source: :provider_runtime_env
+      )
+
+      installation = metadata.dig(:runtime, :installation)
+      expect(installation).to include(
+        package_name: "@oh-my-pi/pi-coding-agent",
+        default_version: "17.0.1",
+        resolved_version: "17.0.1",
+        binary_name: "omp"
+      )
+
+      bun = installation.fetch(:runtime_requirements).find { |req| req[:name] == :bun }
+      expect(bun).to include(
+        pinned_version: "1.3.14",
+        version_requirement: ">= 1.3.14"
+      )
+    end
   end
 
   describe ".provider_metadata_catalog" do
@@ -352,6 +409,17 @@ RSpec.describe AgentHarness do
         .to receive(:provider_metadata_catalog).with(refresh: false).and_return(metadata)
 
       expect(AgentHarness.provider_metadata_catalog).to eq(metadata)
+    end
+  end
+
+  describe ".smoke_test_contract" do
+    it "returns the Oh My Pi smoke-test contract" do
+      expect(AgentHarness.smoke_test_contract(:omp)).to include(
+        prompt: "Reply with exactly OK.",
+        expected_output: "OK",
+        timeout: 30,
+        success_message: "Oh My Pi smoke test passed"
+      )
     end
   end
 
