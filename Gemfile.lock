@@ -1,7 +1,7 @@
 PATH
   remote: .
   specs:
-    agent-harness (0.28.6)
+    agent-harness (0.29.0)
       logger (>= 1.6, < 2.0)
 
 GEM
