@@ -28,6 +28,7 @@ module AgentHarness
           aliases: [:copilot]
         },
         {name: :pi, require_path: "agent_harness/providers/pi", class_name: :Pi, aliases: []},
+        {name: :omp, require_path: "agent_harness/providers/omp", class_name: :OhMyPi, aliases: []},
         {name: :codex, require_path: "agent_harness/providers/codex", class_name: :Codex, aliases: []},
         {name: :opencode, require_path: "agent_harness/providers/opencode", class_name: :Opencode, aliases: []},
         {name: :kilocode, require_path: "agent_harness/providers/kilocode", class_name: :Kilocode, aliases: []},

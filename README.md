@@ -5,7 +5,7 @@ A unified Ruby interface for CLI-based AI coding agents like Claude Code, Cursor
 ## Features
 
 - **Unified Interface**: Single API for multiple AI coding agents
-- **10 Built-in Providers**: Claude Code, Cursor, Gemini CLI, GitHub Copilot, Codex, Pi, Aider, OpenCode, Kilocode, Mistral Vibe
+- **11 Built-in Providers**: Claude Code, Cursor, Gemini CLI, GitHub Copilot, Codex, Pi, Oh My Pi, Aider, OpenCode, Kilocode, Mistral Vibe
 - **Full Orchestration**: Provider switching, circuit breakers, rate limiting, and health monitoring
 - **Flexible Configuration**: YAML, Ruby DSL, or environment variables
 - **Token Tracking**: Monitor usage across providers for cost and limit management
@@ -105,6 +105,7 @@ end
 | `:github_copilot` | `copilot` | GitHub Copilot CLI |
 | `:codex` | `codex` | OpenAI Codex CLI |
 | `:pi` | `pi` | Pi coding agent CLI |
+| `:omp` | `omp` | Oh My Pi coding agent CLI (Bun-based fork of Pi) |
 | `:aider` | `aider` | Aider coding assistant |
 | `:opencode` | `opencode` | OpenCode CLI |
 | `:kilocode` | `kilo` | Kilocode CLI |
@@ -188,7 +189,7 @@ puts contract[:supported_versions][:requirement]
 
 # List all registered providers
 AgentHarness::Providers::Registry.instance.all
-# => [:claude, :cursor, :gemini, :github_copilot, :pi, :codex, :opencode, :kilocode, :aider, :mistral_vibe]
+# => [:claude, :cursor, :gemini, :github_copilot, :pi, :omp, :codex, :opencode, :kilocode, :aider, :mistral_vibe]
 ```
 
 For Claude, the install contract is the first-class source of truth for:
