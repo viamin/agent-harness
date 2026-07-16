@@ -10,6 +10,13 @@
 
 ### Features
 
+* release agent-harness 0.31.0 with omp support ([#302](https://github.com/viamin/agent-harness/issues/302)) ([7a82fbc](https://github.com/viamin/agent-harness/commit/7a82fbc5cc627eaa10c678e3e2b998fc0ce100f2))
+
+## [0.31.0](https://github.com/viamin/agent-harness/compare/agent-harness/v0.30.0...agent-harness/v0.31.0) (2026-07-16)
+
+
+### Features
+
 * release a single `agent-harness` gem version that consolidates the full `:omp` provider contract for downstream consumers: distinct `:omp` provider metadata separate from `:pi`, the install/runtime contract for `@oh-my-pi/pi-coding-agent` `17.0.1`, the Bun runtime floor `>= 1.3.14` (pinned install target `1.3.14`), the smoke-test contract, and regression coverage for the public `AgentHarness` APIs ([#297](https://github.com/viamin/agent-harness/issues/297))
 
 
