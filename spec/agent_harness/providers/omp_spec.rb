@@ -540,19 +540,23 @@ RSpec.describe AgentHarness::Providers::OhMyPi do
       expect(omp_metadata[:auth]).to include(
         service: :omp,
         api_family: :multi_provider,
-        api_key_source: :provider_runtime_env,
-        credential_store: :omp
+        api_key_source: :provider_runtime_env
       )
       expect(pi_metadata[:auth]).to include(
         service: :pi,
         api_family: :multi_provider
       )
 
-      # The omp credential store is intentionally separate from Pi's
-      # (paid_pi_auth_entry): callers must not reuse Pi's credential shape.
-      expect(omp_metadata[:auth][:credential_store]).not_to eq(
-        pi_metadata[:auth][:credential_store]
-      )
+      # omp runs stateless: callers pass backend API keys per request through
+      # ProviderRuntime#env. The harness has no omp credential store, so
+      # provider metadata must not advertise one (see auth_status below).
+      expect(omp_metadata[:auth]).not_to have_key(:credential_store)
+
+      # Consistent with the metadata: harness-managed auth status is not
+      # implemented for omp, so callers cannot infer session auth support.
+      auth_status = AgentHarness::Authentication.auth_status(:omp)
+      expect(auth_status[:valid]).to be false
+      expect(auth_status[:error]).to match(/not implemented/i)
     end
 
     it "encodes MCP and session runtime decisions through provider metadata" do

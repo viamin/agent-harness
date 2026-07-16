@@ -119,10 +119,17 @@ module AgentHarness
               # that backend's API key from its conventional env var. The
               # harness never reuses the upstream Pi credential store
               # (paid_pi_auth_entry); callers pass backend keys per request
-              # through ProviderRuntime#env. This keeps the omp runner an
+              # through ProviderRuntime#env, which build_env materializes into
+              # the subprocess environment. This keeps the omp runner an
               # independent entity from :pi.
-              api_key_source: :provider_runtime_env,
-              credential_store: :omp
+              #
+              # Deliberately do NOT advertise a harness-managed credential
+              # store here. Authentication has no omp read/write/validate path,
+              # so auth_status(:omp) reports "not implemented"; exposing
+              # credential_store would imply a session store that does not
+              # exist and let callers infer harness-managed session auth.
+              # Surface the implemented per-request env model instead.
+              api_key_source: :provider_runtime_env
             }
           }
         end
