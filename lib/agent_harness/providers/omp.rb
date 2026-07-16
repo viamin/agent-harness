@@ -31,6 +31,71 @@ module AgentHarness
       SUPPORTED_BUN_VERSION = "1.3.14"
       BUN_REQUIREMENT_STRING = ">= #{SUPPORTED_BUN_VERSION}".freeze
 
+      # Smoke-test contract suitable for container health probes.
+      #
+      # Oh My Pi runs non-interactively via `-p` with `--no-session`, so the
+      # probe is a single deterministic round trip. The contract is tuned for
+      # a tight probe budget: a short prompt that elicits a predictable reply
+      # and a bounded timeout that accommodates a cold Bun runtime start.
+      SMOKE_TEST_CONTRACT = {
+        prompt: "Reply with exactly OK.",
+        expected_output: "OK",
+        timeout: 30,
+        require_output: true,
+        success_message: "Oh My Pi smoke test passed"
+      }.freeze
+
+      # Oh My Pi is a multi-provider CLI: it routes to a backend through
+      # `--provider` and surfaces that backend's error vocabulary. The
+      # patterns below extend the shared HTTP-style set with Oh My Pi /
+      # upstream-Pi specific phrasing observed for auth expiry, quota and
+      # rate-limit surfaces, model resolution failures, and transient
+      # network faults.
+      ERROR_PATTERNS = {
+        rate_limited: COMMON_ERROR_PATTERNS[:rate_limited],
+        auth_expired: COMMON_ERROR_PATTERNS[:auth_expired] + [
+          /\b401\b/,
+          /session.*(?:expired|invalid)/i,
+          /log(?:ged)?.?in.*required/i,
+          /api.?key.*(?:invalid|missing|expired|revoked)/i,
+          /token.*(?:expired|invalid|revoked)/i,
+          /credentials.*(?:expired|invalid|missing)/i
+        ],
+        quota_exceeded: COMMON_ERROR_PATTERNS[:quota_exceeded],
+        # Model resolution is surfaced by both the omp CLI (unknown
+        # `--model`/`--provider` combination) and the upstream backend.
+        # Treat it as a distinct, non-retryable category so callers can
+        # fall back to a known-good model instead of retrying the same id.
+        model_not_found: [
+          /model.*not.*found/i,
+          /no.*such.*model/i,
+          /unknown.*model/i,
+          /model.*does.*not.*exist/i,
+          /invalid.*model/i,
+          /model.*unavailable/i,
+          /provider.*does.*not.*support.*model/i
+        ],
+        transient: COMMON_ERROR_PATTERNS[:transient] + [
+          /connection.*reset/i,
+          /econnreset/i,
+          /socket.*hang.*up/i,
+          /network.*error/i
+        ]
+      }.tap { |patterns| patterns.each_value(&:freeze) }.freeze
+
+      # Non-actionable output that Oh My Pi writes while the Bun runtime and
+      # the agent bootstrap. Downstream consumers use these to filter probe
+      # and run output so startup banners do not masquerade as failures.
+      NOISY_OUTPUT_PATTERNS = [
+        /oh.?my.?pi\b/i,
+        /pi(?:-coding.?agent)?\s+v?\d+\.\d+/i,
+        /\bbun\s+v?\d+\.\d+/i,
+        /\bloading/i,
+        /\binitializing/i,
+        /\bwarming.?up/i,
+        /fetching.*model/i
+      ].freeze
+
       class << self
         def provider_name
           :omp
@@ -49,7 +114,22 @@ module AgentHarness
           {
             auth: {
               service: :omp,
-              api_family: :multi_provider
+              api_family: :multi_provider,
+              # Oh My Pi routes to a backend through `--provider` and reads
+              # that backend's API key from its conventional env var. The
+              # harness never reuses the upstream Pi credential store
+              # (paid_pi_auth_entry); callers pass backend keys per request
+              # through ProviderRuntime#env, which build_env materializes into
+              # the subprocess environment. This keeps the omp runner an
+              # independent entity from :pi.
+              #
+              # Deliberately do NOT advertise a harness-managed credential
+              # store here. Authentication has no omp read/write/validate path,
+              # so auth_status(:omp) reports "not implemented"; exposing
+              # credential_store would imply a session store that does not
+              # exist and let callers infer harness-managed session auth.
+              # Surface the implemented per-request env model instead.
+              api_key_source: :provider_runtime_env
             }
           }
         end
@@ -158,7 +238,7 @@ module AgentHarness
         end
 
         def smoke_test_contract
-          Base::DEFAULT_SMOKE_TEST_CONTRACT
+          SMOKE_TEST_CONTRACT
         end
       end
 
@@ -202,13 +282,60 @@ module AgentHarness
           # Oh My Pi's non-interactive CLI currently exposes only text print mode.
           # Keep JSON mode disabled until the CLI ships a structured output flag.
           json_mode: false,
+          # MCP capability decision: the omp non-interactive print-mode path
+          # (`omp --no-session -p`) does not accept an MCP server config flag
+          # in the harness's supported CLI version. Keep MCP disabled here so
+          # callers do not attempt to attach servers that the runtime would
+          # reject. Revisit once omp ships a stable `--mcp-config` flag.
           mcp: false,
           dangerous_mode: false
         }
       end
 
       def error_patterns
-        COMMON_ERROR_PATTERNS
+        ERROR_PATTERNS
+      end
+
+      # Downstream-facing error classification. Augments the shared quota set
+      # with auth-expiry, model-resolution, and authentication-specific
+      # phrasing so consumers can route omp failures without re-deriving the
+      # CLI vocabulary. The inherited `:quota` set is deliberately preserved
+      # (not overridden) so omp's multi-provider backends surface their full
+      # credit/balance vocabulary (requires more credits, insufficient
+      # balance, spend limit reached, billing limit, etc.).
+      def error_classification_patterns
+        super.merge(
+          auth_expired: ERROR_PATTERNS[:auth_expired],
+          authentication: [
+            /api.?key.*not.*(?:set|configured)/i,
+            /no.*api.?key/i,
+            /missing.*credentials/i,
+            /log(?:ged)?.?in.*required/i
+          ],
+          model_not_found: ERROR_PATTERNS[:model_not_found]
+        )
+      end
+
+      # Oh My Pi emits a startup banner (version, Bun runtime, model fetch)
+      # that is not actionable. Expose it so callers can strip probe noise.
+      def noisy_error_patterns
+        NOISY_OUTPUT_PATTERNS
+      end
+
+      def translate_error(message)
+        if ERROR_PATTERNS[:model_not_found].any? { |p| message.match?(p) }
+          "Oh My Pi could not resolve the requested model. Check --model/--provider."
+        elsif /api.?key.*not.*(?:set|configured)/i.match?(message) || /no.*api.?key/i.match?(message)
+          "Oh My Pi API key not set for the selected provider."
+        else
+          message
+        end
+      end
+
+      # Oh My Pi runs stateless through `--no-session`; the harness does not
+      # expose session persistence, so callers cannot resume a session.
+      def supports_sessions?
+        false
       end
 
       def supports_tool_control?
@@ -217,6 +344,36 @@ module AgentHarness
 
       def auth_type
         :oauth
+      end
+
+      # Conventional backend API-key env vars the omp CLI reads. Oh My Pi is
+      # multi-provider: the effective var is the one matching the selected
+      # `--provider`, supplied per request through ProviderRuntime#env.
+      def api_key_env_var_names
+        [
+          "ANTHROPIC_API_KEY",
+          "OPENAI_API_KEY",
+          "GEMINI_API_KEY",
+          "GOOGLE_API_KEY",
+          "XAI_API_KEY",
+          "DEEPSEEK_API_KEY",
+          "OPENROUTER_API_KEY",
+          "GROQ_API_KEY",
+          "MISTRAL_API_KEY"
+        ]
+      end
+
+      # omp routes through `--provider` rather than an env-driven proxy/base
+      # URL, so there are no known proxy header vars to scrub when a caller
+      # supplies its own key.
+      def api_key_unset_vars
+        []
+      end
+
+      # When running against an OAuth/subscription session, drop backend
+      # API-key env vars so the CLI prefers the stored session credentials.
+      def subscription_unset_vars
+        api_key_env_var_names
       end
 
       def execution_semantics
