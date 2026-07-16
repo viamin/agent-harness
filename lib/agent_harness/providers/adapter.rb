@@ -39,7 +39,33 @@ module AgentHarness
         normalized[:requires_postinstall] = contract[:requires_postinstall] if contract.key?(:requires_postinstall)
         normalized[:postinstall_command] = contract[:postinstall_command] if contract.key?(:postinstall_command)
 
+        if contract.key?(:runtime_requirements)
+          normalized[:runtime_requirements] =
+            normalize_metadata_runtime_requirements(contract[:runtime_requirements])
+        end
+
         normalized
+      end
+
+      # Normalize an installation contract's `runtime_requirements` so the
+      # stable provider-metadata path exposes the same runtime prerequisites
+      # (e.g. Bun for the :omp provider) as the raw installation contract.
+      #
+      # Each entry is duplicated so consumers receive a self-contained hash
+      # they can mutate top-level keys on without aliasing the provider-owned
+      # contract, and the resulting array is frozen to signal that the
+      # normalized metadata is read-only.
+      #
+      # @param requirements [Array<Hash>, nil]
+      # @return [Array<Hash>, nil] normalized requirements, or nil when absent
+      def self.normalize_metadata_runtime_requirements(requirements)
+        return requirements unless requirements.is_a?(Array)
+
+        requirements.map do |requirement|
+          next requirement.dup if requirement.is_a?(Hash)
+
+          requirement
+        end.freeze
       end
 
       def self.normalize_metadata_source_type(source)

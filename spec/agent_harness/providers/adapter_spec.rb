@@ -732,6 +732,99 @@ RSpec.describe AgentHarness::Providers::Adapter do
     end
   end
 
+  describe ".normalize_metadata_installation" do
+    def normalize(contract, provider_name: :test, binary_name: "test")
+      described_class.normalize_metadata_installation(
+        contract,
+        provider_name: provider_name,
+        binary_name: binary_name
+      )
+    end
+
+    it "returns nil for a non-hash contract" do
+      expect(normalize(nil)).to be_nil
+      expect(normalize("npm install")).to be_nil
+    end
+
+    it "preserves the generic npm install fields" do
+      contract = {
+        source: :npm,
+        package: "@scope/pkg@1.0.0",
+        version: "1.0.0",
+        version_requirement: [["=", "1.0.0"]],
+        binary_name: "pkg",
+        install_command: ["npm", "install", "-g", "@scope/pkg@1.0.0"]
+      }
+
+      expect(normalize(contract)).to include(
+        provider: :test,
+        source_type: :npm,
+        package_name: "@scope/pkg",
+        default_version: "1.0.0",
+        resolved_version: "1.0.0",
+        supported_version_requirement: "= 1.0.0",
+        binary_name: "pkg",
+        install_command: ["npm", "install", "-g", "@scope/pkg@1.0.0"]
+      )
+    end
+
+    it "does not include runtime_requirements when the contract omits them" do
+      contract = {package: "@scope/pkg@1.0.0"}
+
+      expect(normalize(contract)).not_to have_key(:runtime_requirements)
+    end
+
+    it "preserves nil runtime_requirements when explicitly set to nil" do
+      contract = {package: "@scope/pkg@1.0.0", runtime_requirements: nil}
+
+      expect(normalize(contract)).to include(runtime_requirements: nil)
+    end
+
+    it "surfaces runtime_requirements through the stable metadata path" do
+      bun = {name: :bun, binary_name: "bun", pinned_version: "1.3.14"}
+      contract = {
+        package: "@scope/pkg@1.0.0",
+        runtime_requirements: [bun]
+      }
+
+      normalized = normalize(contract)
+      expect(normalized[:runtime_requirements]).to be_an(Array)
+      expect(normalized[:runtime_requirements].first).to include(
+        name: :bun,
+        binary_name: "bun",
+        pinned_version: "1.3.14"
+      )
+    end
+
+    it "decouples the normalized runtime_requirements from the contract input" do
+      bun = {name: :bun, binary_name: "bun"}
+      contract = {package: "@scope/pkg@1.0.0", runtime_requirements: [bun]}
+
+      normalized = normalize(contract)
+      normalized_bun = normalized[:runtime_requirements].first
+
+      normalized_bun[:binary_name] = "mutated"
+
+      expect(bun[:binary_name]).to eq("bun")
+      expect(normalized[:runtime_requirements]).to be_frozen
+    end
+
+    it "freezes the normalized runtime_requirements array" do
+      contract = {
+        package: "@scope/pkg@1.0.0",
+        runtime_requirements: [{name: :bun}]
+      }
+
+      expect(normalize(contract)[:runtime_requirements]).to be_frozen
+    end
+
+    it "preserves non-array runtime_requirements verbatim" do
+      contract = {package: "@scope/pkg@1.0.0", runtime_requirements: "bun>=1.3"}
+
+      expect(normalize(contract)).to include(runtime_requirements: "bun>=1.3")
+    end
+  end
+
   describe "ClassMethods" do
     describe ".provider_name" do
       it "returns the provider name" do

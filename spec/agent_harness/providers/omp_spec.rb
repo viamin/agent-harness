@@ -296,5 +296,40 @@ RSpec.describe AgentHarness::Providers::OhMyPi do
         api_family: :multi_provider
       )
     end
+
+    it "surfaces the Bun runtime requirement through registry provider metadata" do
+      registry = AgentHarness::Providers::Registry.instance
+
+      installation = registry.provider_metadata(:omp).dig(:runtime, :installation)
+      expect(installation).not_to be_nil
+
+      runtime_requirements = installation[:runtime_requirements]
+      expect(runtime_requirements).to be_an(Array)
+
+      bun = runtime_requirements.find { |req| req[:name] == :bun }
+      expect(bun).to include(
+        binary_name: "bun",
+        pinned_version: "1.3.14",
+        version_requirement: ">= 1.3.14",
+        source: :script,
+        install_script_url: "https://bun.sh/install"
+      )
+      expect(bun[:install_command]).to eq(
+        ["sh", "-c", "curl -fsSL https://bun.sh/install | BUN_VERSION=1.3.14 bash"]
+      )
+    end
+
+    it "surfaces the Bun runtime requirement through AgentHarness.provider_metadata" do
+      installation = AgentHarness.provider_metadata(:omp).dig(:runtime, :installation)
+      expect(installation).not_to be_nil
+
+      bun = installation[:runtime_requirements].find { |req| req[:name] == :bun }
+      expect(bun).to include(
+        binary_name: "bun",
+        pinned_version: "1.3.14",
+        version_requirement: ">= 1.3.14",
+        install_script_url: "https://bun.sh/install"
+      )
+    end
   end
 end
