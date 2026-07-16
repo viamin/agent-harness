@@ -29,7 +29,6 @@ module AgentHarness
       BUN_BINARY = "bun"
       BUN_INSTALL_SCRIPT_URL = "https://bun.sh/install"
       SUPPORTED_BUN_VERSION = "1.3.14"
-      SUPPORTED_BUN_REQUIREMENT = Gem::Requirement.new(">= #{SUPPORTED_BUN_VERSION}").freeze
       BUN_REQUIREMENT_STRING = ">= #{SUPPORTED_BUN_VERSION}".freeze
 
       class << self
