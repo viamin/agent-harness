@@ -322,6 +322,7 @@ module AgentHarness
           &on_chunk
         )
 
+        response = attach_quota_status_from_headers(response)
         response = apply_extensions_after_response(extension_context, response)
 
         track_tokens(response) if response.tokens
@@ -445,6 +446,39 @@ module AgentHarness
       # @return [Hash] with :healthy and optional :reason keys
       def preflight_check(env:, timeout: 10)
         {healthy: true}
+      end
+
+      # Proactively query remaining provider quota for the current billing
+      # period without running a full agent.
+      #
+      # The default implementation reports that quota checking is unavailable
+      # so callers can fall back to {AgentHarness::TokenUsageTracker}. Providers
+      # that expose a usage/quota API override this to return a populated
+      # {QuotaStatus}.
+      #
+      # The +env+ hash carries the same provider credentials and overrides that
+      # {send_message} uses (typically derived from +ProviderRuntime#env+), so
+      # the quota check can reuse the same authentication as a normal run.
+      #
+      # @param env [Hash{String=>String}] request-scoped environment overrides
+      # @param timeout [Numeric] time budget in seconds
+      # @return [AgentHarness::QuotaStatus]
+      def check_quota(env:, timeout: 10)
+        QuotaStatus.unavailable
+      end
+
+      # Opportunistically update cached quota info from rate-limit headers
+      # observed during a normal {send_message} flow.
+      #
+      # Providers that emit +x-ratelimit-*+ style headers should override this
+      # to parse them into a {QuotaStatus} and return it. The base
+      # implementation is a no-op so providers that do not expose headers (or
+      # runs where the information is unavailable) are handled gracefully.
+      #
+      # @param headers [Hash{String=>String}, Net::HTTPHeader] response headers
+      # @return [AgentHarness::QuotaStatus, nil]
+      def update_quota_from_headers(headers)
+        nil
       end
 
       protected
@@ -1019,6 +1053,29 @@ module AgentHarness
           output_tokens: response.tokens[:output] || 0,
           total_tokens: response.tokens[:total]
         )
+
+        # Feed the same usage into the fallback quota tracker so providers
+        # without a proactive quota API can still estimate remaining quota from
+        # a caller-configured billing limit. The record signatures intentionally
+        # match so the two trackers can share this hook.
+        AgentHarness.token_usage_tracker.record(
+          provider: self.class.provider_name,
+          model: response.model || @config.model,
+          input_tokens: response.tokens[:input] || 0,
+          output_tokens: response.tokens[:output] || 0,
+          total_tokens: response.tokens[:total]
+        )
+      end
+
+      def attach_quota_status_from_headers(response)
+        headers = response.metadata[:headers]
+        return response unless headers
+
+        quota_status = update_quota_from_headers(headers)
+        return response unless quota_status
+
+        response.metadata[:quota_status] = quota_status
+        response
       end
 
       def handle_error(error, prompt:, options:)

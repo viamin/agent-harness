@@ -124,7 +124,7 @@ module AgentHarness
 
       @logger&.debug("[AgentHarness::OpenAICompatibleTransport] POST #{uri} model=#{body[:model]} stream=true")
 
-      accumulated = {content: +"", tool_calls: [], model: nil, usage: nil}
+      accumulated = {content: +"", tool_calls: [], model: nil, usage: nil, headers: {}}
 
       http.request(request) do |http_response|
         status_code = http_response.code.to_i
@@ -133,6 +133,7 @@ module AgentHarness
           handle_error_response_raw(response_body, status_code)
         end
 
+        accumulated[:headers] = extract_headers(http_response)
         parse_sse_stream(http_response, accumulated, &on_chunk)
       end
 
@@ -274,7 +275,7 @@ module AgentHarness
       tokens = extract_usage(body)
       tool_calls = extract_tool_calls(body)
 
-      metadata = {transport: :http, stream: false}
+      metadata = {transport: :http, stream: false, headers: extract_headers(http_response)}
       metadata[:tool_calls] = tool_calls if tool_calls
 
       Response.new(
@@ -295,7 +296,7 @@ module AgentHarness
 
     def build_streaming_response(accumulated, duration:, model:)
       tool_calls = accumulated[:tool_calls].compact
-      metadata = {transport: :http, stream: true}
+      metadata = {transport: :http, stream: true, headers: accumulated[:headers] || {}}
       metadata[:tool_calls] = tool_calls unless tool_calls.empty?
 
       Response.new(
@@ -349,6 +350,16 @@ module AgentHarness
 
     def observer_responds_to?(observer, method_name)
       observer&.respond_to?(method_name)
+    end
+
+    def extract_headers(http_response)
+      return {} unless http_response.respond_to?(:each_header)
+
+      {}.tap do |headers|
+        http_response.each_header do |name, value|
+          headers[name] = value
+        end
+      end
     end
 
     def handle_error_response(http_response, status_code)

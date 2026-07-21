@@ -661,6 +661,26 @@ module AgentHarness
 
       def cli_env_overrides = {"PAID_CODEX_SUBSCRIPTION_AUTH" => "1"}
 
+      # Proactively check quota for Codex's configured backend.
+      #
+      # Codex runners frequently route through OpenRouter by setting
+      # +OPENAI_BASE_URL=https://openrouter.ai/api/v1+. When the request env
+      # indicates OpenRouter, the check is delegated to
+      # {QuotaCheckers::OpenRouter}, which queries the +/credits+ endpoint.
+      # Otherwise OpenAI's quota API is not publicly exposed, so the check
+      # returns unavailable and callers fall back to {TokenUsageTracker}.
+      #
+      # @param env [Hash{String=>String}] request-scoped environment
+      # @param timeout [Numeric] time budget in seconds
+      # @return [AgentHarness::QuotaStatus]
+      def check_quota(env:, timeout: QuotaCheckers::OpenRouter::DEFAULT_TIMEOUT)
+        if QuotaCheckers::OpenRouter.routes_through_open_router?(env)
+          return QuotaCheckers::OpenRouter.check(env: env, timeout: timeout, logger: @logger)
+        end
+
+        QuotaStatus.unavailable
+      end
+
       def send_message(prompt:, **options)
         super
       ensure

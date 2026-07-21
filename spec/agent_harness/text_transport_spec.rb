@@ -12,6 +12,7 @@ RSpec.describe AgentHarness::TextTransport do
     http_response = instance_double(Net::HTTPOK,
       code: status.to_s,
       body: JSON.generate(body))
+    allow(http_response).to receive(:each_header).and_return({})
     http = instance_double(Net::HTTP)
     allow(Net::HTTP).to receive(:new).and_return(http)
     allow(http).to receive(:use_ssl=)
@@ -25,6 +26,7 @@ RSpec.describe AgentHarness::TextTransport do
     http_response = instance_double(Net::HTTPOK,
       code: status.to_s,
       body: body_string)
+    allow(http_response).to receive(:each_header).and_return({})
     http = instance_double(Net::HTTP)
     allow(Net::HTTP).to receive(:new).and_return(http)
     allow(http).to receive(:use_ssl=)
@@ -42,6 +44,7 @@ RSpec.describe AgentHarness::TextTransport do
     allow(http).to receive(:read_timeout=)
 
     http_response = instance_double(Net::HTTPOK, code: status.to_s)
+    allow(http_response).to receive(:each_header).and_return({})
 
     allow(http).to receive(:request) do |_req, &block|
       allow(http_response).to receive(:read_body) do |&body_block|
@@ -93,6 +96,31 @@ RSpec.describe AgentHarness::TextTransport do
         expect(response.input_tokens).to eq(100)
         expect(response.output_tokens).to eq(50)
         expect(response.total_tokens).to eq(150)
+      end
+
+      it "preserves response headers in metadata" do
+        http_response = instance_double(Net::HTTPOK,
+          code: "200",
+          body: JSON.generate({
+            "content" => [{"type" => "text", "text" => "ok"}],
+            "usage" => {"input_tokens" => 1, "output_tokens" => 1}
+          }))
+        allow(http_response).to receive(:each_header).and_yield("anthropic-ratelimit-tokens-limit", "1000")
+          .and_yield("anthropic-ratelimit-tokens-remaining", "900")
+
+        http = instance_double(Net::HTTP)
+        allow(Net::HTTP).to receive(:new).and_return(http)
+        allow(http).to receive(:use_ssl=)
+        allow(http).to receive(:open_timeout=)
+        allow(http).to receive(:read_timeout=)
+        allow(http).to receive(:request).and_return(http_response)
+
+        response = transport.send_message("prompt")
+
+        expect(response.metadata[:headers]).to include(
+          "anthropic-ratelimit-tokens-limit" => "1000",
+          "anthropic-ratelimit-tokens-remaining" => "900"
+        )
       end
 
       it "handles multiple text content blocks" do

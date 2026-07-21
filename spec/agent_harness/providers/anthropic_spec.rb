@@ -508,6 +508,50 @@ RSpec.describe AgentHarness::Providers::Anthropic do
       end
     end
 
+    describe "#update_quota_from_headers" do
+      it "returns nil when no rate-limit headers are present" do
+        expect(provider.update_quota_from_headers({})).to be_nil
+      end
+
+      it "parses Anthropic ratelimit headers into a QuotaStatus" do
+        headers = {
+          "anthropic-ratelimit-tokens-limit" => "100000",
+          "anthropic-ratelimit-tokens-remaining" => "75000",
+          "anthropic-ratelimit-tokens-reset" => "2026-07-21T05:00:00Z"
+        }
+
+        status = provider.update_quota_from_headers(headers)
+
+        expect(status).to be_a(AgentHarness::QuotaStatus)
+        expect(status.available?).to be true
+        expect(status.limit).to eq(100_000)
+        expect(status.remaining).to eq(75_000)
+        expect(status.unit).to eq(:tokens)
+        expect(status.reset_at).to eq(Time.utc(2026, 7, 21, 5, 0, 0))
+      end
+
+      it "tolerates a missing reset header" do
+        headers = {
+          "anthropic-ratelimit-tokens-limit" => "100000",
+          "anthropic-ratelimit-tokens-remaining" => "75000"
+        }
+
+        status = provider.update_quota_from_headers(headers)
+        expect(status.reset_at).to be_nil
+      end
+
+      it "tolerates a reset header that is not a valid RFC 3339 timestamp" do
+        headers = {
+          "anthropic-ratelimit-tokens-limit" => "100000",
+          "anthropic-ratelimit-tokens-remaining" => "75000",
+          "anthropic-ratelimit-tokens-reset" => "not-a-timestamp"
+        }
+
+        status = provider.update_quota_from_headers(headers)
+        expect(status.reset_at).to be_nil
+      end
+    end
+
     describe "#error_patterns" do
       it "includes rate limit patterns" do
         patterns = provider.error_patterns
@@ -1389,6 +1433,57 @@ RSpec.describe AgentHarness::Providers::Anthropic do
           response = provider.send_message(prompt: "prompt", mode: :text)
 
           expect(response.tokens).to eq({input: 50, output: 25, total: 75})
+        end
+
+        it "attaches a QuotaStatus parsed from rate-limit response headers" do
+          http_response = instance_double(Net::HTTPOK,
+            code: "200",
+            body: JSON.generate({
+              "content" => [{"type" => "text", "text" => "response"}],
+              "usage" => {"input_tokens" => 1, "output_tokens" => 1}
+            }))
+          allow(http_response).to receive(:each_header)
+            .and_yield("anthropic-ratelimit-tokens-limit", "100000")
+            .and_yield("anthropic-ratelimit-tokens-remaining", "75000")
+            .and_yield("anthropic-ratelimit-tokens-reset", "2026-07-21T05:00:00Z")
+
+          http = instance_double(Net::HTTP)
+          allow(Net::HTTP).to receive(:new).and_return(http)
+          allow(http).to receive(:use_ssl=)
+          allow(http).to receive(:open_timeout=)
+          allow(http).to receive(:read_timeout=)
+          allow(http).to receive(:request).and_return(http_response)
+
+          response = provider.send_message(prompt: "prompt", mode: :text)
+
+          quota_status = response.metadata[:quota_status]
+          expect(quota_status).to be_a(AgentHarness::QuotaStatus)
+          expect(quota_status.available?).to be true
+          expect(quota_status.limit).to eq(100_000)
+          expect(quota_status.remaining).to eq(75_000)
+          expect(quota_status.unit).to eq(:tokens)
+          expect(quota_status.reset_at).to eq(Time.utc(2026, 7, 21, 5, 0, 0))
+        end
+
+        it "leaves quota_status unset when no rate-limit headers are present" do
+          http_response = instance_double(Net::HTTPOK,
+            code: "200",
+            body: JSON.generate({
+              "content" => [{"type" => "text", "text" => "response"}],
+              "usage" => {"input_tokens" => 1, "output_tokens" => 1}
+            }))
+          allow(http_response).to receive(:each_header).and_yield("content-type", "application/json")
+
+          http = instance_double(Net::HTTP)
+          allow(Net::HTTP).to receive(:new).and_return(http)
+          allow(http).to receive(:use_ssl=)
+          allow(http).to receive(:open_timeout=)
+          allow(http).to receive(:read_timeout=)
+          allow(http).to receive(:request).and_return(http_response)
+
+          response = provider.send_message(prompt: "prompt", mode: :text)
+
+          expect(response.metadata).not_to have_key(:quota_status)
         end
 
         it "records tokens with the global token tracker" do

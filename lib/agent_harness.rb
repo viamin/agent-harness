@@ -47,6 +47,7 @@ module AgentHarness
       @configuration = nil
       @conductor = nil
       @token_tracker = nil
+      @token_usage_tracker = nil
       @dependency_updater = nil
       Skills.reset! if defined?(Skills)
     end
@@ -61,6 +62,13 @@ module AgentHarness
     # @return [TokenTracker] the token tracker instance
     def token_tracker
       @token_tracker ||= TokenTracker.new
+    end
+
+    # Returns the global token usage tracker used as a fallback when providers
+    # do not expose a proactive quota API.
+    # @return [TokenUsageTracker] the token usage tracker instance
+    def token_usage_tracker
+      @token_usage_tracker ||= TokenUsageTracker.new
     end
 
     # Returns the global conductor for orchestrated requests
@@ -449,10 +457,12 @@ require_relative "agent_harness/command_executor"
 require_relative "agent_harness/docker_command_executor"
 require_relative "agent_harness/response"
 require_relative "agent_harness/token_tracker"
+require_relative "agent_harness/token_usage_tracker"
 require_relative "agent_harness/error_taxonomy"
 require_relative "agent_harness/text_transport"
 require_relative "agent_harness/openai_compatible_transport"
 require_relative "agent_harness/conversation"
+require_relative "agent_harness/quota_status"
 require_relative "agent_harness/authentication"
 require_relative "agent_harness/provider_health_check"
 require_relative "agent_harness/release_registry"
@@ -466,6 +476,7 @@ require_relative "agent_harness/providers/token_usage_parsing"
 require_relative "agent_harness/providers/rate_limit_reset_parsing"
 require_relative "agent_harness/providers/base"
 require_relative "agent_harness/providers/mcp_config_file_support"
+require_relative "agent_harness/providers/quota_checkers"
 require_relative "agent_harness/providers/anthropic"
 require_relative "agent_harness/providers/aider"
 require_relative "agent_harness/providers/codex"

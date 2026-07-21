@@ -449,6 +449,23 @@ RSpec.describe AgentHarness::Providers::Codex do
       end
     end
 
+    describe "#check_quota" do
+      it "delegates to QuotaCheckers::OpenRouter when env routes through OpenRouter" do
+        env = {"OPENROUTER_API_KEY" => "sk-or-..."}
+        status = AgentHarness::QuotaStatus.new(available: true, remaining: 5, limit: 10, unit: :credits)
+        expect(AgentHarness::Providers::QuotaCheckers::OpenRouter).to receive(:check)
+          .with(hash_including(env: env))
+          .and_return(status)
+
+        expect(provider.check_quota(env: env)).to be(status)
+      end
+
+      it "returns unavailable when env does not route through OpenRouter" do
+        result = provider.check_quota(env: {"OPENAI_API_KEY" => "sk-oai"})
+        expect(result.available?).to be false
+      end
+    end
+
     describe "#execution_semantics" do
       it "reports sandbox_aware as true" do
         expect(provider.execution_semantics[:sandbox_aware]).to be true
