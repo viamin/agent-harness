@@ -130,18 +130,13 @@ module AgentHarness
             total_tokens = total_input + total_output
             return QuotaStatus.unavailable if total_tokens.zero?
 
-            # The usage_reports endpoint exposes *consumption*, not a billing
-            # cap, so we cannot populate remaining/limit. Leave both nil rather
-            # than mislabeling usage as the limit (which would make the weight
-            # balancer treat observed usage as the ceiling). Callers that need a
-            # cap fall back to TokenUsageTracker's configured limit.
-            QuotaStatus.new(
-              available: true,
-              remaining: nil,
-              limit: nil,
-              reset_at: next_billing_reset,
-              unit: :tokens
-            )
+            # The usage_reports endpoint exposes only *consumption*, not a
+            # billing cap, so it cannot produce a comparable remaining/limit
+            # pair for proactive balancing. Report the provider as quota-API
+            # unavailable so callers can fall back to TokenUsageTracker's
+            # configured limit instead of treating usage-only data as a real
+            # quota snapshot.
+            QuotaStatus.unavailable
           end
 
           def sum_field(data, field)
@@ -149,13 +144,6 @@ module AgentHarness
               value = entry.is_a?(Hash) ? entry[field] : nil
               value.to_i
             end
-          end
-
-          # Anthropic usage reports are calendar-month scoped by default; the
-          # reset time is the first instant of next month in UTC.
-          def next_billing_reset
-            now = Time.now.utc
-            (now.month == 12) ? Time.utc(now.year + 1, 1, 1) : Time.utc(now.year, now.month + 1, 1)
           end
         end
       end

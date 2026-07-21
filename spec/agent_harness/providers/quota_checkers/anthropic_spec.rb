@@ -51,16 +51,10 @@ RSpec.describe AgentHarness::Providers::QuotaCheckers::Anthropic do
       allow(response).to receive(:is_a?).with(Net::HTTPSuccess).and_return(true)
     end
 
-    it "returns a populated QuotaStatus with tokens unit" do
+    it "returns unavailable when the response only contains usage totals" do
       status = described_class.check(env: {"ANTHROPIC_API_KEY" => "sk-ant"})
 
-      expect(status.available?).to be true
-      expect(status.unit).to eq(:tokens)
-      # The usage_reports endpoint reports consumption, not a cap, so limit and
-      # remaining stay nil rather than mislabeling usage as the ceiling.
-      expect(status.limit).to be_nil
-      expect(status.remaining).to be_nil
-      expect(status.reset_at).to be_a(Time)
+      expect(status).to eq(AgentHarness::QuotaStatus.unavailable)
     end
 
     it "sends x-api-key and anthropic-version headers" do
