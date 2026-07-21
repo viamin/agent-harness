@@ -2113,9 +2113,9 @@ module AgentHarness
 
       # Read a header value from either a Net::HTTPHeader or a plain Hash.
       def header_value(headers, name)
-        return headers[name] if headers.respond_to?(:[])
+        return headers[name] || headers[name.to_sym] if headers.respond_to?(:[])
 
-        headers[name.to_sym] if headers.respond_to?(:key?) && headers.key?(name.to_sym)
+        nil
       rescue NoMethodError
         nil
       end

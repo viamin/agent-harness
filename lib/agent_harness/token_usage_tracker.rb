@@ -100,7 +100,7 @@ module AgentHarness
     # @return [AgentHarness::QuotaStatus]
     def estimated_usage(provider:, since: nil)
       provider_key = normalize_provider(provider)
-      config = @quota_configs[provider_key]
+      config = @mutex.synchronize { @quota_configs[provider_key] }
       return QuotaStatus.unavailable unless config&.configured?
 
       used = usage_total(provider_key, since:)
