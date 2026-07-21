@@ -852,15 +852,15 @@ module AgentHarness
         nil
       end
 
-      # Anthropic's ratelimit reset header is a TTL in seconds ("123s").
+      # Anthropic's ratelimit reset header is an RFC 3339 timestamp
+      # (e.g. "2026-07-21T05:00:00Z"), per the API docs.
       def parse_rate_limit_header_reset(headers)
         raw = header_value(headers, RATE_LIMIT_HEADER_RESET)
         return nil unless raw
 
-        match = raw.to_s.match(/(\d+)/)
-        return nil unless match
-
-        Time.now.utc + match[1].to_i
+        Time.iso8601(raw.to_s).utc
+      rescue ArgumentError
+        nil
       end
     end
   end

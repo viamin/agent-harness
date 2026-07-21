@@ -517,7 +517,7 @@ RSpec.describe AgentHarness::Providers::Anthropic do
         headers = {
           "anthropic-ratelimit-tokens-limit" => "100000",
           "anthropic-ratelimit-tokens-remaining" => "75000",
-          "anthropic-ratelimit-tokens-reset" => "60s"
+          "anthropic-ratelimit-tokens-reset" => "2026-07-21T05:00:00Z"
         }
 
         status = provider.update_quota_from_headers(headers)
@@ -527,13 +527,24 @@ RSpec.describe AgentHarness::Providers::Anthropic do
         expect(status.limit).to eq(100_000)
         expect(status.remaining).to eq(75_000)
         expect(status.unit).to eq(:tokens)
-        expect(status.reset_at).to be_a(Time)
+        expect(status.reset_at).to eq(Time.utc(2026, 7, 21, 5, 0, 0))
       end
 
-      it "tolerates a reset header without a numeric value" do
+      it "tolerates a missing reset header" do
         headers = {
           "anthropic-ratelimit-tokens-limit" => "100000",
           "anthropic-ratelimit-tokens-remaining" => "75000"
+        }
+
+        status = provider.update_quota_from_headers(headers)
+        expect(status.reset_at).to be_nil
+      end
+
+      it "tolerates a reset header that is not a valid RFC 3339 timestamp" do
+        headers = {
+          "anthropic-ratelimit-tokens-limit" => "100000",
+          "anthropic-ratelimit-tokens-remaining" => "75000",
+          "anthropic-ratelimit-tokens-reset" => "not-a-timestamp"
         }
 
         status = provider.update_quota_from_headers(headers)
@@ -1434,7 +1445,7 @@ RSpec.describe AgentHarness::Providers::Anthropic do
           allow(http_response).to receive(:each_header)
             .and_yield("anthropic-ratelimit-tokens-limit", "100000")
             .and_yield("anthropic-ratelimit-tokens-remaining", "75000")
-            .and_yield("anthropic-ratelimit-tokens-reset", "60s")
+            .and_yield("anthropic-ratelimit-tokens-reset", "2026-07-21T05:00:00Z")
 
           http = instance_double(Net::HTTP)
           allow(Net::HTTP).to receive(:new).and_return(http)
@@ -1451,7 +1462,7 @@ RSpec.describe AgentHarness::Providers::Anthropic do
           expect(quota_status.limit).to eq(100_000)
           expect(quota_status.remaining).to eq(75_000)
           expect(quota_status.unit).to eq(:tokens)
-          expect(quota_status.reset_at).to be_a(Time)
+          expect(quota_status.reset_at).to eq(Time.utc(2026, 7, 21, 5, 0, 0))
         end
 
         it "leaves quota_status unset when no rate-limit headers are present" do
