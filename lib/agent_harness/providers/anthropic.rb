@@ -419,19 +419,6 @@ module AgentHarness
 
       def subscription_unset_vars = ["ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL"] + api_key_unset_vars
 
-      # Proactively check Anthropic quota via the admin usage API.
-      #
-      # Delegates to {QuotaCheckers::Anthropic} so the HTTP plumbing is
-      # reusable outside the provider instance (for example, by Paid's
-      # scheduler before a provider is materialized).
-      #
-      # @param env [Hash{String=>String}] request-scoped environment
-      # @param timeout [Numeric] time budget in seconds
-      # @return [AgentHarness::QuotaStatus]
-      def check_quota(env:, timeout: QuotaCheckers::Anthropic::DEFAULT_TIMEOUT)
-        QuotaCheckers::Anthropic.check(env: env, timeout: timeout, logger: @logger)
-      end
-
       # Opportunistically refresh quota info from Anthropic rate-limit headers
       # observed on a normal /v1/messages response.
       #
@@ -718,6 +705,7 @@ module AgentHarness
         kwargs[:max_tokens] = max_tokens if max_tokens
 
         response = transport.send_message(prompt, **kwargs)
+        response = attach_quota_status_from_headers(response)
 
         # Apply runtime model override if present
         runtime = options[:provider_runtime]

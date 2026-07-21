@@ -322,6 +322,7 @@ module AgentHarness
           &on_chunk
         )
 
+        response = attach_quota_status_from_headers(response)
         response = apply_extensions_after_response(extension_context, response)
 
         track_tokens(response) if response.tokens
@@ -1064,6 +1065,17 @@ module AgentHarness
           output_tokens: response.tokens[:output] || 0,
           total_tokens: response.tokens[:total]
         )
+      end
+
+      def attach_quota_status_from_headers(response)
+        headers = response.metadata[:headers]
+        return response unless headers
+
+        quota_status = update_quota_from_headers(headers)
+        return response unless quota_status
+
+        response.metadata[:quota_status] = quota_status
+        response
       end
 
       def handle_error(error, prompt:, options:)

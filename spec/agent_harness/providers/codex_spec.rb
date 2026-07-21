@@ -466,59 +466,6 @@ RSpec.describe AgentHarness::Providers::Codex do
       end
     end
 
-    describe "#update_quota_from_headers" do
-      it "returns nil when no rate-limit headers are present" do
-        expect(provider.update_quota_from_headers({})).to be_nil
-      end
-
-      it "parses OpenAI ratelimit headers into a QuotaStatus" do
-        headers = {
-          "x-ratelimit-limit-tokens" => "100000",
-          "x-ratelimit-remaining-tokens" => "75000",
-          "x-ratelimit-reset-tokens" => "120s"
-        }
-
-        status = provider.update_quota_from_headers(headers)
-
-        expect(status).to be_a(AgentHarness::QuotaStatus)
-        expect(status.available?).to be true
-        expect(status.limit).to eq(100_000)
-        expect(status.remaining).to eq(75_000)
-        expect(status.unit).to eq(:tokens)
-        expect(status.reset_at).to be_a(Time)
-      end
-
-      it "parses compound Go-duration reset values (e.g. 6m0s)" do
-        headers = {
-          "x-ratelimit-limit-tokens" => "100000",
-          "x-ratelimit-remaining-tokens" => "75000",
-          "x-ratelimit-reset-tokens" => "6m0s"
-        }
-
-        now = Time.utc(2026, 7, 21, 12, 0, 0)
-        allow(Time).to receive(:now).and_return(now)
-
-        status = provider.update_quota_from_headers(headers)
-
-        expect(status.reset_at).to eq(now.utc + (6 * 60))
-      end
-
-      it "parses hour/minute/second Go-duration reset values (e.g. 1h0m0s)" do
-        headers = {
-          "x-ratelimit-limit-tokens" => "100000",
-          "x-ratelimit-remaining-tokens" => "75000",
-          "x-ratelimit-reset-tokens" => "1h0m0s"
-        }
-
-        now = Time.utc(2026, 7, 21, 12, 0, 0)
-        allow(Time).to receive(:now).and_return(now)
-
-        status = provider.update_quota_from_headers(headers)
-
-        expect(status.reset_at).to eq(now.utc + 3600)
-      end
-    end
-
     describe "#execution_semantics" do
       it "reports sandbox_aware as true" do
         expect(provider.execution_semantics[:sandbox_aware]).to be true

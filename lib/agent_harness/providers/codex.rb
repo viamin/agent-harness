@@ -13,14 +13,6 @@ module AgentHarness
       include RateLimitResetParsing
       include McpConfigFileSupport
 
-      # OpenAI rate-limit response headers exposing quota/rate information.
-      # Codex's responses (and OpenRouter responses routed through the OpenAI
-      # transport) carry these headers, which #update_quota_from_headers
-      # parses to opportunistically refresh cached quota.
-      RATE_LIMIT_HEADER_LIMIT = "x-ratelimit-limit-tokens"
-      RATE_LIMIT_HEADER_REMAINING = "x-ratelimit-remaining-tokens"
-      RATE_LIMIT_HEADER_RESET = "x-ratelimit-reset-tokens"
-
       StreamingEvent = Struct.new(
         :type, :turn, :tokens, :error_message, :tool_name, :raw_event
       )
@@ -687,25 +679,6 @@ module AgentHarness
         end
 
         QuotaStatus.unavailable
-      end
-
-      # Opportunistically refresh quota info from OpenAI-compatible rate-limit
-      # headers observed on a normal chat completion response.
-      #
-      # @param headers [Hash{String=>String}, Net::HTTPHeader] response headers
-      # @return [AgentHarness::QuotaStatus, nil]
-      def update_quota_from_headers(headers)
-        limit_value = header_value(headers, RATE_LIMIT_HEADER_LIMIT)
-        remaining_value = header_value(headers, RATE_LIMIT_HEADER_REMAINING)
-        return nil unless limit_value || remaining_value
-
-        QuotaStatus.new(
-          available: true,
-          remaining: remaining_value&.to_i,
-          limit: limit_value&.to_i,
-          reset_at: parse_rate_limit_header_reset(headers),
-          unit: :tokens
-        )
       end
 
       def send_message(prompt:, **options)
@@ -2109,29 +2082,6 @@ module AgentHarness
 
       def mcp_provider_key
         :codex
-      end
-
-      # Read a header value from either a Net::HTTPHeader or a plain Hash.
-      def header_value(headers, name)
-        return headers[name] || headers[name.to_sym] if headers.respond_to?(:[])
-
-        nil
-      rescue NoMethodError
-        nil
-      end
-
-      # OpenAI's ratelimit reset header is a TTL expressed as a Go
-      # time.Duration (e.g. "120s", "6m0s", "1h0m0s", "1s"), so parse every
-      # hour/minute/second component rather than only the leading number.
-      def parse_rate_limit_header_reset(headers)
-        raw = header_value(headers, RATE_LIMIT_HEADER_RESET)
-        return nil unless raw
-
-        parts = raw.to_s.scan(/(\d+)([hms])/)
-        return nil if parts.empty?
-
-        seconds = parts.sum { |amount, unit| amount.to_i * {"h" => 3600, "m" => 60, "s" => 1}[unit] }
-        Time.now.utc + seconds
       end
     end
   end
