@@ -380,6 +380,32 @@ RSpec.describe AgentHarness::Providers::Base do
     end
   end
 
+  describe "#check_quota" do
+    it "returns an unavailable QuotaStatus by default" do
+      status = provider.check_quota(env: {})
+
+      expect(status).to be_a(AgentHarness::QuotaStatus)
+      expect(status.available?).to be false
+    end
+
+    it "accepts a timeout keyword" do
+      expect {
+        provider.check_quota(env: {}, timeout: 5)
+      }.not_to raise_error
+    end
+  end
+
+  describe "#update_quota_from_headers" do
+    it "returns nil by default" do
+      expect(provider.update_quota_from_headers({})).to be_nil
+    end
+
+    it "tolerates a Net::HTTPHeader-like object" do
+      headers = instance_double(Net::HTTPHeader)
+      expect(provider.update_quota_from_headers(headers)).to be_nil
+    end
+  end
+
   describe "#supports_activity_heartbeat?" do
     it "returns false by default" do
       expect(provider.supports_activity_heartbeat?).to be false

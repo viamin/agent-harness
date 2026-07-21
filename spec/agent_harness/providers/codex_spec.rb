@@ -449,6 +449,46 @@ RSpec.describe AgentHarness::Providers::Codex do
       end
     end
 
+    describe "#check_quota" do
+      it "delegates to QuotaCheckers::OpenRouter when env routes through OpenRouter" do
+        env = {"OPENROUTER_API_KEY" => "sk-or-..."}
+        status = AgentHarness::QuotaStatus.new(available: true, remaining: 5, limit: 10, unit: :credits)
+        expect(AgentHarness::Providers::QuotaCheckers::OpenRouter).to receive(:check)
+          .with(hash_including(env: env))
+          .and_return(status)
+
+        expect(provider.check_quota(env: env)).to be(status)
+      end
+
+      it "returns unavailable when env does not route through OpenRouter" do
+        result = provider.check_quota(env: {"OPENAI_API_KEY" => "sk-oai"})
+        expect(result.available?).to be false
+      end
+    end
+
+    describe "#update_quota_from_headers" do
+      it "returns nil when no rate-limit headers are present" do
+        expect(provider.update_quota_from_headers({})).to be_nil
+      end
+
+      it "parses OpenAI ratelimit headers into a QuotaStatus" do
+        headers = {
+          "x-ratelimit-limit-tokens" => "100000",
+          "x-ratelimit-remaining-tokens" => "75000",
+          "x-ratelimit-reset-tokens" => "120s"
+        }
+
+        status = provider.update_quota_from_headers(headers)
+
+        expect(status).to be_a(AgentHarness::QuotaStatus)
+        expect(status.available?).to be true
+        expect(status.limit).to eq(100_000)
+        expect(status.remaining).to eq(75_000)
+        expect(status.unit).to eq(:tokens)
+        expect(status.reset_at).to be_a(Time)
+      end
+    end
+
     describe "#execution_semantics" do
       it "reports sandbox_aware as true" do
         expect(provider.execution_semantics[:sandbox_aware]).to be true

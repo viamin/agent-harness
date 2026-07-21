@@ -447,6 +447,39 @@ module AgentHarness
         {healthy: true}
       end
 
+      # Proactively query remaining provider quota for the current billing
+      # period without running a full agent.
+      #
+      # The default implementation reports that quota checking is unavailable
+      # so callers can fall back to {AgentHarness::TokenUsageTracker}. Providers
+      # that expose a usage/quota API override this to return a populated
+      # {QuotaStatus}.
+      #
+      # The +env+ hash carries the same provider credentials and overrides that
+      # {send_message} uses (typically derived from +ProviderRuntime#env+), so
+      # the quota check can reuse the same authentication as a normal run.
+      #
+      # @param env [Hash{String=>String}] request-scoped environment overrides
+      # @param timeout [Numeric] time budget in seconds
+      # @return [AgentHarness::QuotaStatus]
+      def check_quota(env:, timeout: 10)
+        QuotaStatus.unavailable
+      end
+
+      # Opportunistically update cached quota info from rate-limit headers
+      # observed during a normal {send_message} flow.
+      #
+      # Providers that emit +x-ratelimit-*+ style headers should override this
+      # to parse them into a {QuotaStatus} and return it. The base
+      # implementation is a no-op so providers that do not expose headers (or
+      # runs where the information is unavailable) are handled gracefully.
+      #
+      # @param headers [Hash{String=>String}, Net::HTTPHeader] response headers
+      # @return [AgentHarness::QuotaStatus, nil]
+      def update_quota_from_headers(headers)
+        nil
+      end
+
       protected
 
       # Build CLI command - override in subclasses

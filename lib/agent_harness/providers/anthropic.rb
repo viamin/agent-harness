@@ -17,6 +17,14 @@ module AgentHarness
       include RateLimitResetParsing
       include McpConfigFileSupport
 
+      # Anthropic rate-limit response headers exposing quota/rate information.
+      # These are surfaced on normal /v1/messages responses and parsed by
+      # {#update_quota_from_headers} to opportunistically refresh cached quota
+      # without making a dedicated API call.
+      RATE_LIMIT_HEADER_LIMIT = "anthropic-ratelimit-tokens-limit"
+      RATE_LIMIT_HEADER_REMAINING = "anthropic-ratelimit-tokens-remaining"
+      RATE_LIMIT_HEADER_RESET = "anthropic-ratelimit-tokens-reset"
+
       # Model name pattern for Anthropic Claude models
       MODEL_PATTERN = /^claude-[\d.-]+-(?:opus|sonnet|haiku)(?:-\d{8})?$/i
       SUPPORTED_CLI_VERSION = "2.1.92"
@@ -410,6 +418,38 @@ module AgentHarness
       def api_key_unset_vars = ["ANTHROPIC_BASE_URL", "ANTHROPIC_HEADER_X_AGENT_RUN_ID", "ANTHROPIC_HEADER_X_PROXY_TOKEN"]
 
       def subscription_unset_vars = ["ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL"] + api_key_unset_vars
+
+      # Proactively check Anthropic quota via the admin usage API.
+      #
+      # Delegates to {QuotaCheckers::Anthropic} so the HTTP plumbing is
+      # reusable outside the provider instance (for example, by Paid's
+      # scheduler before a provider is materialized).
+      #
+      # @param env [Hash{String=>String}] request-scoped environment
+      # @param timeout [Numeric] time budget in seconds
+      # @return [AgentHarness::QuotaStatus]
+      def check_quota(env:, timeout: QuotaCheckers::Anthropic::DEFAULT_TIMEOUT)
+        QuotaCheckers::Anthropic.check(env: env, timeout: timeout, logger: @logger)
+      end
+
+      # Opportunistically refresh quota info from Anthropic rate-limit headers
+      # observed on a normal /v1/messages response.
+      #
+      # @param headers [Hash{String=>String}, Net::HTTPHeader] response headers
+      # @return [AgentHarness::QuotaStatus, nil]
+      def update_quota_from_headers(headers)
+        limit_value = header_value(headers, RATE_LIMIT_HEADER_LIMIT)
+        remaining_value = header_value(headers, RATE_LIMIT_HEADER_REMAINING)
+        return nil unless limit_value || remaining_value
+
+        QuotaStatus.new(
+          available: true,
+          remaining: remaining_value&.to_i,
+          limit: limit_value&.to_i,
+          reset_at: parse_rate_limit_header_reset(headers),
+          unit: :tokens
+        )
+      end
 
       def supports_mcp?
         true
@@ -813,6 +853,26 @@ module AgentHarness
 
       def log_debug(action, **context)
         @logger&.debug("[AgentHarness::Anthropic] #{action}: #{context.inspect}")
+      end
+
+      # Read a header value from either a Net::HTTPHeader or a plain Hash.
+      def header_value(headers, name)
+        return headers[name] if headers.respond_to?(:[])
+
+        headers[name.to_sym] if headers.respond_to?(:key?) && headers.key?(name.to_sym)
+      rescue NoMethodError
+        nil
+      end
+
+      # Anthropic's ratelimit reset header is a TTL in seconds ("123s").
+      def parse_rate_limit_header_reset(headers)
+        raw = header_value(headers, RATE_LIMIT_HEADER_RESET)
+        return nil unless raw
+
+        match = raw.to_s.match(/(\d+)/)
+        return nil unless match
+
+        Time.now.utc + match[1].to_i
       end
     end
   end

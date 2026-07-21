@@ -13,6 +13,14 @@ module AgentHarness
       include RateLimitResetParsing
       include McpConfigFileSupport
 
+      # OpenAI rate-limit response headers exposing quota/rate information.
+      # Codex's responses (and OpenRouter responses routed through the OpenAI
+      # transport) carry these headers, which #update_quota_from_headers
+      # parses to opportunistically refresh cached quota.
+      RATE_LIMIT_HEADER_LIMIT = "x-ratelimit-limit-tokens"
+      RATE_LIMIT_HEADER_REMAINING = "x-ratelimit-remaining-tokens"
+      RATE_LIMIT_HEADER_RESET = "x-ratelimit-reset-tokens"
+
       StreamingEvent = Struct.new(
         :type, :turn, :tokens, :error_message, :tool_name, :raw_event
       )
@@ -660,6 +668,45 @@ module AgentHarness
       def subscription_unset_vars = ["OPENAI_API_KEY", "OPENAI_BASE_URL"] + api_key_unset_vars
 
       def cli_env_overrides = {"PAID_CODEX_SUBSCRIPTION_AUTH" => "1"}
+
+      # Proactively check quota for Codex's configured backend.
+      #
+      # Codex runners frequently route through OpenRouter by setting
+      # +OPENAI_BASE_URL=https://openrouter.ai/api/v1+. When the request env
+      # indicates OpenRouter, the check is delegated to
+      # {QuotaCheckers::OpenRouter}, which queries the +/credits+ endpoint.
+      # Otherwise OpenAI's quota API is not publicly exposed, so the check
+      # returns unavailable and callers fall back to {TokenUsageTracker}.
+      #
+      # @param env [Hash{String=>String}] request-scoped environment
+      # @param timeout [Numeric] time budget in seconds
+      # @return [AgentHarness::QuotaStatus]
+      def check_quota(env:, timeout: QuotaCheckers::OpenRouter::DEFAULT_TIMEOUT)
+        if QuotaCheckers::OpenRouter.routes_through_open_router?(env)
+          return QuotaCheckers::OpenRouter.check(env: env, timeout: timeout, logger: @logger)
+        end
+
+        QuotaStatus.unavailable
+      end
+
+      # Opportunistically refresh quota info from OpenAI-compatible rate-limit
+      # headers observed on a normal chat completion response.
+      #
+      # @param headers [Hash{String=>String}, Net::HTTPHeader] response headers
+      # @return [AgentHarness::QuotaStatus, nil]
+      def update_quota_from_headers(headers)
+        limit_value = header_value(headers, RATE_LIMIT_HEADER_LIMIT)
+        remaining_value = header_value(headers, RATE_LIMIT_HEADER_REMAINING)
+        return nil unless limit_value || remaining_value
+
+        QuotaStatus.new(
+          available: true,
+          remaining: remaining_value&.to_i,
+          limit: limit_value&.to_i,
+          reset_at: parse_rate_limit_header_reset(headers),
+          unit: :tokens
+        )
+      end
 
       def send_message(prompt:, **options)
         super
@@ -2062,6 +2109,26 @@ module AgentHarness
 
       def mcp_provider_key
         :codex
+      end
+
+      # Read a header value from either a Net::HTTPHeader or a plain Hash.
+      def header_value(headers, name)
+        return headers[name] if headers.respond_to?(:[])
+
+        headers[name.to_sym] if headers.respond_to?(:key?) && headers.key?(name.to_sym)
+      rescue NoMethodError
+        nil
+      end
+
+      # OpenAI's ratelimit reset header is a TTL in seconds ("120s").
+      def parse_rate_limit_header_reset(headers)
+        raw = header_value(headers, RATE_LIMIT_HEADER_RESET)
+        return nil unless raw
+
+        match = raw.to_s.match(/(\d+)/)
+        return nil unless match
+
+        Time.now.utc + match[1].to_i
       end
     end
   end

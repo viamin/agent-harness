@@ -508,6 +508,57 @@ RSpec.describe AgentHarness::Providers::Anthropic do
       end
     end
 
+    describe "#check_quota" do
+      it "delegates to QuotaCheckers::Anthropic with env" do
+        status = AgentHarness::QuotaStatus.unavailable
+        expect(AgentHarness::Providers::QuotaCheckers::Anthropic).to receive(:check)
+          .with(hash_including(env: {"ANTHROPIC_API_KEY" => "sk-ant"}))
+          .and_return(status)
+
+        result = provider.check_quota(env: {"ANTHROPIC_API_KEY" => "sk-ant"})
+
+        expect(result).to be(status)
+      end
+
+      it "returns an unavailable status when no credentials are present" do
+        result = provider.check_quota(env: {})
+        expect(result.available?).to be false
+      end
+    end
+
+    describe "#update_quota_from_headers" do
+      it "returns nil when no rate-limit headers are present" do
+        expect(provider.update_quota_from_headers({})).to be_nil
+      end
+
+      it "parses Anthropic ratelimit headers into a QuotaStatus" do
+        headers = {
+          "anthropic-ratelimit-tokens-limit" => "100000",
+          "anthropic-ratelimit-tokens-remaining" => "75000",
+          "anthropic-ratelimit-tokens-reset" => "60s"
+        }
+
+        status = provider.update_quota_from_headers(headers)
+
+        expect(status).to be_a(AgentHarness::QuotaStatus)
+        expect(status.available?).to be true
+        expect(status.limit).to eq(100_000)
+        expect(status.remaining).to eq(75_000)
+        expect(status.unit).to eq(:tokens)
+        expect(status.reset_at).to be_a(Time)
+      end
+
+      it "tolerates a reset header without a numeric value" do
+        headers = {
+          "anthropic-ratelimit-tokens-limit" => "100000",
+          "anthropic-ratelimit-tokens-remaining" => "75000"
+        }
+
+        status = provider.update_quota_from_headers(headers)
+        expect(status.reset_at).to be_nil
+      end
+    end
+
     describe "#error_patterns" do
       it "includes rate limit patterns" do
         patterns = provider.error_patterns
