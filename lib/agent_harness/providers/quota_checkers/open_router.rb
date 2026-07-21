@@ -84,7 +84,8 @@ module AgentHarness
             return QuotaStatus.unavailable unless response
 
             parse_credits_response(response)
-          rescue IOError, SocketError, SystemCallError, Timeout::Error, JSON::ParserError => e
+          rescue IOError, SocketError, SystemCallError, Timeout::Error, JSON::ParserError,
+            OpenSSL::SSL::SSLError => e
             logger&.warn("[AgentHarness::QuotaCheckers::OpenRouter] credit check failed: #{e.message}")
             QuotaStatus.unavailable
           end

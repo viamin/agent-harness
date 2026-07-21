@@ -123,5 +123,12 @@ RSpec.describe AgentHarness::Providers::QuotaCheckers::OpenRouter do
       status = described_class.check(env: {"OPENROUTER_API_KEY" => "sk-or-..."})
       expect(status.available?).to be false
     end
+
+    it "returns unavailable on TLS verification errors" do
+      allow(http).to receive(:request).and_raise(OpenSSL::SSL::SSLError, "certificate verify failed")
+
+      status = described_class.check(env: {"OPENROUTER_API_KEY" => "sk-or-..."})
+      expect(status.available?).to be false
+    end
   end
 end
