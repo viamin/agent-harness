@@ -122,16 +122,23 @@ module AgentHarness
 
             # Sum token usage across every bucket in the response. Anthropic's
             # buckets carry input/output token counts per model or per day; the
-            # caller wants the period total regardless of grouping.
+            # caller wants the period total regardless of grouping. We only use
+            # the sum to confirm the response actually reported usage — a zero
+            # total means there is nothing to surface.
             total_input = sum_field(data, "input_tokens")
             total_output = sum_field(data, "output_tokens")
             total_tokens = total_input + total_output
             return QuotaStatus.unavailable if total_tokens.zero?
 
+            # The usage_reports endpoint exposes *consumption*, not a billing
+            # cap, so we cannot populate remaining/limit. Leave both nil rather
+            # than mislabeling usage as the limit (which would make the weight
+            # balancer treat observed usage as the ceiling). Callers that need a
+            # cap fall back to TokenUsageTracker's configured limit.
             QuotaStatus.new(
               available: true,
               remaining: nil,
-              limit: total_tokens,
+              limit: nil,
               reset_at: next_billing_reset,
               unit: :tokens
             )
@@ -148,7 +155,7 @@ module AgentHarness
           # reset time is the first instant of next month in UTC.
           def next_billing_reset
             now = Time.now.utc
-            Time.utc(now.year, now.month, 1) + (32 * 86_400)
+            (now.month == 12) ? Time.utc(now.year + 1, 1, 1) : Time.utc(now.year, now.month + 1, 1)
           end
         end
       end

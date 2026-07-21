@@ -487,6 +487,36 @@ RSpec.describe AgentHarness::Providers::Codex do
         expect(status.unit).to eq(:tokens)
         expect(status.reset_at).to be_a(Time)
       end
+
+      it "parses compound Go-duration reset values (e.g. 6m0s)" do
+        headers = {
+          "x-ratelimit-limit-tokens" => "100000",
+          "x-ratelimit-remaining-tokens" => "75000",
+          "x-ratelimit-reset-tokens" => "6m0s"
+        }
+
+        now = Time.utc(2026, 7, 21, 12, 0, 0)
+        allow(Time).to receive(:now).and_return(now)
+
+        status = provider.update_quota_from_headers(headers)
+
+        expect(status.reset_at).to eq(now.utc + (6 * 60))
+      end
+
+      it "parses hour/minute/second Go-duration reset values (e.g. 1h0m0s)" do
+        headers = {
+          "x-ratelimit-limit-tokens" => "100000",
+          "x-ratelimit-remaining-tokens" => "75000",
+          "x-ratelimit-reset-tokens" => "1h0m0s"
+        }
+
+        now = Time.utc(2026, 7, 21, 12, 0, 0)
+        allow(Time).to receive(:now).and_return(now)
+
+        status = provider.update_quota_from_headers(headers)
+
+        expect(status.reset_at).to eq(now.utc + 3600)
+      end
     end
 
     describe "#execution_semantics" do

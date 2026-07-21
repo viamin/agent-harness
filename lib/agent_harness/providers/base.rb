@@ -1052,6 +1052,18 @@ module AgentHarness
           output_tokens: response.tokens[:output] || 0,
           total_tokens: response.tokens[:total]
         )
+
+        # Feed the same usage into the fallback quota tracker so providers
+        # without a proactive quota API can still estimate remaining quota from
+        # a caller-configured billing limit. The record signatures intentionally
+        # match so the two trackers can share this hook.
+        AgentHarness.token_usage_tracker.record(
+          provider: self.class.provider_name,
+          model: response.model || @config.model,
+          input_tokens: response.tokens[:input] || 0,
+          output_tokens: response.tokens[:output] || 0,
+          total_tokens: response.tokens[:total]
+        )
       end
 
       def handle_error(error, prompt:, options:)

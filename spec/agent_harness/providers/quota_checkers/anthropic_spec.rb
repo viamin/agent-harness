@@ -56,7 +56,10 @@ RSpec.describe AgentHarness::Providers::QuotaCheckers::Anthropic do
 
       expect(status.available?).to be true
       expect(status.unit).to eq(:tokens)
-      expect(status.limit).to eq(1_750)
+      # The usage_reports endpoint reports consumption, not a cap, so limit and
+      # remaining stay nil rather than mislabeling usage as the ceiling.
+      expect(status.limit).to be_nil
+      expect(status.remaining).to be_nil
       expect(status.reset_at).to be_a(Time)
     end
 

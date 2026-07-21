@@ -2120,15 +2120,18 @@ module AgentHarness
         nil
       end
 
-      # OpenAI's ratelimit reset header is a TTL in seconds ("120s").
+      # OpenAI's ratelimit reset header is a TTL expressed as a Go
+      # time.Duration (e.g. "120s", "6m0s", "1h0m0s", "1s"), so parse every
+      # hour/minute/second component rather than only the leading number.
       def parse_rate_limit_header_reset(headers)
         raw = header_value(headers, RATE_LIMIT_HEADER_RESET)
         return nil unless raw
 
-        match = raw.to_s.match(/(\d+)/)
-        return nil unless match
+        parts = raw.to_s.scan(/(\d+)([hms])/)
+        return nil if parts.empty?
 
-        Time.now.utc + match[1].to_i
+        seconds = parts.sum { |amount, unit| amount.to_i * {"h" => 3600, "m" => 60, "s" => 1}[unit] }
+        Time.now.utc + seconds
       end
     end
   end
