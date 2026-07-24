@@ -221,6 +221,74 @@ The Kilocode runtime adapter expects the `kilo` binary and executes prompts via
 `kilo run ...`, so the install contract and runtime behavior stay aligned in
 tests.
 
+#### Kilocode permission defaults
+
+In non-interactive container runs Kilo boots with an `external_directory`
+permission default of `ask`, which silently auto-rejects any read/write/edit
+tool call targeting paths outside the project directory (no human is present to
+approve the prompt). To keep those runs alive, the Kilocode provider injects a
+permissive default allowlist into the generated `kilo.json` before the CLI
+boots:
+
+```json
+{
+  "permission": {
+    "external_directory": {
+      "/tmp/**": "allow",
+      "/home/agent/**": "allow"
+    }
+  }
+}
+```
+
+This covers the agent's scratch output (`/tmp`) and its own config/cache/data
+files (`/home/agent`). When a caller supplies its own `permission` block (for
+example via the `provider_runtime` metadata `config` extras, or the
+`permission:` option on `config_file_content`), the caller's entries are
+**merged on top of** these defaults: the `external_directory` rules are unioned
+together with the caller winning on overlapping patterns, and every other
+caller-supplied permission category is carried through verbatim. That means a
+downstream app can add a single extra path without re-declaring the provider
+defaults:
+
+```ruby
+# Only the agent-harness gem path is added; /tmp/** and /home/agent/**
+# are still allowed automatically.
+runtime = AgentHarness::ProviderRuntime.new(
+  metadata: {
+    config: {
+      permission: {
+        external_directory: {
+          "/usr/local/lib/ruby/gems/*/gems/agent-harness-*/**" => "allow"
+        }
+      }
+    }
+  }
+)
+```
+
+A caller that intentionally wants to **own the full permission block** (for
+example to deny the default `/tmp` or `/home/agent` paths) can opt out of the
+merge with `permission_replace: true`, in which case the supplied `permission`
+is honored verbatim and no defaults are injected:
+
+```ruby
+runtime = AgentHarness::ProviderRuntime.new(
+  metadata: {
+    config: {
+      permission_replace: true,
+      permission: {
+        bash: "ask",
+        external_directory: {"/workspace/**" => "allow"}
+      }
+    }
+  }
+)
+```
+
+The `permission_replace` control flag is consumed by the provider and stripped
+before the config is written to disk, so it never reaches `kilo.json`.
+
 Providers that expose installation contracts can also be queried through the
 generic API:
 

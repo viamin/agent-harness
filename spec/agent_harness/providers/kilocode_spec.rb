@@ -294,7 +294,7 @@ RSpec.describe AgentHarness::Providers::Kilocode do
           expect(frozen_config["external_directory"]).to eq("/tmp/**" => "allow", "/home/agent/**" => "allow")
         end
 
-        it "leaves a caller-supplied permission block untouched" do
+        it "merges a caller-supplied permission block on top of the default external_directory allowlist" do
           allow(mock_executor).to receive(:execute).and_return(
             AgentHarness::CommandExecutor::Result.new(
               stdout: '{"type":"text","part":{"text":"response"}}',
@@ -312,9 +312,15 @@ RSpec.describe AgentHarness::Providers::Kilocode do
                   have_attributes(
                     path: "~/.config/kilocode/kilo.json",
                     content: satisfy do |content|
-                      content.include?("\"bash\": \"ask\"") &&
-                        content.include?("\"edit\": \"deny\"") &&
-                        !content.include?("/tmp/**")
+                      parsed = JSON.parse(content)
+                      parsed["permission"] == {
+                        "external_directory" => {
+                          "/tmp/**" => "allow",
+                          "/home/agent/**" => "allow"
+                        },
+                        "bash" => "ask",
+                        "edit" => "deny"
+                      }
                     end,
                     mode: 0o600
                   )
@@ -335,6 +341,214 @@ RSpec.describe AgentHarness::Providers::Kilocode do
                 }
               }
             }
+          )
+        end
+
+        it "unions caller-supplied external_directory entries with the default allowlist (caller wins on conflicts)" do
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: '{"type":"text","part":{"text":"response"}}',
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          expect(mock_executor).to receive(:execute).with(
+            ["kilo", "run", "--format", "json", "Hello"],
+            hash_including(
+              preparation: have_attributes(
+                file_writes: [
+                  have_attributes(
+                    path: "~/.config/kilocode/kilo.json",
+                    content: satisfy do |content|
+                      parsed = JSON.parse(content)
+                      parsed["permission"]["external_directory"] == {
+                        "/tmp/**" => "deny",
+                        "/home/agent/**" => "allow",
+                        "/usr/local/lib/ruby/gems/*/gems/agent-harness-*/**" => "allow"
+                      }
+                    end,
+                    mode: 0o600
+                  )
+                ]
+              )
+            )
+          )
+
+          provider.send_message(
+            prompt: "Hello",
+            provider_runtime: {
+              metadata: {
+                config: {
+                  permission: {
+                    external_directory: {
+                      "/tmp/**" => "deny",
+                      "/usr/local/lib/ruby/gems/*/gems/agent-harness-*/**" => "allow"
+                    }
+                  }
+                }
+              }
+            }
+          )
+        end
+
+        it "honors a caller-supplied permission block verbatim (no defaults) when permission_replace is set via runtime config" do
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: '{"type":"text","part":{"text":"response"}}',
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          expect(mock_executor).to receive(:execute).with(
+            ["kilo", "run", "--format", "json", "Hello"],
+            hash_including(
+              preparation: have_attributes(
+                file_writes: [
+                  have_attributes(
+                    path: "~/.config/kilocode/kilo.json",
+                    content: satisfy do |content|
+                      parsed = JSON.parse(content)
+                      parsed["permission"] == {"bash" => "ask", "edit" => "deny"} &&
+                        !parsed.key?("permission_replace")
+                    end,
+                    mode: 0o600
+                  )
+                ]
+              )
+            )
+          )
+
+          provider.send_message(
+            prompt: "Hello",
+            provider_runtime: {
+              metadata: {
+                config: {
+                  permission_replace: true,
+                  permission: {
+                    bash: "ask",
+                    edit: "deny"
+                  }
+                }
+              }
+            }
+          )
+        end
+
+        it "preserves an explicitly empty permission hash when permission_replace is set via runtime config" do
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: '{"type":"text","part":{"text":"response"}}',
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          expect(mock_executor).to receive(:execute).with(
+            ["kilo", "run", "--format", "json", "Hello"],
+            hash_including(
+              preparation: have_attributes(
+                file_writes: [
+                  have_attributes(
+                    path: "~/.config/kilocode/kilo.json",
+                    content: satisfy do |content|
+                      parsed = JSON.parse(content)
+                      parsed["permission"] == {} && !parsed.key?("permission_replace")
+                    end,
+                    mode: 0o600
+                  )
+                ]
+              )
+            )
+          )
+
+          provider.send_message(
+            prompt: "Hello",
+            provider_runtime: {
+              metadata: {
+                config: {
+                  permission_replace: true,
+                  permission: {}
+                }
+              }
+            }
+          )
+        end
+
+        it "does not inject default permissions when permission_replace is set without a permission block" do
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: '{"type":"text","part":{"text":"response"}}',
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          expect(mock_executor).to receive(:execute).with(
+            ["kilo", "run", "--format", "json", "Hello"],
+            hash_including(
+              preparation: have_attributes(
+                file_writes: [
+                  have_attributes(
+                    path: "~/.config/kilocode/kilo.json",
+                    content: satisfy do |content|
+                      parsed = JSON.parse(content)
+                      !parsed.key?("permission") &&
+                        !parsed.key?("permission_replace") &&
+                        parsed["model"] == "gpt-5.4"
+                    end,
+                    mode: 0o600
+                  )
+                ]
+              )
+            )
+          )
+
+          provider.send_message(
+            prompt: "Hello",
+            provider_runtime: {
+              model: "gpt-5.4",
+              metadata: {
+                config: {
+                  permission_replace: true
+                }
+              }
+            }
+          )
+        end
+
+        it "does not mutate the caller-supplied permission block when merging defaults" do
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: '{"type":"text","part":{"text":"response"}}',
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          caller_permission = {
+            external_directory: {"/usr/local/lib/ruby/gems/*/gems/agent-harness-*/**" => "allow"}
+          }
+
+          provider.send_message(
+            prompt: "Hello",
+            provider_runtime: {
+              metadata: {
+                config: {
+                  permission: caller_permission
+                }
+              }
+            }
+          )
+
+          expect(caller_permission).to eq(
+            external_directory: {"/usr/local/lib/ruby/gems/*/gems/agent-harness-*/**" => "allow"}
           )
         end
       end
@@ -3830,9 +4044,82 @@ RSpec.describe AgentHarness::Providers::Kilocode do
         })
       end
 
-      it "honors a caller-supplied permission block verbatim and does not inject /tmp" do
+      it "merges a caller-supplied permission block on top of the default external_directory allowlist" do
         content = provider.config_file_content(
           provider_name: "openai",
+          permission: {
+            "external_directory" => {"/var/tmp/**" => "allow"},
+            "bash" => "ask"
+          }
+        )
+        parsed = JSON.parse(content)
+
+        expect(parsed["permission"]).to eq({
+          "external_directory" => {
+            "/tmp/**" => "allow",
+            "/home/agent/**" => "allow",
+            "/var/tmp/**" => "allow"
+          },
+          "bash" => "ask"
+        })
+      end
+
+      it "unions default and caller external_directory entries and lets the caller win on conflicts" do
+        content = provider.config_file_content(
+          permission: {
+            "external_directory" => {
+              "/tmp/**" => "deny",
+              "/usr/local/lib/ruby/gems/*/gems/agent-harness-*/**" => "allow"
+            }
+          }
+        )
+        parsed = JSON.parse(content)
+
+        expect(parsed["permission"]).to eq({
+          "external_directory" => {
+            "/tmp/**" => "deny",
+            "/home/agent/**" => "allow",
+            "/usr/local/lib/ruby/gems/*/gems/agent-harness-*/**" => "allow"
+          }
+        })
+      end
+
+      it "accepts a string-keyed caller permission option and merges it with the defaults" do
+        content = provider.config_file_content(
+          "permission" => {"external_directory" => {"/workspace/**" => "allow"}}
+        )
+        parsed = JSON.parse(content)
+
+        expect(parsed["permission"]).to eq({
+          "external_directory" => {
+            "/tmp/**" => "allow",
+            "/home/agent/**" => "allow",
+            "/workspace/**" => "allow"
+          }
+        })
+      end
+
+      it "accepts a symbol-keyed external_directory category and merges it with the defaults" do
+        content = provider.config_file_content(
+          permission: {
+            external_directory: {"/workspace/**" => "allow"}
+          }
+        )
+        parsed = JSON.parse(content)
+
+        expect(parsed["permission"]).to eq({
+          "external_directory" => {
+            "/tmp/**" => "allow",
+            "/home/agent/**" => "allow",
+            "/workspace/**" => "allow"
+          }
+        })
+      end
+
+      it "honors a caller-supplied permission block verbatim when permission_replace is set" do
+        content = provider.config_file_content(
+          provider_name: "openai",
+          permission_replace: true,
           permission: {
             "external_directory" => {"/var/tmp/**" => "allow"},
             "bash" => "ask"
@@ -3845,17 +4132,40 @@ RSpec.describe AgentHarness::Providers::Kilocode do
           "bash" => "ask"
         })
         expect(parsed["permission"]["external_directory"]).not_to have_key("/tmp/**")
+        expect(parsed["permission"]["external_directory"]).not_to have_key("/home/agent/**")
       end
 
-      it "accepts a string-keyed caller permission option" do
+      it "honors permission_replace as a string-keyed option" do
         content = provider.config_file_content(
-          "permission" => {"external_directory" => {"/workspace/**" => "allow"}}
+          "permission_replace" => true,
+          "permission" => {"bash" => "ask"}
         )
         parsed = JSON.parse(content)
 
-        expect(parsed["permission"]).to eq({
-          "external_directory" => {"/workspace/**" => "allow"}
-        })
+        expect(parsed["permission"]).to eq({"bash" => "ask"})
+      end
+
+      it "preserves an explicitly empty permission hash when permission_replace is set" do
+        content = provider.config_file_content(
+          permission_replace: true,
+          permission: {}
+        )
+        parsed = JSON.parse(content)
+
+        expect(parsed["permission"]).to eq({})
+      end
+
+      it "does not inject default permissions when permission_replace is set without a permission block" do
+        content = provider.config_file_content(
+          provider_name: "openai",
+          model_id: "gpt-4o",
+          permission_replace: true
+        )
+        parsed = JSON.parse(content)
+
+        expect(parsed).not_to have_key("permission")
+        expect(parsed["provider"]).to eq({"openai" => {}})
+        expect(parsed["model"]).to eq("openai/gpt-4o")
       end
 
       it "ignores a non-Hash caller permission and falls back to the default rule" do

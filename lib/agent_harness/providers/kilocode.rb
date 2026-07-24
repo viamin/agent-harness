@@ -379,21 +379,81 @@ module AgentHarness
 
       private
 
-      # Default-merge a permissive external_directory permission into the
-      # generated Kilo config unless the caller takes responsibility for
-      # permission config. A caller-supplied permission (passed via the
-      # +:permission+ option or already present on the config under the
-      # +"permission"+ key, e.g. from runtime metadata config extras) is
-      # honored verbatim and never overridden, and an invalid or empty
-      # caller permission is ignored in favor of the default rule.
+      # Default-merge the permissive external_directory permission into the
+      # generated Kilo config. A caller that supplies a +permission+ block is
+      # merged ON TOP of the provider's non-interactive defaults (the container
+      # scratch + home-directory allowlist): the default +external_directory+
+      # entries are unioned with the caller's +external_directory+ entries (the
+      # caller wins on conflicting patterns) and any other caller-supplied
+      # permission category is carried through verbatim. This makes it hard to
+      # accidentally discard the provider defaults when a caller only needs to
+      # add a single +external_directory+ entry (see #310).
+      #
+      # A caller that intentionally owns the full permission block (e.g. to deny
+      # the default /tmp or home paths) can opt out of the merge with the
+      # +:permission_replace+ (or +"permission_replace"+) option, in which case
+      # the caller-supplied permission is honored verbatim and no defaults are
+      # injected. If +permission_replace+ is set but the caller does not supply
+      # a +permission+ key at all, the config is left without any injected
+      # +permission+ block.
+      #
+      # An invalid caller permission is ignored in favor of the default rule.
+      # An empty caller permission hash also falls back to the default rule,
+      # unless +permission_replace+ is set, in which case the empty hash is
+      # preserved verbatim.
       def apply_default_external_directory_permission(config, options = {})
+        if options[:permission_replace] || options["permission_replace"]
+          if options.key?(:permission)
+            config["permission"] = deep_dup(options[:permission])
+          elsif options.key?("permission")
+            config["permission"] = deep_dup(options["permission"])
+          else
+            config.delete("permission")
+          end
+          return
+        end
+
         caller_permission = options[:permission] || options["permission"] || config["permission"]
+
         if caller_permission.is_a?(Hash) && !caller_permission.empty?
-          config["permission"] = deep_dup(caller_permission)
+          config["permission"] = merge_default_permission(caller_permission)
           return
         end
 
         config["permission"] = deep_dup(DEFAULT_PERMISSION_CONFIG)
+      end
+
+      # Merge a caller-supplied permission block on top of the provider default
+      # permission rule. The default +external_directory+ allowlist is unioned
+      # with the caller's +external_directory+ entries (caller decisions win on
+      # conflicting patterns); every other caller-supplied permission category
+      # is carried through verbatim.
+      def merge_default_permission(caller_permission)
+        merged = deep_dup(DEFAULT_PERMISSION_CONFIG)
+
+        caller_permission.each do |category, rules|
+          if category.to_s == "external_directory"
+            merged["external_directory"] = merge_external_directory_rules(merged["external_directory"], rules)
+          else
+            merged[category.to_s] = deep_dup(rules)
+          end
+        end
+
+        merged
+      end
+
+      # Union default external_directory rules with caller-supplied rules.
+      # Caller decisions win on overlapping patterns. A non-Hash caller value
+      # (e.g. a scalar default) cannot be meaningfully merged, so it is honored
+      # verbatim for that category.
+      def merge_external_directory_rules(default_rules, caller_rules)
+        return deep_dup(caller_rules) unless caller_rules.is_a?(Hash)
+
+        rules = deep_dup(default_rules)
+        caller_rules.each do |pattern, decision|
+          rules[pattern.to_s] = deep_dup(decision)
+        end
+        rules
       end
 
       def kilocode_config_path
@@ -410,7 +470,10 @@ module AgentHarness
 
         payload = stringify_keys(config_extras)
         payload["model"] = runtime.model if runtime.model
-        apply_default_external_directory_permission(payload)
+        apply_default_external_directory_permission(payload, payload)
+        # +permission_replace+ is a control flag for the merge above, not a Kilo
+        # config key, so strip it before the payload is serialized to disk.
+        payload.delete("permission_replace")
         payload.empty? ? nil : payload
       end
 
