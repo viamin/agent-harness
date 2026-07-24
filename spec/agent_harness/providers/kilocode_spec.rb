@@ -479,6 +479,49 @@ RSpec.describe AgentHarness::Providers::Kilocode do
           )
         end
 
+        it "does not inject default permissions when permission_replace is set without a permission block" do
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: '{"type":"text","part":{"text":"response"}}',
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          expect(mock_executor).to receive(:execute).with(
+            ["kilo", "run", "--format", "json", "Hello"],
+            hash_including(
+              preparation: have_attributes(
+                file_writes: [
+                  have_attributes(
+                    path: "~/.config/kilocode/kilo.json",
+                    content: satisfy do |content|
+                      parsed = JSON.parse(content)
+                      !parsed.key?("permission") &&
+                        !parsed.key?("permission_replace") &&
+                        parsed["model"] == "gpt-5.4"
+                    end,
+                    mode: 0o600
+                  )
+                ]
+              )
+            )
+          )
+
+          provider.send_message(
+            prompt: "Hello",
+            provider_runtime: {
+              model: "gpt-5.4",
+              metadata: {
+                config: {
+                  permission_replace: true
+                }
+              }
+            }
+          )
+        end
+
         it "does not mutate the caller-supplied permission block when merging defaults" do
           allow(mock_executor).to receive(:execute).and_return(
             AgentHarness::CommandExecutor::Result.new(
@@ -4110,6 +4153,19 @@ RSpec.describe AgentHarness::Providers::Kilocode do
         parsed = JSON.parse(content)
 
         expect(parsed["permission"]).to eq({})
+      end
+
+      it "does not inject default permissions when permission_replace is set without a permission block" do
+        content = provider.config_file_content(
+          provider_name: "openai",
+          model_id: "gpt-4o",
+          permission_replace: true
+        )
+        parsed = JSON.parse(content)
+
+        expect(parsed).not_to have_key("permission")
+        expect(parsed["provider"]).to eq({"openai" => {}})
+        expect(parsed["model"]).to eq("openai/gpt-4o")
       end
 
       it "ignores a non-Hash caller permission and falls back to the default rule" do

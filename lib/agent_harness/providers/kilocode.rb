@@ -393,18 +393,27 @@ module AgentHarness
       # the default /tmp or home paths) can opt out of the merge with the
       # +:permission_replace+ (or +"permission_replace"+) option, in which case
       # the caller-supplied permission is honored verbatim and no defaults are
-      # injected.
+      # injected. If +permission_replace+ is set but the caller does not supply
+      # a +permission+ key at all, the config is left without any injected
+      # +permission+ block.
       #
       # An invalid caller permission is ignored in favor of the default rule.
       # An empty caller permission hash also falls back to the default rule,
       # unless +permission_replace+ is set, in which case the empty hash is
       # preserved verbatim.
       def apply_default_external_directory_permission(config, options = {})
-        caller_permission = options[:permission] || options["permission"] || config["permission"]
         if options[:permission_replace] || options["permission_replace"]
-          config["permission"] = caller_permission.is_a?(Hash) ? deep_dup(caller_permission) : deep_dup(DEFAULT_PERMISSION_CONFIG)
+          if options.key?(:permission)
+            config["permission"] = deep_dup(options[:permission])
+          elsif options.key?("permission")
+            config["permission"] = deep_dup(options["permission"])
+          else
+            config.delete("permission")
+          end
           return
         end
+
+        caller_permission = options[:permission] || options["permission"] || config["permission"]
 
         if caller_permission.is_a?(Hash) && !caller_permission.empty?
           config["permission"] = merge_default_permission(caller_permission)
