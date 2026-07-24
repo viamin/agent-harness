@@ -438,6 +438,47 @@ RSpec.describe AgentHarness::Providers::Kilocode do
           )
         end
 
+        it "preserves an explicitly empty permission hash when permission_replace is set via runtime config" do
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: '{"type":"text","part":{"text":"response"}}',
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          expect(mock_executor).to receive(:execute).with(
+            ["kilo", "run", "--format", "json", "Hello"],
+            hash_including(
+              preparation: have_attributes(
+                file_writes: [
+                  have_attributes(
+                    path: "~/.config/kilocode/kilo.json",
+                    content: satisfy do |content|
+                      parsed = JSON.parse(content)
+                      parsed["permission"] == {} && !parsed.key?("permission_replace")
+                    end,
+                    mode: 0o600
+                  )
+                ]
+              )
+            )
+          )
+
+          provider.send_message(
+            prompt: "Hello",
+            provider_runtime: {
+              metadata: {
+                config: {
+                  permission_replace: true,
+                  permission: {}
+                }
+              }
+            }
+          )
+        end
+
         it "does not mutate the caller-supplied permission block when merging defaults" do
           allow(mock_executor).to receive(:execute).and_return(
             AgentHarness::CommandExecutor::Result.new(
@@ -4059,6 +4100,16 @@ RSpec.describe AgentHarness::Providers::Kilocode do
         parsed = JSON.parse(content)
 
         expect(parsed["permission"]).to eq({"bash" => "ask"})
+      end
+
+      it "preserves an explicitly empty permission hash when permission_replace is set" do
+        content = provider.config_file_content(
+          permission_replace: true,
+          permission: {}
+        )
+        parsed = JSON.parse(content)
+
+        expect(parsed["permission"]).to eq({})
       end
 
       it "ignores a non-Hash caller permission and falls back to the default rule" do

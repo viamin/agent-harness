@@ -395,16 +395,19 @@ module AgentHarness
       # the caller-supplied permission is honored verbatim and no defaults are
       # injected.
       #
-      # An invalid or empty caller permission is ignored in favor of the
-      # default rule.
+      # An invalid caller permission is ignored in favor of the default rule.
+      # An empty caller permission hash also falls back to the default rule,
+      # unless +permission_replace+ is set, in which case the empty hash is
+      # preserved verbatim.
       def apply_default_external_directory_permission(config, options = {})
         caller_permission = options[:permission] || options["permission"] || config["permission"]
+        if options[:permission_replace] || options["permission_replace"]
+          config["permission"] = caller_permission.is_a?(Hash) ? deep_dup(caller_permission) : deep_dup(DEFAULT_PERMISSION_CONFIG)
+          return
+        end
+
         if caller_permission.is_a?(Hash) && !caller_permission.empty?
-          config["permission"] = if options[:permission_replace] || options["permission_replace"]
-            deep_dup(caller_permission)
-          else
-            merge_default_permission(caller_permission)
-          end
+          config["permission"] = merge_default_permission(caller_permission)
           return
         end
 
