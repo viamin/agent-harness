@@ -119,17 +119,28 @@ RSpec.describe AgentHarness::Providers::Kilocode do
       it "returns the bundled GLM-5 model catalog" do
         models = described_class.discover_models
 
-        expect(models).to eq([
-          {name: "glm-5", family: "glm-5", tier: "standard", provider: "kilocode"},
-          {name: "glm-5.1", family: "glm-5.1", tier: "advanced", provider: "kilocode"},
-          {name: "glm-5.2", family: "glm-5.2", tier: "advanced", provider: "kilocode"},
-          {name: "glm-5p1", family: "glm-5p1", tier: "advanced", provider: "kilocode"},
-          {name: "glm-5p1-fast", family: "glm-5p1-fast", tier: "standard", provider: "kilocode"},
-          {name: "glm-5p2", family: "glm-5p2", tier: "advanced", provider: "kilocode"},
-          {name: "glm-5p2-fast", family: "glm-5p2-fast", tier: "standard", provider: "kilocode"},
-          {name: "glm-5-turbo", family: "glm-5-turbo", tier: "standard", provider: "kilocode"},
-          {name: "glm-5v-turbo", family: "glm-5v-turbo", tier: "standard", provider: "kilocode"}
+        expect(models.map { |model| model.fetch(:name) }).to eq([
+          "glm-5",
+          "glm-5.1",
+          "glm-5.1-free",
+          "glm-5.1-thinking",
+          "glm-5.2",
+          "glm-5.2-fast",
+          "glm-5.2-flex",
+          "glm-5.2-free",
+          "glm-5.2-nitro",
+          "glm-5.2-short",
+          "glm-5.2-short-fast",
+          "glm-5.2-short-fast-flex",
+          "glm-5.2-short-flex",
+          "glm-5p1",
+          "glm-5p1-fast",
+          "glm-5p2",
+          "glm-5p2-fast",
+          "glm-5v-turbo"
         ])
+        expect(models).to all(include(provider: "kilocode"))
+        expect(models).to all(satisfy { |model| model.fetch(:family) == model.fetch(:name) })
       end
 
       it "returns mutable copies of the catalog entries" do
@@ -168,7 +179,11 @@ RSpec.describe AgentHarness::Providers::Kilocode do
     it "returns true for GLM-5 model families" do
       expect(described_class.supports_model_family?("glm-5")).to be true
       expect(described_class.supports_model_family?("glm-5.1")).to be true
+      expect(described_class.supports_model_family?("glm-5.1-free")).to be true
+      expect(described_class.supports_model_family?("glm-5.1-thinking")).to be true
+      expect(described_class.supports_model_family?("glm-5.2-flex")).to be true
       expect(described_class.supports_model_family?("glm-5.2-fast")).to be true
+      expect(described_class.supports_model_family?("glm-5.2-short-fast-flex")).to be true
       expect(described_class.supports_model_family?("glm-5p1")).to be true
       expect(described_class.supports_model_family?("glm-5p1-fast")).to be true
       expect(described_class.supports_model_family?("glm-5p2")).to be true

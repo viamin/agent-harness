@@ -13,17 +13,32 @@ module AgentHarness
       DEFAULT_VERSION = "7.4.16"
       SUPPORTED_VERSION_REQUIREMENT = "= #{DEFAULT_VERSION}"
       STRUCTURED_EVENT_TYPES = %w[text error step_finish result usage].freeze
-      MODEL_CATALOG = [
-        {name: "glm-5", family: "glm-5", tier: "standard", provider: "kilocode"},
-        {name: "glm-5.1", family: "glm-5.1", tier: "advanced", provider: "kilocode"},
-        {name: "glm-5.2", family: "glm-5.2", tier: "advanced", provider: "kilocode"},
-        {name: "glm-5p1", family: "glm-5p1", tier: "advanced", provider: "kilocode"},
-        {name: "glm-5p1-fast", family: "glm-5p1-fast", tier: "standard", provider: "kilocode"},
-        {name: "glm-5p2", family: "glm-5p2", tier: "advanced", provider: "kilocode"},
-        {name: "glm-5p2-fast", family: "glm-5p2-fast", tier: "standard", provider: "kilocode"},
-        {name: "glm-5-turbo", family: "glm-5-turbo", tier: "standard", provider: "kilocode"},
-        {name: "glm-5v-turbo", family: "glm-5v-turbo", tier: "standard", provider: "kilocode"}
-      ].map(&:freeze).freeze
+      MODEL_NAMES = %w[
+        glm-5
+        glm-5.1
+        glm-5.1-free
+        glm-5.1-thinking
+        glm-5.2
+        glm-5.2-fast
+        glm-5.2-flex
+        glm-5.2-free
+        glm-5.2-nitro
+        glm-5.2-short
+        glm-5.2-short-fast
+        glm-5.2-short-fast-flex
+        glm-5.2-short-flex
+        glm-5p1
+        glm-5p1-fast
+        glm-5p2
+        glm-5p2-fast
+        glm-5v-turbo
+      ].freeze
+      MODEL_CATALOG = MODEL_NAMES.map do |name|
+        tier = name.include?("free") ? "free" : "standard"
+        tier = "advanced" if %w[glm-5.1 glm-5.1-thinking glm-5.2 glm-5p1 glm-5p2].include?(name)
+
+        {name: name, family: name, tier: tier, provider: "kilocode"}.freeze
+      end.freeze
       MODEL_FAMILY_PATTERN = /\Aglm-5(?:[a-z][\w.-]*|[.-][\w.-]+)?\z/i
       # Kilo CLI (an OpenCode fork) ships the same external_directory
       # permission category as OpenCode, defaulting to "ask" for anything
