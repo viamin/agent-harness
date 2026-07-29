@@ -105,9 +105,65 @@ RSpec.describe AgentHarness::Providers::Kilocode do
   end
 
   describe ".discover_models" do
+    let(:mock_executor) { instance_double(AgentHarness::CommandExecutor) }
+
+    before do
+      allow(AgentHarness.configuration).to receive(:command_executor).and_return(mock_executor)
+    end
+
+    context "when kilocode is available" do
+      before do
+        allow(mock_executor).to receive(:which).with("kilo").and_return("/usr/local/bin/kilo")
+      end
+
+      it "returns the bundled GLM-5 model catalog" do
+        models = described_class.discover_models
+
+        expect(models).to eq([
+          {name: "glm-5", family: "glm-5", tier: "standard", provider: "kilocode"},
+          {name: "glm-5.1", family: "glm-5.1", tier: "advanced", provider: "kilocode"},
+          {name: "glm-5.2", family: "glm-5.2", tier: "advanced", provider: "kilocode"},
+          {name: "glm-5-turbo", family: "glm-5-turbo", tier: "standard", provider: "kilocode"},
+          {name: "glm-5v-turbo", family: "glm-5v-turbo", tier: "standard", provider: "kilocode"}
+        ])
+      end
+
+      it "returns mutable copies of the catalog entries" do
+        described_class.discover_models.first[:name] = "changed"
+
+        expect(described_class.discover_models.first[:name]).to eq("glm-5")
+      end
+    end
+
     it "returns empty when not available" do
-      allow(described_class).to receive(:available?).and_return(false)
+      allow(mock_executor).to receive(:which).with("kilo").and_return(nil)
+
       expect(described_class.discover_models).to eq([])
+    end
+  end
+
+  describe ".model_family" do
+    it "returns the provider model name unchanged" do
+      expect(described_class.model_family("glm-5.1")).to eq("glm-5.1")
+    end
+  end
+
+  describe ".provider_model_name" do
+    it "returns the family name unchanged" do
+      expect(described_class.provider_model_name("glm-5.2")).to eq("glm-5.2")
+    end
+  end
+
+  describe ".supports_model_family?" do
+    it "returns true for GLM-5 model families" do
+      expect(described_class.supports_model_family?("glm-5")).to be true
+      expect(described_class.supports_model_family?("glm-5.1")).to be true
+      expect(described_class.supports_model_family?("glm-5.2-fast")).to be true
+    end
+
+    it "returns false for non-GLM-5 model families" do
+      expect(described_class.supports_model_family?("glm-4.5")).to be false
+      expect(described_class.supports_model_family?("claude-3-sonnet")).to be false
     end
   end
 

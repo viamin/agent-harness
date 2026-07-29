@@ -13,6 +13,14 @@ module AgentHarness
       DEFAULT_VERSION = "7.4.16"
       SUPPORTED_VERSION_REQUIREMENT = "= #{DEFAULT_VERSION}"
       STRUCTURED_EVENT_TYPES = %w[text error step_finish result usage].freeze
+      MODEL_CATALOG = [
+        {name: "glm-5", family: "glm-5", tier: "standard", provider: "kilocode"},
+        {name: "glm-5.1", family: "glm-5.1", tier: "advanced", provider: "kilocode"},
+        {name: "glm-5.2", family: "glm-5.2", tier: "advanced", provider: "kilocode"},
+        {name: "glm-5-turbo", family: "glm-5-turbo", tier: "standard", provider: "kilocode"},
+        {name: "glm-5v-turbo", family: "glm-5v-turbo", tier: "standard", provider: "kilocode"}
+      ].map(&:freeze).freeze
+      MODEL_FAMILY_PATTERN = /\Aglm-5(?:[.-][\w.-]+)?\z/i
       # Kilo CLI (an OpenCode fork) ships the same external_directory
       # permission category as OpenCode, defaulting to "ask" for anything
       # outside the project dir. In non-interactive execution there is no
@@ -73,7 +81,20 @@ module AgentHarness
 
         def discover_models
           return [] unless available?
-          []
+
+          MODEL_CATALOG.map(&:dup)
+        end
+
+        def model_family(provider_model_name)
+          provider_model_name.to_s
+        end
+
+        def provider_model_name(family_name)
+          family_name.to_s
+        end
+
+        def supports_model_family?(family_name)
+          MODEL_FAMILY_PATTERN.match?(family_name.to_s)
         end
 
         def installation_contract(version: DEFAULT_VERSION)
