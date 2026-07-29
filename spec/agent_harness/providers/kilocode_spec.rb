@@ -123,6 +123,10 @@ RSpec.describe AgentHarness::Providers::Kilocode do
           {name: "glm-5", family: "glm-5", tier: "standard", provider: "kilocode"},
           {name: "glm-5.1", family: "glm-5.1", tier: "advanced", provider: "kilocode"},
           {name: "glm-5.2", family: "glm-5.2", tier: "advanced", provider: "kilocode"},
+          {name: "glm-5p1", family: "glm-5p1", tier: "advanced", provider: "kilocode"},
+          {name: "glm-5p1-fast", family: "glm-5p1-fast", tier: "standard", provider: "kilocode"},
+          {name: "glm-5p2", family: "glm-5p2", tier: "advanced", provider: "kilocode"},
+          {name: "glm-5p2-fast", family: "glm-5p2-fast", tier: "standard", provider: "kilocode"},
           {name: "glm-5-turbo", family: "glm-5-turbo", tier: "standard", provider: "kilocode"},
           {name: "glm-5v-turbo", family: "glm-5v-turbo", tier: "standard", provider: "kilocode"}
         ])
@@ -155,15 +159,27 @@ RSpec.describe AgentHarness::Providers::Kilocode do
   end
 
   describe ".supports_model_family?" do
+    it "supports every bundled catalog family" do
+      described_class::MODEL_CATALOG.each do |model|
+        expect(described_class.supports_model_family?(model.fetch(:family))).to be true
+      end
+    end
+
     it "returns true for GLM-5 model families" do
       expect(described_class.supports_model_family?("glm-5")).to be true
       expect(described_class.supports_model_family?("glm-5.1")).to be true
       expect(described_class.supports_model_family?("glm-5.2-fast")).to be true
+      expect(described_class.supports_model_family?("glm-5p1")).to be true
+      expect(described_class.supports_model_family?("glm-5p1-fast")).to be true
+      expect(described_class.supports_model_family?("glm-5p2")).to be true
+      expect(described_class.supports_model_family?("glm-5p2-fast")).to be true
+      expect(described_class.supports_model_family?("glm-5v-turbo")).to be true
     end
 
     it "returns false for non-GLM-5 model families" do
       expect(described_class.supports_model_family?("glm-4.5")).to be false
       expect(described_class.supports_model_family?("claude-3-sonnet")).to be false
+      expect(described_class.supports_model_family?("glm-50")).to be false
     end
   end
 

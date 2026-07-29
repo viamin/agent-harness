@@ -17,10 +17,14 @@ module AgentHarness
         {name: "glm-5", family: "glm-5", tier: "standard", provider: "kilocode"},
         {name: "glm-5.1", family: "glm-5.1", tier: "advanced", provider: "kilocode"},
         {name: "glm-5.2", family: "glm-5.2", tier: "advanced", provider: "kilocode"},
+        {name: "glm-5p1", family: "glm-5p1", tier: "advanced", provider: "kilocode"},
+        {name: "glm-5p1-fast", family: "glm-5p1-fast", tier: "standard", provider: "kilocode"},
+        {name: "glm-5p2", family: "glm-5p2", tier: "advanced", provider: "kilocode"},
+        {name: "glm-5p2-fast", family: "glm-5p2-fast", tier: "standard", provider: "kilocode"},
         {name: "glm-5-turbo", family: "glm-5-turbo", tier: "standard", provider: "kilocode"},
         {name: "glm-5v-turbo", family: "glm-5v-turbo", tier: "standard", provider: "kilocode"}
       ].map(&:freeze).freeze
-      MODEL_FAMILY_PATTERN = /\Aglm-5(?:[.-][\w.-]+)?\z/i
+      MODEL_FAMILY_PATTERN = /\Aglm-5(?:[a-z][\w.-]*|[.-][\w.-]+)?\z/i
       # Kilo CLI (an OpenCode fork) ships the same external_directory
       # permission category as OpenCode, defaulting to "ask" for anything
       # outside the project dir. In non-interactive execution there is no
