@@ -10,8 +10,8 @@ module AgentHarness
     # Provides integration with the OpenCode CLI tool.
     class Opencode < Base
       CLI_PACKAGE = "opencode-ai"
-      SUPPORTED_CLI_VERSION = "1.3.2"
-      SUPPORTED_CLI_REQUIREMENT = Gem::Requirement.new(">= #{SUPPORTED_CLI_VERSION}", "< 1.4.0").freeze
+      SUPPORTED_CLI_VERSION = "1.18.9"
+      SUPPORTED_CLI_REQUIREMENT = Gem::Requirement.new(">= #{SUPPORTED_CLI_VERSION}", "< 2.0.0").freeze
       INSTALL_COMMAND_PREFIX = ["npm", "install", "-g", "--ignore-scripts"].freeze
       # Allowlist of external_directory patterns auto-approved in
       # non-interactive execution. See the DEFAULT_PERMISSION_RULE comment
