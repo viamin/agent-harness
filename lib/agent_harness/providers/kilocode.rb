@@ -10,9 +10,36 @@ module AgentHarness
     # Provides integration with the Kilocode CLI tool.
     class Kilocode < Base
       PACKAGE_NAME = "@kilocode/cli"
-      DEFAULT_VERSION = "7.1.3"
+      DEFAULT_VERSION = "7.4.16"
       SUPPORTED_VERSION_REQUIREMENT = "= #{DEFAULT_VERSION}"
       STRUCTURED_EVENT_TYPES = %w[text error step_finish result usage].freeze
+      MODEL_NAMES = %w[
+        glm-5
+        glm-5.1
+        glm-5.1-free
+        glm-5.1-thinking
+        glm-5.2
+        glm-5.2-fast
+        glm-5.2-flex
+        glm-5.2-free
+        glm-5.2-nitro
+        glm-5.2-short
+        glm-5.2-short-fast
+        glm-5.2-short-fast-flex
+        glm-5.2-short-flex
+        glm-5p1
+        glm-5p1-fast
+        glm-5p2
+        glm-5p2-fast
+        glm-5v-turbo
+      ].freeze
+      MODEL_CATALOG = MODEL_NAMES.map do |name|
+        tier = name.include?("free") ? "free" : "standard"
+        tier = "advanced" if %w[glm-5.1 glm-5.1-thinking glm-5.2 glm-5p1 glm-5p2].include?(name)
+
+        {name: name, family: name, tier: tier, provider: "kilocode"}.freeze
+      end.freeze
+      MODEL_FAMILY_PATTERN = /\Aglm-5(?:[a-z][\w.-]*|[.-][\w.-]+)?\z/i
       # Kilo CLI (an OpenCode fork) ships the same external_directory
       # permission category as OpenCode, defaulting to "ask" for anything
       # outside the project dir. In non-interactive execution there is no
@@ -73,7 +100,20 @@ module AgentHarness
 
         def discover_models
           return [] unless available?
-          []
+
+          MODEL_CATALOG.map(&:dup)
+        end
+
+        def model_family(provider_model_name)
+          provider_model_name.to_s
+        end
+
+        def provider_model_name(family_name)
+          family_name.to_s
+        end
+
+        def supports_model_family?(family_name)
+          MODEL_FAMILY_PATTERN.match?(family_name.to_s)
         end
 
         def installation_contract(version: DEFAULT_VERSION)

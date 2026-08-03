@@ -22,18 +22,18 @@ RSpec.describe AgentHarness::Providers::Kilocode do
         package: "@kilocode/cli"
       })
       expect(contract[:install_command]).to eq(
-        ["npm", "install", "-g", "--ignore-scripts", "@kilocode/cli@7.1.3"]
+        ["npm", "install", "-g", "--ignore-scripts", "@kilocode/cli@7.4.16"]
       )
       expect(contract[:binary_name]).to eq("kilo")
-      expect(contract[:default_version]).to eq("7.1.3")
-      expect(contract[:supported_version_requirement]).to eq("= 7.1.3")
+      expect(contract[:default_version]).to eq("7.4.16")
+      expect(contract[:supported_version_requirement]).to eq("= 7.4.16")
     end
 
     it "can render an install command for an explicitly supported target" do
-      contract = described_class.installation_contract(version: "7.1.3")
+      contract = described_class.installation_contract(version: "7.4.16")
 
       expect(contract[:install_command]).to eq(
-        ["npm", "install", "-g", "--ignore-scripts", "@kilocode/cli@7.1.3"]
+        ["npm", "install", "-g", "--ignore-scripts", "@kilocode/cli@7.4.16"]
       )
     end
 
@@ -68,10 +68,10 @@ RSpec.describe AgentHarness::Providers::Kilocode do
     end
 
     it "normalizes padded version strings in the install command" do
-      contract = described_class.installation_contract(version: " 7.1.3 ")
+      contract = described_class.installation_contract(version: " 7.4.16 ")
 
       expect(contract[:install_command]).to eq(
-        ["npm", "install", "-g", "--ignore-scripts", "@kilocode/cli@7.1.3"]
+        ["npm", "install", "-g", "--ignore-scripts", "@kilocode/cli@7.4.16"]
       )
     end
   end
@@ -79,13 +79,13 @@ RSpec.describe AgentHarness::Providers::Kilocode do
   describe ".install_command" do
     it "returns the install command for the default supported version" do
       expect(described_class.install_command).to eq(
-        ["npm", "install", "-g", "--ignore-scripts", "@kilocode/cli@7.1.3"]
+        ["npm", "install", "-g", "--ignore-scripts", "@kilocode/cli@7.4.16"]
       )
     end
 
     it "supports an explicit supported version" do
-      expect(described_class.install_command(version: "7.1.3")).to eq(
-        ["npm", "install", "-g", "--ignore-scripts", "@kilocode/cli@7.1.3"]
+      expect(described_class.install_command(version: "7.4.16")).to eq(
+        ["npm", "install", "-g", "--ignore-scripts", "@kilocode/cli@7.4.16"]
       )
     end
   end
@@ -105,9 +105,96 @@ RSpec.describe AgentHarness::Providers::Kilocode do
   end
 
   describe ".discover_models" do
+    let(:mock_executor) { instance_double(AgentHarness::CommandExecutor) }
+
+    before do
+      allow(AgentHarness.configuration).to receive(:command_executor).and_return(mock_executor)
+    end
+
+    context "when kilocode is available" do
+      before do
+        allow(mock_executor).to receive(:which).with("kilo").and_return("/usr/local/bin/kilo")
+      end
+
+      it "returns the bundled GLM-5 model catalog" do
+        models = described_class.discover_models
+
+        expect(models.map { |model| model.fetch(:name) }).to eq([
+          "glm-5",
+          "glm-5.1",
+          "glm-5.1-free",
+          "glm-5.1-thinking",
+          "glm-5.2",
+          "glm-5.2-fast",
+          "glm-5.2-flex",
+          "glm-5.2-free",
+          "glm-5.2-nitro",
+          "glm-5.2-short",
+          "glm-5.2-short-fast",
+          "glm-5.2-short-fast-flex",
+          "glm-5.2-short-flex",
+          "glm-5p1",
+          "glm-5p1-fast",
+          "glm-5p2",
+          "glm-5p2-fast",
+          "glm-5v-turbo"
+        ])
+        expect(models).to all(include(provider: "kilocode"))
+        expect(models).to all(satisfy { |model| model.fetch(:family) == model.fetch(:name) })
+      end
+
+      it "returns mutable copies of the catalog entries" do
+        described_class.discover_models.first[:name] = "changed"
+
+        expect(described_class.discover_models.first[:name]).to eq("glm-5")
+      end
+    end
+
     it "returns empty when not available" do
-      allow(described_class).to receive(:available?).and_return(false)
+      allow(mock_executor).to receive(:which).with("kilo").and_return(nil)
+
       expect(described_class.discover_models).to eq([])
+    end
+  end
+
+  describe ".model_family" do
+    it "returns the provider model name unchanged" do
+      expect(described_class.model_family("glm-5.1")).to eq("glm-5.1")
+    end
+  end
+
+  describe ".provider_model_name" do
+    it "returns the family name unchanged" do
+      expect(described_class.provider_model_name("glm-5.2")).to eq("glm-5.2")
+    end
+  end
+
+  describe ".supports_model_family?" do
+    it "supports every bundled catalog family" do
+      described_class::MODEL_CATALOG.each do |model|
+        expect(described_class.supports_model_family?(model.fetch(:family))).to be true
+      end
+    end
+
+    it "returns true for GLM-5 model families" do
+      expect(described_class.supports_model_family?("glm-5")).to be true
+      expect(described_class.supports_model_family?("glm-5.1")).to be true
+      expect(described_class.supports_model_family?("glm-5.1-free")).to be true
+      expect(described_class.supports_model_family?("glm-5.1-thinking")).to be true
+      expect(described_class.supports_model_family?("glm-5.2-flex")).to be true
+      expect(described_class.supports_model_family?("glm-5.2-fast")).to be true
+      expect(described_class.supports_model_family?("glm-5.2-short-fast-flex")).to be true
+      expect(described_class.supports_model_family?("glm-5p1")).to be true
+      expect(described_class.supports_model_family?("glm-5p1-fast")).to be true
+      expect(described_class.supports_model_family?("glm-5p2")).to be true
+      expect(described_class.supports_model_family?("glm-5p2-fast")).to be true
+      expect(described_class.supports_model_family?("glm-5v-turbo")).to be true
+    end
+
+    it "returns false for non-GLM-5 model families" do
+      expect(described_class.supports_model_family?("glm-4.5")).to be false
+      expect(described_class.supports_model_family?("claude-3-sonnet")).to be false
+      expect(described_class.supports_model_family?("glm-50")).to be false
     end
   end
 
