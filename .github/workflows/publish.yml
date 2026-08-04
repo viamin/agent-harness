@@ -4,13 +4,19 @@ on:
   push:
     branches:
       - main
+    tags:
+      - "agent-harness/v*"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Release Please must finish the run triggered by merging a release PR.
+  # A later main push can otherwise cancel that release run and inherit pending
+  # release work in the wrong event context.
+  cancel-in-progress: false
 
 jobs:
   release-please:
+    if: ${{ github.ref_type == 'branch' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -20,12 +26,17 @@ jobs:
     steps:
       - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7
         id: release
+        with:
+          # Only release PR merge commits should mint GitHub releases. Normal
+          # main pushes still let release-please create/update the next release
+          # PR, but they do not retry stale pending release PRs.
+          skip-github-release: "${{ !startsWith(github.event.head_commit.message, 'chore(main): release ') }}"
 
   push-gem:
     name: Push gem to RubyGems.org
     runs-on: ubuntu-latest
     needs: release-please
-    if: ${{ needs.release-please.outputs.release-created }}
+    if: "${{ always() && (needs.release-please.outputs.release-created == 'true' || startsWith(github.ref, 'refs/tags/agent-harness/v')) }}"
 
     permissions:
       id-token: write # IMPORTANT: this permission is mandatory for trusted publishing
