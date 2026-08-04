@@ -617,13 +617,6 @@ RSpec.describe AgentHarness::Providers::Opencode do
     describe "#heartbeat_integration" do
       let(:heartbeat_path) { "/paid-heartbeat/.paid-heartbeat" }
 
-      let(:hooks_config_path) { File.expand_path("~/.config/opencode/hooks.json") }
-
-      before do
-        allow(File).to receive(:exist?).and_call_original
-        allow(File).to receive(:exist?).with(hooks_config_path).and_return(false)
-      end
-
       subject(:integration) { provider.heartbeat_integration(heartbeat_file_path: heartbeat_path) }
 
       it "returns a supported integration" do
