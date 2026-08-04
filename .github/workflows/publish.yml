@@ -17,15 +17,23 @@ jobs:
       pull-requests: write
     outputs:
       release-created: ${{ steps.release.outputs.release_created }}
+      release-sha: ${{ steps.release.outputs.sha }}
+      tag-name: ${{ steps.release.outputs.tag_name }}
+      version: ${{ steps.release.outputs.version }}
     steps:
       - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7
         id: release
+        with:
+          # The default GITHUB_TOKEN cannot create releases/tags under the
+          # active `main` ruleset ("Resource not accessible by integration").
+          # Use a PAT/App token with release/tag creation rights instead.
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
 
   push-gem:
     name: Push gem to RubyGems.org
     runs-on: ubuntu-latest
     needs: release-please
-    if: ${{ needs.release-please.outputs.release-created }}
+    if: ${{ needs.release-please.outputs.release-created == 'true' }}
 
     permissions:
       id-token: write # IMPORTANT: this permission is mandatory for trusted publishing
@@ -35,12 +43,28 @@ jobs:
       # Set up
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
+          ref: main
+          fetch-depth: 0
           persist-credentials: false
+      - name: Check out release branch
+        env:
+          RELEASE_SHA: ${{ needs.release-please.outputs.release-sha }}
+        run: git checkout -B main "$RELEASE_SHA"
       - name: Set up Ruby
         uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b
         with:
           bundler-cache: true
           ruby-version: ruby
+
+      - name: Validate release checkout
+        env:
+          RELEASE_SHA: ${{ needs.release-please.outputs.release-sha }}
+          RELEASE_TAG: ${{ needs.release-please.outputs.tag-name }}
+          RELEASE_VERSION: ${{ needs.release-please.outputs.version }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$RELEASE_SHA"
+          test "$(git rev-list -n 1 "$RELEASE_TAG")" = "$RELEASE_SHA"
+          ruby -Ilib -ragent_harness/version -e 'abort "expected #{ENV.fetch("RELEASE_VERSION")}, got #{AgentHarness::VERSION}" unless AgentHarness::VERSION == ENV.fetch("RELEASE_VERSION")'
 
       # Release
       - uses: rubygems/release-gem@052cc82692552de3ef2b81fd670e41d13cba8092
