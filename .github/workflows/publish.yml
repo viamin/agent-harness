@@ -21,6 +21,15 @@ jobs:
       tag-name: ${{ steps.release.outputs.tag_name }}
       version: ${{ steps.release.outputs.version }}
     steps:
+      - name: Verify RELEASE_PLEASE_TOKEN is configured
+        env:
+          RELEASE_PLEASE_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+        shell: bash
+        run: |
+          if [ -z "$RELEASE_PLEASE_TOKEN" ]; then
+            echo "::error title=Missing RELEASE_PLEASE_TOKEN secret::Configure a repository or organization Actions secret named RELEASE_PLEASE_TOKEN for viamin/agent-harness."
+            exit 1
+          fi
       - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7
         id: release
         with:
