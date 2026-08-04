@@ -43,9 +43,13 @@ jobs:
       # Set up
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: ${{ needs.release-please.outputs.release-sha }}
+          ref: main
           fetch-depth: 0
           persist-credentials: false
+      - name: Check out release branch
+        env:
+          RELEASE_SHA: ${{ needs.release-please.outputs.release-sha }}
+        run: git checkout -B main "$RELEASE_SHA"
       - name: Set up Ruby
         uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b
         with:
