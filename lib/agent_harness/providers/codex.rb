@@ -40,7 +40,11 @@ module AgentHarness
       MODEL_COMPATIBILITY_FACTS = {
         "gpt-5.5" => {minimum_cli_version: "0.116.0"},
         "gpt-5.5-codex" => {minimum_cli_version: "0.116.0"},
-        "gpt-5.5-pro" => {auth_modes: [:api_key].freeze}
+        "gpt-5.5-pro" => {auth_modes: [:api_key].freeze},
+        "gpt-5.6" => {auth_modes: [:api_key].freeze},
+        "gpt-5.6-luna" => {auth_modes: [:api_key].freeze},
+        "gpt-5.6-sol" => {auth_modes: [:api_key].freeze},
+        "gpt-5.6-terra" => {auth_modes: [:api_key].freeze}
       }.each_value(&:freeze).freeze
 
       # Models that the runner contract considers supported on every Codex
