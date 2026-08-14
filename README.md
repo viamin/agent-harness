@@ -415,7 +415,7 @@ result = AgentHarness.model_compatibility(
 result.supported?            # => false
 result.reason                # => :cli_version_too_old
 result.minimum_cli_version   # => "0.116.0"
-result.fallback_model_id     # => "gpt-5-codex"
+result.fallback_model_id     # => "gpt-5.2-codex"
 result.source                # => :static_contract
 ```
 

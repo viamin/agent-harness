@@ -69,6 +69,37 @@ RSpec.describe AgentHarness::Providers::Codex, ".model_compatibility" do
     expect(result.source).to eq(:static_contract)
   end
 
+  it "returns unsupported for gpt-5.6 family models under subscription auth" do
+    %w[gpt-5.6 gpt-5.6-luna gpt-5.6-sol gpt-5.6-terra].each do |model_id|
+      result = described_class.model_compatibility(
+        model_id: model_id,
+        auth_mode: :subscription,
+        cli_version: "0.122.0"
+      )
+
+      expect(result.supported?).to be(false)
+      expect(result.unsupported?).to be(true)
+      expect(result.reason).to eq(:unsupported_auth_mode_for_model)
+      expect(result.details).to include(supported_auth_modes: [:api_key])
+      expect(result.fallback_model_id).to eq("gpt-5.2-codex")
+      expect(result.source).to eq(:static_contract)
+    end
+  end
+
+  it "returns supported for gpt-5.6 family models under api_key auth" do
+    %w[gpt-5.6 gpt-5.6-luna gpt-5.6-sol gpt-5.6-terra].each do |model_id|
+      result = described_class.model_compatibility(
+        model_id: model_id,
+        auth_mode: :api_key,
+        cli_version: "0.122.0"
+      )
+
+      expect(result.supported?).to be(true)
+      expect(result.reason).to eq(:supported)
+      expect(result.source).to eq(:static_contract)
+    end
+  end
+
   it "returns :auth_mode_unknown when an auth-gated model is queried without an auth mode" do
     # `auth_mode` defaults to nil on the public API, so querying an
     # api-key-only model without an auth mode must NOT collapse to :supported
@@ -176,13 +207,14 @@ RSpec.describe AgentHarness::Providers::Codex, ".model_compatibility" do
   it "is reachable through AgentHarness.model_compatibility" do
     result = AgentHarness.model_compatibility(
       runner: :codex,
-      model_id: "gpt-5.5-pro",
+      model_id: "gpt-5.6",
       auth_mode: :subscription,
       cli_version: "0.122.0"
     )
 
     expect(result.runner).to eq(:codex)
     expect(result.reason).to eq(:unsupported_auth_mode_for_model)
+    expect(result.fallback_model_id).to eq("gpt-5.2-codex")
   end
 
   it "is reachable through Providers::Registry#model_compatibility" do
