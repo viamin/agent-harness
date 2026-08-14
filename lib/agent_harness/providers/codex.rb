@@ -25,7 +25,7 @@ module AgentHarness
       # for unsupported/unknown model lookups so downstream orchestrators
       # (smoke tests, tier fallback) have a stable, contract-backed choice
       # instead of relying on whichever model the CLI's default points at.
-      DEFAULT_COMPATIBLE_MODEL_ID = "gpt-5-codex"
+      DEFAULT_COMPATIBLE_MODEL_ID = "gpt-5.2-codex"
 
       # Known CLI-gated model facts. Each entry may express a minimum Codex
       # CLI version required to drive the model, and/or auth-mode
@@ -40,7 +40,11 @@ module AgentHarness
       MODEL_COMPATIBILITY_FACTS = {
         "gpt-5.5" => {minimum_cli_version: "0.116.0"},
         "gpt-5.5-codex" => {minimum_cli_version: "0.116.0"},
-        "gpt-5.5-pro" => {auth_modes: [:api_key].freeze}
+        "gpt-5.5-pro" => {auth_modes: [:api_key].freeze},
+        "gpt-5.6" => {auth_modes: [:api_key].freeze},
+        "gpt-5.6-luna" => {auth_modes: [:api_key].freeze},
+        "gpt-5.6-sol" => {auth_modes: [:api_key].freeze},
+        "gpt-5.6-terra" => {auth_modes: [:api_key].freeze}
       }.each_value(&:freeze).freeze
 
       # Models that the runner contract considers supported on every Codex
@@ -48,6 +52,7 @@ module AgentHarness
       # distinguish "unknown to the contract" from "explicitly supported."
       BASELINE_SUPPORTED_MODELS = %w[
         gpt-5
+        gpt-5.2-codex
         gpt-5-codex
         gpt-5-mini
         gpt-4o
