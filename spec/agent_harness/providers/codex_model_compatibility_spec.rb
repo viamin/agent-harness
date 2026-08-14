@@ -57,6 +57,23 @@ RSpec.describe AgentHarness::Providers::Codex, ".model_compatibility" do
     expect(result.source).to eq(:static_contract)
   end
 
+  it "returns unsupported for gpt-5.6 models under subscription auth" do
+    %w[gpt-5.6 gpt-5.6-luna gpt-5.6-sol gpt-5.6-terra].each do |model_id|
+      result = described_class.model_compatibility(
+        model_id: model_id,
+        auth_mode: :subscription,
+        cli_version: "0.122.0"
+      )
+
+      expect(result.supported?).to be(false)
+      expect(result.unsupported?).to be(true)
+      expect(result.reason).to eq(:unsupported_auth_mode_for_model)
+      expect(result.details).to include(supported_auth_modes: [:api_key])
+      expect(result.fallback_model_id).to eq(described_class::DEFAULT_COMPATIBLE_MODEL_ID)
+      expect(result.source).to eq(:static_contract)
+    end
+  end
+
   it "returns supported for models restricted to api_key when api_key auth is requested" do
     result = described_class.model_compatibility(
       model_id: "gpt-5.5-pro",
