@@ -54,7 +54,15 @@ jobs:
         env:
           CLAUDE_INSTALL_URL: ${{ vars.CLAUDE_INSTALL_URL || 'https://claude.ai/install.sh' }}
           CLAUDE_NPM_PACKAGE: ${{ vars.CLAUDE_NPM_PACKAGE || '@anthropic-ai/claude-code' }}
-          # `gh` is preinstalled on `ubuntu-latest`; keep an explicit path
-          # override here in case the runner image changes.
+          # `gh` is preinstalled on `ubuntu-latest` and authenticates
+          # via GH_TOKEN below.
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: bundle exec ruby script/refresh-artifact-pins.rb
+
+      # GITHUB_TOKEN-opened PRs never trigger `on: pull_request` workflows,
+      # so the generated PR shows no checks of its own. The script leaves the
+      # working tree on the automation branch with the rendered pin — run
+      # the suite against that tree so the pushed content is verified (the
+      # same compensation sync-cli-pins.yml applies before its push).
+      - name: Run specs against the refreshed pin
+        run: bundle exec rspec

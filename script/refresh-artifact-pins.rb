@@ -47,7 +47,7 @@ module AgentHarness
       # @return [String] combined stdout
       # @raise [CommandError] when `gh` exits non-zero
       def call(*args)
-        output, status = Open3.capture2("gh", *args)
+        output, status = Open3.capture2e("gh", *args)
         unless status.success?
           raise CommandError, "gh #{args.join(" ")} failed (exit #{status.exitstatus}): #{output}"
         end
@@ -77,7 +77,7 @@ module AgentHarness
       # @return [String] combined stdout
       # @raise [CommandError] when `git` exits non-zero
       def call(*args)
-        output, status = Open3.capture2("git", "-C", @repo_root, *args)
+        output, status = Open3.capture2e("git", "-C", @repo_root, *args)
         unless status.success?
           raise CommandError, "git #{args.join(" ")} failed (exit #{status.exitstatus}): #{output}"
         end
@@ -90,23 +90,8 @@ module AgentHarness
       #
       # @return [Boolean]
       def staged_changes?
-        _, status = Open3.capture2("git", "-C", @repo_root, "diff", "--cached", "--quiet")
+        _, status = Open3.capture2e("git", "-C", @repo_root, "diff", "--cached", "--quiet")
         !status.success?
-      end
-
-      # `git ls-remote --exit-code` exits 0 when the ref exists, 2 when
-      # it does not, and anything else on a real transport failure -
-      # only exit 2 may be treated as "branch missing".
-      #
-      # @return [Boolean]
-      # @raise [CommandError] on transport failure
-      def remote_branch_exists?(branch)
-        _, status = Open3.capture2("git", "-C", @repo_root, "ls-remote", "--exit-code", "origin",
-          "refs/heads/#{branch}")
-        return true if status.success?
-        return false if status.exitstatus == 2
-
-        raise CommandError, "git ls-remote origin refs/heads/#{branch} failed (exit #{status.exitstatus})"
       end
 
       # Commits staged changes as the automation identity. The
@@ -122,7 +107,7 @@ module AgentHarness
           "GIT_COMMITTER_NAME" => name,
           "GIT_COMMITTER_EMAIL" => email
         }
-        output, status = Open3.capture2(env, "git", "-C", @repo_root, "commit", "-m", message)
+        output, status = Open3.capture2e(env, "git", "-C", @repo_root, "commit", "-m", message)
         unless status.success?
           raise CommandError, "git commit failed (exit #{status.exitstatus}): #{output}"
         end
@@ -340,13 +325,16 @@ module AgentHarness
       end
 
       def create_or_update_branch(branch)
-        # Refresh remote-tracking refs, then point the local branch at
-        # its remote counterpart when one already exists (so a re-run
-        # for the same build re-derives an unchanged tree and commits
-        # nothing), or at main's tip when creating it fresh.
+        # Always base the automation branch on current main so the PR's
+        # three-dot diff stays pin-only: an unrelated main edit made while
+        # the PR was open would otherwise show up as a + hunk in the next
+        # run's PR diff (the branch's own merge-base with main would still
+        # be the old main it was originally pushed on). Re-running for the
+        # same build now creates a fresh commit each time, but its tree is
+        # byte-identical to the previous run's commit because the rendered
+        # cursor.rb is fully determined by the upstream inputs.
         @git_cli.call("fetch", "origin")
-        base = @git_cli.remote_branch_exists?(branch) ? "origin/#{branch}" : "origin/main"
-        @git_cli.call("checkout", "-B", branch, base)
+        @git_cli.call("checkout", "-B", branch, "origin/main")
       end
 
       def commit_cursor_pin(rendered_content, build:)

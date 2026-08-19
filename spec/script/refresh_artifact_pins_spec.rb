@@ -149,6 +149,10 @@ RSpec.describe AgentHarness::CliPinRefresh::ScriptRunner do
     git(repo_root, "ls-remote", "origin", "refs/heads/#{branch}").split.first
   end
 
+  def tree_sha(commit_sha)
+    git(remote_path, "rev-parse", "#{commit_sha}^{tree}").strip
+  end
+
   def pr_create_call(calls)
     calls.find { |args| args[0] == "pr" && args[1] == "create" }
   end
@@ -206,7 +210,14 @@ RSpec.describe AgentHarness::CliPinRefresh::ScriptRunner do
 
     second_runner.call
 
-    expect(remote_branch_sha(BRANCH)).to eq(sha_before)
+    # The script now rebases the automation branch on origin/main every
+    # run, so each run creates a fresh commit even when the rendered pin
+    # is identical — idempotency is preserved at the *tree* level: the
+    # commit the new run pushes has the same tree as the one it
+    # replaces, which keeps the PR's three-dot diff pin-only.
+    tree_before = tree_sha(sha_before)
+    tree_after = tree_sha(remote_branch_sha(BRANCH))
+    expect(tree_after).to eq(tree_before)
     expect(pr_create_call(second_github_cli.calls)).to be_nil
     expect(second_github_cli.messages.join("\n")).to match(/PR #42 already open for #{BRANCH}/o)
   end
