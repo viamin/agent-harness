@@ -9,7 +9,7 @@ module AgentHarness
     # Provides integration with the Pi terminal coding agent.
     class Pi < Base
       CLI_PACKAGE = "@mariozechner/pi-coding-agent"
-      SUPPORTED_CLI_VERSION = "0.73.0"
+      SUPPORTED_CLI_VERSION = "0.73.1"
       SUPPORTED_CLI_REQUIREMENT = Gem::Requirement.new("= #{SUPPORTED_CLI_VERSION}").freeze
 
       class << self

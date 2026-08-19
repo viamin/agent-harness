@@ -479,7 +479,7 @@ RSpec.describe AgentHarness::Providers::Registry do
         "node $(npm root -g)/opencode-ai/postinstall.mjs"
       )
       expect(contracts[:pi][:install_command]).to eq(
-        ["npm", "install", "-g", "--ignore-scripts", "@mariozechner/pi-coding-agent@0.73.0"]
+        ["npm", "install", "-g", "--ignore-scripts", "@mariozechner/pi-coding-agent@0.73.1"]
       )
     end
 
