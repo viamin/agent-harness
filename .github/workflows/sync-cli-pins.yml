@@ -100,7 +100,7 @@ jobs:
             exit 0
           fi
           # Dependabot rebases re-run CI; do not post duplicate comments.
-          if gh pr view "$pr_number" --repo "$REPO" --json comments --jq '.[].body' | grep -q 'cli-pin-sync-blocked'; then
+          if gh pr view "$pr_number" --repo "$REPO" --json comments --jq '.comments[].body' | grep -q 'cli-pin-sync-blocked'; then
             echo "Blocked-bump comment already posted."
             exit 0
           fi
