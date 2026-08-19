@@ -468,7 +468,6 @@ require_relative "agent_harness/provider_health_check"
 require_relative "agent_harness/release_registry"
 require_relative "agent_harness/dependency_updater"
 require_relative "agent_harness/model_compatibility"
-require_relative "agent_harness/cli_pin_refresh"
 
 # Provider layer
 require_relative "agent_harness/providers/registry"

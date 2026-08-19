@@ -8,26 +8,28 @@
 # Steps:
 #
 #   1. Cursor pin refresh: query the Cursor agent GitHub releases API for
-#      the latest `linux/x64` build + artifact SHA256. If upstream differs
-#      from `lib/agent_harness/providers/cursor.rb`, open a PR.
+#      the latest `linux/x64` build, artifact SHA256, and install-script
+#      SHA256. If upstream differs from
+#      `lib/agent_harness/providers/cursor.rb`, open a PR.
 #   2. Claude oracle parity: compare the version `claude.ai/install.sh`
 #      resolves to against the npm `@anthropic-ai/claude-code` oracle.
 #      Divergence -> open an issue (never guess which side is right).
-#   3. Parity sweep (advisory): re-check every provider's
-#      `SUPPORTED_CLI_VERSION` against its `vendor/pins/` manifest.
+#   3. Parity sweep (advisory): re-check every provider's pinned CLI
+#      version constant against its `vendor/pins/` manifest.
 #
 # None of the steps auto-merge. The rspec contract specs + human review
 # remain the gate, same as today's manual bumps.
+#
+# Exit status: 0 when every step ended :unchanged/:changed/:divergent
+# (a :changed/:divergent step already opened its PR/issue), 1 when any
+# step :failed - a weekly cron that silently no-ops behind a green
+# checkmark is exactly the failure mode this job exists to prevent.
 
 require "bundler/setup"
 require "open3"
 
 require "agent_harness"
-# omp and pi are lazy-loaded via the provider registry, but the parity
-# sweep resolves their constants directly - require them explicitly the
-# same way spec/vendor_pins_parity_spec.rb does.
-require "agent_harness/providers/omp"
-require "agent_harness/providers/pi"
+require_relative "cli_pin_refresh"
 
 module AgentHarness
   module CliPinRefresh
@@ -140,6 +142,13 @@ module AgentHarness
       CLAUDE_ISSUE_LABELS = %w[dependencies cli-pins oracle-drift]
       PARITY_ISSUE_TITLE = "Advisory SUPPORTED_CLI_VERSION drift vs vendor/pins/"
       PARITY_ISSUE_LABELS = %w[dependencies cli-pins parity-drift]
+      # Colors used only when the label is first created; existing labels
+      # keep whatever definition a maintainer chose.
+      LABEL_COLORS = {
+        "oracle-drift" => "#d4c5f9",
+        "parity-drift" => "#fef2c0"
+      }.freeze
+      DEFAULT_LABEL_COLOR = "#cfd3d7"
       DEFAULT_PINNED_CLAUDE_VERSION = AgentHarness::Providers::Anthropic::SUPPORTED_CLI_VERSION
       DEFAULT_CURSOR_REPOSITORY = "cursor/agent"
       DEFAULT_CLAUDE_INSTALL_URL = "https://claude.ai/install.sh"
@@ -158,24 +167,36 @@ module AgentHarness
       end
 
       def call
-        cursor_result = refresh_cursor
-        claude_result = check_claude_oracle
-        parity_result = sweep_parity
-
-        apply_cursor(cursor_result)
-        apply_claude(claude_result)
-        apply_parity(parity_result)
-
-        {cursor: cursor_result, claude: claude_result, parity: parity_result}
+        {
+          cursor: run_step(:cursor, :refresh_cursor, :apply_cursor),
+          claude: run_step(:claude, :check_claude_oracle, :apply_claude),
+          parity: run_step(:parity, :sweep_parity, :apply_parity)
+        }
       end
 
       private
 
+      # Runs one step inside its own error boundary: the check's result is
+      # returned, and a crash in either the check or its dispatch becomes a
+      # :failed result instead of aborting the script - so a GitHub API
+      # error in the claude step can never starve the parity sweep (and
+      # vice versa), and the entry point can exit non-zero afterwards.
+      def run_step(step, check, dispatch)
+        result = send(check)
+        send(dispatch, result)
+        result
+      rescue => e
+        @github_cli.print("[#{step}] step failed: #{e.class}: #{e.message}")
+        Result.new(status: :failed, details: {reason: "#{e.class}: #{e.message}"})
+      end
+
       def refresh_cursor
+        source = CursorSource.new(file_path: cursor_source_path)
         CursorRefresh.new(
           releases: build_releases,
           downloader: ArtifactDownloader.new(http_client: HttpClient.new),
-          source: CursorSource.new(file_path: cursor_source_path)
+          source: source,
+          script_url: source.current_script_url
         ).call
       end
 
@@ -221,10 +242,11 @@ module AgentHarness
         details = result.details
         build = details.fetch(:build)
         sha256 = details.fetch(:sha256)
+        script_sha256 = details.fetch(:script_sha256)
         release_url = details[:release_url]
 
         source = CursorSource.new(file_path: cursor_source_path)
-        rendered = source.render(build: build, sha256: sha256)
+        rendered = source.render(build: build, sha256: sha256, script_sha256: script_sha256)
         branch = "#{CURSOR_BRANCH_PREFIX}#{build}"
 
         create_or_update_branch(branch)
@@ -243,14 +265,16 @@ module AgentHarness
           "Refreshes the Cursor artifact pin to match the upstream release.",
           "",
           "- New build: `#{details[:build]}`",
-          "- New SHA256: `#{details[:sha256]}`",
+          "- New artifact SHA256: `#{details[:sha256]}`",
+          "- New install script SHA256: `#{details[:script_sha256]}`",
           "- Artifact URL: #{details[:artifact_url]}",
           release_url ? "- Release notes: #{release_url}" : nil,
           "",
           "Previous pin:",
           "",
           "- Build: `#{details[:previous_build]}`",
-          "- SHA256: `#{details[:previous_sha256]}`",
+          "- Artifact SHA256: `#{details[:previous_sha256]}`",
+          "- Install script SHA256: `#{details[:previous_script_sha256]}`",
           "",
           "release-please will mint the version PR as usual; the rspec parity",
           "specs and human review remain the gate."
@@ -362,6 +386,7 @@ module AgentHarness
           return
         end
 
+        ensure_labels!(labels)
         @github_cli.call(
           "pr", "create",
           "--base", "main",
@@ -370,6 +395,27 @@ module AgentHarness
           "--body", body,
           "--label", labels.join(",")
         )
+      end
+
+      # `gh pr|issue create --label` hard-fails when a label does not
+      # exist ("could not add label: 'oracle-drift' not found").
+      # `dependencies`/`cli-pins` are auto-created by Dependabot
+      # eventually, but `oracle-drift`/`parity-drift` belong to this
+      # automation alone, so every label is created before first use.
+      # Creation is attempted without `--force` so an existing label
+      # keeps the definition a maintainer chose; the "already exists"
+      # failure is expected on every run after the first.
+      def ensure_labels!(labels)
+        labels.each { |label| ensure_label!(label) }
+      end
+
+      def ensure_label!(name)
+        @github_cli.call(
+          "label", "create", name,
+          "--color", LABEL_COLORS.fetch(name, DEFAULT_LABEL_COLOR)
+        )
+      rescue GithubCli::CommandError
+        nil # already exists; keep its current definition
       end
 
       # `.[0].number // empty` returns an empty string when `pr list` has no
@@ -420,6 +466,7 @@ module AgentHarness
       end
 
       def create_issue(title:, body:, labels:)
+        ensure_labels!(labels)
         @github_cli.call(
           "issue", "create",
           "--title", title,
@@ -433,5 +480,10 @@ end
 
 if $PROGRAM_NAME == __FILE__
   repo_root = File.expand_path("..", __dir__)
-  AgentHarness::CliPinRefresh::ScriptRunner.new(repo_root: repo_root).call
+  results = AgentHarness::CliPinRefresh::ScriptRunner.new(repo_root: repo_root).call
+  failed = results.select { |_step, result| result.failed? }
+  if failed.any?
+    warn "refresh-artifact-pins: failed steps: #{failed.keys.join(", ")}"
+    exit 1
+  end
 end

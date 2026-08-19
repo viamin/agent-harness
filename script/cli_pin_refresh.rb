@@ -5,18 +5,27 @@ require "json"
 require "net/http"
 require "uri"
 
+require_relative "sync-cli-pins"
+
 module AgentHarness
   # Scheduled refresh for CLI artifact pins Dependabot cannot see.
   #
   # The gem's `Providers::Cursor` install contract pins an artifact URL + SHA256
-  # that no npm/PyPI manifest tracks. The Claude install oracle (npm
-  # `@anthropic-ai/claude-code`) and the `claude.ai/install.sh` curl installer
-  # historically publish lockstep, but that is an assumption, not a contract.
+  # (plus a checksum for `cursor.com/install`) that no npm/PyPI manifest tracks.
+  # The Claude install oracle (npm `@anthropic-ai/claude-code`) and the
+  # `claude.ai/install.sh` curl installer historically publish lockstep, but
+  # that is an assumption, not a contract.
   #
   # This module implements the step-3 scheduled job from issue #338: a weekly
-  # cron that (a) refreshes the Cursor pin via the upstream GitHub releases
+  # cron that (a) refreshes the Cursor pins via the upstream GitHub releases
   # API, (b) verifies Claude oracle parity, and (c) runs an advisory parity
-  # sweep across every provider's `SUPPORTED_CLI_VERSION`.
+  # sweep across every pinned CLI version.
+  #
+  # The code lives under `script/` (like `sync-cli-pins.rb`) rather than
+  # `lib/agent_harness/` because it exists solely to drive this repository's
+  # scheduled workflow: it edits `lib/agent_harness/providers/cursor.rb`,
+  # scans `vendor/pins/`, and is consumed by `refresh-artifact-pins.rb`. The
+  # gemspec excludes `script/`, so none of this ships to gem consumers.
   #
   # The library is decoupled from any single HTTP/file/CLI backend so the
   # weekly job and `script/refresh-artifact-pins.rb` can share logic, and so
@@ -136,9 +145,14 @@ module AgentHarness
     # constants; updating just `cursor.rb` keeps the existing spec
     # coverage (and the parity spec) the gate.
     class CursorSource
-      # Matches both constants regardless of value or surrounding whitespace.
+      # Matches every pin constant regardless of value or surrounding
+      # whitespace. cursor.rb pins three Dependabot-invisible values -
+      # build id, install-script checksum, and artifact checksum - and
+      # the refresh must cover all of them (the script URL is read too
+      # so the checksum probe follows whatever host the provider
+      # declares).
       CONSTANT_PATTERN = /
-        \b(?<name>INSTALL_(?:BUILD|LINUX_X64_PACKAGE_SHA256))\s*=\s*
+        \b(?<name>INSTALL_(?:BUILD|SCRIPT_URL|SCRIPT_SHA256|LINUX_X64_PACKAGE_SHA256))\s*=\s*
         "(?<value>[^"]+)"
       /x
 
@@ -153,13 +167,23 @@ module AgentHarness
         constants.fetch(:build)
       end
 
+      # @return [String] the value of `INSTALL_SCRIPT_SHA256`
+      def current_script_sha256
+        constants.fetch(:script_sha256)
+      end
+
       # @return [String] the value of `INSTALL_LINUX_X64_PACKAGE_SHA256`
       def current_sha256
         constants.fetch(:linux_x64_package_sha256)
       end
 
+      # @return [String] the value of `INSTALL_SCRIPT_URL`
+      def current_script_url
+        constants.fetch(:script_url)
+      end
+
       # @return [Hash{Symbol=>String}] parsed constants, e.g.
-      #   `{build: "2026.03.30-a5d3e17", linux_x64_package_sha256: "e0d4..."}`
+      #   `{build: "2026.03.30-a5d3e17", script_sha256: "8371...", linux_x64_package_sha256: "e0d4..."}`
       def constants
         match_data = File.read(file_path).scan(CONSTANT_PATTERN)
         raise ParseError, "Could not parse Cursor pin constants in #{file_path}" if match_data.empty?
@@ -175,10 +199,12 @@ module AgentHarness
       #
       # @param build [String] new `INSTALL_BUILD`
       # @param sha256 [String] new `INSTALL_LINUX_X64_PACKAGE_SHA256`
+      # @param script_sha256 [String] new `INSTALL_SCRIPT_SHA256`
       # @return [String] updated file content
-      def render(build:, sha256:)
+      def render(build:, sha256:, script_sha256:)
         content = File.read(file_path)
         content.sub(/(\bINSTALL_BUILD\s*=\s*)"[^"]+"/, "\\1\"#{build}\"")
+          .sub(/(\bINSTALL_SCRIPT_SHA256\s*=\s*)"[^"]+"/, "\\1\"#{script_sha256}\"")
           .sub(/(\bINSTALL_LINUX_X64_PACKAGE_SHA256\s*=\s*)"[^"]+"/, "\\1\"#{sha256}\"")
       end
 
@@ -190,6 +216,8 @@ module AgentHarness
       def constant_key(name)
         case name
         when "INSTALL_BUILD" then :build
+        when "INSTALL_SCRIPT_SHA256" then :script_sha256
+        when "INSTALL_SCRIPT_URL" then :script_url
         when "INSTALL_LINUX_X64_PACKAGE_SHA256" then :linux_x64_package_sha256
         else name.downcase.to_sym
         end
@@ -261,7 +289,8 @@ module AgentHarness
     # Downloads an artifact from a URL and computes its SHA256. Used after
     # `GithubCursorReleases#latest_linux_x64_build` to confirm the artifact
     # the GitHub release points at matches the same checksum we'd get by
-    # pinning the cursor.com download path.
+    # pinning the cursor.com download path, and to re-checksum the install
+    # script itself.
     class ArtifactDownloader
       def initialize(http_client:)
         @http_client = http_client
@@ -286,15 +315,23 @@ module AgentHarness
       end
     end
 
-    # Decides whether the Cursor pin needs to be refreshed. Returns a
+    # Decides whether the Cursor pins need to be refreshed. Returns a
     # `Result` with `:status` (`:unchanged` or `:changed`) plus the upstream
-    # facts the runner needs to build a PR.
+    # facts the runner needs to build a PR. All three Dependabot-invisible
+    # pins are refreshed together: the build id, the artifact SHA256, and
+    # the `cursor.com/install` script SHA256 that `install_metadata`'s
+    # checksum targets consume - otherwise the script checksum would
+    # silently rot as Cursor updates its installer.
     class CursorRefresh
-      def initialize(releases:, downloader:, source:, artifact_url_builder: CursorArtifactUrl)
+      DEFAULT_INSTALL_SCRIPT_URL = "https://cursor.com/install"
+
+      def initialize(releases:, downloader:, source:, artifact_url_builder: CursorArtifactUrl,
+        script_url: DEFAULT_INSTALL_SCRIPT_URL)
         @releases = releases
         @downloader = downloader
         @source = source
         @artifact_url_builder = artifact_url_builder
+        @script_url = script_url
       end
 
       def call
@@ -305,12 +342,18 @@ module AgentHarness
 
         current_build = @source.current_build
         current_sha256 = @source.current_sha256
+        current_script_sha256 = @source.current_script_sha256
         artifact_url = @artifact_url_builder.call(build: build)
         upstream_sha256 = @downloader.sha256(artifact_url)
+        upstream_script_sha256 = @downloader.sha256(@script_url)
         release_url = @releases.latest_release_url
 
-        if build == current_build && upstream_sha256 == current_sha256
-          return Result.new(status: :unchanged, details: {build: build, sha256: upstream_sha256})
+        if build == current_build && upstream_sha256 == current_sha256 &&
+            upstream_script_sha256 == current_script_sha256
+          return Result.new(
+            status: :unchanged,
+            details: {build: build, sha256: upstream_sha256, script_sha256: upstream_script_sha256}
+          )
         end
 
         Result.new(
@@ -318,10 +361,12 @@ module AgentHarness
           details: {
             build: build,
             sha256: upstream_sha256,
+            script_sha256: upstream_script_sha256,
             artifact_url: artifact_url,
             release_url: release_url,
             previous_build: current_build,
-            previous_sha256: current_sha256
+            previous_sha256: current_sha256,
+            previous_script_sha256: current_script_sha256
           }
         )
       rescue HttpClient::FetchError, JSON::ParserError => e
@@ -458,11 +503,19 @@ module AgentHarness
       end
     end
 
-    # Advisory parity sweep across every provider's `SUPPORTED_CLI_VERSION`
-    # constant vs the manifest it should mirror. Mirrors the CI parity
-    # spec (`spec/vendor_pins_parity_spec.rb`) so a hand-edited constant
+    # Advisory parity sweep across every pinned CLI version constant vs
+    # the manifest it should mirror. Mirrors the CI parity spec
+    # (`spec/vendor_pins_parity_spec.rb`) so a hand-edited constant
     # drifts visibly inside one cron window instead of waiting for the
     # next Dependabot bump.
+    #
+    # The inventory is derived from `CliPinSync::PINS`
+    # (script/sync-cli-pins.rb) so the sweep, the step-2 sync script,
+    # and the parity spec cannot drift apart when a provider or pin is
+    # added - the `CliPinSync::PINS inventory` spec fails until PINS
+    # covers every package the manifests pin. Provider constants are
+    # parsed out of the source text (the same trick sync-cli-pins.rb
+    # uses) so the sweep never loads or evaluates repo Ruby.
     class ParitySweep
       attr_reader :pins_dir, :repo_root
 
@@ -475,140 +528,75 @@ module AgentHarness
       #   with its manifest, `:divergent` otherwise (with the offenders in
       #   `details[:offenders]`).
       def call
-        offenders = (npm_offenders + pip_offenders).compact
-        if offenders.empty?
-          return Result.new(status: :unchanged, details: {})
-        end
+        offenders = CliPinSync::PINS.filter_map { |pin| offender_for(pin) }
+        return Result.new(status: :unchanged, details: {}) if offenders.empty?
 
         Result.new(status: :divergent, details: {offenders: offenders})
       end
 
       private
 
-      def npm_offenders
-        npm_cases.flat_map do |provider_dir, spec_data|
-          scan_npm_manifest(provider_dir, spec_data)
+      # @return [Hash, nil] offender entry, or nil when the pin is in
+      #   sync (or its manifest does not exist yet - defensive, the same
+      #   skip the previous hand-maintained version had).
+      def offender_for(pin)
+        manifest_path = File.join(pins_dir, pin.provider_dir, pin.manifest)
+        return nil unless File.exist?(manifest_path)
+
+        pinned = manifest_pinned_version(pin, manifest_path)
+        expected = constant_version(pin)
+        return nil if pinned == expected
+
+        {
+          ecosystem: pip_manifest?(pin) ? "pip" : "npm",
+          provider: pin.provider_dir,
+          package: pin.package,
+          manifest_value: pinned,
+          constant_value: expected,
+          manifest_path: manifest_path
+        }
+      end
+
+      def manifest_pinned_version(pin, manifest_path)
+        if pip_manifest?(pin)
+          pip_pinned_version(manifest_path, pin.package)
+        else
+          npm_pinned_version(manifest_path, pin.package)
         end
       end
 
-      def scan_npm_manifest(provider_dir, spec_data)
-        manifest_path = File.join(pins_dir, provider_dir, spec_data[:manifest])
-        return [] unless File.exist?(manifest_path)
-
-        manifest = JSON.parse(File.read(manifest_path))
-
-        spec_data[:packages].filter_map do |package, resolver|
-          expected = resolver.call
-          pinned = manifest.dig("devDependencies", package)
-          next if pinned == expected
-
-          {
-            ecosystem: "npm",
-            provider: provider_dir,
-            package: package,
-            manifest_value: pinned,
-            constant_value: expected,
-            manifest_path: manifest_path
-          }
-        end
+      def npm_pinned_version(manifest_path, package)
+        JSON.parse(File.read(manifest_path, encoding: "UTF-8")).fetch("devDependencies", {})[package]
+      rescue Errno::ENOENT, JSON::ParserError
+        nil
       end
 
-      def pip_offenders
-        pip_cases.flat_map do |provider_dir, spec_data|
-          scan_pip_manifest(provider_dir, spec_data)
-        end
-      end
-
-      def scan_pip_manifest(provider_dir, spec_data)
-        manifest_path = File.join(pins_dir, provider_dir, spec_data[:manifest])
-        return [] unless File.exist?(manifest_path)
-
-        File.readlines(manifest_path, chomp: true).filter_map do |line|
+      def pip_pinned_version(manifest_path, package)
+        File.readlines(manifest_path, chomp: true, encoding: "UTF-8").each do |line|
           stripped = line.strip
           next if stripped.empty? || stripped.start_with?("#")
 
           name, version = stripped.split("==", 2)
-          package = name&.strip
-          resolver = spec_data[:packages][package]
-          next unless resolver
-
-          expected = resolver.call
-          next if version&.strip == expected
-
-          {
-            ecosystem: "pip",
-            provider: provider_dir,
-            package: package,
-            manifest_value: version&.strip,
-            constant_value: expected,
-            manifest_path: manifest_path
-          }
+          return version&.strip if name&.strip == package
         end
+        nil
+      rescue Errno::ENOENT
+        nil
       end
 
-      # Each entry maps the tracked packages to a resolver for the
-      # provider constant the manifest must mirror. omp needs two
-      # resolvers, which is why the resolver hangs off the package, not
-      # the provider. pi and omp are lazy-loaded via the provider
-      # registry, so callers must require them explicitly (the same way
-      # spec/vendor_pins_parity_spec.rb does).
-      def npm_cases
-        {
-          "claude" => {
-            manifest: "package.json",
-            packages: {
-              "@anthropic-ai/claude-code" => -> { AgentHarness::Providers::Anthropic::SUPPORTED_CLI_VERSION }
-            }
-          },
-          "codex" => {
-            manifest: "package.json",
-            packages: {
-              "@openai/codex" => -> { AgentHarness::Providers::Codex::SUPPORTED_CLI_VERSION }
-            }
-          },
-          "opencode" => {
-            manifest: "package.json",
-            packages: {
-              "opencode-ai" => -> { AgentHarness::Providers::Opencode::SUPPORTED_CLI_VERSION }
-            }
-          },
-          "gemini" => {
-            manifest: "package.json",
-            packages: {
-              "@google/gemini-cli" => -> { AgentHarness::Providers::Gemini::SUPPORTED_CLI_VERSION }
-            }
-          },
-          "pi" => {
-            manifest: "package.json",
-            packages: {
-              "@mariozechner/pi-coding-agent" => -> { AgentHarness::Providers::Pi::SUPPORTED_CLI_VERSION }
-            }
-          },
-          "omp" => {
-            manifest: "package.json",
-            packages: {
-              "@oh-my-pi/pi-coding-agent" => -> { AgentHarness::Providers::OhMyPi::SUPPORTED_CLI_VERSION },
-              "bun" => -> { AgentHarness::Providers::OhMyPi::SUPPORTED_BUN_VERSION }
-            }
-          },
-          "kilocode" => {
-            manifest: "package.json",
-            packages: {
-              "@kilocode/cli" => -> { AgentHarness::Providers::Kilocode::DEFAULT_VERSION }
-            }
-          }
-        }
+      # Parses the constant assignment from the provider source without
+      # loading it. nil means the file no longer matches the pinned
+      # shape, which is itself drift the advisory issue should surface.
+      def constant_version(pin)
+        source = File.read(File.join(repo_root, pin.provider_file), encoding: "UTF-8")
+        match = source.match(/^\s*#{Regexp.escape(pin.constant)}\s*=\s*"(?<version>[^"]+)"/)
+        match && match[:version]
+      rescue Errno::ENOENT
+        nil
       end
 
-      def pip_cases
-        {
-          "aider" => {
-            manifest: "requirements.txt",
-            packages: {
-              "aider-chat" => -> { AgentHarness::Providers::Aider::SUPPORTED_CLI_VERSION }
-            }
-          }
-        }
+      def pip_manifest?(pin)
+        pin.manifest == "requirements.txt"
       end
     end
   end

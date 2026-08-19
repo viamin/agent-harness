@@ -5,16 +5,28 @@ require "json"
 require "digest"
 require "fileutils"
 
-require "agent_harness/providers/anthropic"
-require "agent_harness/providers/aider"
-require "agent_harness/providers/codex"
-require "agent_harness/providers/cursor"
-require "agent_harness/providers/gemini"
-require "agent_harness/providers/kilocode"
-require "agent_harness/providers/opencode"
-require "agent_harness/providers/omp"
-require "agent_harness/providers/pi"
+require_relative "../../script/cli_pin_refresh"
 
+# In-sync fixture versions for the ParitySweep examples, keyed
+# "<provider_dir>/<package>" the same way spec/sync_cli_pins_spec.rb keys
+# its FIXTURE_PINS.
+SWEEP_FIXTURE_VERSIONS = {
+  "claude/@anthropic-ai/claude-code" => "2.1.92",
+  "codex/@openai/codex" => "0.122.0",
+  "opencode/opencode-ai" => "1.18.9",
+  "gemini/@google/gemini-cli" => "0.35.3",
+  "pi/@mariozechner/pi-coding-agent" => "0.73.0",
+  "omp/@oh-my-pi/pi-coding-agent" => "17.0.1",
+  "omp/bun" => "1.3.14",
+  "kilocode/@kilocode/cli" => "7.4.16",
+  "aider/aider-chat" => "0.86.2"
+}.freeze
+
+# Behavior of script/cli_pin_refresh.rb - the library half of the step-3
+# scheduled refresh (see issue #338). The file lives under script/ (like
+# sync-cli-pins.rb) so the gemspec never ships this repository's CI
+# automation to gem consumers; script/refresh-artifact-pins.rb holds the
+# gh/git dispatch half.
 RSpec.describe AgentHarness::CliPinRefresh do
   describe AgentHarness::CliPinRefresh::Result do
     it "stores status and details" do
@@ -180,27 +192,33 @@ RSpec.describe AgentHarness::CliPinRefresh do
 
     let(:source) { described_class.new(file_path: @path) }
 
-    it "extracts both constants" do
+    it "extracts every pin constant" do
       expect(source.constants).to eq(
+        script_url: "https://cursor.com/install",
         build: "2026.03.30-a5d3e17",
+        script_sha256: "8371988b483abec13c07c10e95cccc839da81ebf9596e430d3c90835a227cbad",
         linux_x64_package_sha256: "e0d4b611db111d2dbe76474386271bff3e1dbb2cc6ddf527f9d5d5801b2ce2a0"
       )
     end
 
-    it "exposes the current build and sha256" do
+    it "exposes the current build and checksums" do
       expect(source.current_build).to eq("2026.03.30-a5d3e17")
       expect(source.current_sha256).to eq("e0d4b611db111d2dbe76474386271bff3e1dbb2cc6ddf527f9d5d5801b2ce2a0")
+      expect(source.current_script_sha256)
+        .to eq("8371988b483abec13c07c10e95cccc839da81ebf9596e430d3c90835a227cbad")
+      expect(source.current_script_url).to eq("https://cursor.com/install")
     end
 
-    it "renders an updated file with new constants substituted" do
-      rendered = source.render(build: "2027.01.01-abcdef0", sha256: "ffff")
+    it "renders an updated file with all three pins substituted" do
+      rendered = source.render(
+        build: "2027.01.01-abcdef0",
+        sha256: "ffff",
+        script_sha256: "eeee"
+      )
       expect(rendered).to include('INSTALL_BUILD = "2027.01.01-abcdef0"')
+      expect(rendered).to include('INSTALL_SCRIPT_SHA256 = "eeee"')
       expect(rendered).to include('INSTALL_LINUX_X64_PACKAGE_SHA256 = "ffff"')
-    end
-
-    it "leaves the script checksum untouched when rendering" do
-      rendered = source.render(build: "2027.01.01-abcdef0", sha256: "ffff")
-      expect(rendered).to include('INSTALL_SCRIPT_SHA256 = "8371988b483abec13c07c10e95cccc839da81ebf9596e430d3c90835a227cbad"')
+      expect(rendered).to include('INSTALL_SCRIPT_URL = "https://cursor.com/install"')
     end
 
     it "raises ParseError when constants cannot be found" do
@@ -324,38 +342,65 @@ RSpec.describe AgentHarness::CliPinRefresh do
     let(:source) { AgentHarness::CliPinRefresh::CursorSource.new(file_path: cursor_rb_path) }
     let(:releases) { instance_double(AgentHarness::CliPinRefresh::GithubCursorReleases) }
     let(:downloader) { instance_double(AgentHarness::CliPinRefresh::ArtifactDownloader) }
+    let(:script_url) { source.current_script_url }
 
     subject(:refresh) do
-      described_class.new(releases: releases, downloader: downloader, source: source)
+      described_class.new(releases: releases, downloader: downloader, source: source, script_url: script_url)
+    end
+
+    def stub_upstream(build:, artifact_sha256:, script_sha256:)
+      allow(releases).to receive(:latest_linux_x64_build).and_return(build)
+      allow(releases).to receive(:latest_release_url).and_return("https://example.test/release")
+      artifact_url = AgentHarness::CliPinRefresh::CursorArtifactUrl.call(build: build)
+      allow(downloader).to receive(:sha256).with(artifact_url).and_return(artifact_sha256)
+      allow(downloader).to receive(:sha256).with(script_url).and_return(script_sha256)
     end
 
     it "returns :unchanged when upstream matches the current pin" do
-      current_build = source.current_build
-      current_sha = source.current_sha256
-      allow(releases).to receive(:latest_linux_x64_build).and_return(current_build)
-      allow(releases).to receive(:latest_release_url).and_return("https://example.test/release")
-      artifact_url = AgentHarness::CliPinRefresh::CursorArtifactUrl.call(build: current_build)
-      allow(downloader).to receive(:sha256).with(artifact_url).and_return(current_sha)
+      stub_upstream(
+        build: source.current_build,
+        artifact_sha256: source.current_sha256,
+        script_sha256: source.current_script_sha256
+      )
 
       result = refresh.call
       expect(result.unchanged?).to be true
-      expect(result.details).to eq(build: current_build, sha256: current_sha)
+      expect(result.details).to eq(
+        build: source.current_build,
+        sha256: source.current_sha256,
+        script_sha256: source.current_script_sha256
+      )
     end
 
     it "returns :changed when the build moves" do
       new_build = "2027.04.01-fedcba9"
-      allow(releases).to receive(:latest_linux_x64_build).and_return(new_build)
-      allow(releases).to receive(:latest_release_url).and_return("https://example.test/release")
-      new_sha = "deadbeef"
-      artifact_url = AgentHarness::CliPinRefresh::CursorArtifactUrl.call(build: new_build)
-      allow(downloader).to receive(:sha256).with(artifact_url).and_return(new_sha)
+      stub_upstream(build: new_build, artifact_sha256: "deadbeef", script_sha256: "e" * 64)
 
       result = refresh.call
       expect(result.changed?).to be true
       expect(result.details[:build]).to eq(new_build)
-      expect(result.details[:sha256]).to eq(new_sha)
+      expect(result.details[:sha256]).to eq("deadbeef")
+      expect(result.details[:script_sha256]).to eq("e" * 64)
       expect(result.details[:previous_build]).to eq(source.current_build)
       expect(result.details[:previous_sha256]).to eq(source.current_sha256)
+      expect(result.details[:previous_script_sha256]).to eq(source.current_script_sha256)
+    end
+
+    it "returns :changed when only the install script checksum moves" do
+      # Cursor can re-ship cursor.com/install without a new agent build;
+      # the script checksum is one of the Dependabot-invisible pins this
+      # job exists to refresh, so it must drift visibly on its own.
+      stub_upstream(
+        build: source.current_build,
+        artifact_sha256: source.current_sha256,
+        script_sha256: "f" * 64
+      )
+
+      result = refresh.call
+      expect(result.changed?).to be true
+      expect(result.details[:build]).to eq(source.current_build)
+      expect(result.details[:previous_script_sha256]).to eq(source.current_script_sha256)
+      expect(result.details[:script_sha256]).to eq("f" * 64)
     end
 
     it "returns :failed when no linux/x64 asset is attached" do
@@ -371,6 +416,18 @@ RSpec.describe AgentHarness::CliPinRefresh do
       result = refresh.call
       expect(result.failed?).to be true
       expect(result.details[:reason]).to eq("503")
+    end
+
+    it "returns :failed when the install script checksum cannot be fetched" do
+      allow(releases).to receive(:latest_linux_x64_build).and_return("2027.04.01-fedcba9")
+      artifact_url = AgentHarness::CliPinRefresh::CursorArtifactUrl.call(build: "2027.04.01-fedcba9")
+      allow(downloader).to receive(:sha256).with(artifact_url).and_return("deadbeef")
+      allow(downloader).to receive(:sha256).with(script_url)
+        .and_raise(AgentHarness::CliPinRefresh::HttpClient::FetchError, "404")
+
+      result = refresh.call
+      expect(result.failed?).to be true
+      expect(result.details[:reason]).to eq("404")
     end
 
     it "returns :failed when the GitHub releases payload is malformed JSON" do
@@ -563,55 +620,92 @@ RSpec.describe AgentHarness::CliPinRefresh do
   end
 
   describe AgentHarness::CliPinRefresh::ParitySweep do
-    let(:tmp_pins_dir) { Dir.mktmpdir("parity-spec-") }
-    let(:sweep) { described_class.new(pins_dir: tmp_pins_dir, repo_root: tmp_pins_dir) }
+    let(:tmp_root) { Dir.mktmpdir("parity-sweep-") }
+    let(:pins_dir) { File.join(tmp_root, "vendor", "pins") }
+    let(:sweep) { described_class.new(pins_dir: pins_dir, repo_root: tmp_root) }
 
-    after { FileUtils.remove_entry(tmp_pins_dir) }
+    after { FileUtils.remove_entry(tmp_root) }
 
-    def write_npm_manifest(provider, packages)
-      dir = File.join(tmp_pins_dir, provider)
-      FileUtils.mkdir_p(dir)
-      File.write(File.join(dir, "package.json"), JSON.dump(
-        "name" => "agent-harness-pin-#{provider}",
-        "version" => "0.0.0",
-        "private" => true,
-        "devDependencies" => packages
-      ))
+    def pin(key)
+      CliPinSync::PINS.find { |candidate| "#{candidate.provider_dir}/#{candidate.package}" == key }
     end
 
-    def write_pip_manifest(provider, package, version)
-      dir = File.join(tmp_pins_dir, provider)
+    def ecosystem_for(pin)
+      return "pip" if pin.manifest == "requirements.txt"
+
+      "npm"
+    end
+
+    # Provider fixtures are flat constant assignments; the sweep parses
+    # the source text instead of loading it, so no module scaffolding is
+    # needed.
+    def write_provider(pin, constants)
+      path = File.join(tmp_root, pin.provider_file)
+      FileUtils.mkdir_p(File.dirname(path))
+      File.write(path, constants.map { |name, version| "#{name} = \"#{version}\"\n" }.join)
+    end
+
+    def write_manifest(pin, packages)
+      dir = File.join(pins_dir, pin.provider_dir)
       FileUtils.mkdir_p(dir)
-      File.write(File.join(dir, "requirements.txt"), "#{package}==#{version}\n")
+      if pin.manifest == "requirements.txt"
+        File.write(File.join(dir, pin.manifest), packages.map { |pkg, version| "#{pkg}==#{version}\n" }.join)
+      else
+        File.write(File.join(dir, pin.manifest), JSON.dump(
+          "name" => "agent-harness-pin-#{pin.provider_dir}",
+          "private" => true,
+          "devDependencies" => packages
+        ))
+      end
+    end
+
+    def write_in_sync_tree
+      CliPinSync::PINS.group_by(&:provider_file).each_value do |file_pins|
+        write_provider(file_pins.first, file_pins.to_h { |p|
+          [p.constant, SWEEP_FIXTURE_VERSIONS.fetch("#{p.provider_dir}/#{p.package}")]
+        })
+      end
+      CliPinSync::PINS.group_by { |p| [p.provider_dir, p.manifest] }.each_value do |manifest_pins|
+        write_manifest(manifest_pins.first, manifest_pins.to_h { |p|
+          [p.package, SWEEP_FIXTURE_VERSIONS.fetch("#{p.provider_dir}/#{p.package}")]
+        })
+      end
     end
 
     it "returns :unchanged when every constant agrees with its manifest" do
-      write_npm_manifest("claude", {"@anthropic-ai/claude-code" =>
-        AgentHarness::Providers::Anthropic::SUPPORTED_CLI_VERSION})
-      write_npm_manifest("codex", {"@openai/codex" =>
-        AgentHarness::Providers::Codex::SUPPORTED_CLI_VERSION})
-      write_npm_manifest("opencode", {"opencode-ai" =>
-        AgentHarness::Providers::Opencode::SUPPORTED_CLI_VERSION})
-      write_npm_manifest("gemini", {"@google/gemini-cli" =>
-        AgentHarness::Providers::Gemini::SUPPORTED_CLI_VERSION})
-      write_npm_manifest("pi", {"@mariozechner/pi-coding-agent" =>
-        AgentHarness::Providers::Pi::SUPPORTED_CLI_VERSION})
-      write_npm_manifest("omp", {
-        "@oh-my-pi/pi-coding-agent" => AgentHarness::Providers::OhMyPi::SUPPORTED_CLI_VERSION,
-        "bun" => AgentHarness::Providers::OhMyPi::SUPPORTED_BUN_VERSION
-      })
-      write_npm_manifest("kilocode", {"@kilocode/cli" =>
-        AgentHarness::Providers::Kilocode::DEFAULT_VERSION})
-      write_pip_manifest("aider", "aider-chat",
-        AgentHarness::Providers::Aider::SUPPORTED_CLI_VERSION)
+      write_in_sync_tree
 
       expect(sweep.call.unchanged?).to be true
     end
 
-    it "reports omp's bun pin when it drifts from SUPPORTED_BUN_VERSION" do
-      write_npm_manifest("omp", {
-        "@oh-my-pi/pi-coding-agent" => AgentHarness::Providers::OhMyPi::SUPPORTED_CLI_VERSION,
-        "bun" => "9.9.9" # stale
+    it "reports every pin in CliPinSync::PINS when all of them drift" do
+      # Proves the sweep's coverage is derived from CliPinSync::PINS: a
+      # newly added pin cannot be silently forgotten.
+      CliPinSync::PINS.group_by(&:provider_file).each_value do |file_pins|
+        write_provider(file_pins.first, file_pins.to_h { |p|
+          [p.constant, SWEEP_FIXTURE_VERSIONS.fetch("#{p.provider_dir}/#{p.package}")]
+        })
+      end
+      CliPinSync::PINS.group_by { |p| [p.provider_dir, p.manifest] }.each_value do |manifest_pins|
+        write_manifest(manifest_pins.first, manifest_pins.to_h { |p|
+          [p.package, "9.9.9"]
+        })
+      end
+
+      result = sweep.call
+      expect(result.divergent?).to be true
+      expect(result.details[:offenders].map { |o| [o[:ecosystem], o[:provider], o[:package]] }).to contain_exactly(
+        *CliPinSync::PINS.map { |p| [ecosystem_for(p), p.provider_dir, p.package] }
+      )
+    end
+
+    it "reports omp's bun pin when it drifts alongside a correct CLI pin" do
+      write_in_sync_tree
+      omp_cli = pin("omp/@oh-my-pi/pi-coding-agent")
+      omp_bun = pin("omp/bun")
+      write_manifest(omp_bun, {
+        omp_cli.package => SWEEP_FIXTURE_VERSIONS.fetch("omp/@oh-my-pi/pi-coding-agent"),
+        omp_bun.package => "9.9.9" # stale
       })
 
       result = sweep.call
@@ -621,13 +715,12 @@ RSpec.describe AgentHarness::CliPinRefresh do
       expect(offender[:provider]).to eq("omp")
       expect(offender[:package]).to eq("bun")
       expect(offender[:manifest_value]).to eq("9.9.9")
-      expect(offender[:constant_value]).to eq(AgentHarness::Providers::OhMyPi::SUPPORTED_BUN_VERSION)
+      expect(offender[:constant_value]).to eq(SWEEP_FIXTURE_VERSIONS.fetch("omp/bun"))
     end
 
     it "returns :divergent and reports the offending npm provider" do
-      write_npm_manifest("claude", {"@anthropic-ai/claude-code" =>
-        AgentHarness::Providers::Anthropic::SUPPORTED_CLI_VERSION})
-      write_npm_manifest("codex", {"@openai/codex" => "9.9.9"}) # stale
+      write_in_sync_tree
+      write_manifest(pin("codex/@openai/codex"), {"@openai/codex" => "9.9.9"}) # stale
 
       result = sweep.call
       expect(result.divergent?).to be true
@@ -636,11 +729,12 @@ RSpec.describe AgentHarness::CliPinRefresh do
       expect(offender[:provider]).to eq("codex")
       expect(offender[:package]).to eq("@openai/codex")
       expect(offender[:manifest_value]).to eq("9.9.9")
-      expect(offender[:constant_value]).to eq(AgentHarness::Providers::Codex::SUPPORTED_CLI_VERSION)
+      expect(offender[:constant_value]).to eq(SWEEP_FIXTURE_VERSIONS.fetch("codex/@openai/codex"))
     end
 
     it "returns :divergent and reports the offending pip provider" do
-      write_pip_manifest("aider", "aider-chat", "9.9.9") # stale
+      write_in_sync_tree
+      write_manifest(pin("aider/aider-chat"), {"aider-chat" => "9.9.9"}) # stale
 
       result = sweep.call
       expect(result.divergent?).to be true
@@ -649,7 +743,29 @@ RSpec.describe AgentHarness::CliPinRefresh do
       expect(offender[:provider]).to eq("aider")
       expect(offender[:package]).to eq("aider-chat")
       expect(offender[:manifest_value]).to eq("9.9.9")
-      expect(offender[:constant_value]).to eq(AgentHarness::Providers::Aider::SUPPORTED_CLI_VERSION)
+      expect(offender[:constant_value]).to eq(SWEEP_FIXTURE_VERSIONS.fetch("aider/aider-chat"))
+    end
+
+    it "reports a manifest that dropped the package entirely" do
+      write_in_sync_tree
+      write_manifest(pin("gemini/@google/gemini-cli"), {}) # package missing
+
+      result = sweep.call
+      expect(result.divergent?).to be true
+      offender = result.details[:offenders].find { |o| o[:package] == "@google/gemini-cli" }
+      expect(offender[:manifest_value]).to be_nil
+      expect(offender[:constant_value]).to eq(SWEEP_FIXTURE_VERSIONS.fetch("gemini/@google/gemini-cli"))
+    end
+
+    it "reports a provider whose constant no longer parses" do
+      write_in_sync_tree
+      write_provider(pin("opencode/opencode-ai"), {"UNRELATED" => "0.0.1"})
+
+      result = sweep.call
+      expect(result.divergent?).to be true
+      offender = result.details[:offenders].find { |o| o[:package] == "opencode-ai" }
+      expect(offender[:constant_value]).to be_nil
+      expect(offender[:manifest_value]).to eq(SWEEP_FIXTURE_VERSIONS.fetch("opencode/opencode-ai"))
     end
 
     it "skips providers whose manifest is missing (defensive)" do
