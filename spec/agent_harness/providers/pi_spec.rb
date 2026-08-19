@@ -22,29 +22,29 @@ RSpec.describe AgentHarness::Providers::Pi do
       expect(contract).to include(
         source: :npm,
         package_name: "@mariozechner/pi-coding-agent",
-        version: "0.73.0",
+        version: "0.73.1",
         binary_name: "pi"
       )
-      expect(contract[:package]).to eq("@mariozechner/pi-coding-agent@0.73.0")
-      expect(contract[:supported_versions]).to eq(["0.73.0"])
-      expect(contract[:version_requirement]).to eq(["= 0.73.0"])
+      expect(contract[:package]).to eq("@mariozechner/pi-coding-agent@0.73.1")
+      expect(contract[:supported_versions]).to eq(["0.73.1"])
+      expect(contract[:version_requirement]).to eq(["= 0.73.1"])
       expect(contract[:install_command]).to eq(
-        ["npm", "install", "-g", "--ignore-scripts", "@mariozechner/pi-coding-agent@0.73.0"]
+        ["npm", "install", "-g", "--ignore-scripts", "@mariozechner/pi-coding-agent@0.73.1"]
       )
     end
 
     it "rejects unsupported versions" do
       expect {
-        described_class.installation_contract(version: "0.72.0")
-      }.to raise_error(ArgumentError, /Unsupported Pi CLI version "0.72.0"/)
+        described_class.installation_contract(version: "0.73.0")
+      }.to raise_error(ArgumentError, /Unsupported Pi CLI version "0.73.0"/)
     end
 
     it "normalizes surrounding whitespace in supported versions" do
-      contract = described_class.installation_contract(version: " 0.73.0 ")
+      contract = described_class.installation_contract(version: " 0.73.1 ")
 
-      expect(contract[:version]).to eq("0.73.0")
+      expect(contract[:version]).to eq("0.73.1")
       expect(contract[:install_command]).to eq(
-        ["npm", "install", "-g", "--ignore-scripts", "@mariozechner/pi-coding-agent@0.73.0"]
+        ["npm", "install", "-g", "--ignore-scripts", "@mariozechner/pi-coding-agent@0.73.1"]
       )
     end
   end

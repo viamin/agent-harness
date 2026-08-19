@@ -4336,8 +4336,17 @@ RSpec.describe AgentHarness::Providers::Kilocode do
     let(:executor) { instance_double(AgentHarness::CommandExecutor) }
     let(:provider) { described_class.new(executor: executor) }
     let(:heartbeat_path) { "/paid-heartbeat/.paid-heartbeat" }
+    let(:hooks_config_path) { File.expand_path("~/.config/kilocode/hooks.json") }
 
     subject(:integration) { provider.heartbeat_integration(heartbeat_file_path: heartbeat_path) }
+
+    before do
+      # Keep the merge hermetic: a developer machine (or agent container) may
+      # carry a real ~/.config/kilocode/hooks.json written by a heartbeat
+      # integration, and merging it would change the expectations below.
+      allow(File).to receive(:exist?).and_call_original
+      allow(File).to receive(:exist?).with(hooks_config_path).and_return(false)
+    end
 
     it "returns a supported integration" do
       expect(integration[:supported]).to be true
@@ -4385,7 +4394,6 @@ RSpec.describe AgentHarness::Providers::Kilocode do
     end
 
     context "when existing hooks.json is present" do
-      let(:hooks_config_path) { File.expand_path("~/.config/kilocode/hooks.json") }
       let(:existing_config) do
         {"hooks" => {"on_activity" => [{"command" => "echo existing"}], "on_error" => [{"command" => "echo error"}]}}
       end
