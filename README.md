@@ -301,10 +301,10 @@ opencode_install
 # => {
 #      source: :npm,
 #      package_name: "opencode-ai",
-#      version: "1.18.9",
-#      version_requirement: [">= 1.18.9", "< 2.0.0"],
+#      version: "1.18.18",
+#      version_requirement: [">= 1.18.18", "< 2.0.0"],
 #      binary_name: "opencode",
-#      install_command: ["npm", "install", "-g", "--ignore-scripts", "opencode-ai@1.18.9"]
+#      install_command: ["npm", "install", "-g", "--ignore-scripts", "opencode-ai@1.18.18"]
 #    }
 
 aider_install
