@@ -180,7 +180,12 @@ class CliPinSync
       raise SyncError, "#{pin.provider_file} no longer assigns #{pin.requirement_name}"
     end
 
-    literals = assignment[:rhs].scan(/"([^"]*)"/).flatten
+    rhs = assignment[:rhs]
+    if rhs.rstrip.end_with?(",")
+      raise SyncError, "#{pin.provider_file}: #{pin.requirement_name} continues on the next line; cannot parse its constraints safely"
+    end
+
+    literals = rhs.scan(/"([^"]*)"/).flatten
     if literals.empty?
       raise SyncError, "#{pin.provider_file}: cannot parse requirement strings from #{pin.requirement_name}"
     end

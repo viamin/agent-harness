@@ -213,6 +213,18 @@ RSpec.describe CliPinSync do
       expect { described_class.new(repo_root).call }
         .to raise_error(CliPinSync::SyncError, /SUPPORTED_CLI_REQUIREMENT/)
     end
+
+    it "fails loudly when the requirement spans multiple lines with a first-line literal" do
+      source = read_file("lib/agent_harness/providers/opencode.rb").sub(
+        /^(\s*)SUPPORTED_CLI_REQUIREMENT\s*=\s*.*$/,
+        "\\1SUPPORTED_CLI_REQUIREMENT = Gem::Requirement.new(\">= \#{SUPPORTED_CLI_VERSION}\",\n\\1  \"< 2.0.0\").freeze"
+      )
+      write_file("lib/agent_harness/providers/opencode.rb", source)
+      bump_manifest("opencode/opencode-ai", "2.5.0")
+
+      expect { described_class.new(repo_root).call }
+        .to raise_error(CliPinSync::SyncError, /continues on the next line/)
+    end
   end
 
   describe "the executable wrapper" do
