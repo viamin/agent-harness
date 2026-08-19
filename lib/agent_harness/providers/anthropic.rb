@@ -27,7 +27,7 @@ module AgentHarness
 
       # Model name pattern for Anthropic Claude models
       MODEL_PATTERN = /^claude-[\d.-]+-(?:opus|sonnet|haiku)(?:-\d{8})?$/i
-      SUPPORTED_CLI_VERSION = "2.1.92"
+      SUPPORTED_CLI_VERSION = "2.1.233"
       SUPPORTED_CLI_REQUIREMENT = Gem::Requirement.new(">= #{SUPPORTED_CLI_VERSION}", "< 2.2.0").freeze
 
       # Matches semver (e.g. "2.1.92"), optional pre-release (e.g. "2.1.92-beta.1"),
