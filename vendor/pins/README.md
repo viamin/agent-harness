@@ -19,8 +19,12 @@ when upstream ships a new release. They are:
 2. CI runs the parity spec at
    `spec/vendor_pins_parity_spec.rb`. It fails because the
    manifest and the provider's `SUPPORTED_CLI_VERSION` constant disagree.
-3. The step-2 sync workflow (see issue #336's follow-ups) rewrites the
-   corresponding Ruby constant. CI re-runs and goes green.
+3. The `workflow_run` sync workflow
+   ([`.github/workflows/sync-cli-pins.yml`](../../.github/workflows/sync-cli-pins.yml))
+   fires on that red CI run, rewrites the corresponding Ruby constant via
+   [`script/sync-cli-pins.rb`](../../script/sync-cli-pins.rb), re-runs the
+   spec suite, and pushes the sync commit back to the PR branch as
+   `github-actions[bot]`.
 4. The PR is merged as a single conventional commit — same shape as the
    hand-edited bumps we do today.
 
@@ -66,6 +70,18 @@ Providers deliberately without a manifest:
 - **omp carries a Bun runtime pin.** Both `@oh-my-pi/pi-coding-agent` and
   `bun` live in the same `omp/package.json` so a runtime bump also goes
   through the same one-PR-per-provider flow. The parity spec checks both.
+- **Out-of-range bumps are blocked, not auto-synced.** The sync script
+  validates each bump against the provider's requirement *as currently
+  written* and refuses to rewrite constants for bumps outside it. Today
+  that means codex/claude/opencode/aider bumps crossing their upper bound
+  and any bump to an exact `=` pin (gemini, pi, omp's CLI, kilocode). The
+  workflow exits red and comments on the PR; a human widens the
+  requirement deliberately and lands the bump by hand.
+- **The sync push does not re-run PR CI.** `GITHUB_TOKEN` pushes never
+  fire workflow events, so the sync workflow itself runs the full spec
+  suite (parity spec included) before pushing — that green run is the
+  verification for the synced commit. Swapping the push credential for a
+  GitHub App token would re-trigger CI if that is ever wanted.
 
 ## `versioning-strategy`: `increase`
 
