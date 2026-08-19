@@ -67,7 +67,11 @@ jobs:
       - name: Run specs (including the vendor/pins parity spec)
         run: bundle exec rspec
 
+      # Steps carry a default success() status check, so a red rspec run
+      # would skip this push anyway — the explicit if keeps that gate visible
+      # and tied to the verification suite above.
       - name: Push sync commit to the PR branch
+        if: success()
         env:
           BRANCH: ${{ github.event.workflow_run.head_branch }}
           GH_TOKEN: ${{ github.token }}
@@ -87,7 +91,10 @@ jobs:
       # specs fail); the comment makes the human decision visible instead of
       # letting Dependabot rebase the PR forever.
       - name: Comment on the PR when a bump is blocked
-        if: steps.sync.outcome == 'failure'
+        # failure() is required: an if: without a status check function gets
+        # success() auto-applied, which would make this step unreachable
+        # exactly when the sync step fails.
+        if: failure() && steps.sync.outcome == 'failure'
         env:
           BRANCH: ${{ github.event.workflow_run.head_branch }}
           REPO: ${{ github.repository }}
