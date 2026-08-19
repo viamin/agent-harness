@@ -1,0 +1,68 @@
+name: Refresh CLI Artifact Pins
+
+# Weekly scheduled job that fills the Dependabot gaps described in
+# issue #338. Refreshes the Cursor artifact pin (no manifest tracks it)
+# and verifies the Claude oracle parity (npm vs install.sh).
+#
+# Cron schedule: Tuesdays 07:17 UTC. Off-peak, avoids the top-of-hour
+# delays GitHub mentions for scheduled workflows. workflow_dispatch is
+# wired up for end-to-end testing without waiting a week.
+#
+# Permissions: the default GITHUB_TOKEN with `contents: write` and
+# `pull-requests: write` so the runner can open PRs/issues. The same
+# identity Dependabot uses (per #337).
+
+on:
+  schedule:
+    # 07:17 UTC on Tuesdays - off-peak; avoids top-of-hour load delays.
+    - cron: "17 7 * * 2"
+  workflow_dispatch:
+
+concurrency:
+  group: refresh-cli-pins-${{ github.workflow }}
+  # Let the run finish; a stale run cancelling mid-write to cursor.rb
+  # would leave the working tree in an inconsistent state.
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  refresh:
+    name: Refresh artifact pins + check oracle parity
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          # Full history so the script's branch-from-main step works on
+          # the first run after a squash-merge.
+          fetch-depth: 0
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b
+        with:
+          # bundler-cache runs bundle install and restores the gem cache,
+          # the same setup .github/workflows/sync-cli-pins.yml uses.
+          bundler-cache: true
+
+      - name: Run scheduled refresh
+        env:
+          CLAUDE_INSTALL_URL: ${{ vars.CLAUDE_INSTALL_URL || 'https://claude.ai/install.sh' }}
+          CLAUDE_NPM_PACKAGE: ${{ vars.CLAUDE_NPM_PACKAGE || '@anthropic-ai/claude-code' }}
+          # `gh` is preinstalled on `ubuntu-latest` and authenticates
+          # via GH_TOKEN below.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bundle exec ruby script/refresh-artifact-pins.rb
+
+      # GITHUB_TOKEN-opened PRs never trigger `on: pull_request` workflows,
+      # so the generated PR shows no checks of its own. The script leaves the
+      # working tree on the automation branch with the rendered pin — run
+      # the suite against that tree so the pushed content is verified (the
+      # same compensation sync-cli-pins.yml applies before its push).
+      - name: Run specs against the refreshed pin
+        run: bundle exec rspec
