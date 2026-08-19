@@ -17,7 +17,7 @@ when upstream ships a new release. They are:
 1. Dependabot notices a new upstream release and opens a PR editing only
    the manifest here (e.g. `vendor/pins/opencode/package.json`).
 2. CI runs the parity spec at
-   `spec/agent_harness/vendor_pins_parity_spec.rb`. It fails because the
+   `spec/vendor_pins_parity_spec.rb`. It fails because the
    manifest and the provider's `SUPPORTED_CLI_VERSION` constant disagree.
 3. The step-2 sync workflow (see issue #336's follow-ups) rewrites the
    corresponding Ruby constant. CI re-runs and goes green.
@@ -29,16 +29,16 @@ also fails the parity spec, so drift can't slip through.
 
 ## Provider inventory
 
-| Provider   | Manifest                                | Oracle package                     | Ruby constant |
-|------------|-----------------------------------------|------------------------------------|---------------|
-| claude     | `claude/package.json`                   | npm `@anthropic-ai/claude-code`    | `Providers::Anthropic::SUPPORTED_CLI_VERSION` |
-| codex      | `codex/package.json`                    | npm `@openai/codex`                | `Providers::Codex::SUPPORTED_CLI_VERSION` |
-| opencode   | `opencode/package.json`                 | npm `opencode-ai`                  | `Providers::Opencode::SUPPORTED_CLI_VERSION` |
-| gemini     | `gemini/package.json`                   | npm `@google/gemini-cli`           | `Providers::Gemini::SUPPORTED_CLI_VERSION` |
-| pi         | `pi/package.json`                       | npm `@mariozechner/pi-coding-agent`| `Providers::Pi::SUPPORTED_CLI_VERSION` |
-| omp        | `omp/package.json` (CLI + Bun runtime)  | npm `@oh-my-pi/pi-coding-agent`, `bun` | `Providers::OhMyPi::SUPPORTED_CLI_VERSION`, `SUPPORTED_BUN_VERSION` |
-| kilocode   | `kilocode/package.json`                 | npm `@kilocode/cli`                | `Providers::Kilocode::DEFAULT_VERSION` |
-| aider      | `aider/requirements.txt`                | PyPI `aider-chat`                  | `Providers::Aider::SUPPORTED_CLI_VERSION` |
+| Provider | Manifest                               | Oracle package                         | Ruby constant                                                       |
+|----------|----------------------------------------|----------------------------------------|---------------------------------------------------------------------|
+| claude   | `claude/package.json`                  | npm `@anthropic-ai/claude-code`        | `Providers::Anthropic::SUPPORTED_CLI_VERSION`                       |
+| codex    | `codex/package.json`                   | npm `@openai/codex`                    | `Providers::Codex::SUPPORTED_CLI_VERSION`                           |
+| opencode | `opencode/package.json`                | npm `opencode-ai`                      | `Providers::Opencode::SUPPORTED_CLI_VERSION`                        |
+| gemini   | `gemini/package.json`                  | npm `@google/gemini-cli`               | `Providers::Gemini::SUPPORTED_CLI_VERSION`                          |
+| pi       | `pi/package.json`                      | npm `@mariozechner/pi-coding-agent`    | `Providers::Pi::SUPPORTED_CLI_VERSION`                              |
+| omp      | `omp/package.json` (CLI + Bun runtime) | npm `@oh-my-pi/pi-coding-agent`, `bun` | `Providers::OhMyPi::SUPPORTED_CLI_VERSION`, `SUPPORTED_BUN_VERSION` |
+| kilocode | `kilocode/package.json`                | npm `@kilocode/cli`                    | `Providers::Kilocode::DEFAULT_VERSION`                              |
+| aider    | `aider/requirements.txt`               | PyPI `aider-chat`                      | `Providers::Aider::SUPPORTED_CLI_VERSION`                           |
 
 Providers deliberately without a manifest:
 
