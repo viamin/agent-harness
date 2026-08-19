@@ -372,9 +372,14 @@ module AgentHarness
         )
       end
 
+      # `.[0].number // empty` returns an empty string when `pr list` has no
+      # open PR for the head branch; `.[0].number` alone emits the literal
+      # `"null"` (not empty output) and would make `open_pull_request`
+      # silently no-op against `pr comment null` and leave the branch
+      # without a PR.
       def find_open_pull_request(branch)
         raw = @github_cli.call("pr", "list", "--head", branch, "--state", "open",
-          "--json", "number", "--jq", ".[0].number")
+          "--json", "number", "--jq", ".[0].number // empty")
         number = raw.strip
         return nil if number.empty?
 
@@ -394,10 +399,14 @@ module AgentHarness
         end
       end
 
+      # `.[0].number // empty` returns an empty string when `issue list`
+      # has no open issue with the given labels; `.[0].number` alone emits
+      # the literal `"null"` (not empty output) and would crash the script
+      # via `gh issue comment null`.
       def find_open_issue(labels)
         label_arg = labels.join(",")
         raw = @github_cli.call("issue", "list", "--label", label_arg, "--state", "open",
-          "--json", "number", "--jq", ".[0].number")
+          "--json", "number", "--jq", ".[0].number // empty")
         number = raw.strip
         return nil if number.empty?
 

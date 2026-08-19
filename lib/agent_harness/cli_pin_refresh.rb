@@ -222,7 +222,7 @@ module AgentHarness
       #   the whole step just because html_url was missing).
       def latest_release_url
         latest_release["html_url"]
-      rescue HttpClient::FetchError
+      rescue HttpClient::FetchError, JSON::ParserError
         nil
       end
 
@@ -324,7 +324,7 @@ module AgentHarness
             previous_sha256: current_sha256
           }
         )
-      rescue HttpClient::FetchError => e
+      rescue HttpClient::FetchError, JSON::ParserError => e
         Result.new(status: :failed, details: {reason: e.message})
       end
     end
@@ -397,7 +397,7 @@ module AgentHarness
         encoded = URI.encode_www_form_component(package_name)
         body = @http_client.get("#{@registry_url}/#{encoded}/latest")
         JSON.parse(body)["version"]
-      rescue HttpClient::FetchError
+      rescue HttpClient::FetchError, JSON::ParserError
         nil
       end
     end

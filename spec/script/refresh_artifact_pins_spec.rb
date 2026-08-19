@@ -171,7 +171,7 @@ RSpec.describe AgentHarness::CliPinRefresh::ScriptRunner do
 
     expect(remote_branch_sha(BRANCH)).to eq(sha_before)
     expect(pr_create_call(second_github_cli.calls)).to be_nil
-    expect(second_github_cli.messages.join("\n")).to match(/PR #42 already open for #{BRANCH}/)
+    expect(second_github_cli.messages.join("\n")).to match(/PR #42 already open for #{BRANCH}/o)
   end
 
   it "leaves git and gh untouched when the pin is unchanged" do

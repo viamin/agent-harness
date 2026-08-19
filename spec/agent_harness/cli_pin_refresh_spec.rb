@@ -100,7 +100,7 @@ RSpec.describe AgentHarness::CliPinRefresh do
         described_class.new.get("https://example.test/loop")
       }.to raise_error(
         AgentHarness::CliPinRefresh::HttpClient::FetchError,
-        /exceeded #{described_class::MAX_REDIRECTS} redirects/
+        /exceeded #{described_class::MAX_REDIRECTS} redirects/o
       )
     end
 
@@ -287,6 +287,12 @@ RSpec.describe AgentHarness::CliPinRefresh do
       releases = described_class.new(http_client: http_client)
       expect(releases.latest_release_url).to be_nil
     end
+
+    it "returns nil for release_url when the API returns malformed JSON" do
+      allow(http_client).to receive(:get).and_return("not json at all")
+      releases = described_class.new(http_client: http_client)
+      expect(releases.latest_release_url).to be_nil
+    end
   end
 
   describe AgentHarness::CliPinRefresh::ArtifactDownloader do
@@ -365,6 +371,14 @@ RSpec.describe AgentHarness::CliPinRefresh do
       result = refresh.call
       expect(result.failed?).to be true
       expect(result.details[:reason]).to eq("503")
+    end
+
+    it "returns :failed when the GitHub releases payload is malformed JSON" do
+      allow(releases).to receive(:latest_linux_x64_build)
+        .and_raise(JSON::ParserError, "unexpected token at 'foo'")
+      result = refresh.call
+      expect(result.failed?).to be true
+      expect(result.details[:reason]).to match(/unexpected token/)
     end
   end
 
@@ -462,6 +476,12 @@ RSpec.describe AgentHarness::CliPinRefresh do
     it "returns nil on HTTP failure" do
       allow(http_client).to receive(:get)
         .and_raise(AgentHarness::CliPinRefresh::HttpClient::FetchError, "boom")
+      registry = described_class.new(http_client: http_client)
+      expect(registry.latest_version("@anthropic-ai/claude-code")).to be_nil
+    end
+
+    it "returns nil when the registry payload is malformed JSON" do
+      allow(http_client).to receive(:get).and_return("not json at all")
       registry = described_class.new(http_client: http_client)
       expect(registry.latest_version("@anthropic-ai/claude-code")).to be_nil
     end
