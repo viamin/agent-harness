@@ -10,7 +10,7 @@ module AgentHarness
     # Provides integration with the Kilocode CLI tool.
     class Kilocode < Base
       PACKAGE_NAME = "@kilocode/cli"
-      DEFAULT_VERSION = "7.4.16"
+      DEFAULT_VERSION = "7.4.22"
       SUPPORTED_VERSION_REQUIREMENT = "= #{DEFAULT_VERSION}"
       STRUCTURED_EVENT_TYPES = %w[text error step_finish result usage].freeze
       MODEL_NAMES = %w[
