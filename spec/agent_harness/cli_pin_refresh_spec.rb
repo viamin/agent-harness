@@ -273,6 +273,14 @@ RSpec.describe AgentHarness::CliPinRefresh do
       expect(releases.latest_release_url).to eq("https://github.com/cursor/agent/releases/tag/v2027.01.01")
     end
 
+    it "memoizes the parsed release so build + url share one HTTP fetch" do
+      releases = described_class.new(http_client: http_client)
+      releases.latest_linux_x64_build
+      releases.latest_release_url
+
+      expect(http_client).to have_received(:get).once
+    end
+
     it "returns nil for release_url when the API call fails" do
       allow(http_client).to receive(:get)
         .and_raise(AgentHarness::CliPinRefresh::HttpClient::FetchError, "boom")

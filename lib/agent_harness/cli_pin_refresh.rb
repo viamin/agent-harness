@@ -228,10 +228,12 @@ module AgentHarness
 
       private
 
-      # @return [Hash] parsed GitHub release payload
+      # @return [Hash] parsed GitHub release payload. Memoized so callers
+      #   that need both the build and the release URL share a single
+      #   network round trip; the upstream API is rate-limited and the
+      #   payload is immutable for the lifetime of this instance.
       def latest_release
-        body = @http_client.get(releases_url)
-        JSON.parse(body)
+        @latest_release ||= JSON.parse(@http_client.get(releases_url))
       end
 
       def releases_url
