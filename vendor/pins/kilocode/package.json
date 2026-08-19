@@ -1,0 +1,9 @@
+{
+  "name": "agent-harness-pin-kilocode",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Version oracle for the Kilocode CLI. Never installed; Dependabot bumps this manifest to signal upstream releases and CI parity spec keeps Providers::Kilocode::DEFAULT_VERSION in sync. See vendor/pins/README.md and issue #336.",
+  "devDependencies": {
+    "@kilocode/cli": "7.4.16"
+  }
+}
