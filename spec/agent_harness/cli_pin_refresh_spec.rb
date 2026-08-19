@@ -12,6 +12,7 @@ require "agent_harness/providers/cursor"
 require "agent_harness/providers/gemini"
 require "agent_harness/providers/kilocode"
 require "agent_harness/providers/opencode"
+require "agent_harness/providers/omp"
 require "agent_harness/providers/pi"
 
 RSpec.describe AgentHarness::CliPinRefresh do
@@ -42,31 +43,94 @@ RSpec.describe AgentHarness::CliPinRefresh do
   end
 
   describe AgentHarness::CliPinRefresh::HttpClient do
-    let(:uri) { URI.parse("https://example.test/path") }
+    def ok_response(body)
+      Net::HTTPOK.new("1.1", "200", "OK").tap do |r|
+        r.instance_variable_set(:@body, body)
+        def r.body
+          @body
+        end
+      end
+    end
+
+    def redirect_response(location)
+      Net::HTTPFound.new("1.1", "302", "Found").tap { |r| r["Location"] = location }
+    end
+
+    def http_double(request_uri, response)
+      instance_double(Net::HTTP).tap do |http|
+        allow(http).to receive(:use_ssl=)
+        allow(http).to receive(:open_timeout=)
+        allow(http).to receive(:read_timeout=)
+        allow(http).to receive(:get).with(request_uri).and_return(response)
+      end
+    end
 
     it "returns the response body on 2xx" do
-      response = Net::HTTPOK.new("1.1", "200", "OK").tap { |r| r.instance_variable_set(:@body, "hello") }
-      def response.body
-        @body
-      end
-      http = instance_double(Net::HTTP)
-      allow(http).to receive(:use_ssl=)
-      allow(http).to receive(:open_timeout=)
-      allow(http).to receive(:read_timeout=)
-      allow(http).to receive(:get).with("/path").and_return(response)
-      allow(Net::HTTP).to receive(:new).with("example.test", 443).and_return(http)
+      allow(Net::HTTP).to receive(:new).with("example.test", 443)
+        .and_return(http_double("/path", ok_response("hello")))
 
       expect(described_class.new.get("https://example.test/path")).to eq("hello")
     end
 
+    it "follows redirects to the final response body" do
+      allow(Net::HTTP).to receive(:new).with("claude.ai", 443)
+        .and_return(http_double("/install.sh",
+          redirect_response("https://downloads.claude.ai/claude-code-releases/bootstrap.sh")))
+      allow(Net::HTTP).to receive(:new).with("downloads.claude.ai", 443)
+        .and_return(http_double("/claude-code-releases/bootstrap.sh", ok_response("script body")))
+
+      expect(described_class.new.get("https://claude.ai/install.sh")).to eq("script body")
+    end
+
+    it "resolves a relative Location against the request URL" do
+      allow(Net::HTTP).to receive(:new).with("example.test", 443)
+        .and_return(
+          http_double("/old", redirect_response("/new")),
+          http_double("/new", ok_response("moved"))
+        )
+
+      expect(described_class.new.get("https://example.test/old")).to eq("moved")
+    end
+
+    it "raises FetchError when the redirect chain exceeds the hop limit" do
+      allow(Net::HTTP).to receive(:new).with("example.test", 443)
+        .and_return(http_double("/loop", redirect_response("https://example.test/loop")))
+
+      expect {
+        described_class.new.get("https://example.test/loop")
+      }.to raise_error(
+        AgentHarness::CliPinRefresh::HttpClient::FetchError,
+        /exceeded #{described_class::MAX_REDIRECTS} redirects/
+      )
+    end
+
+    it "raises FetchError when a redirect omits the Location header" do
+      allow(Net::HTTP).to receive(:new).with("example.test", 443)
+        .and_return(http_double("/old", Net::HTTPFound.new("1.1", "302", "Found")))
+
+      expect {
+        described_class.new.get("https://example.test/old")
+      }.to raise_error(
+        AgentHarness::CliPinRefresh::HttpClient::FetchError,
+        /redirected without a Location header/
+      )
+    end
+
+    it "raises FetchError when a redirect targets a non-http scheme" do
+      allow(Net::HTTP).to receive(:new).with("example.test", 443)
+        .and_return(http_double("/old", redirect_response("file:///etc/passwd")))
+
+      expect {
+        described_class.new.get("https://example.test/old")
+      }.to raise_error(
+        AgentHarness::CliPinRefresh::HttpClient::FetchError,
+        /unsupported scheme/
+      )
+    end
+
     it "raises FetchError on non-success response" do
-      response = Net::HTTPNotFound.new("1.1", "404", "Not Found")
-      http = instance_double(Net::HTTP)
-      allow(http).to receive(:use_ssl=)
-      allow(http).to receive(:open_timeout=)
-      allow(http).to receive(:read_timeout=)
-      allow(http).to receive(:get).and_return(response)
-      allow(Net::HTTP).to receive(:new).and_return(http)
+      allow(Net::HTTP).to receive(:new).with("example.test", 443)
+        .and_return(http_double("/missing", Net::HTTPNotFound.new("1.1", "404", "Not Found")))
 
       expect {
         described_class.new.get("https://example.test/missing")
@@ -298,49 +362,77 @@ RSpec.describe AgentHarness::CliPinRefresh do
 
   describe AgentHarness::CliPinRefresh::ClaudeInstallerProbe do
     let(:http_client) { instance_double(AgentHarness::CliPinRefresh::HttpClient) }
-
-    it "extracts the version from a `/v2.1.92/` release URL in the script" do
-      allow(http_client).to receive(:get).with("https://claude.ai/install.sh").and_return(<<~SH)
+    let(:bootstrap_script) do
+      <<~SH
         #!/usr/bin/env bash
-        URL="https://downloads.anthropic.com/claude-code/v2.1.92/install.sh"
+        DOWNLOAD_BASE_URL="https://downloads.claude.ai/claude-code-releases"
+        version=$(download_file "$DOWNLOAD_BASE_URL/latest")
       SH
-
-      probe = described_class.new(
-        http_client: http_client,
-        install_script_url: "https://claude.ai/install.sh"
-      )
-      expect(probe.resolved_version).to eq("2.1.92")
     end
 
-    it "extracts the version from a VERSION= assignment" do
-      allow(http_client).to receive(:get).and_return(<<~SH)
-        #!/usr/bin/env bash
-        VERSION=2.1.92
-      SH
-
-      probe = described_class.new(
+    subject(:probe) do
+      described_class.new(
         http_client: http_client,
         install_script_url: "https://claude.ai/install.sh"
       )
-      expect(probe.resolved_version).to eq("2.1.92")
     end
 
-    it "returns nil when the script contains no recognizable version" do
-      allow(http_client).to receive(:get).and_return("#!/usr/bin/env bash\necho hi\n")
-      probe = described_class.new(
-        http_client: http_client,
-        install_script_url: "https://claude.ai/install.sh"
-      )
+    it "asks the installer's own version endpoint what install.sh would install" do
+      allow(http_client).to receive(:get).with("https://claude.ai/install.sh").and_return(bootstrap_script)
+      allow(http_client).to receive(:get)
+        .with("https://downloads.claude.ai/claude-code-releases/latest")
+        .and_return("2.1.235\n")
+
+      expect(probe.resolved_version).to eq("2.1.235")
+    end
+
+    it "strips an optional v prefix from the endpoint response" do
+      allow(http_client).to receive(:get).with("https://claude.ai/install.sh").and_return(bootstrap_script)
+      allow(http_client).to receive(:get)
+        .with("https://downloads.claude.ai/claude-code-releases/latest")
+        .and_return("v2.1.235")
+
+      expect(probe.resolved_version).to eq("2.1.235")
+    end
+
+    it "handles a trailing slash in the script's download base URL" do
+      allow(http_client).to receive(:get).with("https://claude.ai/install.sh")
+        .and_return('DOWNLOAD_BASE_URL="https://downloads.example.test/releases/"')
+      allow(http_client).to receive(:get).with("https://downloads.example.test/releases/latest")
+        .and_return("2.1.235")
+
+      expect(probe.resolved_version).to eq("2.1.235")
+    end
+
+    it "returns nil when the script declares no download base URL" do
+      allow(http_client).to receive(:get).with("https://claude.ai/install.sh")
+        .and_return("#!/usr/bin/env bash\necho hi\n")
+
       expect(probe.resolved_version).to be_nil
     end
 
-    it "returns nil on HTTP failure (don't crash the parity check)" do
+    it "returns nil when the version endpoint answers with a non-version body" do
+      allow(http_client).to receive(:get).with("https://claude.ai/install.sh").and_return(bootstrap_script)
       allow(http_client).to receive(:get)
+        .with("https://downloads.claude.ai/claude-code-releases/latest")
+        .and_return("<html>Service Unavailable</html>")
+
+      expect(probe.resolved_version).to be_nil
+    end
+
+    it "returns nil on HTTP failure fetching the script" do
+      allow(http_client).to receive(:get).with("https://claude.ai/install.sh")
         .and_raise(AgentHarness::CliPinRefresh::HttpClient::FetchError, "boom")
-      probe = described_class.new(
-        http_client: http_client,
-        install_script_url: "https://claude.ai/install.sh"
-      )
+
+      expect(probe.resolved_version).to be_nil
+    end
+
+    it "returns nil on HTTP failure fetching the version endpoint" do
+      allow(http_client).to receive(:get).with("https://claude.ai/install.sh").and_return(bootstrap_script)
+      allow(http_client).to receive(:get)
+        .with("https://downloads.claude.ai/claude-code-releases/latest")
+        .and_raise(AgentHarness::CliPinRefresh::HttpClient::FetchError, "boom")
+
       expect(probe.resolved_version).to be_nil
     end
   end
@@ -448,14 +540,14 @@ RSpec.describe AgentHarness::CliPinRefresh do
 
     after { FileUtils.remove_entry(tmp_pins_dir) }
 
-    def write_npm_manifest(provider, package, version)
+    def write_npm_manifest(provider, packages)
       dir = File.join(tmp_pins_dir, provider)
       FileUtils.mkdir_p(dir)
       File.write(File.join(dir, "package.json"), JSON.dump(
         "name" => "agent-harness-pin-#{provider}",
         "version" => "0.0.0",
         "private" => true,
-        "devDependencies" => {package => version}
+        "devDependencies" => packages
       ))
     end
 
@@ -466,28 +558,48 @@ RSpec.describe AgentHarness::CliPinRefresh do
     end
 
     it "returns :unchanged when every constant agrees with its manifest" do
-      write_npm_manifest("claude", "@anthropic-ai/claude-code",
-        AgentHarness::Providers::Anthropic::SUPPORTED_CLI_VERSION)
-      write_npm_manifest("codex", "@openai/codex",
-        AgentHarness::Providers::Codex::SUPPORTED_CLI_VERSION)
-      write_npm_manifest("opencode", "opencode-ai",
-        AgentHarness::Providers::Opencode::SUPPORTED_CLI_VERSION)
-      write_npm_manifest("gemini", "@google/gemini-cli",
-        AgentHarness::Providers::Gemini::SUPPORTED_CLI_VERSION)
-      write_npm_manifest("pi", "@mariozechner/pi-coding-agent",
-        AgentHarness::Providers::Pi::SUPPORTED_CLI_VERSION)
-      write_npm_manifest("kilocode", "@kilocode/cli",
-        AgentHarness::Providers::Kilocode::DEFAULT_VERSION)
+      write_npm_manifest("claude", {"@anthropic-ai/claude-code" =>
+        AgentHarness::Providers::Anthropic::SUPPORTED_CLI_VERSION})
+      write_npm_manifest("codex", {"@openai/codex" =>
+        AgentHarness::Providers::Codex::SUPPORTED_CLI_VERSION})
+      write_npm_manifest("opencode", {"opencode-ai" =>
+        AgentHarness::Providers::Opencode::SUPPORTED_CLI_VERSION})
+      write_npm_manifest("gemini", {"@google/gemini-cli" =>
+        AgentHarness::Providers::Gemini::SUPPORTED_CLI_VERSION})
+      write_npm_manifest("pi", {"@mariozechner/pi-coding-agent" =>
+        AgentHarness::Providers::Pi::SUPPORTED_CLI_VERSION})
+      write_npm_manifest("omp", {
+        "@oh-my-pi/pi-coding-agent" => AgentHarness::Providers::OhMyPi::SUPPORTED_CLI_VERSION,
+        "bun" => AgentHarness::Providers::OhMyPi::SUPPORTED_BUN_VERSION
+      })
+      write_npm_manifest("kilocode", {"@kilocode/cli" =>
+        AgentHarness::Providers::Kilocode::DEFAULT_VERSION})
       write_pip_manifest("aider", "aider-chat",
         AgentHarness::Providers::Aider::SUPPORTED_CLI_VERSION)
 
       expect(sweep.call.unchanged?).to be true
     end
 
+    it "reports omp's bun pin when it drifts from SUPPORTED_BUN_VERSION" do
+      write_npm_manifest("omp", {
+        "@oh-my-pi/pi-coding-agent" => AgentHarness::Providers::OhMyPi::SUPPORTED_CLI_VERSION,
+        "bun" => "9.9.9" # stale
+      })
+
+      result = sweep.call
+      expect(result.divergent?).to be true
+      offender = result.details[:offenders].first
+      expect(offender[:ecosystem]).to eq("npm")
+      expect(offender[:provider]).to eq("omp")
+      expect(offender[:package]).to eq("bun")
+      expect(offender[:manifest_value]).to eq("9.9.9")
+      expect(offender[:constant_value]).to eq(AgentHarness::Providers::OhMyPi::SUPPORTED_BUN_VERSION)
+    end
+
     it "returns :divergent and reports the offending npm provider" do
-      write_npm_manifest("claude", "@anthropic-ai/claude-code",
-        AgentHarness::Providers::Anthropic::SUPPORTED_CLI_VERSION)
-      write_npm_manifest("codex", "@openai/codex", "9.9.9") # stale
+      write_npm_manifest("claude", {"@anthropic-ai/claude-code" =>
+        AgentHarness::Providers::Anthropic::SUPPORTED_CLI_VERSION})
+      write_npm_manifest("codex", {"@openai/codex" => "9.9.9"}) # stale
 
       result = sweep.call
       expect(result.divergent?).to be true

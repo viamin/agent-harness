@@ -66,6 +66,7 @@ module AgentHarness
     # heavy HTTP gem just for two GET requests.
     class HttpClient
       DEFAULT_TIMEOUT = 30
+      MAX_REDIRECTS = 5
 
       # @param timeout [Integer] per-request timeout in seconds
       def initialize(timeout: DEFAULT_TIMEOUT)
@@ -73,27 +74,60 @@ module AgentHarness
       end
 
       # @param url [String] absolute URL to GET
-      # @return [String] response body
-      # @raise [FetchError] on transport failure or non-2xx response
+      # @return [String] response body of the final response in the
+      #   redirect chain
+      # @raise [FetchError] on transport failure, non-2xx response, or a
+      #   redirect chain longer than MAX_REDIRECTS
       def get(url)
-        uri = URI.parse(url)
-        http = Net::HTTP.new(uri.host, uri.port)
-        http.use_ssl = (uri.scheme == "https")
-        http.open_timeout = @timeout
-        http.read_timeout = @timeout
-
-        response = http.get(uri.request_uri)
-        unless response.is_a?(Net::HTTPSuccess)
-          raise FetchError, "GET #{url} returned #{response.code}: #{response.message}"
-        end
-
-        response.body
-      rescue Net::OpenTimeout, Net::ReadTimeout, EOFError, SocketError, Errno::ECONNREFUSED => e
-        raise FetchError, "GET #{url} failed: #{e.class}: #{e.message}"
+        get_following_redirects(url, 0)
       end
 
       # Raised when an HTTP request cannot be completed.
       class FetchError < StandardError; end
+
+      private
+
+      # Net::HTTP does not follow redirects on its own, and endpoints we
+      # probe (e.g. https://claude.ai/install.sh) answer with a 302 to a
+      # different host, so the chain is resolved explicitly with a hop
+      # limit to keep a redirect loop from hanging the job.
+      def get_following_redirects(url, hops)
+        raise FetchError, "GET #{url} exceeded #{MAX_REDIRECTS} redirects" if hops > MAX_REDIRECTS
+
+        response = get_response(URI.parse(url))
+        case response
+        when Net::HTTPRedirection
+          location = response["Location"].to_s
+          raise FetchError, "GET #{url} redirected without a Location header" if location.empty?
+
+          get_following_redirects(redirect_target(url, location), hops + 1)
+        when Net::HTTPSuccess
+          response.body
+        else
+          raise FetchError, "GET #{url} returned #{response.code}: #{response.message}"
+        end
+      rescue Net::OpenTimeout, Net::ReadTimeout, EOFError, SocketError, Errno::ECONNREFUSED,
+        URI::InvalidURIError, ArgumentError => e
+        raise FetchError, "GET #{url} failed: #{e.class}: #{e.message}"
+      end
+
+      # Location may be absolute or relative; anything that is not
+      # http(s) after resolution (a compromised endpoint could redirect
+      # to file:/// or similar) is rejected.
+      def redirect_target(url, location)
+        target = URI.join(url, location)
+        return target.to_s if target.is_a?(URI::HTTP)
+
+        raise FetchError, "GET #{url} redirected to unsupported scheme #{target.scheme.inspect}"
+      end
+
+      def get_response(uri)
+        http = Net::HTTP.new(uri.host, uri.port)
+        http.use_ssl = (uri.scheme == "https")
+        http.open_timeout = @timeout
+        http.read_timeout = @timeout
+        http.get(uri.request_uri)
+      end
     end
 
     # Reads the Cursor pin constants in
@@ -295,14 +329,21 @@ module AgentHarness
 
     # Resolves which Claude CLI version `claude.ai/install.sh` actually
     # installs. We never execute the script (security: never execute
-    # untrusted code outside a sandbox); we only fetch and parse it. The
-    # script's release URL embeds the version, which is the most stable
-    # signal we have without running it.
+    # untrusted code outside a sandbox); instead we fetch it (following
+    # its redirect to the real installer host), read the download base
+    # URL it resolves versions from, and then ask that host's `latest`
+    # endpoint for the plain-text version - the exact lookup the
+    # installer performs via `version=$(download_file
+    # "$DOWNLOAD_BASE_URL/latest")`. Probing the endpoint the script
+    # calls keeps working when the version moves out of the script body.
     class ClaudeInstallerProbe
-      # Matches the version the installer publishes, e.g.
-      # `.../claude-code/releases/download/v2.1.92/...` or a VERSION=...
-      # assignment in the script body.
-      RELEASE_TAG_PATTERN = /(?:\/v|\bVERSION=)(?<version>\d+\.\d+\.\d+(?:-[A-Za-z0-9.]+)?)/
+      # The installer defines its download base as a quoted assignment:
+      #   DOWNLOAD_BASE_URL="https://downloads.claude.ai/claude-code-releases"
+      DOWNLOAD_BASE_URL_PATTERN = /DOWNLOAD_BASE_URL=["'](?<url>[^"']+)["']/
+
+      # The `latest` endpoint answers with a bare version, optionally
+      # `v`-prefixed, e.g. `2.1.235` or `v2.1.235`.
+      VERSION_PATTERN = /\A\s*v?(?<version>\d+\.\d+\.\d+(?:-[A-Za-z0-9.]+)?)\s*\z/
 
       attr_reader :install_script_url
 
@@ -311,12 +352,26 @@ module AgentHarness
         @install_script_url = install_script_url
       end
 
-      # @return [String, nil] version string the installer would publish, or
-      #   nil when the script does not contain a recognizable version tag.
+      # @return [String, nil] version string the installer would install,
+      #   or nil when the script or the version endpoint cannot be
+      #   resolved.
       def resolved_version
-        body = @http_client.get(install_script_url)
-        match = body.match(RELEASE_TAG_PATTERN)
+        base_url = download_base_url
+        return nil if base_url.nil?
+
+        body = @http_client.get("#{base_url}/latest")
+        match = body.match(VERSION_PATTERN)
         match && match[:version]
+      rescue HttpClient::FetchError
+        nil
+      end
+
+      private
+
+      def download_base_url
+        script = @http_client.get(install_script_url)
+        match = script.match(DOWNLOAD_BASE_URL_PATTERN)
+        match && match[:url].sub(%r{/\z}, "")
       rescue HttpClient::FetchError
         nil
       end
@@ -439,9 +494,9 @@ module AgentHarness
         return [] unless File.exist?(manifest_path)
 
         manifest = JSON.parse(File.read(manifest_path))
-        expected = spec_data[:constant_resolver].call
 
-        spec_data[:packages].filter_map do |package, _key|
+        spec_data[:packages].filter_map do |package, resolver|
+          expected = resolver.call
           pinned = manifest.dig("devDependencies", package)
           next if pinned == expected
 
@@ -466,19 +521,22 @@ module AgentHarness
         manifest_path = File.join(pins_dir, provider_dir, spec_data[:manifest])
         return [] unless File.exist?(manifest_path)
 
-        expected = spec_data[:constant_resolver].call
         File.readlines(manifest_path, chomp: true).filter_map do |line|
           stripped = line.strip
           next if stripped.empty? || stripped.start_with?("#")
 
           name, version = stripped.split("==", 2)
-          next unless spec_data[:packages].key?(name&.strip)
+          package = name&.strip
+          resolver = spec_data[:packages][package]
+          next unless resolver
+
+          expected = resolver.call
           next if version&.strip == expected
 
           {
             ecosystem: "pip",
             provider: provider_dir,
-            package: name.strip,
+            package: package,
             manifest_value: version&.strip,
             constant_value: expected,
             manifest_path: manifest_path
@@ -486,37 +544,56 @@ module AgentHarness
         end
       end
 
+      # Each entry maps the tracked packages to a resolver for the
+      # provider constant the manifest must mirror. omp needs two
+      # resolvers, which is why the resolver hangs off the package, not
+      # the provider. pi and omp are lazy-loaded via the provider
+      # registry, so callers must require them explicitly (the same way
+      # spec/vendor_pins_parity_spec.rb does).
       def npm_cases
         {
           "claude" => {
             manifest: "package.json",
-            packages: {"@anthropic-ai/claude-code" => :claude_version},
-            constant_resolver: -> { AgentHarness::Providers::Anthropic::SUPPORTED_CLI_VERSION }
+            packages: {
+              "@anthropic-ai/claude-code" => -> { AgentHarness::Providers::Anthropic::SUPPORTED_CLI_VERSION }
+            }
           },
           "codex" => {
             manifest: "package.json",
-            packages: {"@openai/codex" => :codex_version},
-            constant_resolver: -> { AgentHarness::Providers::Codex::SUPPORTED_CLI_VERSION }
+            packages: {
+              "@openai/codex" => -> { AgentHarness::Providers::Codex::SUPPORTED_CLI_VERSION }
+            }
           },
           "opencode" => {
             manifest: "package.json",
-            packages: {"opencode-ai" => :opencode_version},
-            constant_resolver: -> { AgentHarness::Providers::Opencode::SUPPORTED_CLI_VERSION }
+            packages: {
+              "opencode-ai" => -> { AgentHarness::Providers::Opencode::SUPPORTED_CLI_VERSION }
+            }
           },
           "gemini" => {
             manifest: "package.json",
-            packages: {"@google/gemini-cli" => :gemini_version},
-            constant_resolver: -> { AgentHarness::Providers::Gemini::SUPPORTED_CLI_VERSION }
+            packages: {
+              "@google/gemini-cli" => -> { AgentHarness::Providers::Gemini::SUPPORTED_CLI_VERSION }
+            }
           },
           "pi" => {
             manifest: "package.json",
-            packages: {"@mariozechner/pi-coding-agent" => :pi_version},
-            constant_resolver: -> { AgentHarness::Providers::Pi::SUPPORTED_CLI_VERSION }
+            packages: {
+              "@mariozechner/pi-coding-agent" => -> { AgentHarness::Providers::Pi::SUPPORTED_CLI_VERSION }
+            }
+          },
+          "omp" => {
+            manifest: "package.json",
+            packages: {
+              "@oh-my-pi/pi-coding-agent" => -> { AgentHarness::Providers::OhMyPi::SUPPORTED_CLI_VERSION },
+              "bun" => -> { AgentHarness::Providers::OhMyPi::SUPPORTED_BUN_VERSION }
+            }
           },
           "kilocode" => {
             manifest: "package.json",
-            packages: {"@kilocode/cli" => :kilocode_version},
-            constant_resolver: -> { AgentHarness::Providers::Kilocode::DEFAULT_VERSION }
+            packages: {
+              "@kilocode/cli" => -> { AgentHarness::Providers::Kilocode::DEFAULT_VERSION }
+            }
           }
         }
       end
@@ -525,8 +602,9 @@ module AgentHarness
         {
           "aider" => {
             manifest: "requirements.txt",
-            packages: {"aider-chat" => :aider_version},
-            constant_resolver: -> { AgentHarness::Providers::Aider::SUPPORTED_CLI_VERSION }
+            packages: {
+              "aider-chat" => -> { AgentHarness::Providers::Aider::SUPPORTED_CLI_VERSION }
+            }
           }
         }
       end

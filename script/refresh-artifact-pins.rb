@@ -23,6 +23,11 @@ require "bundler/setup"
 require "open3"
 
 require "agent_harness"
+# omp and pi are lazy-loaded via the provider registry, but the parity
+# sweep resolves their constants directly - require them explicitly the
+# same way spec/vendor_pins_parity_spec.rb does.
+require "agent_harness/providers/omp"
+require "agent_harness/providers/pi"
 
 module AgentHarness
   module CliPinRefresh
@@ -53,11 +58,83 @@ module AgentHarness
       end
     end
 
+    # Thin wrapper around the `git` CLI. Branch/commit/push operations go
+    # through plain git (the workflow checks the repo out with full
+    # history and authenticated push access) because `gh` has no
+    # equivalent subcommands and the Git data API would need blob SHAs
+    # and base64 round-trips to do what `git commit` no-ops on identical
+    # content for free.
+    class GitCli
+      class CommandError < StandardError; end
+
+      def initialize(repo_root:)
+        @repo_root = repo_root
+      end
+
+      # @param args [Array<String>] arguments to pass to `git -C <repo_root>`
+      # @return [String] combined stdout
+      # @raise [CommandError] when `git` exits non-zero
+      def call(*args)
+        output, status = Open3.capture2("git", "-C", @repo_root, *args)
+        unless status.success?
+          raise CommandError, "git #{args.join(" ")} failed (exit #{status.exitstatus}): #{output}"
+        end
+
+        output
+      end
+
+      # `git diff --cached --quiet` exits non-zero exactly when there are
+      # staged changes, so success means "nothing staged".
+      #
+      # @return [Boolean]
+      def staged_changes?
+        _, status = Open3.capture2("git", "-C", @repo_root, "diff", "--cached", "--quiet")
+        !status.success?
+      end
+
+      # `git ls-remote --exit-code` exits 0 when the ref exists, 2 when
+      # it does not, and anything else on a real transport failure -
+      # only exit 2 may be treated as "branch missing".
+      #
+      # @return [Boolean]
+      # @raise [CommandError] on transport failure
+      def remote_branch_exists?(branch)
+        _, status = Open3.capture2("git", "-C", @repo_root, "ls-remote", "--exit-code", "origin",
+          "refs/heads/#{branch}")
+        return true if status.success?
+        return false if status.exitstatus == 2
+
+        raise CommandError, "git ls-remote origin refs/heads/#{branch} failed (exit #{status.exitstatus})"
+      end
+
+      # Commits staged changes as the automation identity. The
+      # GIT_AUTHOR_*/GIT_COMMITTER_* env vars win over `-c` config, so
+      # the identity is pinned through the environment to stay
+      # deterministic even when the script inherits one.
+      #
+      # @raise [CommandError] when `git commit` exits non-zero
+      def commit_as(name:, email:, message:)
+        env = {
+          "GIT_AUTHOR_NAME" => name,
+          "GIT_AUTHOR_EMAIL" => email,
+          "GIT_COMMITTER_NAME" => name,
+          "GIT_COMMITTER_EMAIL" => email
+        }
+        output, status = Open3.capture2(env, "git", "-C", @repo_root, "commit", "-m", message)
+        unless status.success?
+          raise CommandError, "git commit failed (exit #{status.exitstatus}): #{output}"
+        end
+
+        output
+      end
+    end
+
     # Encapsulates the script-level orchestration: read inputs, run each
     # step, and dispatch to `gh` when an action is required.
     class ScriptRunner
       CURSOR_BRANCH_PREFIX = "dependabot/cursor-pin-"
       CURSOR_PR_TITLE = "fix(cursor): refresh agent artifact pin to %<build>s"
+      CURSOR_COMMIT_SUBJECT = "fix(cursor): refresh agent artifact pin to %<build>s"
       CURSOR_PR_LABELS = %w[dependencies cli-pins]
       CLAUDE_ISSUE_TITLE = "Claude install oracle drift: install.sh=%<installer_version>s vs npm=%<npm_version>s"
       CLAUDE_ISSUE_LABELS = %w[dependencies cli-pins oracle-drift]
@@ -67,12 +144,17 @@ module AgentHarness
       DEFAULT_CURSOR_REPOSITORY = "cursor/agent"
       DEFAULT_CLAUDE_INSTALL_URL = "https://claude.ai/install.sh"
       DEFAULT_NPM_PACKAGE = "@anthropic-ai/claude-code"
+      # The same committer identity actions/checkout-derived automation
+      # uses; the runner has no global git identity configured.
+      COMMIT_AUTHOR_NAME = "github-actions[bot]"
+      COMMIT_AUTHOR_EMAIL = "41898282+github-actions[bot]@users.noreply.github.com"
 
-      attr_reader :repo_root, :github_cli
+      attr_reader :repo_root, :github_cli, :git_cli
 
-      def initialize(repo_root:, github_cli: GithubCli.new)
+      def initialize(repo_root:, github_cli: GithubCli.new, git_cli: GitCli.new(repo_root: repo_root))
         @repo_root = repo_root
         @github_cli = github_cli
+        @git_cli = git_cli
       end
 
       def call
@@ -240,33 +322,46 @@ module AgentHarness
       end
 
       def create_or_update_branch(branch)
-        # Idempotent: create the branch from main if it doesn't exist.
-        @github_cli.call("api", "-X", "GET", "/repos/:owner/:repo/branches/#{branch}")
-      rescue GithubCli::CommandError
-        @github_cli.call("api", "-X", "POST", "/repos/:owner/:repo/git/refs",
-          "--field", "ref=refs/heads/#{branch}",
-          "--field", "sha=#{main_sha}")
-      end
-
-      def main_sha
-        @github_cli.call("api", "/repos/:owner/:repo/git/ref/heads/main").then do |raw|
-          JSON.parse(raw).fetch("object").fetch("sha")
-        end
+        # Refresh remote-tracking refs, then point the local branch at
+        # its remote counterpart when one already exists (so a re-run
+        # for the same build re-derives an unchanged tree and commits
+        # nothing), or at main's tip when creating it fresh.
+        @git_cli.call("fetch", "origin")
+        base = @git_cli.remote_branch_exists?(branch) ? "origin/#{branch}" : "origin/main"
+        @git_cli.call("checkout", "-B", branch, base)
       end
 
       def commit_cursor_pin(rendered_content, build:)
-        # Write the rendered cursor.rb to the working tree and let the
-        # workflow handle the actual git commit via the existing tooling.
-        # Writing in-script keeps the script self-contained.
+        # Write the rendered cursor.rb, stage it, and commit when the
+        # content actually changed. Re-running for the same build ends
+        # with nothing to commit, which keeps the whole flow idempotent.
         File.write(cursor_source_path, rendered_content)
-        @github_cli.print("[cursor] wrote refreshed cursor.rb (build=#{build})")
+        @git_cli.call("add", cursor_source_path)
+        return unless @git_cli.staged_changes?
+
+        @git_cli.commit_as(
+          name: COMMIT_AUTHOR_NAME,
+          email: COMMIT_AUTHOR_EMAIL,
+          message: format(CURSOR_COMMIT_SUBJECT, build: build)
+        )
+        @github_cli.print("[cursor] committed pin refresh (build=#{build})")
       end
 
       def push_branch(branch)
-        @github_cli.call("push", "origin", branch)
+        # The automation branch always carries a single generated commit
+        # on top of current main; force-with-lease keeps it there even
+        # when main has moved since the branch was first pushed (the
+        # same update model Dependabot uses for its branches).
+        @git_cli.call("push", "--force-with-lease", "origin", branch)
       end
 
       def open_pull_request(branch:, title:, body:, labels:)
+        existing = find_open_pull_request(branch)
+        if existing
+          @github_cli.print("[cursor] PR ##{existing} already open for #{branch}")
+          return
+        end
+
         @github_cli.call(
           "pr", "create",
           "--base", "main",
@@ -275,6 +370,17 @@ module AgentHarness
           "--body", body,
           "--label", labels.join(",")
         )
+      end
+
+      def find_open_pull_request(branch)
+        raw = @github_cli.call("pr", "list", "--head", branch, "--state", "open",
+          "--json", "number", "--jq", ".[0].number")
+        number = raw.strip
+        return nil if number.empty?
+
+        number
+      rescue GithubCli::CommandError
+        nil
       end
 
       def open_issue(title:, body:, labels:, search_labels:)
@@ -317,8 +423,6 @@ module AgentHarness
 end
 
 if $PROGRAM_NAME == __FILE__
-  require "json"
-
   repo_root = File.expand_path("..", __dir__)
   AgentHarness::CliPinRefresh::ScriptRunner.new(repo_root: repo_root).call
 end
