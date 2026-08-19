@@ -46,16 +46,12 @@ jobs:
       - name: Set up Ruby
         uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b
         with:
+          # bundler-cache runs bundle install and restores the gem cache,
+          # the same setup .github/workflows/sync-cli-pins.yml uses.
           bundler-cache: true
-
-      - name: Install dependencies
-        run: bundle install --jobs 4 --retry 3
 
       - name: Run scheduled refresh
         env:
-          # The cursor/agent repo is the conventional upstream; override
-          # here if a future fork moves the release source.
-          CURSOR_RELEASE_REPOSITORY: ${{ vars.CURSOR_RELEASE_REPOSITORY || 'cursor/agent' }}
           CLAUDE_INSTALL_URL: ${{ vars.CLAUDE_INSTALL_URL || 'https://claude.ai/install.sh' }}
           CLAUDE_NPM_PACKAGE: ${{ vars.CLAUDE_NPM_PACKAGE || '@anthropic-ai/claude-code' }}
           # `gh` is preinstalled on `ubuntu-latest`; keep an explicit path

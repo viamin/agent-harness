@@ -17,9 +17,9 @@ module AgentHarness
   # that is an assumption, not a contract.
   #
   # This module implements the step-3 scheduled job from issue #338: a weekly
-  # cron that (a) refreshes the Cursor pins via the upstream GitHub releases
-  # API, (b) verifies Claude oracle parity, and (c) runs an advisory parity
-  # sweep across every pinned CLI version.
+  # cron that (a) refreshes the Cursor pins from the build id embedded in
+  # Cursor's upstream install script, (b) verifies Claude oracle parity, and
+  # (c) runs an advisory parity sweep across every pinned CLI version.
   #
   # The code lives under `script/` (like `sync-cli-pins.rb`) rather than
   # `lib/agent_harness/` because it exists solely to drive this repository's
@@ -224,73 +224,58 @@ module AgentHarness
       end
     end
 
-    # Queries the Cursor agent GitHub releases API for the latest published
-    # build identifier. The repository is configurable so the same class can
-    # target whatever upstream source ships the `linux/x64` artifact.
-    class GithubCursorReleases
-      DEFAULT_REPOSITORY = "cursor/agent"
+    # Resolves the latest Cursor agent build from the upstream install
+    # script. Cursor ships agent builds from `downloads.cursor.com` with
+    # no GitHub releases API (there is no public cursor/agent
+    # repository); the install script itself embeds the canonical
+    # download URL carrying the current build id, so the script is the
+    # authoritative release channel - the same contract
+    # `ClaudeInstallerProbe` applies to `claude.ai/install.sh`.
+    class CursorInstallerProbe
+      # The script embeds the artifact URL directly, e.g.
+      #   DOWNLOAD_URL="https://downloads.cursor.com/lab/2027.01.01-abcdef0/${OS}/${ARCH}/agent-cli-package.tar.gz"
+      # Anchoring on the canonical download host keeps unrelated
+      # date-hash strings in the script (temp dir names) from matching.
+      BUILD_PATTERN = %r{https://downloads\.cursor\.com/lab/(?<build>\d{4}\.\d{2}\.\d{2}-[a-f0-9]+)}
 
-      def initialize(http_client:, repository: DEFAULT_REPOSITORY)
+      attr_reader :install_script_url
+
+      def initialize(http_client:, install_script_url:)
         @http_client = http_client
-        @repository = repository
+        @install_script_url = install_script_url
       end
 
-      # @return [String, nil] latest build identifier, or nil if no asset for
-      #   the linux/x64 target is attached to the latest release
-      def latest_linux_x64_build
-        release = latest_release
-        asset = linux_x64_asset(release)
-        return nil unless asset
-
-        build_from_asset(asset)
+      # @return [String, nil] latest build id, or nil when the fetched
+      #   script does not embed a recognizable download URL
+      # @raise [HttpClient::FetchError] when the script cannot be fetched
+      def latest_build
+        match = script_body.match(BUILD_PATTERN)
+        match && match[:build]
       end
 
-      # @return [String] release-notes URL for the latest release, or nil
-      #   when the API response did not include one (defensive: don't fail
-      #   the whole step just because html_url was missing).
-      def latest_release_url
-        latest_release["html_url"]
-      rescue HttpClient::FetchError, JSON::ParserError
-        nil
+      # @return [String] SHA256 of the fetched install script, taken
+      #   from the same body as #latest_build so the build id and the
+      #   script checksum always describe one consistent upstream
+      #   snapshot (Cursor can re-ship the script without a new build).
+      # @raise [HttpClient::FetchError] when the script cannot be fetched
+      def script_sha256
+        Digest::SHA256.hexdigest(script_body)
       end
 
       private
 
-      # @return [Hash] parsed GitHub release payload. Memoized so callers
-      #   that need both the build and the release URL share a single
-      #   network round trip; the upstream API is rate-limited and the
-      #   payload is immutable for the lifetime of this instance.
-      def latest_release
-        @latest_release ||= JSON.parse(@http_client.get(releases_url))
-      end
-
-      def releases_url
-        "https://api.github.com/repos/#{@repository}/releases/latest"
-      end
-
-      # GitHub release assets are usually named after the target triple; we
-      # accept any asset whose name contains both "linux" and "x64".
-      def linux_x64_asset(release)
-        Array(release["assets"]).find do |asset|
-          name = asset["name"].to_s.downcase
-          name.include?("linux") && name.include?("x64")
-        end
-      end
-
-      # The asset name typically encodes the build (e.g.
-      # `cursor-agent-linux-x64-2026.03.30-a5d3e17.tar.gz`); the build id is
-      # the segment that matches the cursor.rb URL pattern.
-      def build_from_asset(asset)
-        match = asset["name"].match(/\b(\d{4}\.\d{2}\.\d{2}-[a-f0-9]+)\b/)
-        match && match[1]
+      # Memoized so the build id and the script checksum share a single
+      # network round trip; the body is immutable for the lifetime of
+      # this instance.
+      def script_body
+        @script_body ||= @http_client.get(@install_script_url)
       end
     end
 
     # Downloads an artifact from a URL and computes its SHA256. Used after
-    # `GithubCursorReleases#latest_linux_x64_build` to confirm the artifact
-    # the GitHub release points at matches the same checksum we'd get by
-    # pinning the cursor.com download path, and to re-checksum the install
-    # script itself.
+    # `CursorInstallerProbe#latest_build` to confirm the artifact the
+    # build's canonical cursor.com download path serves matches the
+    # checksum we pin.
     class ArtifactDownloader
       def initialize(http_client:)
         @http_client = http_client
@@ -323,21 +308,20 @@ module AgentHarness
     # checksum targets consume - otherwise the script checksum would
     # silently rot as Cursor updates its installer.
     class CursorRefresh
-      DEFAULT_INSTALL_SCRIPT_URL = "https://cursor.com/install"
-
-      def initialize(releases:, downloader:, source:, artifact_url_builder: CursorArtifactUrl,
-        script_url: DEFAULT_INSTALL_SCRIPT_URL)
-        @releases = releases
+      def initialize(build_source:, downloader:, source:, artifact_url_builder: CursorArtifactUrl)
+        @build_source = build_source
         @downloader = downloader
         @source = source
         @artifact_url_builder = artifact_url_builder
-        @script_url = script_url
       end
 
       def call
-        build = @releases.latest_linux_x64_build
+        build = @build_source.latest_build
         if build.nil?
-          return Result.new(status: :failed, details: {reason: "no linux/x64 asset on latest release"})
+          return Result.new(
+            status: :failed,
+            details: {reason: "install script at #{@build_source.install_script_url} did not advertise a build id"}
+          )
         end
 
         current_build = @source.current_build
@@ -345,8 +329,7 @@ module AgentHarness
         current_script_sha256 = @source.current_script_sha256
         artifact_url = @artifact_url_builder.call(build: build)
         upstream_sha256 = @downloader.sha256(artifact_url)
-        upstream_script_sha256 = @downloader.sha256(@script_url)
-        release_url = @releases.latest_release_url
+        upstream_script_sha256 = @build_source.script_sha256
 
         if build == current_build && upstream_sha256 == current_sha256 &&
             upstream_script_sha256 == current_script_sha256
@@ -363,13 +346,13 @@ module AgentHarness
             sha256: upstream_sha256,
             script_sha256: upstream_script_sha256,
             artifact_url: artifact_url,
-            release_url: release_url,
+            install_script_url: @build_source.install_script_url,
             previous_build: current_build,
             previous_sha256: current_sha256,
             previous_script_sha256: current_script_sha256
           }
         )
-      rescue HttpClient::FetchError, JSON::ParserError => e
+      rescue HttpClient::FetchError => e
         Result.new(status: :failed, details: {reason: e.message})
       end
     end

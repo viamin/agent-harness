@@ -111,7 +111,7 @@ RSpec.describe AgentHarness::CliPinRefresh::ScriptRunner do
         sha256: NEW_SHA256,
         script_sha256: NEW_SCRIPT_SHA256,
         artifact_url: "https://downloads.cursor.com/lab/#{NEW_BUILD}/linux/x64/agent-cli-package.tar.gz",
-        release_url: "https://github.com/cursor/agent/releases/tag/v#{NEW_BUILD}",
+        install_script_url: "https://cursor.com/install",
         previous_build: "2026.03.30-a5d3e17",
         previous_sha256: "e0d4b611db111d2dbe76474386271bff3e1dbb2cc6ddf527f9d5d5801b2ce2a0",
         previous_script_sha256: "8371988b483abec13c07c10e95cccc839da81ebf9596e430d3c90835a227cbad"
@@ -178,6 +178,7 @@ RSpec.describe AgentHarness::CliPinRefresh::ScriptRunner do
     expect(body).to include(NEW_BUILD)
     expect(body).to include(NEW_SHA256)
     expect(body).to include(NEW_SCRIPT_SHA256)
+    expect(body).to include("Upstream source: https://cursor.com/install")
   end
 
   it "commits as the automation identity, not the runner's git config" do

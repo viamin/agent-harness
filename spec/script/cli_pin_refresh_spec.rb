@@ -229,87 +229,63 @@ RSpec.describe AgentHarness::CliPinRefresh do
     end
   end
 
-  describe AgentHarness::CliPinRefresh::GithubCursorReleases do
+  describe AgentHarness::CliPinRefresh::CursorInstallerProbe do
     let(:http_client) { instance_double(AgentHarness::CliPinRefresh::HttpClient) }
-    let(:release_body) do
-      {
-        "html_url" => "https://github.com/cursor/agent/releases/tag/v2027.01.01",
-        "assets" => [
-          {"name" => "cursor-agent-darwin-arm64-2027.01.01-abcdef0.tar.gz",
-           "browser_download_url" => "https://example.test/darwin.tgz"},
-          {"name" => "cursor-agent-linux-x64-2027.01.01-abcdef0.tar.gz",
-           "browser_download_url" => "https://example.test/linux.tgz"}
-        ]
-      }.to_json
+    # Mirrors the real upstream script: the temp-dir line carries a
+    # date-hash string that is NOT a download URL, so the fixture also
+    # proves the parser anchors on downloads.cursor.com instead of
+    # matching the first date-hash-looking substring.
+    let(:install_script) do
+      <<~SH
+        #!/usr/bin/env bash
+        TEMP_EXTRACT_DIR="$HOME/.local/share/cursor-agent/versions/.tmp-2027.01.01-abcdef0-$(date +%s)"
+        DOWNLOAD_URL="https://downloads.cursor.com/lab/2027.01.01-abcdef0/${OS}/${ARCH}/agent-cli-package.tar.gz"
+        curl -fSL --progress-bar "${DOWNLOAD_URL}"
+      SH
+    end
+
+    subject(:probe) do
+      described_class.new(
+        http_client: http_client,
+        install_script_url: "https://cursor.com/install"
+      )
     end
 
     before do
-      allow(http_client).to receive(:get).and_return(release_body)
+      allow(http_client).to receive(:get).with("https://cursor.com/install").and_return(install_script)
     end
 
-    it "queries the configured repository's latest release" do
-      releases = described_class.new(
-        http_client: http_client,
-        repository: "cursor/agent"
-      )
-      releases.latest_linux_x64_build
-      expect(http_client).to have_received(:get)
-        .with("https://api.github.com/repos/cursor/agent/releases/latest")
+    it "extracts the build embedded in the canonical download URL" do
+      expect(probe.latest_build).to eq("2027.01.01-abcdef0")
     end
 
-    it "extracts the linux/x64 build from the matching asset" do
-      releases = described_class.new(http_client: http_client)
-      expect(releases.latest_linux_x64_build).to eq("2027.01.01-abcdef0")
+    it "checksums the same script body the build was parsed from" do
+      expect(probe.script_sha256).to eq(Digest::SHA256.hexdigest(install_script))
     end
 
-    it "returns nil when no linux/x64 asset is present" do
-      release_body_no_linux = {
-        "html_url" => "https://github.com/cursor/agent/releases/tag/v2027.01.01",
-        "assets" => [
-          {"name" => "cursor-agent-darwin-arm64-2027.01.01-abcdef0.tar.gz"}
-        ]
-      }.to_json
-      allow(http_client).to receive(:get).and_return(release_body_no_linux)
-      releases = described_class.new(http_client: http_client)
-      expect(releases.latest_linux_x64_build).to be_nil
-    end
-
-    it "returns nil when the asset name has no recognizable build" do
-      release_body_no_build = {
-        "html_url" => "https://github.com/cursor/agent/releases/tag/v2027.01.01",
-        "assets" => [
-          {"name" => "cursor-agent-linux-x64.tar.gz"}
-        ]
-      }.to_json
-      allow(http_client).to receive(:get).and_return(release_body_no_build)
-      releases = described_class.new(http_client: http_client)
-      expect(releases.latest_linux_x64_build).to be_nil
-    end
-
-    it "exposes the release notes URL" do
-      releases = described_class.new(http_client: http_client)
-      expect(releases.latest_release_url).to eq("https://github.com/cursor/agent/releases/tag/v2027.01.01")
-    end
-
-    it "memoizes the parsed release so build + url share one HTTP fetch" do
-      releases = described_class.new(http_client: http_client)
-      releases.latest_linux_x64_build
-      releases.latest_release_url
+    it "shares one HTTP fetch between the build and the script checksum" do
+      probe.latest_build
+      probe.script_sha256
 
       expect(http_client).to have_received(:get).once
     end
 
-    it "returns nil for release_url when the API call fails" do
-      allow(http_client).to receive(:get)
-        .and_raise(AgentHarness::CliPinRefresh::HttpClient::FetchError, "boom")
-      releases = described_class.new(http_client: http_client)
-      expect(releases.latest_release_url).to be_nil
+    it "returns nil when the script embeds no recognizable download URL" do
+      allow(http_client).to receive(:get).and_return("#!/usr/bin/env bash\necho hi\n")
+
+      expect(probe.latest_build).to be_nil
     end
 
-    it "returns nil for release_url when the API returns malformed JSON" do
-      allow(http_client).to receive(:get).and_return("not json at all")
-      releases = described_class.new(http_client: http_client)
-      expect(releases.latest_release_url).to be_nil
+    it "propagates fetch failures so the caller can fail the step" do
+      allow(http_client).to receive(:get)
+        .and_raise(AgentHarness::CliPinRefresh::HttpClient::FetchError, "boom")
+
+      expect { probe.latest_build }.to raise_error(
+        AgentHarness::CliPinRefresh::HttpClient::FetchError, /boom/
+      )
+      expect { probe.script_sha256 }.to raise_error(
+        AgentHarness::CliPinRefresh::HttpClient::FetchError, /boom/
+      )
     end
   end
 
@@ -340,20 +316,19 @@ RSpec.describe AgentHarness::CliPinRefresh do
   describe AgentHarness::CliPinRefresh::CursorRefresh do
     let(:cursor_rb_path) { File.join(__dir__, "..", "..", "lib", "agent_harness", "providers", "cursor.rb") }
     let(:source) { AgentHarness::CliPinRefresh::CursorSource.new(file_path: cursor_rb_path) }
-    let(:releases) { instance_double(AgentHarness::CliPinRefresh::GithubCursorReleases) }
+    let(:build_source) { instance_double(AgentHarness::CliPinRefresh::CursorInstallerProbe) }
     let(:downloader) { instance_double(AgentHarness::CliPinRefresh::ArtifactDownloader) }
-    let(:script_url) { source.current_script_url }
 
     subject(:refresh) do
-      described_class.new(releases: releases, downloader: downloader, source: source, script_url: script_url)
+      described_class.new(build_source: build_source, downloader: downloader, source: source)
     end
 
     def stub_upstream(build:, artifact_sha256:, script_sha256:)
-      allow(releases).to receive(:latest_linux_x64_build).and_return(build)
-      allow(releases).to receive(:latest_release_url).and_return("https://example.test/release")
+      allow(build_source).to receive(:install_script_url).and_return(source.current_script_url)
+      allow(build_source).to receive(:latest_build).and_return(build)
+      allow(build_source).to receive(:script_sha256).and_return(script_sha256)
       artifact_url = AgentHarness::CliPinRefresh::CursorArtifactUrl.call(build: build)
       allow(downloader).to receive(:sha256).with(artifact_url).and_return(artifact_sha256)
-      allow(downloader).to receive(:sha256).with(script_url).and_return(script_sha256)
     end
 
     it "returns :unchanged when upstream matches the current pin" do
@@ -381,6 +356,7 @@ RSpec.describe AgentHarness::CliPinRefresh do
       expect(result.details[:build]).to eq(new_build)
       expect(result.details[:sha256]).to eq("deadbeef")
       expect(result.details[:script_sha256]).to eq("e" * 64)
+      expect(result.details[:install_script_url]).to eq(source.current_script_url)
       expect(result.details[:previous_build]).to eq(source.current_build)
       expect(result.details[:previous_sha256]).to eq(source.current_sha256)
       expect(result.details[:previous_script_sha256]).to eq(source.current_script_sha256)
@@ -403,39 +379,34 @@ RSpec.describe AgentHarness::CliPinRefresh do
       expect(result.details[:script_sha256]).to eq("f" * 64)
     end
 
-    it "returns :failed when no linux/x64 asset is attached" do
-      allow(releases).to receive(:latest_linux_x64_build).and_return(nil)
+    it "returns :failed when the install script advertises no build" do
+      allow(build_source).to receive(:install_script_url).and_return("https://cursor.com/install")
+      allow(build_source).to receive(:latest_build).and_return(nil)
       result = refresh.call
       expect(result.failed?).to be true
-      expect(result.details[:reason]).to match(/no linux\/x64 asset/)
+      expect(result.details[:reason]).to match(/did not advertise a build id/)
     end
 
-    it "returns :failed when an upstream HTTP request errors out" do
-      allow(releases).to receive(:latest_linux_x64_build)
+    it "returns :failed when the install script cannot be fetched" do
+      allow(build_source).to receive(:install_script_url).and_return("https://cursor.com/install")
+      allow(build_source).to receive(:latest_build)
         .and_raise(AgentHarness::CliPinRefresh::HttpClient::FetchError, "503")
       result = refresh.call
       expect(result.failed?).to be true
       expect(result.details[:reason]).to eq("503")
     end
 
-    it "returns :failed when the install script checksum cannot be fetched" do
-      allow(releases).to receive(:latest_linux_x64_build).and_return("2027.04.01-fedcba9")
+    it "returns :failed when the artifact checksum cannot be fetched" do
+      allow(build_source).to receive(:install_script_url).and_return("https://cursor.com/install")
+      allow(build_source).to receive(:latest_build).and_return("2027.04.01-fedcba9")
+      allow(build_source).to receive(:script_sha256).and_return("e" * 64)
       artifact_url = AgentHarness::CliPinRefresh::CursorArtifactUrl.call(build: "2027.04.01-fedcba9")
-      allow(downloader).to receive(:sha256).with(artifact_url).and_return("deadbeef")
-      allow(downloader).to receive(:sha256).with(script_url)
+      allow(downloader).to receive(:sha256).with(artifact_url)
         .and_raise(AgentHarness::CliPinRefresh::HttpClient::FetchError, "404")
 
       result = refresh.call
       expect(result.failed?).to be true
       expect(result.details[:reason]).to eq("404")
-    end
-
-    it "returns :failed when the GitHub releases payload is malformed JSON" do
-      allow(releases).to receive(:latest_linux_x64_build)
-        .and_raise(JSON::ParserError, "unexpected token at 'foo'")
-      result = refresh.call
-      expect(result.failed?).to be true
-      expect(result.details[:reason]).to match(/unexpected token/)
     end
   end
 

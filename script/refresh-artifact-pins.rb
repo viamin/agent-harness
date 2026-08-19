@@ -7,9 +7,9 @@
 #
 # Steps:
 #
-#   1. Cursor pin refresh: query the Cursor agent GitHub releases API for
-#      the latest `linux/x64` build, artifact SHA256, and install-script
-#      SHA256. If upstream differs from
+#   1. Cursor pin refresh: read the build id embedded in Cursor's
+#      upstream install script, then fetch the artifact and
+#      install-script SHA256s. If upstream differs from
 #      `lib/agent_harness/providers/cursor.rb`, open a PR.
 #   2. Claude oracle parity: compare the version `claude.ai/install.sh`
 #      resolves to against the npm `@anthropic-ai/claude-code` oracle.
@@ -150,7 +150,6 @@ module AgentHarness
       }.freeze
       DEFAULT_LABEL_COLOR = "#cfd3d7"
       DEFAULT_PINNED_CLAUDE_VERSION = AgentHarness::Providers::Anthropic::SUPPORTED_CLI_VERSION
-      DEFAULT_CURSOR_REPOSITORY = "cursor/agent"
       DEFAULT_CLAUDE_INSTALL_URL = "https://claude.ai/install.sh"
       DEFAULT_NPM_PACKAGE = "@anthropic-ai/claude-code"
       # The same committer identity actions/checkout-derived automation
@@ -192,11 +191,14 @@ module AgentHarness
 
       def refresh_cursor
         source = CursorSource.new(file_path: cursor_source_path)
+        http_client = HttpClient.new
         CursorRefresh.new(
-          releases: build_releases,
-          downloader: ArtifactDownloader.new(http_client: HttpClient.new),
-          source: source,
-          script_url: source.current_script_url
+          build_source: CursorInstallerProbe.new(
+            http_client: http_client,
+            install_script_url: source.current_script_url
+          ),
+          downloader: ArtifactDownloader.new(http_client: http_client),
+          source: source
         ).call
       end
 
@@ -224,13 +226,6 @@ module AgentHarness
         ).call
       end
 
-      def build_releases
-        GithubCursorReleases.new(
-          http_client: HttpClient.new,
-          repository: ENV.fetch("CURSOR_RELEASE_REPOSITORY", DEFAULT_CURSOR_REPOSITORY)
-        )
-      end
-
       def cursor_source_path
         File.join(repo_root, "lib", "agent_harness", "providers", "cursor.rb")
       end
@@ -243,7 +238,6 @@ module AgentHarness
         build = details.fetch(:build)
         sha256 = details.fetch(:sha256)
         script_sha256 = details.fetch(:script_sha256)
-        release_url = details[:release_url]
 
         source = CursorSource.new(file_path: cursor_source_path)
         rendered = source.render(build: build, sha256: sha256, script_sha256: script_sha256)
@@ -255,12 +249,12 @@ module AgentHarness
         open_pull_request(
           branch: branch,
           title: format(CURSOR_PR_TITLE, build: build),
-          body: cursor_pr_body(details, release_url),
+          body: cursor_pr_body(details),
           labels: CURSOR_PR_LABELS
         )
       end
 
-      def cursor_pr_body(details, release_url)
+      def cursor_pr_body(details)
         [
           "Refreshes the Cursor artifact pin to match the upstream release.",
           "",
@@ -268,7 +262,7 @@ module AgentHarness
           "- New artifact SHA256: `#{details[:sha256]}`",
           "- New install script SHA256: `#{details[:script_sha256]}`",
           "- Artifact URL: #{details[:artifact_url]}",
-          release_url ? "- Release notes: #{release_url}" : nil,
+          "- Upstream source: #{details.fetch(:install_script_url)}",
           "",
           "Previous pin:",
           "",
@@ -278,7 +272,7 @@ module AgentHarness
           "",
           "release-please will mint the version PR as usual; the rspec parity",
           "specs and human review remain the gate."
-        ].compact.join("\n")
+        ].join("\n")
       end
 
       def apply_claude(result)
