@@ -179,13 +179,13 @@ end
 # Ask the harness which Claude CLI install contract it supports
 contract = AgentHarness.install_contract(:claude)
 puts contract[:install][:command]
-# => "tmp_script=$(mktemp) && ... && bash \"$tmp_script\" 2.1.92"
+# => "tmp_script=$(mktemp) && ... && bash \"$tmp_script\" 2.1.233"
 puts contract[:install][:post_install_binary_path]
 # => "$HOME/.local/bin/claude"
 puts contract[:supported_versions][:default]
-# => "2.1.92"
+# => "2.1.233"
 puts contract[:supported_versions][:requirement]
-# => ">= 2.1.92, < 2.2.0"
+# => ">= 2.1.233, < 2.2.0"
 
 # List all registered providers
 AgentHarness::Providers::Registry.instance.all
