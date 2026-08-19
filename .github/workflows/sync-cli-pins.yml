@@ -1,0 +1,114 @@
+name: Sync CLI Pins
+
+# Step 2 of the vendor/pins loop (issues #336 / #337). Dependabot bumps the
+# pin manifests but cannot rewrite the provider Ruby constants, so its PRs
+# fail the parity spec until someone finishes them by hand. This workflow
+# watches CI on Dependabot PRs, syncs the constants from the manifests,
+# re-runs the specs, and pushes the result back to the PR branch.
+#
+# Why workflow_run: Dependabot PRs run CI with a read-only GITHUB_TOKEN, so
+# no job inside the PR run can push. workflow_run fires after CI completes,
+# runs in the default-branch context with a normal write token, and still
+# carries the PR head — the needed privilege escalation without any
+# pull_request_target footgun.
+on:
+  workflow_run:
+    workflows: ["Continuous Integration"]
+    types: [completed]
+    branches:
+      - "dependabot/npm_and_yarn/**"
+      - "dependabot/pip/**"
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: sync-cli-pins-${{ github.event.workflow_run.head_branch }}
+  cancel-in-progress: true
+
+jobs:
+  sync-cli-pins:
+    # A fresh manifest bump is EXPECTED to fail the parity spec — that red
+    # run is the sync signal — so both success and failure conclusions are
+    # accepted (cancelled runs are not). The sync script is idempotent and
+    # only pushes on a real diff, so this cannot loop.
+    if: >-
+      github.event.workflow_run.event == 'pull_request' &&
+      contains(fromJSON('["success", "failure"]'), github.event.workflow_run.conclusion) &&
+      github.event.workflow_run.head_repository.full_name == github.repository &&
+      (startsWith(github.event.workflow_run.head_branch, 'dependabot/npm_and_yarn/') ||
+      startsWith(github.event.workflow_run.head_branch, 'dependabot/pip/'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.workflow_run.head_branch }}
+          persist-credentials: false
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b
+        with:
+          bundler-cache: true
+
+      - name: Sync provider constants from pin manifests
+        id: sync
+        env:
+          CLI_PIN_SYNC_COMMENT_FILE: sync-blocked-comment.md
+        run: ruby script/sync-cli-pins.rb
+
+      # GITHUB_TOKEN pushes never fire workflow events, so PR CI will not
+      # re-run on the pushed commit. This full suite run (parity spec
+      # included) is therefore the verification for what gets pushed. Swap
+      # the push credential for a GitHub App token
+      # (actions/create-github-app-token) to have CI re-trigger instead.
+      - name: Run specs (including the vendor/pins parity spec)
+        run: bundle exec rspec
+
+      # Steps carry a default success() status check, so a red rspec run
+      # would skip this push anyway — the explicit if keeps that gate visible
+      # and tied to the verification suite above.
+      - name: Push sync commit to the PR branch
+        if: success()
+        env:
+          BRANCH: ${{ github.event.workflow_run.head_branch }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet; then
+            echo "Constants already in sync; nothing to push."
+            exit 0
+          fi
+          git add -u
+          git commit -m "fix(providers): sync SUPPORTED_CLI_VERSION from pin manifest"
+          gh auth setup-git
+          git push origin "HEAD:${BRANCH}"
+
+      # Runs when the sync step itself failed with a blocked bump (not when
+      # specs fail); the comment makes the human decision visible instead of
+      # letting Dependabot rebase the PR forever.
+      - name: Comment on the PR when a bump is blocked
+        # failure() is required: an if: without a status check function gets
+        # success() auto-applied, which would make this step unreachable
+        # exactly when the sync step fails.
+        if: failure() && steps.sync.outcome == 'failure'
+        env:
+          BRANCH: ${{ github.event.workflow_run.head_branch }}
+          REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          [ -f sync-blocked-comment.md ] || exit 0
+          pr_number="$(gh pr list --repo "$REPO" --head "$BRANCH" --state open --json number --jq '.[0].number')"
+          if [ -z "$pr_number" ]; then
+            echo "No open PR for $BRANCH; skipping comment."
+            exit 0
+          fi
+          # Dependabot rebases re-run CI; do not post duplicate comments.
+          if gh pr view "$pr_number" --repo "$REPO" --json comments --jq '.comments[].body' | grep -q 'cli-pin-sync-blocked'; then
+            echo "Blocked-bump comment already posted."
+            exit 0
+          fi
+          gh pr comment "$pr_number" --repo "$REPO" --body-file sync-blocked-comment.md
