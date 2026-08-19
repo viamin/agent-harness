@@ -5,6 +5,13 @@
 * add runner model compatibility contract (`AgentHarness.model_compatibility`) with structured `ModelCompatibility::Result` outcomes. Codex exposes static facts for CLI-gated models (e.g. `gpt-5.5` requires Codex CLI `>= 0.116.0`), a baseline supported-model list, supported auth modes, and a `DEFAULT_COMPATIBLE_MODEL_ID` fallback so downstream orchestrators can validate tier/model assignments before scheduling agent runs ([#259](https://github.com/viamin/agent-harness/issues/259)).
 * **auth:** add provider-owned PKCE code-exchange API for Claude OAuth (`AgentHarness::Authentication.exchange_code`). Takes an authorization code plus PKCE verifier (and `redirect_uri`/`client_id`), posts an `authorization_code` grant to the Claude token endpoint, and persists the resulting access/refresh tokens in the native `claudeAiOauth` shape. Adds `exchange_code_supported?` and a `code_exchange` key to `auth_capabilities` ([#266](https://github.com/viamin/agent-harness/issues/266)).
 
+## [0.35.4](https://github.com/viamin/agent-harness/compare/agent-harness/v0.35.3...agent-harness/v0.35.4) (2026-08-19)
+
+
+### Bug Fixes
+
+* **deps-dev:** bump @mariozechner/pi-coding-agent from 0.73.0 to 0.73.1 in /vendor/pins/pi ([#343](https://github.com/viamin/agent-harness/issues/343)) ([8a92d1e](https://github.com/viamin/agent-harness/commit/8a92d1e5a30eafc1b3c0b1790243923b40e6ae4e))
+
 ## [0.35.3](https://github.com/viamin/agent-harness/compare/agent-harness/v0.35.2...agent-harness/v0.35.3) (2026-08-19)
 
 
