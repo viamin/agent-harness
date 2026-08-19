@@ -183,12 +183,12 @@ RSpec.describe AgentHarness do
     end
 
     it "forwards target selection options to the provider registry" do
-      contract = {binary_name: "kilo", default_version: "7.4.16"}
+      contract = {binary_name: "kilo", default_version: "7.4.22"}
 
       expect(AgentHarness::Providers::Registry.instance)
-        .to receive(:installation_contract).with(:kilocode, version: "7.4.16").and_return(contract)
+        .to receive(:installation_contract).with(:kilocode, version: "7.4.22").and_return(contract)
 
-      expect(AgentHarness.provider_installation_contract(:kilocode, version: "7.4.16")).to eq(contract)
+      expect(AgentHarness.provider_installation_contract(:kilocode, version: "7.4.22")).to eq(contract)
     end
   end
 
@@ -288,12 +288,12 @@ RSpec.describe AgentHarness do
     end
 
     it "forwards target selection options to the provider registry" do
-      contract = {binary_name: "kilo", default_version: "7.4.16"}
+      contract = {binary_name: "kilo", default_version: "7.4.22"}
 
       expect(AgentHarness::Providers::Registry.instance)
-        .to receive(:installation_contract).with(:kilocode, version: "7.4.16").and_return(contract)
+        .to receive(:installation_contract).with(:kilocode, version: "7.4.22").and_return(contract)
 
-      expect(AgentHarness.installation_contract(:kilocode, version: "7.4.16")).to eq(contract)
+      expect(AgentHarness.installation_contract(:kilocode, version: "7.4.22")).to eq(contract)
     end
 
     it "returns versioned install metadata for providers with generic contracts" do
