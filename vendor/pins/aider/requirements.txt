@@ -1,0 +1,5 @@
+# Version oracle for the aider CLI. Never installed; Dependabot bumps this
+# manifest to signal upstream releases and CI parity spec keeps
+# Providers::Aider::SUPPORTED_CLI_VERSION in sync. See vendor/pins/README.md
+# and issue #336.
+aider-chat==0.86.2

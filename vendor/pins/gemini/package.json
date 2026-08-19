@@ -1,0 +1,9 @@
+{
+  "name": "agent-harness-pin-gemini",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Version oracle for the Gemini CLI. Never installed; Dependabot bumps this manifest to signal upstream releases and CI parity spec keeps Providers::Gemini::SUPPORTED_CLI_VERSION in sync. Provider pins to `= 0.35.3`, so Dependabot is set to ignore this package (see .github/dependabot.yml) until upstream stabilises. See vendor/pins/README.md and issue #336.",
+  "devDependencies": {
+    "@google/gemini-cli": "0.35.3"
+  }
+}

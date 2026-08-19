@@ -39,3 +39,134 @@ updates:
     labels:
       - "dependencies"
       - "github-actions"
+
+  # ---------------------------------------------------------------------------
+  # CLI version oracles (see vendor/pins/README.md and issue #336).
+  #
+  # These manifests are never installed; each one exists only so Dependabot
+  # can notice when the corresponding upstream CLI ships a new release. Every
+  # provider gets its own entry (no `groups:`) so bumps land one-per-PR as a
+  # single conventional commit, matching how manual bumps are done today.
+  #
+  # `versioning-strategy: "increase"` bumps the exact-version pin in-place;
+  # `widen`/`increase-if-necessary` would edit a range we don't have and
+  # `lockfile-only` would bump transitives without moving the pin we care
+  # about.
+  # ---------------------------------------------------------------------------
+
+  - package-ecosystem: "npm"
+    directory: "/vendor/pins/claude"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 2
+    versioning-strategy: "increase"
+    commit-message:
+      prefix: "fix"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "cli-pins"
+
+  - package-ecosystem: "npm"
+    directory: "/vendor/pins/codex"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 2
+    versioning-strategy: "increase"
+    commit-message:
+      prefix: "fix"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "cli-pins"
+    # SUPPORTED_CLI_REQUIREMENT is `>= 0.122.0, < 0.123.0` — the upper bound
+    # is load-bearing for the auth-mode gating in #329. Bumps into 0.123+
+    # require code changes first; keep the automated PRs inside the range.
+    ignore:
+      - dependency-name: "@openai/codex"
+        update-types:
+          - "version-update:semver-major"
+          - "version-update:semver-minor"
+
+  - package-ecosystem: "npm"
+    directory: "/vendor/pins/opencode"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 2
+    versioning-strategy: "increase"
+    commit-message:
+      prefix: "fix"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "cli-pins"
+
+  - package-ecosystem: "npm"
+    directory: "/vendor/pins/gemini"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 2
+    versioning-strategy: "increase"
+    commit-message:
+      prefix: "fix"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "cli-pins"
+    # Providers::Gemini pins `= 0.35.3`. Any Dependabot PR would fail the
+    # parity spec until that requirement is widened by hand, so suppress
+    # automated bumps for the CLI itself until the pin is relaxed.
+    ignore:
+      - dependency-name: "@google/gemini-cli"
+
+  - package-ecosystem: "npm"
+    directory: "/vendor/pins/pi"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 2
+    versioning-strategy: "increase"
+    commit-message:
+      prefix: "fix"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "cli-pins"
+
+  - package-ecosystem: "npm"
+    directory: "/vendor/pins/omp"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 2
+    versioning-strategy: "increase"
+    commit-message:
+      prefix: "fix"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "cli-pins"
+
+  - package-ecosystem: "npm"
+    directory: "/vendor/pins/kilocode"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 2
+    versioning-strategy: "increase"
+    commit-message:
+      prefix: "fix"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "cli-pins"
+
+  - package-ecosystem: "pip"
+    directory: "/vendor/pins/aider"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 2
+    versioning-strategy: "increase"
+    commit-message:
+      prefix: "fix"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "cli-pins"

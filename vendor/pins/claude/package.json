@@ -1,0 +1,9 @@
+{
+  "name": "agent-harness-pin-claude",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Version oracle for the Claude Code CLI. Never installed; Dependabot bumps this manifest to signal upstream releases and CI parity spec keeps Providers::Anthropic::SUPPORTED_CLI_VERSION in sync. See vendor/pins/README.md and issue #336.",
+  "devDependencies": {
+    "@anthropic-ai/claude-code": "2.1.92"
+  }
+}
