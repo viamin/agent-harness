@@ -121,14 +121,14 @@ RSpec.describe AgentHarness::Providers::Anthropic do
       expect(contract[:binary_paths]).to eq(["$HOME/.local/bin/claude", "claude"])
       expect(contract.dig(:install, :strategy)).to eq(:shell)
       expect(contract.dig(:install, :command)).to eq(
-        "tmp_script=$(mktemp) && trap 'rm -f \"$tmp_script\"' EXIT && curl -fsSL https://claude.ai/install.sh -o \"$tmp_script\" && bash \"$tmp_script\" 2.1.233"
+        "tmp_script=$(mktemp) && trap 'rm -f \"$tmp_script\"' EXIT && curl -fsSL https://claude.ai/install.sh -o \"$tmp_script\" && bash \"$tmp_script\" 2.1.238"
       )
       expect(contract.dig(:install, :warning)).to eq(
         "Review the downloaded installer before execution and verify any published checksum or signature metadata when available."
       )
       expect(contract.dig(:install, :post_install_binary_path)).to eq("$HOME/.local/bin/claude")
-      expect(contract.dig(:supported_versions, :default)).to eq("2.1.233")
-      expect(contract.dig(:supported_versions, :requirement)).to eq(">= 2.1.233, < 2.2.0")
+      expect(contract.dig(:supported_versions, :default)).to eq("2.1.238")
+      expect(contract.dig(:supported_versions, :requirement)).to eq(">= 2.1.238, < 2.2.0")
       expect(contract.dig(:supported_versions, :channel)).to eq("stable")
       expect(contract.dig(:runtime_contract, :available_via)).to eq(described_class.binary_name)
       expect(contract.dig(:runtime_contract, :build_command)).to eq(["claude", "--print", "--output-format=json"])
@@ -169,9 +169,9 @@ RSpec.describe AgentHarness::Providers::Anthropic do
     end
 
     it "accepts an optional version override" do
-      contract = described_class.install_contract(version: "2.1.235")
+      contract = described_class.install_contract(version: "2.1.239")
 
-      expect(contract.dig(:install, :command)).to include("bash \"$tmp_script\" 2.1.235")
+      expect(contract.dig(:install, :command)).to include("bash \"$tmp_script\" 2.1.239")
     end
 
     it "accepts semver with pre-release suffix" do
@@ -242,10 +242,10 @@ RSpec.describe AgentHarness::Providers::Anthropic do
     end
 
     it "normalizes padded version strings in the install command" do
-      contract = described_class.install_contract(version: " 2.1.235 ")
+      contract = described_class.install_contract(version: " 2.1.239 ")
 
-      expect(contract.dig(:install, :command)).to include("bash \"$tmp_script\" 2.1.235")
-      expect(contract.dig(:install, :command)).not_to include(" 2.1.235 ")
+      expect(contract.dig(:install, :command)).to include("bash \"$tmp_script\" 2.1.239")
+      expect(contract.dig(:install, :command)).not_to include(" 2.1.239 ")
     end
 
     it "normalizes padded channel tokens and emits the channel warning" do
