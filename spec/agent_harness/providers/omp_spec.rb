@@ -44,16 +44,16 @@ RSpec.describe AgentHarness::Providers::OhMyPi do
       bun = contract[:runtime_requirements].find { |req| req[:name] == :bun }
       expect(bun).to include(
         binary_name: "bun",
-        pinned_version: "1.3.14",
-        version_requirement: ">= 1.3.14",
+        pinned_version: "1.4.0",
+        version_requirement: ">= 1.4.0",
         source: :script,
         install_script_url: "https://bun.sh/install"
       )
       expect(bun[:install_command]).to eq(
-        ["sh", "-c", "curl -fsSL https://bun.sh/install | BUN_VERSION=1.3.14 bash"]
+        ["sh", "-c", "curl -fsSL https://bun.sh/install | BUN_VERSION=1.4.0 bash"]
       )
       expect(bun[:install_command_string]).to eq(
-        "curl -fsSL https://bun.sh/install | BUN_VERSION=1.3.14 bash"
+        "curl -fsSL https://bun.sh/install | BUN_VERSION=1.4.0 bash"
       )
     end
 
@@ -80,12 +80,12 @@ RSpec.describe AgentHarness::Providers::OhMyPi do
       expect(bun).to include(
         name: :bun,
         binary_name: "bun",
-        pinned_version: "1.3.14",
-        version_requirement: ">= 1.3.14",
+        pinned_version: "1.4.0",
+        version_requirement: ">= 1.4.0",
         source: :script,
         install_script_url: "https://bun.sh/install",
-        install_command: ["sh", "-c", "curl -fsSL https://bun.sh/install | BUN_VERSION=1.3.14 bash"],
-        install_command_string: "curl -fsSL https://bun.sh/install | BUN_VERSION=1.3.14 bash"
+        install_command: ["sh", "-c", "curl -fsSL https://bun.sh/install | BUN_VERSION=1.4.0 bash"],
+        install_command_string: "curl -fsSL https://bun.sh/install | BUN_VERSION=1.4.0 bash"
       )
     end
 
@@ -608,13 +608,13 @@ RSpec.describe AgentHarness::Providers::OhMyPi do
       bun = runtime_requirements.find { |req| req[:name] == :bun }
       expect(bun).to include(
         binary_name: "bun",
-        pinned_version: "1.3.14",
-        version_requirement: ">= 1.3.14",
+        pinned_version: "1.4.0",
+        version_requirement: ">= 1.4.0",
         source: :script,
         install_script_url: "https://bun.sh/install"
       )
       expect(bun[:install_command]).to eq(
-        ["sh", "-c", "curl -fsSL https://bun.sh/install | BUN_VERSION=1.3.14 bash"]
+        ["sh", "-c", "curl -fsSL https://bun.sh/install | BUN_VERSION=1.4.0 bash"]
       )
     end
 
@@ -625,8 +625,8 @@ RSpec.describe AgentHarness::Providers::OhMyPi do
       bun = installation[:runtime_requirements].find { |req| req[:name] == :bun }
       expect(bun).to include(
         binary_name: "bun",
-        pinned_version: "1.3.14",
-        version_requirement: ">= 1.3.14",
+        pinned_version: "1.4.0",
+        version_requirement: ">= 1.4.0",
         install_script_url: "https://bun.sh/install"
       )
     end
