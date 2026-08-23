@@ -472,7 +472,7 @@ RSpec.describe AgentHarness::Providers::Registry do
         ["uv", "tool", "install", "--force", "--python", "python3.12", "--with", "pip", "aider-chat==0.86.2"]
       )
       expect(contracts[:opencode][:install_command]).to eq(
-        ["npm", "install", "-g", "--ignore-scripts", "opencode-ai@1.18.18"]
+        ["npm", "install", "-g", "--ignore-scripts", "opencode-ai@1.18.19"]
       )
       expect(contracts[:opencode][:requires_postinstall]).to be true
       expect(contracts[:opencode][:postinstall_command]).to eq(
