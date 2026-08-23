@@ -4,7 +4,7 @@
   "private": true,
   "description": "Version oracles for the Oh My Pi CLI and the Bun runtime it requires. Never installed; Dependabot bumps this manifest to signal upstream releases and CI parity spec keeps Providers::OhMyPi::SUPPORTED_CLI_VERSION and SUPPORTED_BUN_VERSION in sync. See vendor/pins/README.md and issue #336.",
   "devDependencies": {
-    "@oh-my-pi/pi-coding-agent": "17.3.5",
+    "@oh-my-pi/pi-coding-agent": "17.4.0",
     "bun": "1.4.0"
   }
 }
