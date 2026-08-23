@@ -12,7 +12,7 @@ module AgentHarness
     # CLI.
     class OhMyPi < Base
       CLI_PACKAGE = "@oh-my-pi/pi-coding-agent"
-      SUPPORTED_CLI_VERSION = "17.3.5"
+      SUPPORTED_CLI_VERSION = "17.4.0"
       SUPPORTED_CLI_REQUIREMENT = Gem::Requirement.new("= #{SUPPORTED_CLI_VERSION}").freeze
 
       # Bun runtime requirements. The omp entrypoint is
