@@ -22,18 +22,18 @@ RSpec.describe AgentHarness::Providers::Kilocode do
         package: "@kilocode/cli"
       })
       expect(contract[:install_command]).to eq(
-        ["npm", "install", "-g", "--ignore-scripts", "@kilocode/cli@7.4.22"]
+        ["npm", "install", "-g", "--ignore-scripts", "@kilocode/cli@7.4.23"]
       )
       expect(contract[:binary_name]).to eq("kilo")
-      expect(contract[:default_version]).to eq("7.4.22")
-      expect(contract[:supported_version_requirement]).to eq("= 7.4.22")
+      expect(contract[:default_version]).to eq("7.4.23")
+      expect(contract[:supported_version_requirement]).to eq("= 7.4.23")
     end
 
     it "can render an install command for an explicitly supported target" do
-      contract = described_class.installation_contract(version: "7.4.22")
+      contract = described_class.installation_contract(version: "7.4.23")
 
       expect(contract[:install_command]).to eq(
-        ["npm", "install", "-g", "--ignore-scripts", "@kilocode/cli@7.4.22"]
+        ["npm", "install", "-g", "--ignore-scripts", "@kilocode/cli@7.4.23"]
       )
     end
 
@@ -68,10 +68,10 @@ RSpec.describe AgentHarness::Providers::Kilocode do
     end
 
     it "normalizes padded version strings in the install command" do
-      contract = described_class.installation_contract(version: " 7.4.22 ")
+      contract = described_class.installation_contract(version: " 7.4.23 ")
 
       expect(contract[:install_command]).to eq(
-        ["npm", "install", "-g", "--ignore-scripts", "@kilocode/cli@7.4.22"]
+        ["npm", "install", "-g", "--ignore-scripts", "@kilocode/cli@7.4.23"]
       )
     end
   end
@@ -79,13 +79,13 @@ RSpec.describe AgentHarness::Providers::Kilocode do
   describe ".install_command" do
     it "returns the install command for the default supported version" do
       expect(described_class.install_command).to eq(
-        ["npm", "install", "-g", "--ignore-scripts", "@kilocode/cli@7.4.22"]
+        ["npm", "install", "-g", "--ignore-scripts", "@kilocode/cli@7.4.23"]
       )
     end
 
     it "supports an explicit supported version" do
-      expect(described_class.install_command(version: "7.4.22")).to eq(
-        ["npm", "install", "-g", "--ignore-scripts", "@kilocode/cli@7.4.22"]
+      expect(described_class.install_command(version: "7.4.23")).to eq(
+        ["npm", "install", "-g", "--ignore-scripts", "@kilocode/cli@7.4.23"]
       )
     end
   end
