@@ -690,9 +690,11 @@ module AgentHarness
         if result.failed?
           combined = [result.stdout, result.stderr].compact.join("\n")
           error = classify_error_message(combined)
-          # When there's no envelope, the raw combined output is our only
-          # window into auth failures reported by the CLI process itself.
-          auth_source ||= combined unless parsed
+          # With an envelope present, restrict auth detection to stderr so
+          # assistant `result` text mentioning "authentication" can't trip
+          # a false positive. Without an envelope, the combined output is
+          # our only window into CLI-reported auth failures.
+          auth_source ||= parsed ? result.stderr : combined
         end
 
         if envelope_error

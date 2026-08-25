@@ -1216,6 +1216,57 @@ RSpec.describe AgentHarness::Providers::Anthropic do
           response = provider.send_message(prompt: "Hello")
           expect(response.error).to eq("Something unexpected happened")
         end
+
+        it "raises AuthenticationError when a parseable envelope coincides with an auth failure on stderr" do
+          # Nonzero exit with a well-formed envelope on stdout and the auth
+          # signal on stderr: we must still route to AuthenticationError.
+          json_output = JSON.generate({
+            "type" => "result",
+            "subtype" => "success",
+            "is_error" => false,
+            "result" => "partial assistant text"
+          })
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: json_output,
+              stderr: "Not logged in · Please run /login",
+              exit_code: 1,
+              duration: 1.0
+            )
+          )
+
+          expect {
+            provider.send_message(prompt: "Hello")
+          }.to raise_error(AgentHarness::AuthenticationError) do |error|
+            expect(error.provider).to eq(:claude)
+            expect(error.message).to include("Not logged in")
+          end
+        end
+
+        it "does not raise AuthenticationError when the envelope's result text merely mentions authentication" do
+          # Guard against false positives: assistant text discussing auth
+          # must not be treated as a CLI auth failure when stderr is clean.
+          json_output = JSON.generate({
+            "type" => "result",
+            "subtype" => "success",
+            "is_error" => false,
+            "result" => "Here is how OAuth authentication works: ..."
+          })
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: json_output,
+              stderr: "",
+              exit_code: 1,
+              duration: 1.0
+            )
+          )
+
+          expect {
+            provider.send_message(prompt: "Hello")
+          }.not_to raise_error
+        end
       end
 
       context "with envelope metadata extraction" do
