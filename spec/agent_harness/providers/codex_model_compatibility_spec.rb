@@ -5,7 +5,7 @@ RSpec.describe AgentHarness::Providers::Codex, ".model_compatibility" do
     result = described_class.model_compatibility(
       model_id: "gpt-5-codex",
       auth_mode: :api_key,
-      cli_version: "0.122.0"
+      cli_version: "0.149.1"
     )
 
     expect(result).to be_a(AgentHarness::ModelCompatibility::Result)
@@ -19,7 +19,7 @@ RSpec.describe AgentHarness::Providers::Codex, ".model_compatibility" do
     result = described_class.model_compatibility(
       model_id: "gpt-5.5",
       auth_mode: :subscription,
-      cli_version: "0.122.0"
+      cli_version: "0.149.1"
     )
 
     expect(result.supported?).to be(true)
@@ -46,7 +46,7 @@ RSpec.describe AgentHarness::Providers::Codex, ".model_compatibility" do
     result = described_class.model_compatibility(
       model_id: "gpt-5.5-pro",
       auth_mode: :subscription,
-      cli_version: "0.122.0"
+      cli_version: "0.149.1"
     )
 
     expect(result.supported?).to be(false)
@@ -62,7 +62,7 @@ RSpec.describe AgentHarness::Providers::Codex, ".model_compatibility" do
       result = described_class.model_compatibility(
         model_id: model_id,
         auth_mode: :subscription,
-        cli_version: "0.122.0"
+        cli_version: "0.149.1"
       )
 
       expect(result.supported?).to be(false)
@@ -78,7 +78,7 @@ RSpec.describe AgentHarness::Providers::Codex, ".model_compatibility" do
     result = described_class.model_compatibility(
       model_id: "gpt-5.5-pro",
       auth_mode: :api_key,
-      cli_version: "0.122.0"
+      cli_version: "0.149.1"
     )
 
     expect(result.supported?).to be(true)
@@ -91,7 +91,7 @@ RSpec.describe AgentHarness::Providers::Codex, ".model_compatibility" do
       result = described_class.model_compatibility(
         model_id: model_id,
         auth_mode: :subscription,
-        cli_version: "0.122.0"
+        cli_version: "0.149.1"
       )
 
       expect(result.supported?).to be(false)
@@ -103,12 +103,44 @@ RSpec.describe AgentHarness::Providers::Codex, ".model_compatibility" do
     end
   end
 
+  # See viamin/agent-harness#366: the Codex service surfaces
+  # "The 'gpt-5.3-codex' model is not supported when using Codex with a
+  # ChatGPT account." at execution time. Bake that fact into the static
+  # contract so callers rejecting incompatible models before dispatch (and
+  # subscription-auth fallback selection) do the right thing deterministically.
+  it "returns unsupported for gpt-5.3-codex under subscription auth" do
+    result = described_class.model_compatibility(
+      model_id: "gpt-5.3-codex",
+      auth_mode: :subscription,
+      cli_version: described_class::SUPPORTED_CLI_VERSION
+    )
+
+    expect(result.supported?).to be(false)
+    expect(result.unsupported?).to be(true)
+    expect(result.reason).to eq(:unsupported_auth_mode_for_model)
+    expect(result.details).to include(supported_auth_modes: [:api_key])
+    expect(result.fallback_model_id).to eq(described_class::DEFAULT_COMPATIBLE_MODEL_ID)
+    expect(result.source).to eq(:static_contract)
+  end
+
+  it "returns supported for gpt-5.3-codex under api_key auth" do
+    result = described_class.model_compatibility(
+      model_id: "gpt-5.3-codex",
+      auth_mode: :api_key,
+      cli_version: described_class::SUPPORTED_CLI_VERSION
+    )
+
+    expect(result.supported?).to be(true)
+    expect(result.reason).to eq(:supported)
+    expect(result.source).to eq(:static_contract)
+  end
+
   it "returns supported for gpt-5.6 family models under api_key auth" do
     %w[gpt-5.6 gpt-5.6-luna gpt-5.6-sol gpt-5.6-terra].each do |model_id|
       result = described_class.model_compatibility(
         model_id: model_id,
         auth_mode: :api_key,
-        cli_version: "0.122.0"
+        cli_version: "0.149.1"
       )
 
       expect(result.supported?).to be(true)
@@ -126,7 +158,7 @@ RSpec.describe AgentHarness::Providers::Codex, ".model_compatibility" do
     result = described_class.model_compatibility(
       model_id: "gpt-5.5-pro",
       auth_mode: nil,
-      cli_version: "0.122.0"
+      cli_version: "0.149.1"
     )
 
     expect(result.unknown?).to be(true)
@@ -152,7 +184,7 @@ RSpec.describe AgentHarness::Providers::Codex, ".model_compatibility" do
     result = described_class.model_compatibility(
       model_id: "gpt-future-9000",
       auth_mode: :api_key,
-      cli_version: "0.122.0"
+      cli_version: "0.149.1"
     )
 
     expect(result.unknown?).to be(true)
@@ -186,7 +218,7 @@ RSpec.describe AgentHarness::Providers::Codex, ".model_compatibility" do
     result = described_class.model_compatibility(
       model_id: "gpt-5-codex",
       auth_mode: :sso,
-      cli_version: "0.122.0"
+      cli_version: "0.149.1"
     )
 
     expect(result.unsupported?).to be(true)
@@ -226,7 +258,7 @@ RSpec.describe AgentHarness::Providers::Codex, ".model_compatibility" do
       runner: :codex,
       model_id: "gpt-5.6",
       auth_mode: :subscription,
-      cli_version: "0.122.0"
+      cli_version: "0.149.1"
     )
 
     expect(result.runner).to eq(:codex)
@@ -239,7 +271,7 @@ RSpec.describe AgentHarness::Providers::Codex, ".model_compatibility" do
       :codex,
       model_id: "gpt-5-codex",
       auth_mode: :api_key,
-      cli_version: "0.122.0"
+      cli_version: "0.149.1"
     )
 
     expect(result.supported?).to be(true)

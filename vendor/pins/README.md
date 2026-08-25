@@ -60,9 +60,10 @@ Providers deliberately without a manifest:
   parity — but a claude-code npm bump that lags the installer will still be
   visible in the PR.
 - **codex upper bound is load-bearing.** `SUPPORTED_CLI_REQUIREMENT` is
-  `>= 0.122.0, < 0.123.0` because of the auth-mode gating in #329. If
-  Dependabot ever opens a codex PR crossing `0.123.0`, the requirement and
-  supporting code have to move first.
+  `>= 0.149.1, < 0.150.0` because of the auth-mode gating in #329 and the
+  model-catalog schema fix in #366 (the `max` reasoning level landed in
+  Codex 0.149.0). If Dependabot ever opens a codex PR crossing `0.150.0`,
+  the requirement and supporting code have to move first.
 - **gemini is effectively frozen.** `SUPPORTED_CLI_REQUIREMENT` is
   `= 0.35.3`, so any Dependabot bump would fail the parity check anyway.
   The `.github/dependabot.yml` entry for gemini uses `ignore` to suppress
