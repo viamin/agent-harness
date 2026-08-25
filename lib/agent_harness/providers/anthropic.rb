@@ -220,9 +220,14 @@ module AgentHarness
         # missing or expired. Detected in the envelope's +result+ field even
         # when +subtype+ is "success", since Claude reports the failure
         # inside the payload rather than through the transport layer.
+        #
+        # Scoped to explicit expired / login-required phrases. A bare
+        # "authentication" match would also fire on transient service
+        # outages like "authentication service was unavailable", which
+        # belong on the retry / provider-fallback path, not the re-auth
+        # path.
         AUTH_FAILURE_FRAGMENTS = [
           "oauth token",
-          "authentication",
           "not logged in",
           "please run /login",
           "login required",

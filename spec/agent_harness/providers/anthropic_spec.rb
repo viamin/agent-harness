@@ -1267,6 +1267,30 @@ RSpec.describe AgentHarness::Providers::Anthropic do
             provider.send_message(prompt: "Hello")
           }.not_to raise_error
         end
+
+        it "does not raise AuthenticationError for service-outage messages that mention authentication" do
+          # Transient failures like "authentication service was unavailable"
+          # belong on the retry / provider-fallback path, not the re-auth
+          # path. Only explicit expired/login-required phrases should raise.
+          json_output = JSON.generate({
+            "type" => "result",
+            "is_error" => true,
+            "result" => "authentication service was unavailable"
+          })
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: json_output,
+              stderr: "",
+              exit_code: 1,
+              duration: 1.0
+            )
+          )
+
+          expect {
+            provider.send_message(prompt: "Hello")
+          }.not_to raise_error
+        end
       end
 
       context "with envelope metadata extraction" do
