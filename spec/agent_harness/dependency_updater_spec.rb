@@ -153,13 +153,13 @@ RSpec.describe AgentHarness::DependencyUpdater do
 
   describe "#resolve_latest_installation_contract" do
     it "returns version info with installation contract" do
-      updater.register_release(:codex, "0.122.0", released_at: now - 200_000)
+      updater.register_release(:codex, "0.149.1", released_at: now - 200_000)
       updater.cooldown_period = 86_400
 
       result = updater.resolve_latest_installation_contract(:codex, now: now)
       expect(result).not_to be_nil
       expect(result[:provider]).to eq(:codex)
-      expect(result[:version]).to eq("0.122.0")
+      expect(result[:version]).to eq("0.149.1")
       expect(result[:installation_contract]).not_to be_nil
     end
 
@@ -173,7 +173,7 @@ RSpec.describe AgentHarness::DependencyUpdater do
     end
 
     it "returns nil when no eligible version exists" do
-      updater.register_release(:codex, "0.122.0", released_at: now - 10)
+      updater.register_release(:codex, "0.149.1", released_at: now - 10)
       updater.cooldown_period = 86_400
 
       result = updater.resolve_latest_installation_contract(:codex, now: now)
@@ -185,12 +185,12 @@ RSpec.describe AgentHarness::DependencyUpdater do
     it "resolves latest versions for all registered providers" do
       updater.cooldown_period = 86_400
       updater.register_release(:claude, "2.1.90", released_at: now - 200_000)
-      updater.register_release(:codex, "0.122.0", released_at: now - 200_000)
+      updater.register_release(:codex, "0.149.1", released_at: now - 200_000)
 
       results = updater.resolve_all_latest(now: now)
       expect(results.keys).to contain_exactly(:claude, :codex)
       expect(results[:claude][:version]).to eq("2.1.90")
-      expect(results[:codex][:version]).to eq("0.122.0")
+      expect(results[:codex][:version]).to eq("0.149.1")
     end
 
     it "omits providers with no eligible versions" do

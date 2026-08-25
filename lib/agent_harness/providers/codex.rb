@@ -17,8 +17,8 @@ module AgentHarness
         :type, :turn, :tokens, :error_message, :tool_name, :raw_event
       )
 
-      SUPPORTED_CLI_VERSION = "0.122.0"
-      SUPPORTED_CLI_REQUIREMENT = Gem::Requirement.new(">= #{SUPPORTED_CLI_VERSION}", "< 0.123.0").freeze
+      SUPPORTED_CLI_VERSION = "0.149.1"
+      SUPPORTED_CLI_REQUIREMENT = Gem::Requirement.new(">= #{SUPPORTED_CLI_VERSION}", "< 0.150.0").freeze
 
       # Default model recommended by the Codex runner contract when callers
       # have no explicit preference. Used as the {AgentHarness::ModelCompatibility::Result#fallback_model_id}
@@ -44,7 +44,8 @@ module AgentHarness
         "gpt-5.6" => {auth_modes: [:api_key].freeze},
         "gpt-5.6-luna" => {auth_modes: [:api_key].freeze},
         "gpt-5.6-sol" => {auth_modes: [:api_key].freeze},
-        "gpt-5.6-terra" => {auth_modes: [:api_key].freeze}
+        "gpt-5.6-terra" => {auth_modes: [:api_key].freeze},
+        "gpt-5.3-codex" => {auth_modes: [:api_key].freeze}
       }.each_value(&:freeze).freeze
 
       # Models that the runner contract considers supported on every Codex

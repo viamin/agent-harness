@@ -12,7 +12,7 @@ require_relative "../../script/cli_pin_refresh"
 # its FIXTURE_PINS.
 SWEEP_FIXTURE_VERSIONS = {
   "claude/@anthropic-ai/claude-code" => "2.1.92",
-  "codex/@openai/codex" => "0.122.0",
+  "codex/@openai/codex" => "0.149.1",
   "opencode/opencode-ai" => "1.18.9",
   "gemini/@google/gemini-cli" => "0.35.3",
   "pi/@mariozechner/pi-coding-agent" => "0.73.0",

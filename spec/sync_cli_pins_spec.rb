@@ -11,7 +11,7 @@ require_relative "../script/sync-cli-pins"
 # in the real provider files, keyed by "<provider_dir>/<package>".
 FIXTURE_PINS = {
   "claude/@anthropic-ai/claude-code" => ["2.1.92", "Gem::Requirement.new(\">= \#{SUPPORTED_CLI_VERSION}\", \"< 2.2.0\").freeze"],
-  "codex/@openai/codex" => ["0.122.0", "Gem::Requirement.new(\">= \#{SUPPORTED_CLI_VERSION}\", \"< 0.123.0\").freeze"],
+  "codex/@openai/codex" => ["0.149.1", "Gem::Requirement.new(\">= \#{SUPPORTED_CLI_VERSION}\", \"< 0.150.0\").freeze"],
   "opencode/opencode-ai" => ["1.18.9", "Gem::Requirement.new(\">= \#{SUPPORTED_CLI_VERSION}\", \"< 2.0.0\").freeze"],
   "gemini/@google/gemini-cli" => ["0.35.3", "Gem::Requirement.new(\"= \#{SUPPORTED_CLI_VERSION}\").freeze"],
   "pi/@mariozechner/pi-coding-agent" => ["0.73.0", "Gem::Requirement.new(\"= \#{SUPPORTED_CLI_VERSION}\").freeze"],
@@ -157,12 +157,12 @@ RSpec.describe CliPinSync do
 
   describe "a bump outside the requirement" do
     it "blocks, raises a comment-ready message, and writes nothing" do
-      bump_manifest("codex/@openai/codex", "0.123.0")
+      bump_manifest("codex/@openai/codex", "0.150.0")
       before = Dir[File.join(repo_root, "**/*.{rb,json,txt}")].sort.to_h { |f| [f, File.read(f)] }
 
       expect { described_class.new(repo_root).call }
         .to raise_error(CliPinSync::BlockedBump) do |error|
-        expect(error.message).to include("< 0.123.0")
+        expect(error.message).to include("< 0.150.0")
         expect(error.message).to include("@openai/codex")
         expect(error.message).to include(CliPinSync::BLOCKED_COMMENT_MARKER)
       end
@@ -186,7 +186,7 @@ RSpec.describe CliPinSync do
 
     it "never partially syncs when another provider is blocked" do
       bump_manifest("opencode/opencode-ai", "1.18.10")
-      bump_manifest("codex/@openai/codex", "0.123.0")
+      bump_manifest("codex/@openai/codex", "0.150.0")
 
       expect { described_class.new(repo_root).call }.to raise_error(CliPinSync::BlockedBump)
       expect(read_file("lib/agent_harness/providers/opencode.rb"))
@@ -239,7 +239,7 @@ RSpec.describe CliPinSync do
     end
 
     it "exits 1 and writes the PR comment file on a blocked bump" do
-      bump_manifest("codex/@openai/codex", "0.123.0")
+      bump_manifest("codex/@openai/codex", "0.150.0")
 
       _out, err, status = Open3.capture3(
         {"CLI_PIN_SYNC_COMMENT_FILE" => comment_file},

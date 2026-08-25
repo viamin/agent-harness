@@ -23,14 +23,14 @@ RSpec.describe AgentHarness::Providers::Codex do
       expect(contract).to include(
         source: :npm,
         package_name: "@openai/codex",
-        version: "0.122.0",
+        version: "0.149.1",
         binary_name: "codex"
       )
-      expect(contract[:package]).to eq("@openai/codex@0.122.0")
-      expect(contract[:supported_versions]).to eq(["0.122.0"])
-      expect(contract[:version_requirement]).to eq([">= 0.122.0", "< 0.123.0"])
+      expect(contract[:package]).to eq("@openai/codex@0.149.1")
+      expect(contract[:supported_versions]).to eq(["0.149.1"])
+      expect(contract[:version_requirement]).to eq([">= 0.149.1", "< 0.150.0"])
       expect(contract[:install_command]).to eq(
-        ["npm", "install", "-g", "--ignore-scripts", "@openai/codex@0.122.0"]
+        ["npm", "install", "-g", "--ignore-scripts", "@openai/codex@0.149.1"]
       )
     end
 
@@ -41,15 +41,15 @@ RSpec.describe AgentHarness::Providers::Codex do
     end
 
     it "supports explicit version selection through the published contract API" do
-      contract = described_class.installation_contract(version: "0.122.5")
+      contract = described_class.installation_contract(version: "0.149.5")
 
       expect(contract).to include(
-        package: "@openai/codex@0.122.5",
-        version: "0.122.5"
+        package: "@openai/codex@0.149.5",
+        version: "0.149.5"
       )
-      expect(contract[:supported_versions]).to eq(["0.122.5"])
+      expect(contract[:supported_versions]).to eq(["0.149.5"])
       expect(contract[:install_command]).to eq(
-        ["npm", "install", "-g", "--ignore-scripts", "@openai/codex@0.122.5"]
+        ["npm", "install", "-g", "--ignore-scripts", "@openai/codex@0.149.5"]
       )
     end
 
@@ -58,28 +58,45 @@ RSpec.describe AgentHarness::Providers::Codex do
 
       expect { contract[:install_command_prefix] << "codex" }.to raise_error(FrozenError)
       expect { contract[:install_command] << "codex" }.to raise_error(FrozenError)
-      expect { contract[:supported_versions] << "0.121.0" }.to raise_error(FrozenError)
-      expect { contract[:version_requirement] << ">= 0.121.0" }.to raise_error(FrozenError)
+      expect { contract[:supported_versions] << "0.148.0" }.to raise_error(FrozenError)
+      expect { contract[:version_requirement] << ">= 0.148.0" }.to raise_error(FrozenError)
+    end
+
+    # viamin/agent-harness#366: Codex 0.122.x could not decode a model catalog
+    # entry advertising the `max` reasoning level and failed with
+    # `unknown variant `max`, expected one of `none`, `minimum`, `low`,
+    # `medium`, `high`, `xhigh`` while refreshing available models. The
+    # `max` (and `ultra`) reasoning levels landed in Codex 0.149.0 (see the
+    # 0.149.0 release notes: "SDK users can now pass exact CLI config
+    # overrides and select `max` or `ultra` reasoning effort"). Guard the
+    # pinned contract so a future downgrade below 0.149.0 fails loudly here
+    # instead of at runtime against the live catalog.
+    it "pins a Codex CLI that parses catalogs containing the max reasoning level" do
+      contract = described_class.installation_contract
+      first_supported_max_release = Gem::Version.new("0.149.0")
+
+      expect(Gem::Version.new(contract[:version])).to be >= first_supported_max_release
+      expect(Gem::Version.new(described_class::SUPPORTED_CLI_VERSION)).to be >= first_supported_max_release
     end
   end
 
   describe ".install_command" do
     it "builds the default install command from the contract" do
       expect(described_class.install_command).to eq(
-        ["npm", "install", "-g", "--ignore-scripts", "@openai/codex@0.122.0"]
+        ["npm", "install", "-g", "--ignore-scripts", "@openai/codex@0.149.1"]
       )
     end
 
     it "supports explicit version overrides" do
-      expect(described_class.install_command(version: "0.122.5")).to eq(
-        ["npm", "install", "-g", "--ignore-scripts", "@openai/codex@0.122.5"]
+      expect(described_class.install_command(version: "0.149.5")).to eq(
+        ["npm", "install", "-g", "--ignore-scripts", "@openai/codex@0.149.5"]
       )
     end
 
     it "rejects unsupported explicit version overrides" do
       expect {
-        described_class.install_command(version: "0.121.0")
-      }.to raise_error(ArgumentError, /Unsupported Codex CLI version "0.121.0"/)
+        described_class.install_command(version: "0.148.0")
+      }.to raise_error(ArgumentError, /Unsupported Codex CLI version "0.148.0"/)
     end
 
     it "rejects malformed version strings with a provider-specific message" do
@@ -101,11 +118,11 @@ RSpec.describe AgentHarness::Providers::Codex do
     end
 
     it "normalizes padded version strings in the install command and contract" do
-      contract = described_class.installation_contract(version: " 0.122.5 ")
+      contract = described_class.installation_contract(version: " 0.149.5 ")
 
-      expect(contract[:version]).to eq("0.122.5")
+      expect(contract[:version]).to eq("0.149.5")
       expect(contract[:install_command]).to eq(
-        ["npm", "install", "-g", "--ignore-scripts", "@openai/codex@0.122.5"]
+        ["npm", "install", "-g", "--ignore-scripts", "@openai/codex@0.149.5"]
       )
     end
   end
@@ -5922,7 +5939,7 @@ RSpec.describe AgentHarness::Providers::Codex do
           timeout: 7,
           env: {"OPENAI_API_KEY" => "sk-test-key", "OPENAI_BASE_URL" => "https://api.openai.com"}
         ).and_return(
-          AgentHarness::CommandExecutor::Result.new(stdout: "codex 0.122.0", stderr: "", exit_code: 0, duration: 0.1)
+          AgentHarness::CommandExecutor::Result.new(stdout: "codex 0.149.1", stderr: "", exit_code: 0, duration: 0.1)
         )
 
         result = provider.preflight_check(
@@ -5943,7 +5960,7 @@ RSpec.describe AgentHarness::Providers::Codex do
 
       it "returns an actionable reachability failure when the API base URL cannot be reached" do
         allow(mock_executor).to receive(:execute).and_return(
-          AgentHarness::CommandExecutor::Result.new(stdout: "codex 0.122.0", stderr: "", exit_code: 0, duration: 0.1)
+          AgentHarness::CommandExecutor::Result.new(stdout: "codex 0.149.1", stderr: "", exit_code: 0, duration: 0.1)
         )
         allow(http).to receive(:request).and_raise(SocketError, "getaddrinfo: Name or service not known")
 
@@ -5960,7 +5977,7 @@ RSpec.describe AgentHarness::Providers::Codex do
 
       it "returns a configuration error when OPENAI_BASE_URL lacks an HTTP scheme" do
         allow(mock_executor).to receive(:execute).and_return(
-          AgentHarness::CommandExecutor::Result.new(stdout: "codex 0.122.0", stderr: "", exit_code: 0, duration: 0.1)
+          AgentHarness::CommandExecutor::Result.new(stdout: "codex 0.149.1", stderr: "", exit_code: 0, duration: 0.1)
         )
 
         result = provider.preflight_check(
@@ -5976,7 +5993,7 @@ RSpec.describe AgentHarness::Providers::Codex do
       it "retries with GET when HEAD returns a non-success response" do
         head_response = Net::HTTPMethodNotAllowed.new("1.1", "405", "Method Not Allowed")
         allow(mock_executor).to receive(:execute).and_return(
-          AgentHarness::CommandExecutor::Result.new(stdout: "codex 0.122.0", stderr: "", exit_code: 0, duration: 0.1)
+          AgentHarness::CommandExecutor::Result.new(stdout: "codex 0.149.1", stderr: "", exit_code: 0, duration: 0.1)
         )
         allow(http).to receive(:request).and_return(head_response, http_response)
 
@@ -5993,7 +6010,7 @@ RSpec.describe AgentHarness::Providers::Codex do
       it "treats 401/403 as healthy since auth is validated separately" do
         unauthorized_response = Net::HTTPUnauthorized.new("1.1", "401", "Unauthorized")
         allow(mock_executor).to receive(:execute).and_return(
-          AgentHarness::CommandExecutor::Result.new(stdout: "codex 0.122.0", stderr: "", exit_code: 0, duration: 0.1)
+          AgentHarness::CommandExecutor::Result.new(stdout: "codex 0.149.1", stderr: "", exit_code: 0, duration: 0.1)
         )
         allow(http).to receive(:request).and_return(unauthorized_response)
 
@@ -6008,7 +6025,7 @@ RSpec.describe AgentHarness::Providers::Codex do
       it "treats 403 Forbidden as healthy since auth is validated separately" do
         forbidden_response = Net::HTTPForbidden.new("1.1", "403", "Forbidden")
         allow(mock_executor).to receive(:execute).and_return(
-          AgentHarness::CommandExecutor::Result.new(stdout: "codex 0.122.0", stderr: "", exit_code: 0, duration: 0.1)
+          AgentHarness::CommandExecutor::Result.new(stdout: "codex 0.149.1", stderr: "", exit_code: 0, duration: 0.1)
         )
         allow(http).to receive(:request).and_return(forbidden_response)
 
@@ -6023,7 +6040,7 @@ RSpec.describe AgentHarness::Providers::Codex do
       it "returns a configuration error when the API base URL resolves to an invalid path" do
         not_found_response = Net::HTTPNotFound.new("1.1", "404", "Not Found")
         allow(mock_executor).to receive(:execute).and_return(
-          AgentHarness::CommandExecutor::Result.new(stdout: "codex 0.122.0", stderr: "", exit_code: 0, duration: 0.1)
+          AgentHarness::CommandExecutor::Result.new(stdout: "codex 0.149.1", stderr: "", exit_code: 0, duration: 0.1)
         )
         allow(http).to receive(:request).and_return(not_found_response, not_found_response)
 

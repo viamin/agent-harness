@@ -8,7 +8,7 @@ RSpec.describe AgentHarness::ModelCompatibility do
         model_id: :"gpt-5.5",
         supported: true,
         auth_mode: :subscription,
-        cli_version: "0.122.0"
+        cli_version: "0.149.1"
       )
 
       expect(result).to be_a(described_class::Result)

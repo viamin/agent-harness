@@ -465,7 +465,7 @@ RSpec.describe AgentHarness::Providers::Registry do
 
       expect(contracts).to include(:codex, :aider, :opencode, :pi)
       expect(contracts[:codex][:install_command]).to eq(
-        ["npm", "install", "-g", "--ignore-scripts", "@openai/codex@0.122.0"]
+        ["npm", "install", "-g", "--ignore-scripts", "@openai/codex@0.149.1"]
       )
       expect(contracts[:aider][:install_command]).to eq(
         ["uv", "tool", "install", "--force", "--python", "python3.12", "--with", "pip", "aider-chat==0.86.2"]
@@ -545,12 +545,12 @@ RSpec.describe AgentHarness::Providers::Registry do
         provider: :codex,
         source_type: :npm,
         package_name: "@openai/codex",
-        default_version: "0.122.0",
-        resolved_version: "0.122.0",
-        supported_version_requirement: ">= 0.122.0, < 0.123.0",
+        default_version: "0.149.1",
+        resolved_version: "0.149.1",
+        supported_version_requirement: ">= 0.149.1, < 0.150.0",
         binary_name: "codex",
-        install_command: ["npm", "install", "-g", "--ignore-scripts", "@openai/codex@0.122.0"],
-        install_command_string: "npm install -g --ignore-scripts @openai/codex@0.122.0"
+        install_command: ["npm", "install", "-g", "--ignore-scripts", "@openai/codex@0.149.1"],
+        install_command_string: "npm install -g --ignore-scripts @openai/codex@0.149.1"
       )
       expect(gemini_installation).to include(
         provider: :gemini,
