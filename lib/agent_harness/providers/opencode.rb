@@ -23,7 +23,17 @@ module AgentHarness
           .freeze
       }.freeze
       SUPPORTED_CLI_VERSIONS = [SUPPORTED_CLI_VERSION].freeze
-      POSTINSTALL_COMMAND = "node $(npm root -g)/opencode-ai/postinstall.mjs"
+      POSTINSTALL_COMMAND = [
+        "set -eu",
+        "raw_platform=$(uname -s)",
+        "raw_arch=$(uname -m)",
+        "case \"$raw_platform\" in Linux) target_platform=linux ;; Darwin) target_platform=darwin ;; *) echo \"Unsupported OpenCode platform: ${raw_platform}/${raw_arch}\" >&2; exit 1 ;; esac",
+        "case \"$raw_arch\" in x86_64|amd64) target_arch=x64 ;; aarch64|arm64) target_arch=arm64 ;; *) echo \"Unsupported OpenCode architecture: ${raw_platform}/${raw_arch}\" >&2; exit 1 ;; esac",
+        "postinstall_path=\"$(npm root -g)/opencode-ai/postinstall.mjs\"",
+        "binary_path=\"$(npm root -g)/opencode-ai/bin/opencode.exe\"",
+        "node -e 'const os = require(\"os\"); const {pathToFileURL} = require(\"url\"); const platform = process.argv[1]; const arch = process.argv[2]; const scriptPath = process.argv[3]; os.platform = () => platform; os.arch = () => arch; import(pathToFileURL(scriptPath).href);' \"$target_platform\" \"$target_arch\" \"$postinstall_path\"",
+        "\"$binary_path\" --version >/dev/null"
+      ].join(" && ").freeze
       VERSION_REQUIREMENT_STRINGS = SUPPORTED_CLI_REQUIREMENT.requirements
         .map { |op, ver| "#{op} #{ver}".freeze }
         .freeze

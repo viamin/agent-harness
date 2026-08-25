@@ -1114,6 +1114,13 @@ module AgentHarness
           return original_error if original_error.is_a?(IdleTimeoutError)
 
           IdleTimeoutError.new(original_error.message, original_error: original_error)
+        when :installation
+          ProviderInstallationError.new(
+            original_error.message,
+            provider: self.class.provider_name,
+            error_category: :installation,
+            original_error: original_error
+          )
         else
           ProviderError.new(original_error.message, original_error: original_error)
         end

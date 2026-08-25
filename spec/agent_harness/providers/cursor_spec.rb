@@ -502,6 +502,17 @@ RSpec.describe AgentHarness::Providers::Cursor do
           allow(mock_executor).to receive(:execute).and_raise(StandardError.new("something went wrong"))
           expect { provider.send_message(prompt: "Hello") }.to raise_error(AgentHarness::ProviderError)
         end
+
+        it "raises ProviderInstallationError for platform compatibility errors" do
+          allow(mock_executor).to receive(:execute).and_raise(
+            StandardError.new("Dynamic loader not found: /lib64/ld-linux-x86-64.so.2")
+          )
+
+          expect { provider.send_message(prompt: "Hello") }.to raise_error(AgentHarness::ProviderInstallationError) do |error|
+            expect(error.provider).to eq(:cursor)
+            expect(error.error_category).to eq(:installation)
+          end
+        end
       end
     end
 

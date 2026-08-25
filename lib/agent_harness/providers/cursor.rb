@@ -452,6 +452,13 @@ module AgentHarness
           raise error if error.is_a?(IdleTimeoutError)
 
           raise IdleTimeoutError.new(error.message, original_error: error)
+        when :installation
+          raise ProviderInstallationError.new(
+            error.message,
+            provider: self.class.provider_name,
+            error_category: :installation,
+            original_error: error
+          )
         else
           raise ProviderError.new(error.message, original_error: error)
         end

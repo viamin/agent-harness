@@ -15,6 +15,16 @@ module AgentHarness
   # Provider-related errors
   class ProviderError < Error; end
 
+  class ProviderInstallationError < ProviderError
+    attr_reader :provider, :error_category
+
+    def initialize(message = nil, provider: nil, error_category: :installation, **kwargs)
+      @provider = provider
+      @error_category = error_category
+      super(message, **kwargs)
+    end
+  end
+
   class ProviderNotFoundError < ProviderError; end
 
   class ProviderUnavailableError < ProviderError; end

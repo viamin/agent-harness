@@ -956,6 +956,51 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
       end
     end
 
+    context "when the provider smoke test fails with a platform loader error" do
+      let(:provider_class) do
+        Class.new(AgentHarness::Providers::Base) do
+          class << self
+            def provider_name
+              :test_provider
+            end
+
+            def binary_name
+              "test-cli"
+            end
+
+            def available?
+              true
+            end
+          end
+
+          def smoke_test(timeout: nil, provider_runtime: nil)
+            {
+              ok: false,
+              status: "error",
+              message: "Dynamic loader not found: /lib64/ld-linux-x86-64.so.2",
+              error_category: nil
+            }
+          end
+        end
+      end
+
+      before do
+        registry.register(:test_provider, provider_class)
+        allow(AgentHarness::Authentication).to receive(:auth_status)
+          .with(:test_provider)
+          .and_return({valid: true, expires_at: nil, error: nil})
+      end
+
+      it "returns an installation error category" do
+        result = described_class.check(:test_provider, timeout: 7)
+
+        expect(result[:status]).to eq("error")
+        expect(result[:message]).to eq("Dynamic loader not found: /lib64/ld-linux-x86-64.so.2")
+        expect(result[:error_category]).to eq(:installation)
+        expect(result[:check]).to eq(:smoke_test)
+      end
+    end
+
     context "when smoke test returns quota_exceeded" do
       let(:provider_class) do
         Class.new(AgentHarness::Providers::Base) do
