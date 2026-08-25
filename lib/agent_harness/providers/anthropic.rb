@@ -216,6 +216,20 @@ module AgentHarness
 
         private
 
+        # Message fragments the Claude CLI emits when the local session is
+        # missing or expired. Detected in the envelope's +result+ field even
+        # when +subtype+ is "success", since Claude reports the failure
+        # inside the payload rather than through the transport layer.
+        AUTH_FAILURE_FRAGMENTS = [
+          "oauth token",
+          "authentication",
+          "not logged in",
+          "please run /login",
+          "login required",
+          "credentials expired",
+          "session expired"
+        ].freeze
+
         def classify_error_message(message)
           msg_lower = message.downcase
 
@@ -223,11 +237,18 @@ module AgentHarness
             "Rate limit exceeded"
           elsif msg_lower.include?("deprecat") || msg_lower.include?("end-of-life")
             "Model deprecated"
-          elsif msg_lower.include?("oauth token") || msg_lower.include?("authentication")
+          elsif authentication_failure_message?(msg_lower)
             "Authentication error"
           else
             message
           end
+        end
+
+        def authentication_failure_message?(message)
+          return false if message.nil? || message.empty?
+
+          msg_lower = message.downcase
+          AUTH_FAILURE_FRAGMENTS.any? { |fragment| msg_lower.include?(fragment) }
         end
 
         def extract_tokens(parsed)
@@ -654,22 +675,36 @@ module AgentHarness
       def parse_response(result, duration:)
         output = result.stdout
         error = nil
+        auth_source = nil
         tokens = nil
         metadata = {}
+
+        parsed = parse_json_output(output)
+
+        # Claude CLI can return `subtype: "success"` with `is_error: true`
+        # (e.g. "Not logged in · Please run /login"); trust `is_error` and the
+        # process exit code rather than the envelope subtype.
+        envelope_error = parsed && parsed["is_error"]
+        envelope_message = parsed && parsed["result"]
 
         if result.failed?
           combined = [result.stdout, result.stderr].compact.join("\n")
           error = classify_error_message(combined)
+          # When there's no envelope, the raw combined output is our only
+          # window into auth failures reported by the CLI process itself.
+          auth_source ||= combined unless parsed
         end
 
-        # Parse JSON output to extract result text, token usage, and metadata
-        parsed = parse_json_output(output)
-        if parsed
-          # Handle is_error envelopes as provider errors
-          if parsed["is_error"]
-            error ||= classify_error_message(parsed["result"] || "Unknown Claude CLI error")
-          end
+        if envelope_error
+          error ||= classify_error_message(envelope_message || "Unknown Claude CLI error")
+          # Prefer the envelope's own message for auth detection to avoid
+          # false positives from assistant text that mentions "authentication".
+          auth_source = envelope_message
+        end
 
+        raise_if_authentication_failure(auth_source)
+
+        if parsed
           output = parsed["result"] || output
           tokens = extract_tokens(parsed)
           metadata = extract_envelope_metadata(parsed)
@@ -784,6 +819,24 @@ module AgentHarness
 
       def classify_error_message(message)
         self.class.send(:classify_error_message, message)
+      end
+
+      def authentication_failure_message?(message)
+        self.class.send(:authentication_failure_message?, message)
+      end
+
+      # Raise AuthenticationError so callers (e.g. Conductor) can route to
+      # re-auth handling instead of retrying through generic provider-error
+      # paths. Fires when the source message (envelope's +result+ field, or
+      # the raw combined process output when there is no envelope) matches
+      # a Claude "not logged in" / session-expired signal.
+      def raise_if_authentication_failure(source_message)
+        return unless authentication_failure_message?(source_message)
+
+        message = source_message.to_s.strip
+        message = "Claude CLI reported an authentication failure" if message.empty?
+
+        raise AuthenticationError.new(message, provider: self.class.provider_name)
       end
 
       def parse_claude_mcp_output(output)
