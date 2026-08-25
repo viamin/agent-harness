@@ -470,7 +470,9 @@ module AgentHarness
       end
 
       def installation_failure_message?(message)
-        message.to_s.match?(/(not found in PATH|command not found|No such file or directory|is not installed)/i)
+        message.to_s.match?(
+          /(not found in PATH|command not found|No such file or directory|is not installed|Dynamic loader not found|ld-linux-[^\/\s]+\.so|Exec format error|cannot execute binary file|wrong architecture|unsupported platform|unsupported architecture)/i
+        )
       end
 
       def provider_overrides_method?(provider_instance, method_name)

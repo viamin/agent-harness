@@ -40,9 +40,11 @@ RSpec.describe AgentHarness::Providers::Opencode do
     it "exposes a postinstall_command for the trusted native binary download" do
       contract = described_class.installation_contract
 
-      expect(contract[:postinstall_command]).to eq(
-        "node $(npm root -g)/opencode-ai/postinstall.mjs"
-      )
+      expect(contract[:postinstall_command]).to include("raw_arch=$(uname -m)")
+      expect(contract[:postinstall_command]).to include("target_arch=arm64")
+      expect(contract[:postinstall_command]).to include("target_arch=x64")
+      expect(contract[:postinstall_command]).to include("postinstall.mjs")
+      expect(contract[:postinstall_command]).to include("\"$binary_path\" --version >/dev/null")
     end
 
     it "keeps the runtime binary aligned with the install contract" do
@@ -64,9 +66,8 @@ RSpec.describe AgentHarness::Providers::Opencode do
       contract = described_class.installation_contract(version: "1.18.20")
 
       expect(contract[:requires_postinstall]).to be true
-      expect(contract[:postinstall_command]).to eq(
-        "node $(npm root -g)/opencode-ai/postinstall.mjs"
-      )
+      expect(contract[:postinstall_command]).to include("raw_arch=$(uname -m)")
+      expect(contract[:postinstall_command]).to include("\"$binary_path\" --version >/dev/null")
     end
 
     it "reuses the default frozen install contract" do

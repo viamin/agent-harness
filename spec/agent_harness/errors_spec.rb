@@ -26,6 +26,22 @@ RSpec.describe AgentHarness do
       end
     end
 
+    describe AgentHarness::ProviderInstallationError do
+      it "inherits from ProviderError" do
+        expect(described_class.new).to be_a(AgentHarness::ProviderError)
+      end
+
+      it "stores provider" do
+        error = described_class.new("install failed", provider: :opencode)
+        expect(error.provider).to eq(:opencode)
+      end
+
+      it "defaults error_category to :installation" do
+        error = described_class.new("install failed")
+        expect(error.error_category).to eq(:installation)
+      end
+    end
+
     describe AgentHarness::ProviderNotFoundError do
       it "inherits from ProviderError" do
         expect(described_class.new).to be_a(AgentHarness::ProviderError)

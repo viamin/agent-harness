@@ -24,6 +24,11 @@ module AgentHarness
         action: :switch_provider,
         retryable: false
       },
+      installation: {
+        description: "Installation or platform compatibility failed",
+        action: :escalate,
+        retryable: false
+      },
       transient: {
         description: "Temporary error",
         action: :retry_with_backoff,
@@ -126,6 +131,8 @@ module AgentHarness
           :rate_limited
         when /quota|usage.?limit|billing|(?:weekly|monthly)(?:\/(?:weekly|monthly))?\s+limit\s+exhausted/i
           :quota_exceeded
+        when /dynamic loader not found|ld-linux-[^\/\s]+\.so|exec format error|cannot execute binary file|wrong architecture|unsupported platform|unsupported.*architecture|not found in PATH|command not found|No such file or directory|is not installed/i
+          :installation
         when /auth|unauthorized|forbidden|invalid.*(key|token)|\b401\b|\b403\b/i
           :auth_expired
         when /timeout|timed.?out/i
