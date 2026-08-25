@@ -895,7 +895,7 @@ RSpec.describe AgentHarness::Providers::Anthropic do
           expect(response.error).to eq("Model deprecated")
         end
 
-        it "classifies authentication errors" do
+        it "raises AuthenticationError for auth-related error output" do
           allow(mock_executor).to receive(:execute).and_return(
             AgentHarness::CommandExecutor::Result.new(
               stdout: "OAuth token expired",
@@ -905,8 +905,12 @@ RSpec.describe AgentHarness::Providers::Anthropic do
             )
           )
 
-          response = provider.send_message(prompt: "Hello")
-          expect(response.error).to eq("Authentication error")
+          expect {
+            provider.send_message(prompt: "Hello")
+          }.to raise_error(AgentHarness::AuthenticationError) do |error|
+            expect(error.provider).to eq(:claude)
+            expect(error.message).to include("OAuth token expired")
+          end
         end
 
         it "returns original message for unknown errors" do
@@ -1118,7 +1122,7 @@ RSpec.describe AgentHarness::Providers::Anthropic do
           expect(response.output).to eq("Rate limit exceeded for this model")
         end
 
-        it "classifies authentication errors from is_error envelope" do
+        it "raises AuthenticationError for auth-related is_error envelopes" do
           json_output = JSON.generate({
             "type" => "result",
             "is_error" => true,
@@ -1134,8 +1138,63 @@ RSpec.describe AgentHarness::Providers::Anthropic do
             )
           )
 
-          response = provider.send_message(prompt: "Hello")
-          expect(response.error).to eq("Authentication error")
+          expect {
+            provider.send_message(prompt: "Hello")
+          }.to raise_error(AgentHarness::AuthenticationError) do |error|
+            expect(error.provider).to eq(:claude)
+            expect(error.message).to include("Authentication failed")
+          end
+        end
+
+        it "raises AuthenticationError for the native not-logged-in envelope" do
+          # Observed envelope from Claude CLI: subtype claims "success" while
+          # is_error signals failure and the process exits nonzero.
+          json_output = JSON.generate({
+            "type" => "result",
+            "subtype" => "success",
+            "is_error" => true,
+            "result" => "Not logged in · Please run /login",
+            "exit_code" => 1
+          })
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: json_output,
+              stderr: "",
+              exit_code: 1,
+              duration: 1.0
+            )
+          )
+
+          expect {
+            provider.send_message(prompt: "Hello")
+          }.to raise_error(AgentHarness::AuthenticationError) do |error|
+            expect(error.provider).to eq(:claude)
+            expect(error.message).to include("Not logged in")
+          end
+        end
+
+        it "raises AuthenticationError even when subtype is success and is_error is true" do
+          # Guard against trusting subtype: "success" over is_error: true.
+          json_output = JSON.generate({
+            "type" => "result",
+            "subtype" => "success",
+            "is_error" => true,
+            "result" => "Please run /login to authenticate"
+          })
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: json_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          expect {
+            provider.send_message(prompt: "Hello")
+          }.to raise_error(AgentHarness::AuthenticationError)
         end
 
         it "uses generic error for unclassified is_error envelopes" do
@@ -1156,6 +1215,81 @@ RSpec.describe AgentHarness::Providers::Anthropic do
 
           response = provider.send_message(prompt: "Hello")
           expect(response.error).to eq("Something unexpected happened")
+        end
+
+        it "raises AuthenticationError when a parseable envelope coincides with an auth failure on stderr" do
+          # Nonzero exit with a well-formed envelope on stdout and the auth
+          # signal on stderr: we must still route to AuthenticationError.
+          json_output = JSON.generate({
+            "type" => "result",
+            "subtype" => "success",
+            "is_error" => false,
+            "result" => "partial assistant text"
+          })
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: json_output,
+              stderr: "Not logged in · Please run /login",
+              exit_code: 1,
+              duration: 1.0
+            )
+          )
+
+          expect {
+            provider.send_message(prompt: "Hello")
+          }.to raise_error(AgentHarness::AuthenticationError) do |error|
+            expect(error.provider).to eq(:claude)
+            expect(error.message).to include("Not logged in")
+          end
+        end
+
+        it "does not raise AuthenticationError when the envelope's result text merely mentions authentication" do
+          # Guard against false positives: assistant text discussing auth
+          # must not be treated as a CLI auth failure when stderr is clean.
+          json_output = JSON.generate({
+            "type" => "result",
+            "subtype" => "success",
+            "is_error" => false,
+            "result" => "Here is how OAuth authentication works: ..."
+          })
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: json_output,
+              stderr: "",
+              exit_code: 1,
+              duration: 1.0
+            )
+          )
+
+          expect {
+            provider.send_message(prompt: "Hello")
+          }.not_to raise_error
+        end
+
+        it "does not raise AuthenticationError for service-outage messages that mention authentication" do
+          # Transient failures like "authentication service was unavailable"
+          # belong on the retry / provider-fallback path, not the re-auth
+          # path. Only explicit expired/login-required phrases should raise.
+          json_output = JSON.generate({
+            "type" => "result",
+            "is_error" => true,
+            "result" => "authentication service was unavailable"
+          })
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: json_output,
+              stderr: "",
+              exit_code: 1,
+              duration: 1.0
+            )
+          )
+
+          expect {
+            provider.send_message(prompt: "Hello")
+          }.not_to raise_error
         end
       end
 
@@ -1681,6 +1815,28 @@ RSpec.describe AgentHarness::Providers::Anthropic do
         expect(response.failed?).to be true
         expect(response.error).to be_a(String)
         expect(response.error).not_to be_empty
+      end
+
+      it "raises AuthenticationError when the envelope reports not logged in" do
+        envelope = JSON.generate({
+          "type" => "result",
+          "subtype" => "success",
+          "is_error" => true,
+          "result" => "Not logged in · Please run /login",
+          "exit_code" => 1
+        })
+
+        expect {
+          provider.parse_container_output(
+            stdout: envelope,
+            stderr: "",
+            exit_code: 1,
+            duration: 0.5
+          )
+        }.to raise_error(AgentHarness::AuthenticationError) do |error|
+          expect(error.provider).to eq(:claude)
+          expect(error.message).to include("Not logged in")
+        end
       end
     end
   end
