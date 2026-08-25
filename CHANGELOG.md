@@ -5,6 +5,13 @@
 * add runner model compatibility contract (`AgentHarness.model_compatibility`) with structured `ModelCompatibility::Result` outcomes. Codex exposes static facts for CLI-gated models (e.g. `gpt-5.5` requires Codex CLI `>= 0.116.0`), a baseline supported-model list, supported auth modes, and a `DEFAULT_COMPATIBLE_MODEL_ID` fallback so downstream orchestrators can validate tier/model assignments before scheduling agent runs ([#259](https://github.com/viamin/agent-harness/issues/259)).
 * **auth:** add provider-owned PKCE code-exchange API for Claude OAuth (`AgentHarness::Authentication.exchange_code`). Takes an authorization code plus PKCE verifier (and `redirect_uri`/`client_id`), posts an `authorization_code` grant to the Claude token endpoint, and persists the resulting access/refresh tokens in the native `claudeAiOauth` shape. Adds `exchange_code_supported?` and a `code_exchange` key to `auth_capabilities` ([#266](https://github.com/viamin/agent-harness/issues/266)).
 
+## [0.36.7](https://github.com/viamin/agent-harness/compare/agent-harness/v0.36.6...agent-harness/v0.36.7) (2026-08-25)
+
+
+### Bug Fixes
+
+* Codex 0.122.0 cannot decode model catalogs containing the max reasoning level ([#370](https://github.com/viamin/agent-harness/issues/370)) ([a49fd37](https://github.com/viamin/agent-harness/commit/a49fd3776ff834f8dbbaf10852d46c247b435f85))
+
 ## [0.36.6](https://github.com/viamin/agent-harness/compare/agent-harness/v0.36.5...agent-harness/v0.36.6) (2026-08-25)
 
 
