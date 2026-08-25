@@ -64,7 +64,7 @@ RSpec.describe AgentHarness::Providers::Codex do
 
     # viamin/agent-harness#366: Codex 0.122.x could not decode a model catalog
     # entry advertising the `max` reasoning level and failed with
-    # `unknown variant `max`, expected one of `none`, `minimum`, `low`,
+    # `unknown variant `max`, expected one of `none`, `minimal`, `low`,
     # `medium`, `high`, `xhigh`` while refreshing available models. The
     # `max` (and `ultra`) reasoning levels landed in Codex 0.149.0 (see the
     # 0.149.0 release notes: "SDK users can now pass exact CLI config
