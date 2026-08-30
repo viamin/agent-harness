@@ -4,6 +4,6 @@
   "private": true,
   "description": "Version oracle for the opencode CLI. Never installed; Dependabot bumps this manifest to signal upstream releases and CI parity spec keeps Providers::Opencode::SUPPORTED_CLI_VERSION in sync. See vendor/pins/README.md and issue #336.",
   "devDependencies": {
-    "opencode-ai": "1.18.19"
+    "opencode-ai": "1.18.23"
   }
 }
