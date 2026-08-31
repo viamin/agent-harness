@@ -205,15 +205,15 @@ metadata instead of hardcoding package names, binary names, or supported
 versions out-of-band.
 
 ```ruby
-contract = AgentHarness.provider_installation_contract(:kilocode, version: "7.4.23")
+contract = AgentHarness.provider_installation_contract(:kilocode, version: "7.5.5")
 
 contract
 # {
 #   source: { type: :npm, package: "@kilocode/cli" },
-#   install_command: ["npm", "install", "-g", "--ignore-scripts", "@kilocode/cli@7.4.23"],
+#   install_command: ["npm", "install", "-g", "--ignore-scripts", "@kilocode/cli@7.5.5"],
 #   binary_name: "kilo",
-#   default_version: "7.4.23",
-#   supported_version_requirement: "= 7.4.23"
+#   default_version: "7.5.5",
+#   supported_version_requirement: "= 7.5.5"
 # }
 ```
 
