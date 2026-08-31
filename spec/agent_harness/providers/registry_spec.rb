@@ -358,15 +358,15 @@ RSpec.describe AgentHarness::Providers::Registry do
     end
 
     it "forwards target selection options to providers with generic contracts" do
-      contract = registry.installation_contract(:opencode, version: "1.18.19")
+      contract = registry.installation_contract(:opencode, version: "1.18.23")
 
       expect(contract).to include(
         package_name: "opencode-ai",
-        version: "1.18.19",
+        version: "1.18.23",
         binary_name: "opencode"
       )
       expect(contract[:install_command]).to eq(
-        ["npm", "install", "-g", "--ignore-scripts", "opencode-ai@1.18.19"]
+        ["npm", "install", "-g", "--ignore-scripts", "opencode-ai@1.18.23"]
       )
       expect(contract[:requires_postinstall]).to be true
       expect(contract[:postinstall_command]).to include("raw_arch=$(uname -m)")
@@ -374,15 +374,15 @@ RSpec.describe AgentHarness::Providers::Registry do
     end
 
     it "preserves provider normalization for generic-contract version lookups" do
-      contract = registry.installation_contract(:opencode, version: " 1.18.19 ")
+      contract = registry.installation_contract(:opencode, version: " 1.18.23 ")
 
       expect(contract).to include(
         package_name: "opencode-ai",
-        version: "1.18.19",
+        version: "1.18.23",
         binary_name: "opencode"
       )
       expect(contract[:install_command]).to eq(
-        ["npm", "install", "-g", "--ignore-scripts", "opencode-ai@1.18.19"]
+        ["npm", "install", "-g", "--ignore-scripts", "opencode-ai@1.18.23"]
       )
       expect(contract[:requires_postinstall]).to be true
     end
@@ -471,7 +471,7 @@ RSpec.describe AgentHarness::Providers::Registry do
         ["uv", "tool", "install", "--force", "--python", "python3.12", "--with", "pip", "aider-chat==0.86.2"]
       )
       expect(contracts[:opencode][:install_command]).to eq(
-        ["npm", "install", "-g", "--ignore-scripts", "opencode-ai@1.18.19"]
+        ["npm", "install", "-g", "--ignore-scripts", "opencode-ai@1.18.23"]
       )
       expect(contracts[:opencode][:requires_postinstall]).to be true
       expect(contracts[:opencode][:postinstall_command]).to include("raw_arch=$(uname -m)")
