@@ -20,14 +20,14 @@ RSpec.describe AgentHarness::Providers::Opencode do
       expect(contract).to include(
         source: :npm,
         package_name: "opencode-ai",
-        version: "1.18.19",
+        version: "1.18.23",
         binary_name: "opencode"
       )
-      expect(contract[:package]).to eq("opencode-ai@1.18.19")
-      expect(contract[:supported_versions]).to eq(["1.18.19"])
-      expect(contract[:version_requirement]).to eq([">= 1.18.19", "< 2.0.0"])
+      expect(contract[:package]).to eq("opencode-ai@1.18.23")
+      expect(contract[:supported_versions]).to eq(["1.18.23"])
+      expect(contract[:version_requirement]).to eq([">= 1.18.23", "< 2.0.0"])
       expect(contract[:install_command]).to eq(
-        ["npm", "install", "-g", "--ignore-scripts", "opencode-ai@1.18.19"]
+        ["npm", "install", "-g", "--ignore-scripts", "opencode-ai@1.18.23"]
       )
     end
 
@@ -54,16 +54,16 @@ RSpec.describe AgentHarness::Providers::Opencode do
     end
 
     it "supports explicit versions within the advertised requirement" do
-      contract = described_class.installation_contract(version: "1.18.20")
+      contract = described_class.installation_contract(version: "1.18.24")
 
-      expect(contract[:version]).to eq("1.18.20")
+      expect(contract[:version]).to eq("1.18.24")
       expect(contract[:install_command]).to eq(
-        ["npm", "install", "-g", "--ignore-scripts", "opencode-ai@1.18.20"]
+        ["npm", "install", "-g", "--ignore-scripts", "opencode-ai@1.18.24"]
       )
     end
 
     it "preserves postinstall fields in versioned contracts" do
-      contract = described_class.installation_contract(version: "1.18.20")
+      contract = described_class.installation_contract(version: "1.18.24")
 
       expect(contract[:requires_postinstall]).to be true
       expect(contract[:postinstall_command]).to include("raw_arch=$(uname -m)")
@@ -77,17 +77,17 @@ RSpec.describe AgentHarness::Providers::Opencode do
     it "reuses the default frozen install contract for explicit default versions" do
       default_contract = described_class.installation_contract
 
-      expect(described_class.installation_contract(version: "1.18.19")).to equal(default_contract)
-      expect(described_class.installation_contract(version: " 1.18.19 ")).to equal(default_contract)
+      expect(described_class.installation_contract(version: "1.18.23")).to equal(default_contract)
+      expect(described_class.installation_contract(version: " 1.18.23 ")).to equal(default_contract)
     end
 
     it "normalizes surrounding whitespace in supported explicit versions" do
-      contract = described_class.installation_contract(version: " 1.18.20 ")
+      contract = described_class.installation_contract(version: " 1.18.24 ")
 
-      expect(contract[:version]).to eq("1.18.20")
-      expect(contract[:package]).to eq("opencode-ai@1.18.20")
+      expect(contract[:version]).to eq("1.18.24")
+      expect(contract[:package]).to eq("opencode-ai@1.18.24")
       expect(contract[:install_command]).to eq(
-        ["npm", "install", "-g", "--ignore-scripts", "opencode-ai@1.18.20"]
+        ["npm", "install", "-g", "--ignore-scripts", "opencode-ai@1.18.24"]
       )
     end
 
@@ -146,26 +146,26 @@ RSpec.describe AgentHarness::Providers::Opencode do
   describe ".install_command" do
     it "builds the default install command from the contract" do
       expect(described_class.install_command).to eq(
-        ["npm", "install", "-g", "--ignore-scripts", "opencode-ai@1.18.19"]
+        ["npm", "install", "-g", "--ignore-scripts", "opencode-ai@1.18.23"]
       )
     end
 
     it "supports explicit version overrides" do
-      expect(described_class.install_command(version: "1.18.20")).to eq(
-        ["npm", "install", "-g", "--ignore-scripts", "opencode-ai@1.18.20"]
+      expect(described_class.install_command(version: "1.18.24")).to eq(
+        ["npm", "install", "-g", "--ignore-scripts", "opencode-ai@1.18.24"]
       )
     end
 
     it "reuses the default frozen install command for explicit default versions" do
       default_install_command = described_class.install_command
 
-      expect(described_class.install_command(version: "1.18.19")).to equal(default_install_command)
-      expect(described_class.install_command(version: " 1.18.19 ")).to equal(default_install_command)
+      expect(described_class.install_command(version: "1.18.23")).to equal(default_install_command)
+      expect(described_class.install_command(version: " 1.18.23 ")).to equal(default_install_command)
     end
 
     it "normalizes surrounding whitespace in explicit version overrides" do
-      expect(described_class.install_command(version: " 1.18.20 ")).to eq(
-        ["npm", "install", "-g", "--ignore-scripts", "opencode-ai@1.18.20"]
+      expect(described_class.install_command(version: " 1.18.24 ")).to eq(
+        ["npm", "install", "-g", "--ignore-scripts", "opencode-ai@1.18.24"]
       )
     end
 
