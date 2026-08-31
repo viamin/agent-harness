@@ -21,20 +21,20 @@ RSpec.describe AgentHarness::Providers::OhMyPi do
   end
 
   describe ".installation_contract" do
-    it "exposes Oh My Pi CLI install metadata pinned to 17.4.0" do
+    it "exposes Oh My Pi CLI install metadata pinned to 18.0.8" do
       contract = described_class.installation_contract
 
       expect(contract).to include(
         source: :npm,
         package_name: "@oh-my-pi/pi-coding-agent",
-        version: "17.4.0",
+        version: "18.0.8",
         binary_name: "omp"
       )
-      expect(contract[:package]).to eq("@oh-my-pi/pi-coding-agent@17.4.0")
-      expect(contract[:supported_versions]).to eq(["17.4.0"])
-      expect(contract[:version_requirement]).to eq(["= 17.4.0"])
+      expect(contract[:package]).to eq("@oh-my-pi/pi-coding-agent@18.0.8")
+      expect(contract[:supported_versions]).to eq(["18.0.8"])
+      expect(contract[:version_requirement]).to eq(["= 18.0.8"])
       expect(contract[:install_command]).to eq(
-        ["npm", "install", "-g", "--ignore-scripts", "@oh-my-pi/pi-coding-agent@17.4.0"]
+        ["npm", "install", "-g", "--ignore-scripts", "@oh-my-pi/pi-coding-agent@18.0.8"]
       )
     end
 
@@ -64,11 +64,11 @@ RSpec.describe AgentHarness::Providers::OhMyPi do
     end
 
     it "normalizes surrounding whitespace in supported versions" do
-      contract = described_class.installation_contract(version: " 17.4.0 ")
+      contract = described_class.installation_contract(version: " 18.0.8 ")
 
-      expect(contract[:version]).to eq("17.4.0")
+      expect(contract[:version]).to eq("18.0.8")
       expect(contract[:install_command]).to eq(
-        ["npm", "install", "-g", "--ignore-scripts", "@oh-my-pi/pi-coding-agent@17.4.0"]
+        ["npm", "install", "-g", "--ignore-scripts", "@oh-my-pi/pi-coding-agent@18.0.8"]
       )
     end
   end
@@ -272,7 +272,7 @@ RSpec.describe AgentHarness::Providers::OhMyPi do
       it "matches Oh My Pi startup banner noise" do
         patterns = provider.noisy_error_patterns
 
-        expect(patterns.any? { |p| "Oh My Pi v17.4.0" =~ p }).to be true
+        expect(patterns.any? { |p| "Oh My Pi v18.0.8" =~ p }).to be true
         expect(patterns.any? { |p| "Bun v1.3.14" =~ p }).to be true
         expect(patterns.any? { |p| "Fetching model..." =~ p }).to be true
       end
@@ -416,7 +416,7 @@ RSpec.describe AgentHarness::Providers::OhMyPi do
         allow(mock_executor).to receive(:execute).and_return(
           AgentHarness::CommandExecutor::Result.new(
             stdout: "",
-            stderr: "Oh My Pi v17.4.0\nError: model claude-fake not found",
+            stderr: "Oh My Pi v18.0.8\nError: model claude-fake not found",
             exit_code: 1,
             duration: 1.0
           )
@@ -429,7 +429,7 @@ RSpec.describe AgentHarness::Providers::OhMyPi do
         expect(result[:message]).to match(/model claude-fake not found/)
         # The banner is exposed for downstream noisy-pattern filtering rather
         # than masked by the harness classification step.
-        expect(provider.noisy_error_patterns.any? { |p| "Oh My Pi v17.4.0" =~ p }).to be true
+        expect(provider.noisy_error_patterns.any? { |p| "Oh My Pi v18.0.8" =~ p }).to be true
       end
     end
 
@@ -534,7 +534,7 @@ RSpec.describe AgentHarness::Providers::OhMyPi do
       expect(contract).to include(
         source: :npm,
         package_name: "@oh-my-pi/pi-coding-agent",
-        version: "17.4.0",
+        version: "18.0.8",
         binary_name: "omp"
       )
     end
