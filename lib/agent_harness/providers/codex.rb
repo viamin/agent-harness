@@ -1682,7 +1682,8 @@ module AgentHarness
         message_shaped_item =
           (
             message_item_type?(item_type) ||
-            item_type == "agent_message"
+            item_type == "agent_message" ||
+            item_type == "assistant_message"
           ) && assistant_message_item_type?(item_item_type)
 
         (
@@ -1690,6 +1691,7 @@ module AgentHarness
         ) || (
           item_role.nil? && message_shaped_item && (
             item_type == "agent_message" ||
+            item_type == "assistant_message" ||
             item_item_type == "assistant_message"
           )
         )

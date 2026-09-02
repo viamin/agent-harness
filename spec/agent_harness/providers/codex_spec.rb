@@ -1341,6 +1341,186 @@ RSpec.describe AgentHarness::Providers::Codex do
           expect(response.tokens).to eq({input: 10, output: 5, total: 15})
         end
 
+        it "extracts text from item.completed when type is assistant_message" do
+          jsonl_output = [
+            JSON.generate({
+              "type" => "item.completed",
+              "item" => {"type" => "assistant_message", "text" => "response from assistant_message type"}
+            }),
+            JSON.generate({"type" => "turn.completed", "usage" => {"input_tokens" => 10, "output_tokens" => 5}})
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq("response from assistant_message type")
+        end
+
+        it "selects the final agent_message item across multiple progress updates" do
+          jsonl_output = (0..6).map do |i|
+            JSON.generate({
+              "type" => "item.completed",
+              "item" => {
+                "id" => "item_#{i}",
+                "type" => "agent_message",
+                "text" => "intermediate #{i}"
+              }
+            })
+          end
+          jsonl_output << JSON.generate({
+            "type" => "item.completed",
+            "item" => {
+              "id" => "item_26",
+              "type" => "agent_message",
+              "text" => "paid-enhance-issue-output\n{\n  \"sufficient_context\": true\n}"
+            }
+          })
+          jsonl_output << JSON.generate({"type" => "turn.completed", "usage" => {"input_tokens" => 226911, "output_tokens" => 3519}})
+          output = jsonl_output.join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to start_with("paid-enhance-issue-output")
+          expect(response.output).to include("\"sufficient_context\": true")
+        end
+
+        it "selects the final assistant_message item when it uses the assistant_message type" do
+          jsonl_output = (0..6).map do |i|
+            JSON.generate({
+              "type" => "item.completed",
+              "item" => {
+                "id" => "item_#{i}",
+                "type" => "agent_message",
+                "text" => "intermediate #{i}"
+              }
+            })
+          end
+          jsonl_output << JSON.generate({
+            "type" => "item.completed",
+            "item" => {
+              "id" => "item_26",
+              "type" => "assistant_message",
+              "text" => "final answer with assistant_message type"
+            }
+          })
+          jsonl_output << JSON.generate({"type" => "turn.completed", "usage" => {"input_tokens" => 226911, "output_tokens" => 3519}})
+          output = jsonl_output.join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq("final answer with assistant_message type")
+        end
+
+        it "returns decoded text so embedded JSON round-trips" do
+          embedded_payload = "paid-enhance-issue-output\n{\n  \"sufficient_context\": true,\n  \"notes\": \"final\"\n}"
+          jsonl_output = [
+            JSON.generate({
+              "type" => "item.completed",
+              "item" => {
+                "id" => "item_26",
+                "type" => "agent_message",
+                "text" => embedded_payload
+              }
+            }),
+            JSON.generate({"type" => "turn.completed", "usage" => {"input_tokens" => 226911, "output_tokens" => 3519}})
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+
+          expect(response.output).to eq(embedded_payload)
+          expect(response.output).not_to include("\\n")
+          expect(response.output).not_to include("\\\"")
+          parsed_payload = response.output.split("\n", 2).last
+          expect(JSON.parse(parsed_payload)).to eq("sufficient_context" => true, "notes" => "final")
+        end
+
+        it "skips non-JSON tool noise mixed into the stream" do
+          jsonl_output = [
+            "Linking dependencies...",
+            "[rtk] /!\\ No hook installed",
+            JSON.generate({
+              "type" => "item.completed",
+              "item" => {
+                "id" => "item_26",
+                "type" => "agent_message",
+                "text" => "final answer after tool noise"
+              }
+            }),
+            JSON.generate({"type" => "turn.completed", "usage" => {"input_tokens" => 10, "output_tokens" => 5}})
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq("final answer after tool noise")
+        end
+
+        it "discards a truncated leading object and parses the rest of the stream" do
+          jsonl_output = [
+            "{\"type\":\"item.completed\",\"item\":{\"id\":\"item_0\",\"type\":\"agent_message\",\"text\":\"OK",
+            JSON.generate({
+              "type" => "item.completed",
+              "item" => {
+                "id" => "item_26",
+                "type" => "agent_message",
+                "text" => "final answer after truncated leading object"
+              }
+            }),
+            JSON.generate({"type" => "turn.completed", "usage" => {"input_tokens" => 10, "output_tokens" => 5}})
+          ].join("\n")
+
+          allow(mock_executor).to receive(:execute).and_return(
+            AgentHarness::CommandExecutor::Result.new(
+              stdout: jsonl_output,
+              stderr: "",
+              exit_code: 0,
+              duration: 1.0
+            )
+          )
+
+          response = provider.send_message(prompt: "Hello")
+          expect(response.output).to eq("final answer after truncated leading object")
+        end
+
         it "ignores roleless item.completed assistant_message items with non-message types" do
           jsonl_output = [
             JSON.generate({
