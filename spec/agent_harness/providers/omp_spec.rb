@@ -21,20 +21,20 @@ RSpec.describe AgentHarness::Providers::OhMyPi do
   end
 
   describe ".installation_contract" do
-    it "exposes Oh My Pi CLI install metadata pinned to 18.0.8" do
+    it "exposes Oh My Pi CLI install metadata pinned to 18.1.6" do
       contract = described_class.installation_contract
 
       expect(contract).to include(
         source: :npm,
         package_name: "@oh-my-pi/pi-coding-agent",
-        version: "18.0.8",
+        version: "18.1.6",
         binary_name: "omp"
       )
-      expect(contract[:package]).to eq("@oh-my-pi/pi-coding-agent@18.0.8")
-      expect(contract[:supported_versions]).to eq(["18.0.8"])
-      expect(contract[:version_requirement]).to eq(["= 18.0.8"])
+      expect(contract[:package]).to eq("@oh-my-pi/pi-coding-agent@18.1.6")
+      expect(contract[:supported_versions]).to eq(["18.1.6"])
+      expect(contract[:version_requirement]).to eq(["= 18.1.6"])
       expect(contract[:install_command]).to eq(
-        ["npm", "install", "-g", "--ignore-scripts", "@oh-my-pi/pi-coding-agent@18.0.8"]
+        ["npm", "install", "-g", "--ignore-scripts", "@oh-my-pi/pi-coding-agent@18.1.6"]
       )
     end
 
@@ -64,11 +64,11 @@ RSpec.describe AgentHarness::Providers::OhMyPi do
     end
 
     it "normalizes surrounding whitespace in supported versions" do
-      contract = described_class.installation_contract(version: " 18.0.8 ")
+      contract = described_class.installation_contract(version: " 18.1.6 ")
 
-      expect(contract[:version]).to eq("18.0.8")
+      expect(contract[:version]).to eq("18.1.6")
       expect(contract[:install_command]).to eq(
-        ["npm", "install", "-g", "--ignore-scripts", "@oh-my-pi/pi-coding-agent@18.0.8"]
+        ["npm", "install", "-g", "--ignore-scripts", "@oh-my-pi/pi-coding-agent@18.1.6"]
       )
     end
   end
@@ -534,7 +534,7 @@ RSpec.describe AgentHarness::Providers::OhMyPi do
       expect(contract).to include(
         source: :npm,
         package_name: "@oh-my-pi/pi-coding-agent",
-        version: "18.0.8",
+        version: "18.1.6",
         binary_name: "omp"
       )
     end
