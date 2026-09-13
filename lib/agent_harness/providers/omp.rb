@@ -28,7 +28,7 @@ module AgentHarness
       # platform binary directly.
       BUN_BINARY = "bun"
       BUN_INSTALL_SCRIPT_URL = "https://bun.sh/install"
-      SUPPORTED_BUN_VERSION = "1.4.0"
+      SUPPORTED_BUN_VERSION = "1.4.2"
       BUN_REQUIREMENT_STRING = ">= #{SUPPORTED_BUN_VERSION}".freeze
 
       # Smoke-test contract suitable for container health probes.
