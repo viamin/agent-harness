@@ -169,9 +169,9 @@ RSpec.describe AgentHarness::Providers::Anthropic do
     end
 
     it "accepts an optional version override" do
-      contract = described_class.install_contract(version: "2.1.261")
+      contract = described_class.install_contract(version: "2.1.269")
 
-      expect(contract.dig(:install, :command)).to include("bash \"$tmp_script\" 2.1.261")
+      expect(contract.dig(:install, :command)).to include("bash \"$tmp_script\" 2.1.269")
     end
 
     it "accepts semver with pre-release suffix" do
@@ -242,10 +242,10 @@ RSpec.describe AgentHarness::Providers::Anthropic do
     end
 
     it "normalizes padded version strings in the install command" do
-      contract = described_class.install_contract(version: " 2.1.261 ")
+      contract = described_class.install_contract(version: " 2.1.269 ")
 
-      expect(contract.dig(:install, :command)).to include("bash \"$tmp_script\" 2.1.261")
-      expect(contract.dig(:install, :command)).not_to include(" 2.1.261 ")
+      expect(contract.dig(:install, :command)).to include("bash \"$tmp_script\" 2.1.269")
+      expect(contract.dig(:install, :command)).not_to include(" 2.1.269 ")
     end
 
     it "normalizes padded channel tokens and emits the channel warning" do
