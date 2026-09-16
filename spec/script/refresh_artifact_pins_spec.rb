@@ -249,8 +249,10 @@ RSpec.describe AgentHarness::CliPinRefresh::ScriptRunner do
 
     calls = github_cli.calls
     pr_create = pr_create_call(calls)
-    expect(pr_create).to include("--label", "dependencies,cli-pins")
-    expect(label_create_calls(calls).map { |args| args[2] }).to include("dependencies", "cli-pins")
+    expect(pr_create).to include("--label", "dependencies,cli-pins,paid-automation")
+    expect(label_create_calls(calls).map { |args| args[2] }).to include(
+      "dependencies", "cli-pins", "paid-automation"
+    )
   end
 
   it "still opens the issue when a label already exists" do

@@ -122,7 +122,7 @@ module AgentHarness
       CURSOR_BRANCH_PREFIX = "dependabot/cursor-pin-"
       CURSOR_PR_TITLE = "fix(cursor): refresh agent artifact pin to %<build>s"
       CURSOR_COMMIT_SUBJECT = "fix(cursor): refresh agent artifact pin to %<build>s"
-      CURSOR_PR_LABELS = %w[dependencies cli-pins]
+      CURSOR_PR_LABELS = %w[dependencies cli-pins paid-automation]
       CLAUDE_ISSUE_TITLE = "Claude install oracle drift: install.sh=%<installer_version>s vs npm=%<npm_version>s"
       CLAUDE_ISSUE_LABELS = %w[dependencies cli-pins oracle-drift]
       PARITY_ISSUE_TITLE = "Advisory SUPPORTED_CLI_VERSION drift vs vendor/pins/"
