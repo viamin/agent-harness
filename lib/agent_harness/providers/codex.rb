@@ -42,9 +42,9 @@ module AgentHarness
         "gpt-5.5-codex" => {minimum_cli_version: "0.116.0"},
         "gpt-5.5-pro" => {auth_modes: [:api_key].freeze},
         "gpt-5.6" => {auth_modes: [:api_key].freeze},
-        "gpt-5.6-luna" => {auth_modes: [:api_key].freeze},
+        "gpt-5.6-luna" => {auth_modes: %i[api_key subscription].freeze},
         "gpt-5.6-sol" => {auth_modes: %i[api_key subscription].freeze},
-        "gpt-5.6-terra" => {auth_modes: [:api_key].freeze},
+        "gpt-5.6-terra" => {auth_modes: %i[api_key subscription].freeze},
         "gpt-5.3-codex" => {auth_modes: [:api_key].freeze}
       }.each_value(&:freeze).freeze
 
