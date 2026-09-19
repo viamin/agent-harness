@@ -172,9 +172,36 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
         result = described_class.check(:test_provider)
 
         expect(result[:status]).to eq("error")
+        expect(result[:error_category]).to eq(:subscription_model_rejected)
         expect(result[:model]).to eq("gpt-5.2-codex")
         expect(result[:recovery]).to include(outcome: :unrecovered)
         expect(captured_runtimes.map { |runtime| runtime&.model }).to eq([nil, "gpt-5.2-codex"])
+      end
+
+      it "preserves the rejection category when discovery finds no replacement" do
+        smoke_results << {
+          ok: false,
+          status: "error",
+          message: "The 'gpt-5.4' model is not supported when using Codex with a ChatGPT account.",
+          error_category: :subscription_model_rejected,
+          model: "gpt-5.4"
+        }
+        provider_class.define_method(:resolve_model_rejection_recovery) do |**|
+          {
+            rejection: {type: :subscription_model_rejected, model: "gpt-5.4", auth_mode: :subscription},
+            discovery: {status: :unavailable, reason: :no_compatible_model},
+            provider_runtime: nil,
+            message: "no compatible model found"
+          }
+        end
+
+        result = described_class.check(:test_provider)
+
+        expect(result[:status]).to eq("error")
+        expect(result[:error_category]).to eq(:subscription_model_rejected)
+        expect(result[:model]).to eq("gpt-5.4")
+        expect(result[:recovery]).to include(outcome: :unrecovered)
+        expect(captured_runtimes.map { |runtime| runtime&.model }).to eq([nil])
       end
     end
 

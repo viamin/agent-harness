@@ -514,6 +514,8 @@ module AgentHarness
           :rate_limit
         when :quota_exceeded, :quota
           :quota
+        when :subscription_model_rejected
+          :subscription_model_rejected
         when :timeout
           :timeout
         when :transient
