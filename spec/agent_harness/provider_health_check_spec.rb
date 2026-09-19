@@ -82,6 +82,102 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
       end
     end
 
+    context "when Codex-style model rejection recovery is available" do
+      let(:smoke_results) { [] }
+      let(:captured_runtimes) { [] }
+      let(:provider_class) do
+        results = smoke_results
+        runtimes = captured_runtimes
+
+        Class.new(AgentHarness::Providers::Base) do
+          class << self
+            def provider_name
+              :test_provider
+            end
+
+            def binary_name
+              "test-cli"
+            end
+
+            def available?
+              true
+            end
+          end
+
+          define_method(:smoke_test) do |timeout: nil, provider_runtime: nil|
+            runtimes << AgentHarness::ProviderRuntime.wrap(provider_runtime)
+            results.shift
+          end
+
+          def resolve_model_rejection_recovery(failure:, provider_runtime:, env:, timeout:)
+            return unless failure[:error_category] == :subscription_model_rejected
+
+            {
+              rejection: {type: :subscription_model_rejected, model: "gpt-5.4", auth_mode: :subscription},
+              discovery: {
+                status: :available,
+                recommended_model_id: "gpt-5.2-codex",
+                source: :codex_app_server_model_list
+              },
+              provider_runtime: AgentHarness::ProviderRuntime.new(model: "gpt-5.2-codex"),
+              message: "retrying with gpt-5.2-codex"
+            }
+          end
+        end
+      end
+
+      before do
+        registry.register(:test_provider, provider_class)
+        allow(AgentHarness::Authentication).to receive(:auth_status)
+          .with(:test_provider)
+          .and_return({valid: true, expires_at: nil, error: nil})
+      end
+
+      it "retries preflight once with the discovered alternative and reports the executed model" do
+        smoke_results << {
+          ok: false,
+          status: "error",
+          message: "The 'gpt-5.4' model is not supported when using Codex with a ChatGPT account.",
+          error_category: :subscription_model_rejected,
+          model: "gpt-5.4"
+        }
+        smoke_results << {
+          ok: true,
+          status: "ok",
+          message: "Smoke test passed",
+          error_category: nil,
+          model: "gpt-5.2-codex"
+        }
+
+        result = described_class.check(:test_provider)
+
+        expect(result[:status]).to eq("ok")
+        expect(result[:model]).to eq("gpt-5.2-codex")
+        expect(result[:recovery]).to include(outcome: :recovered)
+        expect(result.dig(:recovery, :rejection, :model)).to eq("gpt-5.4")
+        expect(captured_runtimes.map { |runtime| runtime&.model }).to eq([nil, "gpt-5.2-codex"])
+      end
+
+      it "continues normal fallback when the alternative is also rejected" do
+        2.times do |index|
+          smoke_results << {
+            ok: false,
+            status: "error",
+            message: "rejected #{index}",
+            error_category: :subscription_model_rejected,
+            model: (index.zero? ? "gpt-5.4" : "gpt-5.2-codex")
+          }
+        end
+
+        result = described_class.check(:test_provider)
+
+        expect(result[:status]).to eq("error")
+        expect(result[:model]).to eq("gpt-5.2-codex")
+        expect(result[:recovery]).to include(outcome: :unrecovered)
+        expect(captured_runtimes.map { |runtime| runtime&.model }).to eq([nil, "gpt-5.2-codex"])
+      end
+    end
+
     context "when .available? returns true but executor cannot find binary" do
       let(:provider_class) do
         Class.new(AgentHarness::Providers::Base) do

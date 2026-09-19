@@ -338,13 +338,25 @@ module AgentHarness
         end
         smoke = provider_instance.smoke_test(timeout: smoke_timeout, provider_runtime: provider_runtime)
         unless smoke[:ok]
+          recovered = recover_smoke_test_model_rejection(
+            provider_instance,
+            smoke,
+            provider_runtime,
+            provider_name: provider_name,
+            start_time: start_time,
+            timeout: smoke_timeout || timeout
+          )
+          return recovered if recovered
+
           return build_result(
             name: provider_name,
             status: smoke[:status] || "error",
             message: smoke[:message] || "Smoke test failed",
             start_time: start_time,
             error_category: normalize_smoke_error_category(smoke[:error_category], smoke[:message]),
-            check: :smoke_test
+            check: :smoke_test,
+            model: smoke[:model],
+            recovery: smoke[:recovery]
           )
         end
 
@@ -376,7 +388,70 @@ module AgentHarness
           status: "ok",
           message: message,
           start_time: start_time,
-          check: :smoke_test
+          check: :smoke_test,
+          model: smoke[:model]
+        )
+      end
+
+      def recover_smoke_test_model_rejection(provider_instance, smoke, provider_runtime, provider_name:, start_time:, timeout:)
+        return unless provider_instance.respond_to?(:resolve_model_rejection_recovery)
+
+        env = build_preflight_env(provider_instance, provider_runtime)
+        recovery = provider_instance.resolve_model_rejection_recovery(
+          failure: smoke,
+          provider_runtime: provider_runtime,
+          env: env,
+          timeout: timeout
+        )
+        return unless recovery
+
+        runtime = recovery[:provider_runtime]
+        unless runtime
+          failure = recovery_failure_result(smoke, recovery)
+          return build_smoke_result(provider_name, failure, start_time)
+        end
+
+        retried_smoke = provider_instance.smoke_test(timeout: timeout, provider_runtime: runtime)
+        if retried_smoke[:ok]
+          success = recovery_success_result(retried_smoke, recovery)
+          return build_smoke_result(provider_name, success, start_time)
+        end
+
+        failure = recovery_failure_result(retried_smoke.merge(original_failure: smoke), recovery)
+        build_smoke_result(provider_name, failure, start_time)
+      end
+
+      def recovery_success_result(smoke, recovery)
+        {
+          status: "ok",
+          message: "Smoke test passed after Codex model replacement",
+          error_category: nil,
+          check: :smoke_test,
+          model: smoke[:model],
+          recovery: recovery.except(:provider_runtime).merge(outcome: :recovered)
+        }
+      end
+
+      def recovery_failure_result(smoke, recovery)
+        smoke.merge(
+          recovery: recovery.except(:provider_runtime).merge(outcome: :unrecovered),
+          message: [
+            smoke[:message],
+            recovery[:message]
+          ].compact.join(" ")
+        )
+      end
+
+      def build_smoke_result(provider_name, smoke, start_time)
+        build_result(
+          name: provider_name,
+          status: smoke[:status] || "error",
+          message: smoke[:message] || "Smoke test failed",
+          start_time: start_time,
+          error_category: normalize_smoke_error_category(smoke[:error_category], smoke[:message]),
+          check: :smoke_test,
+          model: smoke[:model],
+          recovery: smoke[:recovery]
         )
       end
 
@@ -479,7 +554,7 @@ module AgentHarness
         provider_instance.method(method_name).owner != Providers::Adapter
       end
 
-      def build_result(name:, status:, message:, start_time:, error_category: nil, check: nil)
+      def build_result(name:, status:, message:, start_time:, error_category: nil, check: nil, **metadata)
         latency = ((monotonic_now - start_time) * 1000).round
         {
           name: name,
@@ -488,7 +563,7 @@ module AgentHarness
           latency_ms: latency,
           error_category: error_category,
           check: check
-        }
+        }.merge(metadata.compact)
       end
 
       def build_provider(provider_name, klass, executor:)

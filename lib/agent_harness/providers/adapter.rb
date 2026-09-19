@@ -1199,7 +1199,8 @@ module AgentHarness
             message: contract[:success_message] || "Smoke test passed",
             error_category: nil,
             output: output,
-            exit_code: response.exit_code
+            exit_code: response.exit_code,
+            model: response.model
           }
         end
 
@@ -1213,7 +1214,8 @@ module AgentHarness
           message: message,
           error_category: classify_smoke_test_message(message),
           output: output,
-          exit_code: response.exit_code
+          exit_code: response.exit_code,
+          model: response.model
         }
       rescue TimeoutError => e
         failure_smoke_test_result(e.message, :timeout)
