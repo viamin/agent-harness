@@ -344,7 +344,8 @@ module AgentHarness
             provider_runtime,
             provider_name: provider_name,
             start_time: start_time,
-            timeout: smoke_timeout || timeout
+            discovery_timeout: smoke_timeout || timeout,
+            smoke_timeout: smoke_timeout
           )
           return recovered if recovered
 
@@ -393,7 +394,8 @@ module AgentHarness
         )
       end
 
-      def recover_smoke_test_model_rejection(provider_instance, smoke, provider_runtime, provider_name:, start_time:, timeout:)
+      def recover_smoke_test_model_rejection(provider_instance, smoke, provider_runtime, provider_name:, start_time:,
+        discovery_timeout:, smoke_timeout:)
         return unless provider_instance.respond_to?(:resolve_model_rejection_recovery)
 
         env = build_preflight_env(provider_instance, provider_runtime)
@@ -401,7 +403,7 @@ module AgentHarness
           failure: smoke,
           provider_runtime: provider_runtime,
           env: env,
-          timeout: timeout
+          timeout: discovery_timeout
         )
         return unless recovery
 
@@ -411,7 +413,7 @@ module AgentHarness
           return build_smoke_result(provider_name, failure, start_time)
         end
 
-        retried_smoke = provider_instance.smoke_test(timeout: timeout, provider_runtime: runtime)
+        retried_smoke = provider_instance.smoke_test(timeout: smoke_timeout, provider_runtime: runtime)
         if retried_smoke[:ok]
           success = recovery_success_result(retried_smoke, recovery)
           return build_smoke_result(provider_name, success, start_time)

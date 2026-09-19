@@ -85,9 +85,13 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
     context "when Codex-style model rejection recovery is available" do
       let(:smoke_results) { [] }
       let(:captured_runtimes) { [] }
+      let(:captured_smoke_timeouts) { [] }
+      let(:captured_discovery_timeouts) { [] }
       let(:provider_class) do
         results = smoke_results
         runtimes = captured_runtimes
+        smoke_timeouts = captured_smoke_timeouts
+        discovery_timeouts = captured_discovery_timeouts
 
         Class.new(AgentHarness::Providers::Base) do
           class << self
@@ -106,12 +110,14 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
 
           define_method(:smoke_test) do |timeout: nil, provider_runtime: nil|
             runtimes << AgentHarness::ProviderRuntime.wrap(provider_runtime)
+            smoke_timeouts << timeout
             results.shift
           end
 
-          def resolve_model_rejection_recovery(failure:, provider_runtime:, env:, timeout:)
+          define_method(:resolve_model_rejection_recovery) do |failure:, provider_runtime:, env:, timeout:|
             return unless failure[:error_category] == :subscription_model_rejected
 
+            discovery_timeouts << timeout
             {
               rejection: {type: :subscription_model_rejected, model: "gpt-5.4", auth_mode: :subscription},
               discovery: {
@@ -176,6 +182,32 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
         expect(result[:model]).to eq("gpt-5.2-codex")
         expect(result[:recovery]).to include(outcome: :unrecovered)
         expect(captured_runtimes.map { |runtime| runtime&.model }).to eq([nil, "gpt-5.2-codex"])
+      end
+
+      it "preserves the provider contract timeout on recovery when the caller timeout is shorter" do
+        provider_class.define_method(:smoke_test_contract) do
+          {prompt: "Reply with OK", timeout: 30}
+        end
+        smoke_results << {
+          ok: false,
+          status: "error",
+          message: "model rejected",
+          error_category: :subscription_model_rejected,
+          model: "gpt-5.4"
+        }
+        smoke_results << {
+          ok: true,
+          status: "ok",
+          message: "Smoke test passed",
+          error_category: nil,
+          model: "gpt-5.2-codex"
+        }
+
+        result = described_class.check(:test_provider, timeout: 5)
+
+        expect(result[:status]).to eq("ok")
+        expect(captured_smoke_timeouts).to eq([nil, nil])
+        expect(captured_discovery_timeouts).to eq([5])
       end
 
       it "preserves the rejection category when discovery finds no replacement" do
