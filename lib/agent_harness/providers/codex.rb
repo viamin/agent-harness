@@ -17,8 +17,32 @@ module AgentHarness
         :type, :turn, :tokens, :error_message, :tool_name, :raw_event
       )
 
+      ModelDiscovery = Struct.new(
+        :status, :recommended_model_id, :models, :source, :reason, :details
+      ) do
+        def available? = status == :available
+
+        def to_h
+          {
+            status: status,
+            recommended_model_id: recommended_model_id,
+            models: models,
+            source: source,
+            reason: reason,
+            details: details
+          }.compact
+        end
+      end
+
       SUPPORTED_CLI_VERSION = "0.149.1"
       SUPPORTED_CLI_REQUIREMENT = Gem::Requirement.new(">= #{SUPPORTED_CLI_VERSION}", "< 0.150.0").freeze
+      MODEL_REJECTION_CACHE_TTL = 300
+      MODEL_REJECTION_CACHE_LIMIT = 128
+      MODEL_REJECTION_CACHE = {}
+      MODEL_REJECTION_PATTERNS = [
+        /The ['"](?<model>[^'"]+)['"] model is not supported when using Codex with a ChatGPT account/i,
+        /model ['"](?<model>[^'"]+)['"] is not supported.*ChatGPT account/i
+      ].freeze
 
       # Default model recommended by the Codex runner contract when callers
       # have no explicit preference. Used as the {AgentHarness::ModelCompatibility::Result#fallback_model_id}
@@ -144,6 +168,31 @@ module AgentHarness
         ],
         transient_error: OAUTH_REFRESH_TRANSIENT_PATTERNS + SHARED_OUTPUT_ERROR_PATTERNS[:transient_error]
       ).tap { |h| h.each_value(&:freeze) }.freeze
+      MODEL_LIST_REQUESTS = [
+        {
+          method: "initialize",
+          id: 1,
+          params: {
+            clientInfo: {
+              name: "agent_harness",
+              title: "Agent Harness",
+              version: "0.1.0"
+            }
+          }
+        },
+        {
+          method: "initialized",
+          params: {}
+        },
+        {
+          method: "model/list",
+          id: 2,
+          params: {
+            limit: 100,
+            includeHidden: false
+          }
+        }
+      ].freeze
 
       class << self
         def provider_name
@@ -493,6 +542,10 @@ module AgentHarness
           nil
         end
 
+        def classify_model_rejection(output, configured_model: nil)
+          parser_instance.send(:classify_model_rejection, output, configured_model: configured_model)
+        end
+
         private
 
         def classify_stdout_chunk(text, buffer)
@@ -687,6 +740,27 @@ module AgentHarness
         QuotaStatus.unavailable
       end
 
+      def resolve_model_rejection_recovery(failure:, provider_runtime:, env:, timeout:)
+        rejection = model_rejection_from_failure(failure, provider_runtime)
+        return unless rejection
+
+        record_model_rejection(rejection, env: env)
+        allowed_model_ids = recovery_allowed_model_ids(provider_runtime)
+        discovery = discover_compatible_model(
+          rejected_model_id: rejection[:model],
+          allowed_model_ids: allowed_model_ids,
+          env: env,
+          timeout: timeout,
+          refresh: true
+        )
+        {
+          rejection: rejection,
+          discovery: discovery.to_h,
+          provider_runtime: replacement_runtime(provider_runtime, discovery, rejection),
+          message: model_rejection_recovery_message(rejection, discovery)
+        }
+      end
+
       def send_message(prompt:, **options)
         super
       ensure
@@ -750,6 +824,7 @@ module AgentHarness
 
       def error_patterns
         {
+          subscription_model_rejected: MODEL_REJECTION_PATTERNS,
           rate_limited: COMMON_ERROR_PATTERNS[:rate_limited],
           timeout: [
             /your access token could not be refreshed.*(?:timeout|timed.?out)/im,
@@ -1001,6 +1076,249 @@ module AgentHarness
       end
 
       private
+
+      def discover_compatible_model(rejected_model_id:, env:, timeout:, allowed_model_ids: nil, refresh: false)
+        cache_key = model_rejection_cache_key(rejected_model_id, env, allowed_model_ids)
+        cached = self.class::MODEL_REJECTION_CACHE[cache_key]
+        if !refresh && cached && cached[:expires_at] > monotonic_now
+          return cached[:discovery]
+        end
+
+        discovery = fetch_model_list(
+          rejected_model_id: rejected_model_id,
+          allowed_model_ids: allowed_model_ids,
+          env: env,
+          timeout: timeout
+        )
+        cache_model_discovery(cache_key, discovery)
+        discovery
+      end
+
+      def fetch_model_list(rejected_model_id:, allowed_model_ids:, env:, timeout:)
+        result = @executor.execute_interactive(
+          [self.class.binary_name, "app-server", "--listen", "stdio://"],
+          timeout: timeout,
+          env: env
+        ) { |stdin, stdout| exchange_model_list_requests(stdin, stdout) }
+        return unavailable_model_discovery(:app_server_failed, stderr: result.stderr) unless result.success?
+
+        response = parse_app_server_response(result.stdout, 2)
+        return unavailable_model_discovery(:model_list_missing_response) unless response
+        return unavailable_model_discovery(:model_list_error, error: response["error"]) if response["error"]
+
+        entries = Array(response.dig("result", "data")).filter_map { |entry| normalize_model_entry(entry) }
+        alternatives = entries.reject { |entry| entry[:id] == rejected_model_id }
+        alternatives.select! { |entry| allowed_model_ids.include?(entry[:id]) } if allowed_model_ids
+        recommended = alternatives.find { |entry| entry[:is_default] } || alternatives.first
+        return unavailable_model_discovery(:no_compatible_model, models: entries) unless recommended
+
+        ModelDiscovery.new(
+          status: :available,
+          recommended_model_id: recommended[:id],
+          models: entries,
+          source: :codex_app_server_model_list,
+          details: {default_model_id: recommended[:id]}
+        )
+      rescue TimeoutError
+        unavailable_model_discovery(:app_server_timeout)
+      rescue ArgumentError, JSON::ParserError
+        unavailable_model_discovery(:model_list_unparseable)
+      end
+
+      def exchange_model_list_requests(stdin, stdout)
+        responses = +""
+        write_app_server_request(stdin, MODEL_LIST_REQUESTS.first)
+        initialized = read_app_server_response(stdout, responses, 1)
+        raise ArgumentError, "app-server rejected initialize" if initialized["error"]
+
+        MODEL_LIST_REQUESTS.drop(1).each { |request| write_app_server_request(stdin, request) }
+        read_app_server_response(stdout, responses, 2)
+        responses
+      end
+
+      def write_app_server_request(stdin, request)
+        stdin.puts(JSON.generate(request))
+        stdin.flush
+      end
+
+      def read_app_server_response(stdout, responses, id)
+        loop do
+          line = stdout.gets
+          raise JSON::ParserError, "app-server closed before response #{id}" unless line
+
+          responses << line
+          message = JSON.parse(line)
+          return message if message.is_a?(Hash) && message["id"] == id
+        rescue JSON::ParserError
+          raise if line.nil?
+        end
+      end
+
+      def parse_app_server_response(stdout, id)
+        stdout.to_s.each_line.filter_map do |line|
+          JSON.parse(line)
+        rescue JSON::ParserError
+          nil
+        end.find { |message| message.is_a?(Hash) && message["id"] == id }
+      end
+
+      def normalize_model_entry(entry)
+        return unless entry.is_a?(Hash)
+
+        id = entry["id"] || entry["model"]
+        return if id.to_s.strip.empty?
+
+        {
+          id: id.to_s,
+          model: (entry["model"] || id).to_s,
+          display_name: entry["displayName"],
+          hidden: entry["hidden"] == true,
+          is_default: entry["isDefault"] == true,
+          source: :codex_app_server_model_list
+        }.compact
+      end
+
+      def unavailable_model_discovery(reason, details = {})
+        ModelDiscovery.new(
+          status: :unavailable,
+          recommended_model_id: nil,
+          models: Array(details.delete(:models)),
+          source: :codex_app_server_model_list,
+          reason: reason,
+          details: details.compact
+        )
+      end
+
+      def replacement_runtime(provider_runtime, discovery, rejection)
+        return unless discovery.available?
+        return if discovery.recommended_model_id == rejection[:model]
+
+        runtime = ProviderRuntime.wrap(provider_runtime)
+        replacement = {model: discovery.recommended_model_id}
+        return ProviderRuntime.new(**replacement) unless runtime
+
+        runtime.merge(replacement)
+      end
+
+      def recovery_allowed_model_ids(provider_runtime)
+        selected_model = ProviderRuntime.wrap(provider_runtime)&.model || @config.model
+        selected_model ? [selected_model] : nil
+      end
+
+      def model_rejection_recovery_message(rejection, discovery)
+        rejected = rejection[:model] || "the selected model"
+        unless discovery.available?
+          return "Codex rejected #{rejected.inspect} for ChatGPT subscription auth, and model/list did not return a usable replacement (#{discovery.reason})."
+        end
+        if discovery.recommended_model_id == rejection[:model]
+          return "Codex rejected #{rejected.inspect}, and model/list recommended the same model."
+        end
+
+        "Codex rejected #{rejected.inspect}; retrying preflight with #{discovery.recommended_model_id.inspect} from model/list."
+      end
+
+      def model_rejection_from_failure(failure, provider_runtime)
+        output = [
+          failure[:message],
+          failure[:output],
+          failure[:error],
+          failure.dig(:metadata, :error)
+        ].compact.join("\n")
+        configured_model = ProviderRuntime.wrap(provider_runtime)&.model || @config.model
+        self.class.classify_model_rejection(output, configured_model: configured_model)
+      end
+
+      def classify_model_rejection(output, configured_model: nil)
+        texts = extract_error_texts(output)
+        texts.each do |text|
+          MODEL_REJECTION_PATTERNS.each do |pattern|
+            match = text.match(pattern)
+            next unless match
+
+            return {
+              type: :subscription_model_rejected,
+              model: match[:model] || configured_model,
+              configured_model: configured_model,
+              auth_mode: :subscription,
+              source: :codex_cli_error
+            }.compact
+          end
+        end
+
+        nil
+      end
+
+      def extract_error_texts(value)
+        case value
+        when Hash
+          value.values.flat_map { |item| extract_error_texts(item) }
+        when Array
+          value.flat_map { |item| extract_error_texts(item) }
+        else
+          text = value.to_s
+          nested = parse_nested_json_text(text)
+          [text] + nested
+        end
+      end
+
+      def parse_nested_json_text(text)
+        parsed = JSON.parse(text)
+        return extract_error_texts(parsed) if parsed.is_a?(Hash) || parsed.is_a?(Array)
+
+        []
+      rescue JSON::ParserError, TypeError
+        text.scan(/\{.*?\}/m).flat_map do |candidate|
+          JSON.parse(candidate).then { |parsed| extract_error_texts(parsed) }
+        rescue JSON::ParserError
+          []
+        end
+      end
+
+      def record_model_rejection(rejection, env:)
+        cache_model_discovery(
+          model_rejection_cache_key(rejection[:model], env),
+          ModelDiscovery.new(
+            status: :unavailable,
+            models: [],
+            source: :codex_cli_error,
+            reason: :subscription_model_rejected,
+            details: rejection
+          )
+        )
+      end
+
+      def cache_model_discovery(cache_key, discovery)
+        cache = self.class::MODEL_REJECTION_CACHE
+        cache.delete(cache_key)
+        cache[cache_key] = {
+          discovery: discovery,
+          expires_at: monotonic_now + MODEL_REJECTION_CACHE_TTL
+        }
+        cache.shift while cache.size > MODEL_REJECTION_CACHE_LIMIT
+      end
+
+      def model_rejection_cache_key(model, env, allowed_model_ids = nil)
+        [
+          :codex,
+          codex_cli_version(env: env, timeout: 2)&.to_s || "unknown",
+          account_identity(env),
+          model.to_s,
+          Array(allowed_model_ids).sort
+        ]
+      end
+
+      def account_identity(env)
+        credentials_path = codex_config_path_for_env(env)
+        [
+          env_fetch(env, "CODEX_HOME"),
+          env_fetch(env, "HOME"),
+          credentials_path
+        ].compact.join("|")
+      end
+
+      def monotonic_now
+        Process.clock_gettime(Process::CLOCK_MONOTONIC)
+      end
 
       def auth_status_for_env(env)
         api_key = env_fetch(env, "OPENAI_API_KEY")
