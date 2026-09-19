@@ -745,8 +745,10 @@ module AgentHarness
         return unless rejection
 
         record_model_rejection(rejection, env: env)
+        allowed_model_ids = recovery_allowed_model_ids(provider_runtime)
         discovery = discover_compatible_model(
           rejected_model_id: rejection[:model],
+          allowed_model_ids: allowed_model_ids,
           env: env,
           timeout: timeout,
           refresh: true
@@ -1075,19 +1077,24 @@ module AgentHarness
 
       private
 
-      def discover_compatible_model(rejected_model_id:, env:, timeout:, refresh: false)
-        cache_key = model_rejection_cache_key(rejected_model_id, env)
+      def discover_compatible_model(rejected_model_id:, env:, timeout:, allowed_model_ids: nil, refresh: false)
+        cache_key = model_rejection_cache_key(rejected_model_id, env, allowed_model_ids)
         cached = self.class::MODEL_REJECTION_CACHE[cache_key]
         if !refresh && cached && cached[:expires_at] > monotonic_now
           return cached[:discovery]
         end
 
-        discovery = fetch_model_list(rejected_model_id:, env: env, timeout: timeout)
+        discovery = fetch_model_list(
+          rejected_model_id: rejected_model_id,
+          allowed_model_ids: allowed_model_ids,
+          env: env,
+          timeout: timeout
+        )
         cache_model_discovery(cache_key, discovery)
         discovery
       end
 
-      def fetch_model_list(rejected_model_id:, env:, timeout:)
+      def fetch_model_list(rejected_model_id:, allowed_model_ids:, env:, timeout:)
         result = @executor.execute_interactive(
           [self.class.binary_name, "app-server", "--listen", "stdio://"],
           timeout: timeout,
@@ -1101,6 +1108,7 @@ module AgentHarness
 
         entries = Array(response.dig("result", "data")).filter_map { |entry| normalize_model_entry(entry) }
         alternatives = entries.reject { |entry| entry[:id] == rejected_model_id }
+        alternatives.select! { |entry| allowed_model_ids.include?(entry[:id]) } if allowed_model_ids
         recommended = alternatives.find { |entry| entry[:is_default] } || alternatives.first
         return unavailable_model_discovery(:no_compatible_model, models: entries) unless recommended
 
@@ -1190,6 +1198,11 @@ module AgentHarness
         return ProviderRuntime.new(**replacement) unless runtime
 
         runtime.merge(replacement)
+      end
+
+      def recovery_allowed_model_ids(provider_runtime)
+        selected_model = ProviderRuntime.wrap(provider_runtime)&.model || @config.model
+        selected_model ? [selected_model] : nil
       end
 
       def model_rejection_recovery_message(rejection, discovery)
@@ -1284,12 +1297,13 @@ module AgentHarness
         cache.shift while cache.size > MODEL_REJECTION_CACHE_LIMIT
       end
 
-      def model_rejection_cache_key(model, env)
+      def model_rejection_cache_key(model, env, allowed_model_ids = nil)
         [
           :codex,
           codex_cli_version(env: env, timeout: 2)&.to_s || "unknown",
           account_identity(env),
-          model.to_s
+          model.to_s,
+          Array(allowed_model_ids).sort
         ]
       end
 

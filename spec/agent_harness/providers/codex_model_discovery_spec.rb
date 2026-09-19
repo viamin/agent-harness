@@ -59,7 +59,7 @@ RSpec.describe "Codex subscription model discovery" do
     expect(recovery[:provider_runtime].model).to eq("gpt-5.2-codex")
   end
 
-  it "uses a non-rejected model when stale discovery defaults to the rejected model" do
+  it "does not replace a rejected explicitly selected model outside caller policy" do
     allow(executor).to receive(:execute).with(["codex", "--version"], timeout: 2, env: env).and_return(version_result)
     expect_model_list(
       env: env,
@@ -76,8 +76,30 @@ RSpec.describe "Codex subscription model discovery" do
       timeout: 5
     )
 
-    expect(recovery[:discovery]).to include(status: :available, recommended_model_id: "gpt-5.2-codex")
-    expect(recovery[:provider_runtime].model).to eq("gpt-5.2-codex")
+    expect(recovery[:discovery]).to include(status: :unavailable, reason: :no_compatible_model)
+    expect(recovery[:provider_runtime]).to be_nil
+  end
+
+  it "selects an allowed alternative instead of a disallowed default" do
+    allow(executor).to receive(:execute).with(["codex", "--version"], timeout: 2, env: env).and_return(version_result)
+    expect_model_list(
+      env: env,
+      models: [
+        {"id" => "gpt-5.2-codex", "isDefault" => true},
+        {"id" => "gpt-5-codex", "isDefault" => false}
+      ]
+    )
+
+    discovery = provider.send(
+      :discover_compatible_model,
+      rejected_model_id: "gpt-5.4",
+      allowed_model_ids: ["gpt-5-codex"],
+      env: env,
+      timeout: 5,
+      refresh: true
+    )
+
+    expect(discovery.to_h).to include(status: :available, recommended_model_id: "gpt-5-codex")
   end
 
   it "reports no alternative when discovery only returns the rejected model" do
