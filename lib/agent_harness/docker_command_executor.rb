@@ -189,6 +189,16 @@ module AgentHarness
       result.success? ? result.stdout.strip : nil
     end
 
+    def execute_interactive(command, timeout: nil, env: {}, &exchange)
+      docker_cmd = build_docker_command_for_execution(
+        normalize_command(command),
+        env: env,
+        stdin_data: "",
+        execution_tracking: nil
+      )
+      super(docker_cmd, timeout:, env: {}, &exchange)
+    end
+
     private
 
     def preparation_lock_scope

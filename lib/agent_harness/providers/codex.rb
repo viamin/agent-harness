@@ -1082,18 +1082,17 @@ module AgentHarness
           return cached[:discovery]
         end
 
-        discovery = fetch_model_list(env: env, timeout: timeout)
+        discovery = fetch_model_list(rejected_model_id:, env: env, timeout: timeout)
         cache_model_discovery(cache_key, discovery)
         discovery
       end
 
-      def fetch_model_list(env:, timeout:)
-        result = @executor.execute(
+      def fetch_model_list(rejected_model_id:, env:, timeout:)
+        result = @executor.execute_interactive(
           [self.class.binary_name, "app-server", "--listen", "stdio://"],
           timeout: timeout,
-          env: env,
-          stdin_data: MODEL_LIST_REQUESTS.map { |request| JSON.generate(request) }.join("\n") + "\n"
-        )
+          env: env
+        ) { |stdin, stdout| exchange_model_list_requests(stdin, stdout) }
         return unavailable_model_discovery(:app_server_failed, stderr: result.stderr) unless result.success?
 
         response = parse_app_server_response(result.stdout, 2)
@@ -1101,7 +1100,8 @@ module AgentHarness
         return unavailable_model_discovery(:model_list_error, error: response["error"]) if response["error"]
 
         entries = Array(response.dig("result", "data")).filter_map { |entry| normalize_model_entry(entry) }
-        recommended = entries.find { |entry| entry[:is_default] } || entries.first
+        alternatives = entries.reject { |entry| entry[:id] == rejected_model_id }
+        recommended = alternatives.find { |entry| entry[:is_default] } || alternatives.first
         return unavailable_model_discovery(:no_compatible_model, models: entries) unless recommended
 
         ModelDiscovery.new(
@@ -1115,6 +1115,35 @@ module AgentHarness
         unavailable_model_discovery(:app_server_timeout)
       rescue ArgumentError, JSON::ParserError
         unavailable_model_discovery(:model_list_unparseable)
+      end
+
+      def exchange_model_list_requests(stdin, stdout)
+        responses = +""
+        write_app_server_request(stdin, MODEL_LIST_REQUESTS.first)
+        initialized = read_app_server_response(stdout, responses, 1)
+        raise ArgumentError, "app-server rejected initialize" if initialized["error"]
+
+        MODEL_LIST_REQUESTS.drop(1).each { |request| write_app_server_request(stdin, request) }
+        read_app_server_response(stdout, responses, 2)
+        responses
+      end
+
+      def write_app_server_request(stdin, request)
+        stdin.puts(JSON.generate(request))
+        stdin.flush
+      end
+
+      def read_app_server_response(stdout, responses, id)
+        loop do
+          line = stdout.gets
+          raise JSON::ParserError, "app-server closed before response #{id}" unless line
+
+          responses << line
+          message = JSON.parse(line)
+          return message if message.is_a?(Hash) && message["id"] == id
+        rescue JSON::ParserError
+          raise if line.nil?
+        end
       end
 
       def parse_app_server_response(stdout, id)

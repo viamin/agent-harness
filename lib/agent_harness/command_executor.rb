@@ -203,6 +203,20 @@ module AgentHarness
       !which(binary).nil?
     end
 
+    # Execute a command while allowing a caller to exchange messages over its
+    # stdio before stdin is closed. The block must consume the stdout it needs
+    # and return it; any remaining stdout is appended after the exchange.
+    def execute_interactive(command, timeout: nil, env: {})
+      validate_duration!(timeout, name: :timeout, allow_nil: true)
+      cmd_array = normalize_command(command)
+      start_time = current_time
+
+      stdout, stderr, status = interactive_process(cmd_array, timeout:, env:) do |stdin, stdout_io|
+        yield(stdin, stdout_io)
+      end
+      Result.new(stdout:, stderr:, exit_code: status.exitstatus, duration: current_time - start_time)
+    end
+
     protected
 
     def normalize_command(command)
@@ -217,6 +231,38 @@ module AgentHarness
     end
 
     private
+
+    def interactive_process(cmd_array, timeout:, env:)
+      Open3.popen3(env, *cmd_array, pgroup: true) do |stdin, stdout_io, stderr_io, wait_thr|
+        stderr_reader = Thread.new { stderr_io.read }
+        begin
+          stdout, status = run_interactive_exchange(stdin, stdout_io, wait_thr, cmd_array, timeout) do
+            yield(stdin, stdout_io)
+          end
+          [stdout, stderr_reader.value, status]
+        rescue
+          terminate_process(wait_thr) if wait_thr.alive?
+          raise
+        ensure
+          stdin.close unless stdin.closed?
+          stderr_reader.join
+        end
+      end
+    end
+
+    def run_interactive_exchange(stdin, stdout_io, wait_thr, cmd_array, timeout)
+      exchange = proc do
+        consumed_stdout = yield.to_s
+        stdin.close unless stdin.closed?
+        [consumed_stdout + stdout_io.read, wait_thr.value]
+      end
+      return exchange.call unless timeout
+
+      Timeout.timeout(timeout, &exchange)
+    rescue Timeout::Error
+      terminate_process(wait_thr)
+      raise TimeoutError, "Command timed out after #{timeout} seconds: #{cmd_array.first}"
+    end
 
     def acquire_preparation_locks(preparation, env:, timeout:, deadline:, command_name:)
       return [] if preparation.nil? || preparation.empty?
