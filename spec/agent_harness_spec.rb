@@ -297,15 +297,15 @@ RSpec.describe AgentHarness do
     end
 
     it "returns versioned install metadata for providers with generic contracts" do
-      contract = AgentHarness.installation_contract(:opencode, version: "1.18.30")
+      contract = AgentHarness.installation_contract(:opencode, version: "1.18.31")
 
       expect(contract).to include(
         package_name: "opencode-ai",
-        version: "1.18.30",
+        version: "1.18.31",
         binary_name: "opencode"
       )
       expect(contract[:install_command]).to eq(
-        ["npm", "install", "-g", "--ignore-scripts", "opencode-ai@1.18.30"]
+        ["npm", "install", "-g", "--ignore-scripts", "opencode-ai@1.18.31"]
       )
     end
 
@@ -339,15 +339,15 @@ RSpec.describe AgentHarness do
     end
 
     it "preserves provider normalization for generic-contract version lookups" do
-      contract = AgentHarness.installation_contract(:opencode, version: " 1.18.30 ")
+      contract = AgentHarness.installation_contract(:opencode, version: " 1.18.31 ")
 
       expect(contract).to include(
         package_name: "opencode-ai",
-        version: "1.18.30",
+        version: "1.18.31",
         binary_name: "opencode"
       )
       expect(contract[:install_command]).to eq(
-        ["npm", "install", "-g", "--ignore-scripts", "opencode-ai@1.18.30"]
+        ["npm", "install", "-g", "--ignore-scripts", "opencode-ai@1.18.31"]
       )
     end
   end
