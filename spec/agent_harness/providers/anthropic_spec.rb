@@ -113,6 +113,11 @@ RSpec.describe AgentHarness::Providers::Anthropic do
   end
 
   describe ".install_contract" do
+    let(:supported_patch_override) do
+      segments = Gem::Version.new(described_class::SUPPORTED_CLI_VERSION).segments
+      [segments[0], segments[1], segments[2] + 1].join(".")
+    end
+
     it "exposes the official install contract" do
       contract = described_class.install_contract
 
@@ -169,9 +174,9 @@ RSpec.describe AgentHarness::Providers::Anthropic do
     end
 
     it "accepts an optional version override" do
-      contract = described_class.install_contract(version: "2.1.269")
+      contract = described_class.install_contract(version: supported_patch_override)
 
-      expect(contract.dig(:install, :command)).to include("bash \"$tmp_script\" 2.1.269")
+      expect(contract.dig(:install, :command)).to include("bash \"$tmp_script\" #{supported_patch_override}")
     end
 
     it "accepts semver with pre-release suffix" do
@@ -242,10 +247,11 @@ RSpec.describe AgentHarness::Providers::Anthropic do
     end
 
     it "normalizes padded version strings in the install command" do
-      contract = described_class.install_contract(version: " 2.1.269 ")
+      padded_version = " #{supported_patch_override} "
+      contract = described_class.install_contract(version: padded_version)
 
-      expect(contract.dig(:install, :command)).to include("bash \"$tmp_script\" 2.1.269")
-      expect(contract.dig(:install, :command)).not_to include(" 2.1.269 ")
+      expect(contract.dig(:install, :command)).to include("bash \"$tmp_script\" #{supported_patch_override}")
+      expect(contract.dig(:install, :command)).not_to include(padded_version)
     end
 
     it "normalizes padded channel tokens and emits the channel warning" do
