@@ -57,8 +57,18 @@ RSpec.describe AgentHarness::Providers::Codex, ".model_compatibility" do
     expect(result.source).to eq(:static_contract)
   end
 
+  it "supports GPT-5.6 tier variants with subscription authentication" do
+    %w[gpt-5.6-luna gpt-5.6-terra gpt-5.6-sol].each do |model_id|
+      result = described_class.model_compatibility(
+        model_id: model_id, auth_mode: :subscription, cli_version: "0.149.1"
+      )
+
+      expect(result).to be_supported
+    end
+  end
+
   it "returns unsupported for gpt-5.6 models under subscription auth" do
-    %w[gpt-5.6 gpt-5.6-luna gpt-5.6-sol gpt-5.6-terra].each do |model_id|
+    %w[gpt-5.6].each do |model_id|
       result = described_class.model_compatibility(
         model_id: model_id,
         auth_mode: :subscription,
@@ -87,7 +97,7 @@ RSpec.describe AgentHarness::Providers::Codex, ".model_compatibility" do
   end
 
   it "returns unsupported for gpt-5.6 family models under subscription auth" do
-    %w[gpt-5.6 gpt-5.6-luna gpt-5.6-sol gpt-5.6-terra].each do |model_id|
+    %w[gpt-5.6].each do |model_id|
       result = described_class.model_compatibility(
         model_id: model_id,
         auth_mode: :subscription,
