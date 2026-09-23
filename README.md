@@ -419,6 +419,24 @@ result.fallback_model_id     # => "gpt-5.2-codex"
 result.source                # => :static_contract
 ```
 
+For account-local Codex discovery, use the same executor and credential
+environment as execution:
+
+```ruby
+provider = AgentHarness::Providers::Codex.new(executor: container_executor)
+discovery = provider.discover_available_models(env: subscription_env, timeout: 15)
+discovery.models                 # normalized visible entries from model/list
+discovery.recommended_model_id   # provider default, not proof of execution
+```
+
+This method performs a fresh, paginated app-server exchange within the supplied
+execution context. It supports execute-only container transports using Node
+(already required by the Codex npm installation). It never changes auth mode or
+selects a model on the caller's behalf. Apply project policy, verify the chosen
+model with `smoke_test`, and persist successful evidence in the calling system.
+`classify_model_rejection_from_result(stdout:, stderr:)` excludes ordinary
+assistant/tool stdout from rejection classification.
+
 Outcomes follow three explicit shapes:
 
 - **Supported** — `result.supported?` is `true`. The runner contract

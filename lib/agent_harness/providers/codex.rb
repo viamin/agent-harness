@@ -3,6 +3,7 @@
 require "json"
 require "net/http"
 require "uri"
+require_relative "codex_model_discovery"
 
 module AgentHarness
   module Providers
@@ -12,6 +13,7 @@ module AgentHarness
     class Codex < Base
       include RateLimitResetParsing
       include McpConfigFileSupport
+      include CodexModelDiscovery
 
       StreamingEvent = Struct.new(
         :type, :turn, :tokens, :error_message, :tool_name, :raw_event
@@ -544,6 +546,24 @@ module AgentHarness
 
         def classify_model_rejection(output, configured_model: nil)
           parser_instance.send(:classify_model_rejection, output, configured_model: configured_model)
+        end
+
+        # Successful assistant/tool output can quote the exact rejection text.
+        # Only CLI stderr and explicit JSONL error envelopes are evidence.
+        def classify_model_rejection_from_result(stdout:, stderr:, configured_model: nil)
+          texts = stdout.to_s.each_line.filter_map do |line|
+            event = parse_stdout_jsonl_event(line.strip)
+            next unless event.is_a?(Hash)
+
+            event = unwrap_classification_event(event)
+            extract_jsonl_error_text(event) if event.is_a?(Hash)
+          end
+          texts << stderr.to_s
+          texts.each do |text|
+            rejection = classify_model_rejection(text, configured_model: configured_model)
+            return rejection if rejection
+          end
+          nil
         end
 
         private
@@ -1095,11 +1115,15 @@ module AgentHarness
       end
 
       def fetch_model_list(rejected_model_id:, allowed_model_ids:, env:, timeout:)
-        result = @executor.execute_interactive(
-          [self.class.binary_name, "app-server", "--listen", "stdio://"],
-          timeout: timeout,
-          env: env
-        ) { |stdin, stdout| exchange_model_list_requests(stdin, stdout) }
+        result = if @executor.respond_to?(:execute_interactive)
+          @executor.execute_interactive(
+            [self.class.binary_name, "app-server", "--listen", "stdio://"],
+            timeout: timeout,
+            env: env
+          ) { |stdin, stdout| exchange_model_list_requests(stdin, stdout) }
+        else
+          execute_model_discovery(env: env, timeout: timeout)
+        end
         return unavailable_model_discovery(:app_server_failed, stderr: result.stderr) unless result.success?
 
         response = parse_app_server_response(result.stdout, 2)

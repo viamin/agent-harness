@@ -12,6 +12,70 @@ RSpec.describe "Codex subscription model discovery" do
     AgentHarness::Providers::Codex::MODEL_REJECTION_CACHE.clear
   end
 
+  it "ignores assistant and tool prose but recognizes an explicit error event" do
+    message = "The 'old-model' model is not supported when using Codex with a ChatGPT account."
+    klass = AgentHarness::Providers::Codex
+    prose = {type: "item.completed", item: {type: "agent_message", text: message}}.to_json
+    expect(klass.classify_model_rejection_from_result(stdout: prose, stderr: "")).to be_nil
+    expect(klass.classify_model_rejection_from_result(stdout: message, stderr: "")).to be_nil
+    error = {type: "turn.failed", error: {message: message}}.to_json
+    expect(klass.classify_model_rejection_from_result(stdout: error, stderr: "")).to include(model: "old-model")
+  end
+
+  it "discovers alternatives through an execute-only container transport without a pinned-model restriction" do
+    Dir.mktmpdir do |directory|
+      executable = File.join(directory, "codex")
+      File.write(executable, app_server_fixture)
+      File.chmod(0o755, executable)
+      # This is the minimal remote/container executor protocol, not a mock of
+      # the provider. Exercise the real JSON-RPC exchange and subprocess exit.
+      transport = Object.new
+      transport.define_singleton_method(:execute) do |command, **options|
+        AgentHarness::CommandExecutor.new.execute(command, **options)
+      end
+      provider = AgentHarness::Providers::Codex.new(executor: transport)
+      discovery = provider.discover_available_models(
+        env: {"PATH" => "#{directory}#{File::PATH_SEPARATOR}#{ENV.fetch("PATH")}"}, timeout: 5
+      )
+
+      expect(discovery).to be_available
+      expect(discovery.models.map { |model| model[:id] }).to eq(["gpt-5.2-codex"])
+    end
+  end
+
+  it "collects all pages, excludes hidden entries, and handles model-list errors" do
+    Dir.mktmpdir do |directory|
+      executable = File.join(directory, "codex")
+      script = app_server_fixture.sub(
+        'models = [{"id" => "gpt-5.2-codex", "isDefault" => true}]',
+        <<~RUBY
+          STDOUT.puts(JSON.generate({"id" => 2, "result" => {"data" => [{"id" => "hidden", "hidden" => true}], "nextCursor" => "page2"}}))
+          STDOUT.flush
+          page = JSON.parse(STDIN.readline)
+          exit 12 unless page.dig("params", "cursor") == "page2"
+          models = [{"id" => "working-model", "isDefault" => true}]
+        RUBY
+      )
+      File.write(executable, script)
+      File.chmod(0o755, executable)
+      real_provider = AgentHarness::Providers::Codex.new
+      discovery = real_provider.discover_available_models(
+        env: {"PATH" => "#{directory}#{File::PATH_SEPARATOR}#{ENV.fetch("PATH")}"}, timeout: 5
+      )
+      expect(discovery.models.map { |entry| entry[:id] }).to eq(["working-model"])
+      expect(discovery.recommended_model_id).to eq("working-model")
+    end
+  end
+
+  it "reports timeout without returning an unverified fallback" do
+    expect(executor).to receive(:execute).with(array_including("node"), hash_including(timeout: 1))
+      .and_raise(AgentHarness::TimeoutError, "discovery timed out")
+    discovery = provider.discover_available_models(env: env, timeout: 1)
+    expect(discovery).not_to be_available
+    expect(discovery.recommended_model_id).to be_nil
+    expect(discovery.reason).to eq(:app_server_timeout)
+  end
+
   it "classifies nested subscription model rejections" do
     output = JSON.generate({
       error: {
