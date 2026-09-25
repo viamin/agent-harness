@@ -202,7 +202,7 @@ module AgentHarness
           delay = retry_config[:base_delay_seconds] * (2**exponent)
           delay = [delay, @last_error[:retry_after_seconds].to_f].max
           cap = retry_config[:max_delay_seconds]
-          remaining = cap&.positive? ? [delay, cap].min : delay
+          remaining = cap.nil? ? delay : [delay, cap].min
           while remaining.positive? && active?
             interval = [remaining, 0.05].min
             @sleeper.call(interval)

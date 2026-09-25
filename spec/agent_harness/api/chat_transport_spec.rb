@@ -323,15 +323,34 @@ RSpec.describe AgentHarness::Api::ChatTransport do
       priced_at: match(/Z\z/))
   end
 
-  it "uses the base retry delay when no positive maximum delay is configured" do
+  it "clamps a provider Retry-After delay to the default zero maximum" do
     delays = []
     delayed_transport = described_class.new(adapter: adapter, id_generator: id_generator,
       sleeper: ->(seconds) { delays << seconds })
-    allow(adapter).to receive(:call).and_raise(RubyLLM::RateLimitError, "rate limited")
+    response = Faraday::Response.new(status: 429, response_headers: {"Retry-After" => "3600"})
+    allow(adapter).to receive(:call).and_raise(
+      RubyLLM::RateLimitError.new("rate limited", response: response)
+    )
 
-    delayed_transport.call(request.merge(retry: {max_attempts: 2, base_delay_seconds: 0.1}))
+    delayed_transport.call(request.merge(retry: {max_attempts: 2}))
 
-    expect(delays.sum).to be_within(0.001).of(0.1)
+    expect(delays).to be_empty
+    expect(adapter).to have_received(:call).twice
+  end
+
+  it "clamps a provider Retry-After delay to an explicit zero maximum" do
+    delays = []
+    delayed_transport = described_class.new(adapter: adapter, id_generator: id_generator,
+      sleeper: ->(seconds) { delays << seconds })
+    response = Faraday::Response.new(status: 429, response_headers: {"Retry-After" => "3600"})
+    allow(adapter).to receive(:call).and_raise(
+      RubyLLM::RateLimitError.new("rate limited", response: response)
+    )
+
+    delayed_transport.call(request.merge(retry: {max_attempts: 2, max_delay_seconds: 0}))
+
+    expect(delays).to be_empty
+    expect(adapter).to have_received(:call).twice
   end
 
   it "honors and caps a provider Retry-After delay" do
