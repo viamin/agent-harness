@@ -76,11 +76,13 @@ Responses API must select `:chat_completions`; the transport never probes and
 silently switches protocols. Only `authentication_mode: :api_key` is currently
 supported.
 
-Credentials, endpoint, custom headers, timeout, and RubyLLM configuration are
-isolated with a request-local `RubyLLM::Context`. RubyLLM middleware retries
-are disabled; `retry.max_attempts` is the total physical-attempt limit owned by
-the harness. Authentication headers cannot be overridden by custom headers.
-`max_output_tokens` is forwarded without changing it.
+Credentials, endpoint, custom headers, read timeout, and RubyLLM configuration
+are isolated with a request-local `RubyLLM::Context`. Only
+`timeout.read_seconds` is supported; request-local connection timeouts are not.
+RubyLLM middleware retries are disabled; `retry.max_attempts` is the total
+physical-attempt limit owned by the harness. Authentication headers cannot be
+overridden by custom headers. `max_output_tokens` is forwarded without changing
+it.
 
 Unknown model IDs are allowed only because a complete provider and protocol
 are explicit in every candidate (`assume_model_exists: true` in the RubyLLM
@@ -191,7 +193,7 @@ request = {
     }
   ],
   fallback: {on_error_categories: [:transient]},
-  timeout: {connect_seconds: 5, read_seconds: 60},
+  timeout: {read_seconds: 60},
   retry: {max_attempts: 3, base_delay_seconds: 0.25, max_delay_seconds: 2},
   cancellation: cancellation_token,
   metadata: {tenant_id: "tenant-123", workflow_id: "workflow-456"}
@@ -212,12 +214,14 @@ part of a serializable request document.
 gets a distinct `attempt_id`. Redelivering an already reported attempt retains
 its `attempt_id`; initiating another outbound request does not.
 
-Credentials, endpoint, headers, timeouts, retry limits, and cancellation are
-request-local. Implementations MUST prevent concurrent requests from observing
-one another's credentials or headers. They MUST reject reserved header
-overrides that would conflict with the selected protocol's authentication.
-Logs and errors MUST NOT contain credentials, authorization headers, message
-bodies, tool arguments, or full provider responses.
+Credentials, endpoint, headers, the read timeout, retry limits, and cancellation
+are request-local. Only `timeout.read_seconds` is supported; supplying a
+connection timeout returns `unsupported/unsupported_capability` before any
+provider request. Implementations MUST prevent concurrent requests from
+observing one another's credentials or headers. They MUST reject reserved
+header overrides that would conflict with the selected protocol's
+authentication. Logs and errors MUST NOT contain credentials, authorization
+headers, message bodies, tool arguments, or full provider responses.
 
 The selected candidate's provider, model, protocol, endpoint, and authentication
 mode MUST be the values actually used. The harness MUST return a configuration
@@ -598,7 +602,7 @@ exactly-once recovery or an off-the-shelf plain Ruby export/import mechanism.
 ## Current harness gaps and incremental delivery
 
 The normalized API transport now provides request-local custom headers,
-per-request timeout/retry/cancellation, schema-constrained output, stable
+per-request read timeout/retry/cancellation, schema-constrained output, stable
 attempt IDs, per-attempt usage, partial terminal results, and classified
 outcomes for its verified scopes. Embeddings, state export/import, and broader
 provider/authentication scopes remain outstanding. `Conversation` stores
