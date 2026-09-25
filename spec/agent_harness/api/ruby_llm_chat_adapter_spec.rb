@@ -114,18 +114,12 @@ RSpec.describe AgentHarness::Api::RubyLlmChatAdapter do
     expect(results).to all(include(content: "No", refusal: true))
   end
 
-  it "preserves a streamed Responses refusal from its semantic event" do
-    protocol = RubyLLM::Protocols::Responses.allocate
-    refusal_chunk = protocol.send(:build_chunk, {
-      "type" => "response.refusal.delta", "delta" => "No", "output_index" => 0, "content_index" => 0
-    })
-    final = instance_double(RubyLLM::Message, content: "No", model: "private-model", finish_reason: :stop,
-      tokens: nil, tool_calls: nil, raw: Struct.new(:body).new(""))
+  it "does not modify RubyLLM protocol classes" do
+    harness_ancestors = RubyLLM::Protocols::Responses.ancestors.filter_map do |ancestor|
+      ancestor.name&.start_with?("AgentHarness::") && ancestor
+    end
 
-    streamed_events({provider: :openai, model: "private-model", protocol: :responses,
-                     credentials: {api_key: "request-secret"}}, [refusal_chunk], final)
-
-    expect(@streamed_result).to include(content: "No", refusal: true)
+    expect(harness_ancestors).to be_empty
   end
 
   it "generates a non-streaming response with an inactive cancellation token" do

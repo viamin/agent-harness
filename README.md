@@ -806,8 +806,9 @@ Health checks run five steps per provider: registration, CLI availability, authe
 The proposed provider-neutral API execution boundary for embeddings, chat,
 structured output, usage, and optional persistence is documented in the
 [Provider-Neutral API Execution Contract](docs/provider-neutral-api-execution-contract.md).
-It is a docs-only design boundary; capability support requires the release
-evidence described there.
+That document records the shipped capability versions, migration examples,
+verified limits, and the evidence-backed decision to retain the application
+conversation loop over the normalized transport.
 
 ```bash
 # Install dependencies

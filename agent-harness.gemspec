@@ -38,10 +38,7 @@ Gem::Specification.new do |spec|
 
   spec.add_dependency "logger", ">= 1.6", "< 2.0"
   spec.add_dependency "json_schemer", "~> 2.4"
-  # RubyLLM 2.0.0 does not publicly expose Responses refusal stream events.
-  # Keep this exact until RubyLlmResponsesStreamingRefusal can use an upstream
-  # public hook instead of the version-specific compatibility shim.
-  spec.add_dependency "ruby_llm", "= 2.0.0"
+  spec.add_dependency "ruby_llm", "~> 2.0"
   spec.add_development_dependency "rake", "~> 13.0"
   spec.add_development_dependency "rspec", "~> 3.0"
   spec.add_development_dependency "standard", "~> 1.3"
