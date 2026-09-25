@@ -37,8 +37,9 @@ Gem::Specification.new do |spec|
   spec.require_paths = ["lib"]
 
   spec.add_dependency "logger", ">= 1.6", "< 2.0"
-  spec.add_dependency "ruby_llm", "~> 2.0"
+  spec.add_dependency "ruby_llm", ">= 2.0", "< 3.0"
   spec.add_development_dependency "rake", "~> 13.0"
   spec.add_development_dependency "rspec", "~> 3.0"
   spec.add_development_dependency "standard", "~> 1.3"
+  spec.add_development_dependency "webmock", "~> 3.0"
 end
