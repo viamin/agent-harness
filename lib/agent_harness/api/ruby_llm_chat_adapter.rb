@@ -13,6 +13,7 @@ module AgentHarness
         anthropic: %i[anthropic_api_key anthropic_api_base],
         openai: %i[openai_api_key openai_api_base]
       }.freeze
+      OPENAI_UNSUPPLIED_CONFIG = %i[openai_organization_id openai_project_id openai_use_system_role].freeze
 
       def call(candidate:, messages:, tools:, max_output_tokens:, temperature:, stream:, timeout:, cancellation:, &on_event)
         context = build_context(candidate, timeout)
@@ -75,9 +76,14 @@ module AgentHarness
         RubyLLM.context do |config|
           config.public_send("#{config_keys[0]}=", candidate.dig(:credentials, :api_key))
           config.public_send("#{config_keys[1]}=", candidate[:endpoint])
+          clear_unsupplied_openai_config(config) if provider == :openai
           config.max_retries = 0
           apply_timeout(config, timeout)
         end
+      end
+
+      def clear_unsupplied_openai_config(config)
+        OPENAI_UNSUPPLIED_CONFIG.each { |key| config.public_send("#{key}=", nil) }
       end
 
       def apply_timeout(config, timeout)

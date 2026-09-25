@@ -22,7 +22,7 @@ RSpec.describe AgentHarness::Api::RubyLlmChatAdapter do
   end
   let(:config_class) do
     Struct.new(:anthropic_api_key, :anthropic_api_base, :openai_api_key, :openai_api_base,
-      :max_retries, :request_timeout)
+      :openai_organization_id, :openai_project_id, :openai_use_system_role, :max_retries, :request_timeout)
   end
 
   before do
@@ -73,7 +73,8 @@ RSpec.describe AgentHarness::Api::RubyLlmChatAdapter do
 
   it "clears a copied global base URL when the candidate has no endpoint" do
     allow(RubyLLM).to receive(:context) do |&configuration|
-      @configured = config_class.new(nil, nil, nil, "https://global.example/v1")
+      @configured = config_class.new
+      @configured.openai_api_base = "https://global.example/v1"
       configuration.call(@configured)
       context
     end
@@ -88,6 +89,29 @@ RSpec.describe AgentHarness::Api::RubyLlmChatAdapter do
     )
 
     expect(@configured.to_h).to include(openai_api_key: "request-secret", openai_api_base: nil)
+  end
+
+  it "clears copied global OpenAI tenant and behavior settings" do
+    allow(RubyLLM).to receive(:context) do |&configuration|
+      @configured = config_class.new
+      @configured.openai_organization_id = "global-organization"
+      @configured.openai_project_id = "global-project"
+      @configured.openai_use_system_role = true
+      configuration.call(@configured)
+      context
+    end
+
+    adapter.call(
+      candidate: {
+        provider: :openai, model: "openai-model", protocol: :responses,
+        credentials: {api_key: "request-secret"}
+      },
+      messages: [], tools: [], max_output_tokens: nil, temperature: nil,
+      stream: false, timeout: nil, cancellation: nil
+    )
+
+    expect(@configured.to_h).to include(openai_organization_id: nil, openai_project_id: nil,
+      openai_use_system_role: nil)
   end
 
   it "rejects a connect timeout that RubyLLM cannot honor" do
