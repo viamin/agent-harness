@@ -129,6 +129,19 @@ RSpec.describe AgentHarness::Api::RubyLlmChatAdapter do
     expect(result).to include(content: "", refusal: true)
   end
 
+  it "preserves a streamed Responses API refusal from its semantic event" do
+    protocol = RubyLLM::Protocols::Responses.allocate
+    refusal_chunk = protocol.send(:build_chunk, {
+      "type" => "response.refusal.delta", "delta" => "I cannot comply",
+      "output_index" => 0, "content_index" => 0
+    })
+    final = final_response(content: "I cannot comply", tool_calls: {}, raw: Struct.new(:body).new(""))
+
+    streamed_events(responses_candidate, [refusal_chunk], final)
+
+    expect(@streamed_result).to include(content: "I cannot comply", refusal: true)
+  end
+
   it "clears a copied global base URL when the candidate has no endpoint" do
     allow(RubyLLM).to receive(:context) do |&configuration|
       @configured = config_class.new(nil, nil, nil, "https://global.example/v1")
@@ -307,9 +320,14 @@ RSpec.describe AgentHarness::Api::RubyLlmChatAdapter do
     RubyLLM::ToolCall.new(id: id, name: name, arguments: arguments || {})
   end
 
-  def final_response(content: "", tool_calls: {}, tokens: nil)
+  def final_response(content: "", tool_calls: {}, tokens: nil, raw: nil)
     RubyLLM::Message.new(role: :assistant, content: content, model: "private-model",
-      finish_reason: :tool_calls, tool_calls: tool_calls, tokens: tokens)
+      finish_reason: :tool_calls, tool_calls: tool_calls, tokens: tokens, raw: raw)
+  end
+
+  def responses_candidate
+    {provider: :openai, model: "private-model", protocol: :responses,
+     credentials: {api_key: "request-secret"}}
   end
 
   def streamed_events(candidate, chunks, final_response)
