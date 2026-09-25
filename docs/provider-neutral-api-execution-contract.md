@@ -54,20 +54,43 @@ semantics:
 request = {
   request_id: "paid-generation-018f...", # caller-generated, stable on redelivery
   operation: :chat,                       # :chat, :embedding, or :schema
-  candidate: {
-    provider: :anthropic,
-    model: "claude-sonnet-4-5",
-    protocol: :messages,                  # optional verified protocol
-    endpoint: "https://llm-proxy.example/v1",
-    headers: {"X-Tenant-Route" => "tenant-123"},
-    credentials: {api_key: secret}
-  },
+  candidates: [                           # ordered; first entry is initial
+    {
+      provider: :anthropic,
+      model: "claude-sonnet-4-5",
+      protocol: :messages,                # optional verified protocol
+      authentication_mode: :api_key,
+      endpoint: "https://llm-proxy.example/v1",
+      headers: {"X-Tenant-Route" => "tenant-123"},
+      credentials: {api_key: anthropic_secret}
+    },
+    {
+      provider: :openai,
+      model: "gpt-5",
+      protocol: :responses,
+      authentication_mode: :api_key,
+      endpoint: "https://api.openai.com/v1",
+      headers: {},
+      credentials: {api_key: openai_secret}
+    }
+  ],
+  fallback: {on_error_categories: [:transient]},
   timeout: {connect_seconds: 5, read_seconds: 60},
   retry: {max_attempts: 3, base_delay_seconds: 0.25, max_delay_seconds: 2},
   cancellation: cancellation_token,
   metadata: {tenant_id: "tenant-123", workflow_id: "workflow-456"}
 }
 ```
+
+`candidates` MUST contain at least one complete candidate record. Its first
+entry is the initial candidate; later entries are the only authorized fallback
+order. A request that does not authorize fallback supplies a one-entry array.
+`fallback.on_error_categories` is the caller-selected allowlist of error
+categories that permit advancing to the next entry; an absent or empty
+allowlist disables fallback. Candidate records, their order, and the allowlist
+are immutable for the lifetime of the request. The observer described below is
+a request-local callback or equivalent API argument because callbacks are not
+part of a serializable request document.
 
 `request_id` identifies one logical operation. Every physical outbound request
 gets a distinct `attempt_id`. Redelivering an already reported attempt retains
@@ -80,9 +103,9 @@ overrides that would conflict with the selected protocol's authentication.
 Logs and errors MUST NOT contain credentials, authorization headers, message
 bodies, tool arguments, or full provider responses.
 
-The candidate's provider, model, protocol, endpoint, and authentication mode
-MUST be the values actually used. The harness MUST return a configuration or
-unsupported outcome instead of silently substituting any of them.
+The selected candidate's provider, model, protocol, endpoint, and authentication
+mode MUST be the values actually used. The harness MUST return a configuration
+or unsupported outcome instead of silently substituting any of them.
 
 ## Capability discovery and unsupported outcomes
 
@@ -255,26 +278,36 @@ service unavailable, and overload. Authentication, authorization, billing,
 invalid request, unsupported capability, invalid schema, context length,
 configuration, and cancellation are non-retryable.
 
-The supplied `max_attempts` includes the first outbound request. Delay and
-provider `retry-after` handling remain within the supplied bounds. Cancellation
-is checked before an attempt, during backoff, while reading a stream, and before
-returning success. It stops further attempts and returns a cancelled terminal
-outcome with any partial usage. Cancellation does not prove that the provider
-stopped processing or billing the request.
+The supplied `max_attempts` includes the first outbound request and is the total
+physical-attempt budget across all candidates; changing candidates does not
+reset it. It MUST be a positive integer; the harness rejects zero, negative, or
+non-integer values as configuration errors before making an outbound request.
+Delay and provider `retry-after` handling remain within the supplied bounds.
+Cancellation is checked before an attempt, during backoff, while reading a
+stream, and before returning success. It stops further attempts and returns a
+cancelled terminal outcome with any partial usage. Cancellation does not prove
+that the provider stopped processing or billing the request.
 
 There is exactly one retry owner. If RubyLLM backs an operation, its retry
-middleware MUST receive the Paid-supplied bounds and the harness MUST NOT wrap
-it in another retry loop. Existing conductor retry/provider switching is not
-part of an API request's internal retry budget and MUST be disabled or bypassed
-for a migrated scope.
+middleware MUST receive `max_retries: max_attempts - 1` when no attempt has yet
+occurred, because RubyLLM counts only retries while this contract counts the
+initial request. Thus `max_attempts: 1` maps to `max_retries: 0`; adapters MUST
+NOT forward `max_attempts` unchanged. If control returns to RubyLLM after an
+earlier physical attempt, the adapter uses the remaining total budget and MUST
+NOT let retry or fallback middleware reset it. The harness MUST NOT wrap
+RubyLLM in another retry loop. Existing conductor retry/provider switching is
+not part of an API request's internal retry budget and MUST be disabled or
+bypassed for a migrated scope.
 
 ## Caller-controlled fallback
 
-Fallback candidates are ordered, complete request-local candidate records,
+Fallback candidates are the entries after the first entry in the request's
+ordered `candidates` array. Each is a complete request-local candidate record,
 including credentials and endpoint/header overrides. A candidate change is a
-new caller-authorized selection, not a hidden retry. The harness reports every
-candidate attempt and invokes an observer before a change so the caller can
-cancel it or issue a notice.
+new caller-authorized selection, not a hidden retry. Before advancing, the
+harness invokes the request-local observer with the current and next candidate
+identities and the classified error, so the caller can cancel the change or
+issue a notice. The harness reports every candidate attempt.
 
 Fallback is allowed only for caller-selected error categories. It never occurs
 after a partial stream without a new explicit caller decision, never crosses
@@ -339,7 +372,7 @@ records.
 | Embeddings | `RubyLLM.embed` and normalized vectors/usage | Candidate first capability; persistence remains in Paid |
 | Custom headers | `with_headers` | Candidate; contract-test merging and secret redaction |
 | Endpoint/credentials | provider configuration | Global mutable configuration is unsuitable; require request-local isolation or an upstream-supported client boundary |
-| Retries | Faraday retry middleware, default three retries | Configure as the sole bounded retry owner; never nest it |
+| Retries | Faraday retry middleware, default three retries | Configure as the sole bounded retry owner with `max_retries: max_attempts - 1`; never nest it |
 | Fallback | `with_fallbacks` and callbacks | Use only if exact caller candidates and credentials can be preserved |
 | Cancellation | chat cancellation and `CancelledError` | Adapt to the common token and retain partial stream state |
 | Attempt usage | `usage.ruby_llm` per physical attempt | Useful facts, but the public payload has no stable attempt ID; harness must add one |
