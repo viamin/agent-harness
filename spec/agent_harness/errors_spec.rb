@@ -108,6 +108,20 @@ RSpec.describe AgentHarness do
         error = described_class.new("auth failed")
         expect(error.provider).to be_nil
       end
+
+      it "exposes the normalized authentication classification" do
+        error = described_class.new("auth failed")
+        expect([error.error_category, error.error_code]).to eq([:authentication, :invalid_credential])
+      end
+    end
+
+    describe AgentHarness::AuthorizationError do
+      it "exposes the normalized authorization classification" do
+        error = described_class.new("forbidden", provider: :openai)
+
+        expect(error.provider).to eq(:openai)
+        expect([error.error_category, error.error_code]).to eq([:authorization, :permission_denied])
+      end
     end
 
     describe AgentHarness::UnsupportedAuthFlowError do
