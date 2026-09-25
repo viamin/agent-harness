@@ -24,6 +24,9 @@ module AgentHarness
       payload = JSON.parse(response.body)
       rows = payload["data"]
       return unless indexed_rows?(rows)
+      unless rows.map { |row| row["index"] }.sort == (0...rows.length).to_a
+        raise MalformedEmbeddingError, "Provider returned invalid embedding indices"
+      end
 
       payload["data"] = rows.sort_by { |row| row["index"] }
       response.body = JSON.generate(payload)

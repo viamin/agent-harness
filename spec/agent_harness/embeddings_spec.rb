@@ -56,6 +56,13 @@ RSpec.describe "AgentHarness embeddings" do
     expect { embed }.to raise_error(AgentHarness::MalformedEmbeddingError)
   end
 
+  it "rejects duplicate and missing response indices" do
+    stub_request(:post, embedding_url)
+      .to_return(body: fixture("malformed_indices"), headers: {"Content-Type" => "application/json"})
+
+    expect { embed }.to raise_error(AgentHarness::MalformedEmbeddingError, /indices/)
+  end
+
   it "uses request-local credentials, custom endpoints, and extra headers" do
     proxy_url = "#{proxy_endpoint}/embeddings"
     request = stub_request(:post, proxy_url)
