@@ -98,8 +98,24 @@ RSpec.describe AgentHarness::Api::ChatTransport do
     expect(adapter).to have_received(:call).once
     expect(result).to include(status: :partial, content: "abandoned")
     expect(result[:error]).to include(category: :transient, retryable: false)
-    expect(result[:attempts]).to contain_exactly(hash_including(error: hash_including(retryable: false)))
+    expect(result[:attempts]).to contain_exactly(hash_including(
+      status: :partial, error: hash_including(category: :transient, retryable: false)
+    ))
     expect(events.last[:type]).to eq(:response_failed)
+  end
+
+  it "assigns distinct harness IDs to tool calls without provider IDs" do
+    allow(adapter).to receive(:call).and_return(
+      content: "", finish_reason: :tool_calls, usage: nil,
+      tool_calls: [
+        {provider_id: nil, name: "first", arguments_json: "{}"},
+        {provider_id: nil, name: "second", arguments_json: "{}"}
+      ]
+    )
+
+    result = transport.call(request)
+
+    expect(result[:tool_calls].map { |call| call[:id] }).to eq(%w[tool-1 tool-2])
   end
 
   it "preserves streamed usage when the provider fails" do
@@ -310,6 +326,23 @@ RSpec.describe AgentHarness::Api::ChatTransport do
     delayed_transport.call(request.merge(retry: {max_attempts: 2, base_delay_seconds: 0.1}))
 
     expect(delays.sum).to be_within(0.001).of(0.1)
+  end
+
+  it "honors and caps a provider Retry-After delay" do
+    delays = []
+    delayed_transport = described_class.new(adapter: adapter, id_generator: id_generator,
+      sleeper: ->(seconds) { delays << seconds })
+    response = Faraday::Response.new(status: 429, response_headers: {"Retry-After" => "0.2"})
+    allow(adapter).to receive(:call).and_raise(
+      RubyLLM::RateLimitError.new("rate limited", response: response)
+    )
+
+    result = delayed_transport.call(request.merge(
+      retry: {max_attempts: 2, base_delay_seconds: 0, max_delay_seconds: 0.1}
+    ))
+
+    expect(delays.sum).to be_within(0.001).of(0.1)
+    expect(result[:error]).to include(retry_after_seconds: 0.2)
   end
 
   it "classifies otherwise unmapped RubyLLM errors as unknown" do

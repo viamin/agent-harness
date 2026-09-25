@@ -138,6 +138,7 @@ module AgentHarness
         end
 
         def failure(candidate, attempt_id, started_at, error, partial:, accounting:)
+          error = error.merge(retryable: false) if partial
           status = failure_status(error, partial)
           error = error.merge(retryable: false) if partial
           append_attempt(candidate, attempt_id, started_at, status, error: error, **accounting)
@@ -185,6 +186,7 @@ module AgentHarness
         def backoff
           exponent = [attempts.length - 1, 0].max
           delay = retry_config[:base_delay_seconds] * (2**exponent)
+          delay = [delay, @last_error[:retry_after_seconds].to_f].max
           cap = retry_config[:max_delay_seconds]
           remaining = cap&.positive? ? [delay, cap].min : delay
           while remaining.positive? && active?
@@ -234,7 +236,8 @@ module AgentHarness
 
         def normalize_tool_calls(tool_calls)
           Array(tool_calls).map do |call|
-            call.merge(id: tool_id(call[:provider_id]), status: :completed)
+            id = call[:provider_id].nil? ? @id_generator.call : tool_id(call[:provider_id])
+            call.merge(id: id, status: :completed)
           end
         end
 
@@ -413,9 +416,22 @@ module AgentHarness
       end
 
       def self.payload(error, category, code, retryable)
-        {category: category, code: code, retryable: retryable, message: safe_message(category, code)}
+        payload = {category: category, code: code, retryable: retryable, message: safe_message(category, code)}
+        retry_after = retry_after_seconds(error)
+        payload[:retry_after_seconds] = retry_after if retry_after
+        payload
       end
       private_class_method :payload
+
+      def self.retry_after_seconds(error)
+        return unless error.respond_to?(:response) && error.response
+
+        headers = error.response.respond_to?(:headers) ? error.response.headers : error.response[:response_headers]
+        value = headers&.find { |key, _| key.to_s.casecmp?("retry-after") }&.last
+        delay = Float(value, exception: false)
+        delay if delay&.finite? && delay >= 0
+      end
+      private_class_method :retry_after_seconds
 
       def self.safe_message(category, code)
         "Chat request failed (#{category}/#{code})"
