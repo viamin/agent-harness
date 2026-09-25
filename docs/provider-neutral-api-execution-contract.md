@@ -712,40 +712,100 @@ types stay behind the harness boundary.
 
 ## Compatibility and release evidence
 
-### Attempt-accounting capability evidence
+The following RubyGems releases are the first installable artifacts for each
+capability. Pin the capability's minimum version during migration; do not infer
+support from an issue, branch, or Git tag.
 
-- Release: pending the first published version containing issue #435; a Git
-  branch or tag alone is not downstream adoption evidence.
-- Scope: normalized chat through `Api::ChatTransport` for Anthropic Messages
-  and OpenAI Responses/Chat Completions (including compatible endpoints), with
-  request-local API-key authentication. It is stacked on the normalized chat
-  capability from #433.
-- Verification: the API contract specs cover request-local credentials,
-  endpoint/header isolation, error classification, bounded non-nested retry,
-  fallback, cancellation, partial usage, cache usage, repeated identity,
-  observer redaction, and JSON reload with preserved pricing. The full upstream
-  suite and lint run on the repository's supported Ruby environment.
-- Migration: no Rails tables or migrations are loaded or required. Paid and
-  agent-image consumer versions remain unverified and MUST NOT adopt this
-  capability until their integration suites record the exact released gem and
-  image versions.
-- Retained paths: CLI/subscription providers, legacy HTTP transports,
-  embeddings, and token trackers remain outside this ledger and require
-  separate migration issues.
+| Capability | First installable version | Contract / delivery | Install check |
+| --- | ---: | ---: | --- |
+| Native embeddings | `0.40.0` | [#432](https://github.com/viamin/agent-harness/issues/432) / [#439](https://github.com/viamin/agent-harness/issues/439) | `gem install agent-harness -v 0.40.0` |
+| Normalized chat, tools, and streaming | `0.41.0` | [#434](https://github.com/viamin/agent-harness/issues/434) / [#441](https://github.com/viamin/agent-harness/issues/441) | `gem install agent-harness -v 0.41.0` |
+| Attempt usage and cost | `0.42.0` | [#435](https://github.com/viamin/agent-harness/issues/435) / [#443](https://github.com/viamin/agent-harness/issues/443) | `gem install agent-harness -v 0.42.0` |
+| Schema-constrained responses | `0.43.0` | [#436](https://github.com/viamin/agent-harness/issues/436) / [#442](https://github.com/viamin/agent-harness/issues/442) | `gem install agent-harness -v 0.43.0` |
 
-### Schema capability release evidence
+All four are plain-Ruby capabilities. They load without Rails or Active Record,
+create no tables, and require no migration. The runtime floor is Ruby 3.2 and
+RubyLLM 2.x. The four released versions above still pin `ruby_llm = 2.0.0` and
+prepend the private `AgentHarness::Api::RubyLlmResponsesStreamingRefusal`
+module into `RubyLLM::Protocols::Responses` process-wide. The prepend-free,
+public-API-only boundary (RubyLLM's public context, chat, message, tool, token
+and cost APIs only; no private method calls, no downstream monkey patch, and a
+loosened `ruby_llm ~> 2.0` dependency) lands in the first release published
+after [#437](https://github.com/viamin/agent-harness/issues/437); record that
+version here once it exists, because support must not be inferred from an
+issue, branch, or Git tag.
 
-- Publication: unreleased; record the first installable version before
-  downstream adoption.
-- Verified scopes: `:schema` with Anthropic Messages, OpenAI Responses, and
-  OpenAI Chat Completions using API-key authentication, including compatible
-  endpoints that explicitly select Chat Completions.
-- Contract coverage: valid and required-field schemas, classified failures,
-  bounded retries, cancellation, refusal, truncation, malformed JSON, and
-  schema mismatch.
-- Retained paths: CLI and subscription execution remain on existing provider
-  interfaces. JSON-only mode and model-specific capability discovery are not
-  migrated.
+### Migration examples and limits
+
+- **Embeddings (`>= 0.40.0`):** replace a downstream direct/proxy HTTP patch
+  with `AgentHarness.embed`, passing credentials, endpoint and headers on each
+  request. Remove the old retry layer after direct and proxy contract tests
+  pass. The operation is OpenAI-compatible, API-key only, has batch-total usage
+  only, and does not estimate missing tokens.
+- **Chat (`>= 0.41.0`):** construct `AgentHarness::Api::ChatTransport` and send
+  one normalized request for each model step. Keep the application loop and
+  append completed tool results to the next request. Verified protocols are
+  Anthropic Messages and OpenAI Responses/Chat Completions; custom compatible
+  endpoints must explicitly choose Chat Completions. Media, custom auth modes,
+  protocol probing, and request-local connect timeouts are unsupported.
+- **Attempt accounting (`>= 0.42.0`):** persist each entry in `result[:attempts]`
+  once by `attempt_id`, including failed and cancelled attempts. Do not add
+  aggregate `result[:usage]` again, convert unknown usage to zero, or wrap the
+  call in another provider-request retry loop. Paid still owns durable budget
+  accounting, workflow recovery and runner changes.
+- **Schema (`>= 0.43.0`):** set `operation: :schema`, `schema_mode:
+  :json_schema`, and provide a named JSON Schema. The harness preserves the
+  provider text and validates it locally; use a non-streaming schema request.
+  JSON-only mode, schema repair, and model-specific capability discovery are
+  also unsupported. Rejection of streamed schema requests
+  (`unsupported/structured_output_not_supported`) and removal of the private
+  RubyLLM streaming-refusal shim land in the first release published after
+  this change; the released `0.43.0` still contains that shim and executes
+  streamed schema requests.
+
+For every migration, run the consumer contract suite with tenant-specific
+credentials and headers, custom endpoints, auth and transient failures,
+cancellation, and the configured attempt bound. Inspect captured logs for
+credentials and request bodies. Record the exact Paid host and agent-image
+artifact versions before enabling that scope.
+
+### Verification and retained paths
+
+The [#431 contract audit](https://github.com/viamin/agent-harness/issues/431)
+is implemented by the upstream specs under `spec/agent_harness/embeddings_spec.rb`
+and `spec/agent_harness/api/`. Those specs cover request-local credential, endpoint and header
+isolation; reserved authentication headers; classified errors; bounded retries
+with RubyLLM retries disabled; cancellation; partial streams; stable attempt
+identity; usage/cost serialization; secret-free observer data; schema refusal,
+truncation and validation; and the public-only RubyLLM integration. The normal
+provider, command-executor, model-discovery and authentication suites remain the
+CLI/subscription regression coverage.
+
+CLI and subscription execution, legacy `TextTransport` and
+`OpenAICompatibleTransport`, provider selection, workflow recovery, and Paid's
+durable accounting are intentionally unchanged. No credential or authentication
+mode is selected implicitly. Rails persistence and conversation state round
+trips were not adopted.
+
+### Retained-loop closeout
+
+The completed boundary is normalized transport with Paid's loop retained.
+`Api::ChatTransport` performs one assistant response and never executes tools;
+Paid continues to own authorization, confirmation policy, tool side effects,
+transcript persistence, approval resumption and crash recovery. Delegating the
+loop would require new persistence, tenant/audit adapters and recovery glue in
+both repositories without removing those application responsibilities. There
+is therefore no demonstrated net maintenance reduction or safe migration of
+pending conversations. Under RDR-072 this evidence-backed retained-loop result
+is complete, not deferred delegation.
+
+Downstream adoption is tracked in
+[viamin/paid#4014](https://github.com/viamin/paid/issues/4014); preservation of
+Codex subscription discovery/recovery during dependency adoption is tracked in
+[viamin/paid#3995](https://github.com/viamin/paid/issues/3995). Close parent
+[agent-harness#430](https://github.com/viamin/agent-harness/issues/430) only
+after those consumers record their exact host/image artifacts and passing
+integration evidence for every scope they enable.
 
 ### Loop-delegation evaluation evidence (retained loop)
 
@@ -789,5 +849,4 @@ For every capability, release evidence must name:
 Paid issue `viamin/paid#4014` should receive this compatibility result, the
 state-restoration conclusion, the stable-ID gap, the per-capability release
 evidence, and the retained-loop outcome of the delegation evaluation.
-Downstream adoption cannot proceed from this design issue closing or
-from a Git tag alone.
+Downstream adoption cannot proceed from this closeout or from a Git tag alone.

@@ -143,6 +143,15 @@ RSpec.describe AgentHarness::Api::ChatTransport do
     expect(adapter).not_to have_received(:call)
   end
 
+  it "returns an explicit unsupported outcome for streamed schemas" do
+    result = transport.call(request.merge(stream: true))
+
+    expect(result).to include(status: :failed, content: "", parsed: nil)
+    expect(result[:error]).to include(category: :unsupported, code: :structured_output_not_supported,
+      retryable: false)
+    expect(adapter).not_to have_received(:call)
+  end
+
   it "requires a schema before making a provider request" do
     expect { transport.call(request.except(:schema)) }
       .to raise_error(ArgumentError, "schema is required for a schema operation")

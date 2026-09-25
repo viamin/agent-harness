@@ -373,7 +373,9 @@ module AgentHarness
         end
 
         def schema_mode_supported?
-          !schema_operation? || !request[:schema_mode] || request[:schema_mode].to_sym == :json_schema
+          return true unless schema_operation?
+
+          request[:stream] != true && (!request[:schema_mode] || request[:schema_mode].to_sym == :json_schema)
         end
 
         def schema_payload
