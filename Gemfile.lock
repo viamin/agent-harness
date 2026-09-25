@@ -1,7 +1,7 @@
 PATH
   remote: .
   specs:
-    agent-harness (0.40.0)
+    agent-harness (0.41.0)
       logger (>= 1.6, < 2.0)
       ruby_llm (>= 2.0, < 3.0)
 
