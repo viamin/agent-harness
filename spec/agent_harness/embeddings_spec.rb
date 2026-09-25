@@ -178,6 +178,20 @@ RSpec.describe "AgentHarness embeddings" do
     end
   end
 
+  it "preserves provider Retry-After delays above the backoff cap" do
+    now = Time.utc(2026, 9, 25, 12)
+    allow(Time).to receive(:now).and_return(now)
+    allow(Process).to receive(:clock_gettime).with(Process::CLOCK_MONOTONIC).and_return(100, 159, 160)
+    expect_any_instance_of(AgentHarness::Embeddings).to receive(:sleep).with(0.05).once
+    stub_request(:post, embedding_url)
+      .to_return(
+        {status: 429, body: '{"error":{"message":"slow down"}}', headers: {"Retry-After" => "60"}},
+        {body: fixture("success"), headers: {"Content-Type" => "application/json"}}
+      )
+
+    expect(embed(max_attempts: 2).vectors).to eq([[0.1, 0.2], [0.3, 0.4]])
+  end
+
   it "uses an HTTP-date Retry-After value as the absolute reset time" do
     reset_time = Time.utc(2026, 9, 25, 12, 1)
     stub_request(:post, embedding_url)

@@ -193,7 +193,7 @@ module AgentHarness
 
     def retry_delay(error, attempt_number)
       retry_after_delay = error.reset_time - Time.now if error.is_a?(RateLimitError) && error.reset_time
-      return [retry_after_delay, RETRY_MAX_DELAY].min if retry_after_delay&.positive?
+      return retry_after_delay if retry_after_delay&.positive?
 
       [RETRY_BASE_DELAY * (2**(attempt_number - 1)), RETRY_MAX_DELAY].min
     end
