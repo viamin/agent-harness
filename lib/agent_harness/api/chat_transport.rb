@@ -4,6 +4,7 @@ require "securerandom"
 require "ruby_llm"
 require_relative "attempt_report"
 require_relative "ruby_llm_chat_adapter"
+require_relative "schema_response"
 
 module AgentHarness
   module Api
@@ -54,6 +55,7 @@ module AgentHarness
         end
 
         def call
+          return unsupported_schema_result unless schema_mode_supported?
           return cancelled_result unless active?
 
           candidates.each_with_index do |candidate, candidate_index|
@@ -95,6 +97,7 @@ module AgentHarness
             max_output_tokens: request[:max_output_tokens],
             temperature: request[:temperature],
             timeout: request[:timeout],
+            schema: schema_payload,
             on_accounting: ->(facts) { accounting = facts },
             provider_usage: provider_usage
           )
@@ -113,6 +116,7 @@ module AgentHarness
             stream: request[:stream] == true,
             timeout: request[:timeout],
             cancellation: request[:cancellation],
+            schema: schema_payload,
             on_accounting: ->(facts) { accounting = facts },
             prepared_chat: prepared_chat
           ) do |event|
@@ -138,17 +142,27 @@ module AgentHarness
 
         def success(candidate, attempt_id, started_at, adapter_result, accounting)
           accounting ||= {usage: adapter_result[:usage], provider_reported: !adapter_result[:usage].nil?}
-          append_attempt(candidate, attempt_id, started_at, :succeeded, **accounting)
+          schema_result = normalize_schema_response(adapter_result)
+          status = schema_result[:error] ? :failed : :succeeded
+          append_attempt(candidate, attempt_id, started_at, status, error: schema_result[:error], **accounting)
           result = base_result(candidate).merge(
-            status: :succeeded,
-            content: adapter_result[:content] || "",
+            status: status,
+            content: schema_result[:content],
+            parsed: schema_result[:parsed],
             tool_calls: normalize_tool_calls(adapter_result[:tool_calls]),
             finish_reason: adapter_result[:finish_reason],
             usage: aggregate_usage,
-            error: nil
+            error: schema_result[:error]
           )
-          emit(:response_completed, attempt_id:, result: result)
+          event = (status == :succeeded) ? :response_completed : :response_failed
+          emit(event, attempt_id:, result: result)
           result
+        end
+
+        def normalize_schema_response(adapter_result)
+          return {content: adapter_result[:content] || "", parsed: nil, error: nil} unless schema_operation?
+
+          SchemaResponse.new(schema_definition).call(adapter_result)
         end
 
         def failure(candidate, attempt_id, started_at, error, partial:, accounting:)
@@ -343,12 +357,46 @@ module AgentHarness
         end
 
         def validate!
-          raise ArgumentError, "operation must be :chat" unless request[:operation]&.to_sym == :chat
+          unless %i[chat schema].include?(request[:operation]&.to_sym)
+            raise ArgumentError, "operation must be :chat or :schema"
+          end
           raise ArgumentError, "request_id is required" if request[:request_id].to_s.empty?
           raise ArgumentError, "candidates must not be empty" if !request[:candidates].is_a?(Array) || request[:candidates].empty?
           raise ArgumentError, "messages must be an array" unless request[:messages].is_a?(Array)
+          raise ArgumentError, "schema is required for a schema operation" if schema_operation? && !request[:schema].is_a?(Hash)
           validate_attempt_limit!
           candidates.each { |candidate| validate_candidate!(candidate) }
+        end
+
+        def schema_operation?
+          request[:operation].to_sym == :schema
+        end
+
+        def schema_mode_supported?
+          !schema_operation? || !request[:schema_mode] || request[:schema_mode].to_sym == :json_schema
+        end
+
+        def schema_payload
+          return unless schema_operation?
+
+          raw = request[:schema]
+          return raw.merge(name: request[:schema_name] || raw[:name]) if raw[:schema]
+
+          {name: request[:schema_name] || raw[:title] || "response", schema: raw}
+        end
+
+        def schema_definition
+          schema_payload.fetch(:schema)
+        end
+
+        def unsupported_schema_result
+          error = {
+            category: :unsupported,
+            code: :structured_output_not_supported,
+            retryable: false,
+            message: "Schema request failed (unsupported/structured_output_not_supported)"
+          }
+          failed_result(error, candidates.first)
         end
 
         def validate_attempt_limit!

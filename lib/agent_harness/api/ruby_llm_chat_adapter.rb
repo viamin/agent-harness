@@ -5,6 +5,22 @@ require "ruby_llm"
 
 module AgentHarness
   module Api
+    # RubyLLM 2.0.0 flattens Responses API refusal deltas into ordinary text
+    # chunks and offers no public access to their event type. The gemspec pins
+    # that exact release so this compatibility shim cannot silently outlive the
+    # private parser shape it targets. Remove it when RubyLLM exposes refusals.
+    module RubyLlmResponsesStreamingRefusal
+      module RefusalChunk; end
+
+      def build_chunk(data)
+        super.tap do |chunk|
+          chunk.extend(RefusalChunk) if data["type"] == "response.refusal.delta"
+        end
+      end
+    end
+
+    RubyLLM::Protocols::Responses.prepend(RubyLlmResponsesStreamingRefusal)
+
     # Translates the normalized public chat values to RubyLLM public objects.
     class RubyLlmChatAdapter
       class UnsupportedOptionError < StandardError; end
@@ -18,24 +34,24 @@ module AgentHarness
       OPENAI_UNSUPPLIED_CONFIG = %i[openai_organization_id openai_project_id openai_use_system_role].freeze
 
       def call(candidate:, messages:, tools:, max_output_tokens:, temperature:, stream:, timeout:, cancellation:,
-        on_accounting: nil, prepared_chat: nil, &on_event)
+        schema: nil, on_accounting: nil, prepared_chat: nil, &on_event)
         provider_usage_reported = false
         chat = prepared_chat || prepare(candidate:, messages:, tools:, max_output_tokens:, temperature:, timeout:,
-          on_accounting:, provider_usage: -> { provider_usage_reported })
-        response = generate(chat, stream, cancellation) do |event|
+          schema:, on_accounting:, provider_usage: -> { provider_usage_reported })
+        response, streamed_refusal = generate(chat, stream, cancellation) do |event|
           provider_usage_reported = true if event[:type] == :usage_updated
           on_event&.call(event)
         end
         emit_completed_tool_calls(response, &on_event) if stream
-        normalize_response(response)
+        normalize_response(response, streamed_refusal: streamed_refusal)
       end
 
       def prepare(candidate:, messages:, tools:, max_output_tokens:, temperature:, timeout:, on_accounting: nil,
-        provider_usage: -> { false })
+        schema: nil, provider_usage: -> { false })
         context = build_context(candidate, timeout, on_accounting, provider_usage)
         context.chat(model: candidate[:model], provider: candidate[:provider], protocol: ruby_llm_protocol(candidate),
           assume_model_exists: true).tap do |chat|
-          configure_chat(chat, candidate, messages, tools, max_output_tokens, temperature)
+          configure_chat(chat, candidate, messages, tools, max_output_tokens, temperature, schema)
         end
       end
 
@@ -45,6 +61,7 @@ module AgentHarness
       # duplicate cumulative reports are not re-emitted.
       class StreamState
         attr_accessor :input_tokens, :output_tokens
+        attr_reader :refusal
 
         def initialize
           @provider_id_by_key = {}
@@ -52,6 +69,7 @@ module AgentHarness
           @latest_provider_id = nil
           @input_tokens = nil
           @output_tokens = nil
+          @refusal = false
         end
 
         # Links a stream chunk key to its provider call id, returning true
@@ -71,6 +89,10 @@ module AgentHarness
         def usage
           total = (input_tokens + output_tokens) if input_tokens && output_tokens
           {input_tokens: input_tokens, output_tokens: output_tokens, total_tokens: total}
+        end
+
+        def observe(chunk)
+          @refusal ||= chunk.is_a?(RubyLlmResponsesStreamingRefusal::RefusalChunk)
         end
       end
 
@@ -150,19 +172,20 @@ module AgentHarness
         config.request_timeout = timeout&.dig(:read_seconds) || DEFAULT_REQUEST_TIMEOUT
       end
 
-      def configure_chat(chat, candidate, messages, tools, max_output_tokens, temperature)
+      def configure_chat(chat, candidate, messages, tools, max_output_tokens, temperature, schema)
         chat.messages = normalize_messages(messages)
         chat.with_tools(tools.map { |tool| normalized_tool(tool) }) unless tools.empty?
         chat.with_headers(candidate[:headers] || {})
         chat.with_max_output_tokens(max_output_tokens) if max_output_tokens
         chat.with_temperature(temperature) unless temperature.nil?
+        chat.with_schema(schema) if schema
       end
 
       def generate(chat, stream, cancellation)
-        return generate_without_events(chat, cancellation) unless stream
+        return [generate_without_events(chat, cancellation), false] unless stream
 
         state = StreamState.new
-        chat.generate do |chunk|
+        response = chat.generate do |chunk|
           if cancelled?(cancellation)
             chat.cancel
             raise RubyLLM::CancelledError
@@ -170,6 +193,7 @@ module AgentHarness
 
           stream_events(chunk, state).each { |event| yield event }
         end
+        [response, state.refusal]
       end
 
       def generate_without_events(chat, cancellation)
@@ -235,6 +259,7 @@ module AgentHarness
       end
 
       def stream_events(chunk, state)
+        state.observe(chunk)
         [text_event(chunk), *tool_call_events(chunk, state), usage_event(chunk, state)].compact
       end
 
@@ -300,14 +325,44 @@ module AgentHarness
         end
       end
 
-      def normalize_response(response)
+      def normalize_response(response, streamed_refusal: false)
         {
           content: response.content || "",
           model: response.model,
           finish_reason: response.finish_reason,
           usage: normalize_usage(response.tokens),
-          tool_calls: Array(response.tool_calls&.values).map { |call| normalize_tool_call(call) }
+          tool_calls: Array(response.tool_calls&.values).map { |call| normalize_tool_call(call) },
+          refusal: streamed_refusal || refusal?(response)
         }
+      end
+
+      def refusal?(response)
+        return true if response.finish_reason == :content_filter
+        return false unless response.respond_to?(:raw)
+
+        body = response.raw&.body
+        return false unless body.is_a?(Hash)
+
+        responses_api_refusal?(body) || chat_completions_refusal?(body)
+      end
+
+      def responses_api_refusal?(body)
+        Array(body["output"] || body[:output]).any? do |item|
+          next false unless item.is_a?(Hash)
+
+          Array(item["content"] || item[:content]).any? do |part|
+            part.is_a?(Hash) && (part["type"] || part[:type]) == "refusal"
+          end
+        end
+      end
+
+      def chat_completions_refusal?(body)
+        Array(body["choices"] || body[:choices]).any? do |choice|
+          next false unless choice.is_a?(Hash)
+
+          message = choice["message"] || choice[:message]
+          message.is_a?(Hash) && !(message["refusal"] || message[:refusal]).nil?
+        end
       end
 
       def normalize_tool_call(call)

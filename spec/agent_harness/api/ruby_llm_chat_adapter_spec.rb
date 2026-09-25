@@ -10,6 +10,7 @@ RSpec.describe AgentHarness::Api::RubyLlmChatAdapter do
       "messages=" => nil,
       "with_tools" => nil,
       "with_headers" => nil,
+      "with_schema" => nil,
       "with_max_output_tokens" => nil,
       "with_temperature" => nil,
       "cancel" => nil,
@@ -71,6 +72,60 @@ RSpec.describe AgentHarness::Api::RubyLlmChatAdapter do
       openai_api_base: "https://compatible.example/v1", max_retries: 0)
     expect(context).to have_received(:chat).with(model: "compatible-model", provider: :openai,
       protocol: :chat_completions, assume_model_exists: true)
+  end
+
+  it "passes a named JSON Schema through the public RubyLLM API" do
+    schema = {
+      name: "person",
+      schema: {type: "object", properties: {name: {type: "string"}}},
+      strict: false
+    }
+
+    adapter.call(
+      candidate: {
+        provider: :openai, model: "private-model", protocol: :responses,
+        credentials: {api_key: "request-secret"}
+      },
+      messages: [], tools: [], schema: schema, max_output_tokens: nil,
+      temperature: nil, stream: false, timeout: nil, cancellation: nil
+    )
+
+    expect(chat).to have_received(:with_schema).with(schema)
+  end
+
+  it "normalizes Responses and Chat Completions refusals" do
+    responses_raw = Struct.new(:body).new({"output" => [{"content" => [{"type" => "refusal"}]}]})
+    completions_raw = Struct.new(:body).new({"choices" => [{"message" => {"refusal" => "No"}}]})
+    messages = [responses_raw, completions_raw].map do |raw|
+      instance_double(RubyLLM::Message, content: "No", model: "private-model", finish_reason: :stop,
+        tokens: nil, tool_calls: nil, raw: raw)
+    end
+    allow(chat).to receive(:generate).and_return(*messages)
+
+    results = %i[responses chat_completions].map do |protocol|
+      adapter.call(
+        candidate: {provider: :openai, model: "private-model", protocol: protocol,
+                    credentials: {api_key: "request-secret"}},
+        messages: [], tools: [], max_output_tokens: nil, temperature: nil,
+        stream: false, timeout: nil, cancellation: nil
+      )
+    end
+
+    expect(results).to all(include(content: "No", refusal: true))
+  end
+
+  it "preserves a streamed Responses refusal from its semantic event" do
+    protocol = RubyLLM::Protocols::Responses.allocate
+    refusal_chunk = protocol.send(:build_chunk, {
+      "type" => "response.refusal.delta", "delta" => "No", "output_index" => 0, "content_index" => 0
+    })
+    final = instance_double(RubyLLM::Message, content: "No", model: "private-model", finish_reason: :stop,
+      tokens: nil, tool_calls: nil, raw: Struct.new(:body).new(""))
+
+    streamed_events({provider: :openai, model: "private-model", protocol: :responses,
+                     credentials: {api_key: "request-secret"}}, [refusal_chunk], final)
+
+    expect(@streamed_result).to include(content: "No", refusal: true)
   end
 
   it "generates a non-streaming response with an inactive cancellation token" do

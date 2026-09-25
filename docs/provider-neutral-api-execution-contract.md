@@ -8,8 +8,8 @@ usage, and optional conversation-persistence work.
 ## Status and rollout boundary
 
 RDR-072's rollout guard was **docs-only** for the design phase. The normalized
-chat and attempt-accounting capabilities described below are now implemented
-behind `AgentHarness::Api::ChatTransport`. Other capabilities remain design contracts and each still needs
+chat, attempt-accounting, schema, and embedding capabilities described below
+are now implemented. Other capabilities remain design contracts and each still needs
 its own failing-first contract tests, implementation, release evidence, and
 downstream adoption evidence before a caller enables it.
 
@@ -70,11 +70,13 @@ Responses API must select `:chat_completions`; the transport never probes and
 silently switches protocols. Only `authentication_mode: :api_key` is currently
 supported.
 
-Credentials, endpoint, custom headers, timeout, and RubyLLM configuration are
-isolated with a request-local `RubyLLM::Context`. RubyLLM middleware retries
-are disabled; `retry.max_attempts` is the total physical-attempt limit owned by
-the harness. Authentication headers cannot be overridden by custom headers.
-`max_output_tokens` is forwarded without changing it.
+Credentials, endpoint, custom headers, read timeout, and RubyLLM configuration
+are isolated with a request-local `RubyLLM::Context`. Only
+`timeout.read_seconds` is supported; request-local connection timeouts are not.
+RubyLLM middleware retries are disabled; `retry.max_attempts` is the total
+physical-attempt limit owned by the harness. Authentication headers cannot be
+overridden by custom headers. `max_output_tokens` is forwarded without changing
+it.
 
 Unknown model IDs are allowed only because a complete provider and protocol
 are explicit in every candidate (`assume_model_exists: true` in the RubyLLM
@@ -83,6 +85,41 @@ supports the model. Provider rejection returns a classified failure. Custom
 endpoints retain the selected provider's wire protocol and authentication
 shape. Custom provider types, authentication modes, media content, and
 automatic protocol discovery are not supported by this capability.
+
+## Shipped schema-constrained response surface
+
+The same transport accepts `operation: :schema` with a JSON Schema and an
+optional name:
+
+```ruby
+result = transport.call(request.merge(
+  operation: :schema,
+  schema_name: "person",
+  schema: {
+    type: "object",
+    properties: {name: {type: "string"}, age: {type: "integer"}},
+    required: %w[name age],
+    additionalProperties: false
+  }
+))
+
+result[:content] # => '{"name":"Ada","age":37}'
+result[:parsed]  # => {"name" => "Ada", "age" => 37}
+```
+
+Schema operations use provider-native JSON Schema output and the same verified
+Anthropic Messages, OpenAI Responses, and OpenAI Chat Completions scopes as
+normalized chat. Provider adapters infer strictness from the schema; callers
+using a `{schema:, strict:}` envelope can explicitly select strictness.
+`schema_mode: :json_schema` is the only supported mode. JSON-only mode returns
+`unsupported/structured_output_not_supported`.
+
+The harness parses the exact provider text and validates it locally. It does
+not remove Markdown fences or repair malformed JSON. Invalid JSON, schema
+mismatch, refusal, and output-limit truncation return non-retryable
+`invalid_response` outcomes with codes `invalid_json`, `invalid_schema`,
+`refusal`, and `truncated_output`. They retain the original `content` and leave
+`parsed` as `nil`.
 
 ## Ownership boundary
 
@@ -139,7 +176,7 @@ request = {
     }
   ],
   fallback: {on_error_categories: [:transient]},
-  timeout: {connect_seconds: 5, read_seconds: 60},
+  timeout: {read_seconds: 60},
   retry: {max_attempts: 3, base_delay_seconds: 0.25, max_delay_seconds: 2},
   cancellation: cancellation_token,
   metadata: {tenant_id: "tenant-123", workflow_id: "workflow-456"}
@@ -160,9 +197,11 @@ part of a serializable request document.
 gets a distinct `attempt_id`. Redelivering an already reported attempt retains
 its `attempt_id`; initiating another outbound request does not.
 
-Credentials, endpoint, headers, timeouts, retry limits, and cancellation are
-request-local. Implementations MUST prevent concurrent requests from observing
-one another's credentials or headers. They MUST reject reserved header
+Credentials, endpoint, headers, the read timeout, retry limits, and cancellation
+are request-local. Only `timeout.read_seconds` is supported; supplying a
+connection timeout returns `unsupported/unsupported_capability` before any
+provider request. Implementations MUST prevent concurrent requests from
+observing one another's credentials or headers. They MUST reject reserved header
 overrides that would conflict with the selected protocol's authentication.
 Logs and errors MUST NOT contain credentials, authorization headers, message
 bodies, tool arguments, or full provider responses.
@@ -504,7 +543,7 @@ records.
 | Contract area | RubyLLM 2.0 mapping | Decision or gap |
 | --- | --- | --- |
 | Chat/protocols | `RubyLLM.chat`, messages, tools, stream callbacks | Candidate adapter; normalize all values and errors |
-| Schema | `with_schema`, `response.parsed`, model capability registry | Candidate; distinguish enforced schema from JSON mode |
+| Schema | `with_schema`; harness JSON parsing and validation | Implemented for the verified chat scopes; JSON-only mode stays distinct |
 | Embeddings | `RubyLLM.embed` and normalized vectors/usage | Candidate first capability; persistence remains in Paid |
 | Custom headers | `with_headers` | Candidate; contract-test merging and secret redaction |
 | Endpoint/credentials | provider configuration | Global mutable configuration is unsuitable; require request-local isolation or an upstream-supported client boundary |
@@ -607,11 +646,26 @@ types stay behind the harness boundary.
   embeddings, and token trackers remain outside this ledger and require
   separate migration issues.
 
+### Schema capability release evidence
+
+- Publication: unreleased; record the first installable version before
+  downstream adoption.
+- Verified scopes: `:schema` with Anthropic Messages, OpenAI Responses, and
+  OpenAI Chat Completions using API-key authentication, including compatible
+  endpoints that explicitly select Chat Completions.
+- Contract coverage: valid and required-field schemas, classified failures,
+  bounded retries, cancellation, refusal, truncation, malformed JSON, and
+  schema mismatch.
+- Retained paths: CLI and subscription execution remain on existing provider
+  interfaces. JSON-only mode and model-specific capability discovery are not
+  migrated.
+
 AgentHarness currently supports Ruby 3.2 and later and must remain usable as a
-plain Ruby gem. RubyLLM 2.0.0 itself supports Ruby 3.1.3 and later, but adding it
-would introduce Faraday, event-stream parsing, Schematist, Marcel, and Zeitwerk
-runtime dependencies. A capability issue must measure and publish the resolved
-dependency set and test the harness minimum Ruby version before adoption.
+plain Ruby gem. RubyLLM 2.0.0 itself supports Ruby 3.1.3 and later and adds
+Faraday, event-stream parsing, Schematist, Marcel, and Zeitwerk runtime
+dependencies. Local response validation adds `json_schemer` and its bounded
+dependency set. A capability issue must test the harness minimum Ruby version
+before adoption.
 
 Rails and Active Record remain optional. Requiring `agent_harness` in a process
 without Rails MUST NOT load Active Record, connect to a database, or require
