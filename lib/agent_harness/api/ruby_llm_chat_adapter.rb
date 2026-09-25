@@ -14,11 +14,12 @@ module AgentHarness
         openai: %i[openai_api_key openai_api_base]
       }.freeze
 
-      def call(candidate:, messages:, tools:, max_output_tokens:, temperature:, stream:, timeout:, cancellation:, &on_event)
+      def call(candidate:, messages:, tools:, max_output_tokens:, temperature:, stream:, timeout:, cancellation:,
+        schema: nil, &on_event)
         context = build_context(candidate, timeout)
         chat = context.chat(model: candidate[:model], provider: candidate[:provider], protocol: ruby_llm_protocol(candidate),
           assume_model_exists: true)
-        configure_chat(chat, candidate, messages, tools, max_output_tokens, temperature)
+        configure_chat(chat, candidate, messages, tools, max_output_tokens, temperature, schema)
         response = generate(chat, stream, cancellation, &on_event)
         emit_completed_tool_calls(response, &on_event) if stream
         normalize_response(response)
@@ -89,12 +90,13 @@ module AgentHarness
         config.request_timeout = seconds if seconds
       end
 
-      def configure_chat(chat, candidate, messages, tools, max_output_tokens, temperature)
+      def configure_chat(chat, candidate, messages, tools, max_output_tokens, temperature, schema)
         chat.messages = normalize_messages(messages)
         chat.with_tools(tools.map { |tool| normalized_tool(tool) }) unless tools.empty?
         chat.with_headers(candidate[:headers] || {})
         chat.with_max_output_tokens(max_output_tokens) if max_output_tokens
         chat.with_temperature(temperature) unless temperature.nil?
+        chat.with_schema(schema) if schema
       end
 
       def generate(chat, stream, cancellation)
@@ -235,8 +237,25 @@ module AgentHarness
           model: response.model,
           finish_reason: response.finish_reason,
           usage: normalize_usage(response.tokens),
-          tool_calls: Array(response.tool_calls&.values).map { |call| normalize_tool_call(call) }
+          tool_calls: Array(response.tool_calls&.values).map { |call| normalize_tool_call(call) },
+          refusal: refusal?(response)
         }
+      end
+
+      def refusal?(response)
+        return true if response.finish_reason == :content_filter
+        return false unless response.respond_to?(:raw)
+
+        body = response.raw&.body
+        return false unless body.is_a?(Hash)
+
+        Array(body["output"] || body[:output]).any? do |item|
+          next false unless item.is_a?(Hash)
+
+          Array(item["content"] || item[:content]).any? do |part|
+            part.is_a?(Hash) && (part["type"] || part[:type]) == "refusal"
+          end
+        end
       end
 
       def normalize_tool_call(call)

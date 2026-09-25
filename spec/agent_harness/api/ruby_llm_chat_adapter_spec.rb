@@ -10,6 +10,7 @@ RSpec.describe AgentHarness::Api::RubyLlmChatAdapter do
       "messages=" => nil,
       "with_tools" => nil,
       "with_headers" => nil,
+      "with_schema" => nil,
       "with_max_output_tokens" => nil,
       "with_temperature" => nil,
       "generate" => response
@@ -18,7 +19,7 @@ RSpec.describe AgentHarness::Api::RubyLlmChatAdapter do
   let(:context) { instance_double(RubyLLM::Context, chat: chat) }
   let(:response) do
     instance_double(RubyLLM::Message, content: "ok", model: "private-model", finish_reason: :stop,
-      tokens: nil, tool_calls: nil)
+      tokens: nil, tool_calls: nil, raw: nil)
   end
   let(:config_class) do
     Struct.new(:anthropic_api_key, :anthropic_api_base, :openai_api_key, :openai_api_base,
@@ -69,6 +70,44 @@ RSpec.describe AgentHarness::Api::RubyLlmChatAdapter do
       openai_api_base: "https://compatible.example/v1", max_retries: 0)
     expect(context).to have_received(:chat).with(model: "compatible-model", provider: :openai,
       protocol: :chat_completions, assume_model_exists: true)
+  end
+
+  it "passes a named strict JSON Schema through the public RubyLLM API" do
+    schema = {
+      name: "person",
+      schema: {type: "object", properties: {name: {type: "string"}}, required: ["name"]},
+      strict: true
+    }
+
+    adapter.call(
+      candidate: {
+        provider: :openai, model: "private-model", protocol: :responses,
+        credentials: {api_key: "request-secret"}
+      },
+      messages: [{role: :user, content: "Generate a person"}], tools: [], schema: schema,
+      max_output_tokens: nil, temperature: nil, stream: false, timeout: nil, cancellation: nil
+    )
+
+    expect(chat).to have_received(:with_schema).with(schema)
+  end
+
+  it "normalizes a Responses API refusal without exposing its wire shape" do
+    raw = Struct.new(:body).new({"output" => [{"content" => [{"type" => "refusal", "refusal" => "No"}]}]})
+    allow(chat).to receive(:generate).and_return(
+      instance_double(RubyLLM::Message, content: "No", model: "private-model", finish_reason: :stop,
+        tokens: nil, tool_calls: nil, raw: raw)
+    )
+
+    result = adapter.call(
+      candidate: {
+        provider: :openai, model: "private-model", protocol: :responses,
+        credentials: {api_key: "request-secret"}
+      },
+      messages: [], tools: [], schema: {type: "object"}, max_output_tokens: nil,
+      temperature: nil, stream: false, timeout: nil, cancellation: nil
+    )
+
+    expect(result).to include(content: "No", refusal: true)
   end
 
   it "clears a copied global base URL when the candidate has no endpoint" do
