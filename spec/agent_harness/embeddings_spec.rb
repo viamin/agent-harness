@@ -63,6 +63,19 @@ RSpec.describe "AgentHarness embeddings" do
     expect { embed }.to raise_error(AgentHarness::MalformedEmbeddingError, /indices/)
   end
 
+  it "rejects response rows without integer indices" do
+    payloads = [JSON.parse(fixture("success")), JSON.parse(fixture("success"))]
+    payloads.first["data"].first.delete("index")
+    payloads.last["data"].first["index"] = "1"
+
+    payloads.each do |payload|
+      stub_request(:post, embedding_url)
+        .to_return(body: JSON.generate(payload), headers: {"Content-Type" => "application/json"})
+
+      expect { embed }.to raise_error(AgentHarness::MalformedEmbeddingError, /indices/)
+    end
+  end
+
   it "uses request-local credentials, custom endpoints, and extra headers" do
     proxy_url = "#{proxy_endpoint}/embeddings"
     request = stub_request(:post, proxy_url)

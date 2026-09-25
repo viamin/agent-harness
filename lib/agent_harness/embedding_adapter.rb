@@ -23,19 +23,17 @@ module AgentHarness
     def order_rows(response)
       payload = JSON.parse(response.body)
       rows = payload["data"]
-      return unless indexed_rows?(rows)
-      unless rows.map { |row| row["index"] }.sort == (0...rows.length).to_a
+      return unless rows.is_a?(Array)
+
+      indices = rows.map { |row| row["index"] if row.is_a?(Hash) }
+      unless indices.all?(Integer) && indices.sort == (0...rows.length).to_a
         raise MalformedEmbeddingError, "Provider returned invalid embedding indices"
       end
 
-      payload["data"] = rows.sort_by { |row| row["index"] }
+      payload["data"] = rows.sort_by { |row| row.fetch("index") }
       response.body = JSON.generate(payload)
     rescue JSON::ParserError
       nil
-    end
-
-    def indexed_rows?(rows)
-      rows.is_a?(Array) && rows.all? { |row| row.is_a?(Hash) && row["index"].is_a?(Integer) }
     end
   end
 end
