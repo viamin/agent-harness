@@ -246,12 +246,14 @@ module AgentHarness
         end
 
         def normalize_stream_event(event)
-          return event unless event[:provider_id]
+          return event unless %i[tool_call_started tool_call_delta tool_call_completed].include?(event[:type])
 
           event.merge(id: tool_id(event[:provider_id]))
         end
 
         def tool_id(provider_id)
+          return @id_generator.call unless provider_id
+
           @tool_ids[provider_id] ||= @id_generator.call
         end
 

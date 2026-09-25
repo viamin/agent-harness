@@ -63,6 +63,38 @@ RSpec.describe AgentHarness::Api::ChatTransport do
     ))
   end
 
+  it "generates distinct harness IDs for tool calls without provider IDs" do
+    allow(adapter).to receive(:call).and_return(
+      content: "",
+      model: "claude-test",
+      finish_reason: :tool_calls,
+      usage: nil,
+      tool_calls: [
+        {provider_id: nil, name: "first", arguments_json: "{}"},
+        {provider_id: nil, name: "second", arguments_json: "{}"}
+      ]
+    )
+
+    result = transport.call(request)
+
+    expect(result[:tool_calls]).to contain_exactly(
+      hash_including(id: "tool-1", name: "first"),
+      hash_including(id: "tool-2", name: "second")
+    )
+  end
+
+  it "generates a harness ID for streamed tool calls without provider IDs" do
+    events = []
+    allow(adapter).to receive(:call) do |**_args, &stream|
+      stream.call(type: :tool_call_started, provider_id: nil, name: "first")
+      {content: "", model: "claude-test", finish_reason: :tool_calls, usage: nil, tool_calls: []}
+    end
+
+    transport.call(request.merge(stream: true), observer: ->(event) { events << event })
+
+    expect(events).to include(hash_including(type: :tool_call_started, id: "tool-1", name: "first"))
+  end
+
   it "emits ordered text and exactly one explicit completion event" do
     events = []
     allow(adapter).to receive(:call) do |**args, &stream|
