@@ -50,6 +50,7 @@ RSpec.describe AgentHarness::Api::ChatTransport do
   end
 
   before do
+    allow(adapter).to receive(:prepare).and_return(:prepared_chat)
     allow(adapter).to receive(:call).and_return(response)
   end
 
@@ -69,6 +70,9 @@ RSpec.describe AgentHarness::Api::ChatTransport do
       error: nil
     )
     expect(adapter).to have_received(:call).with(hash_including(
+      schema: {name: "person", schema: schema}
+    ))
+    expect(adapter).to have_received(:prepare).with(hash_including(
       schema: {name: "person", schema: schema}
     ))
   end

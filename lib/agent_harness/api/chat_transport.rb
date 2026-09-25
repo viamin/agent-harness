@@ -2,6 +2,7 @@
 
 require "securerandom"
 require "ruby_llm"
+require_relative "attempt_report"
 require_relative "ruby_llm_chat_adapter"
 require_relative "schema_response"
 
@@ -87,6 +88,19 @@ module AgentHarness
         end
 
         def perform_attempt(candidate)
+          accounting = nil
+          provider_usage = -> { !streamed_usage.nil? }
+          prepared_chat = @adapter.prepare(
+            candidate: candidate,
+            messages: request[:messages],
+            tools: request[:tools] || [],
+            max_output_tokens: request[:max_output_tokens],
+            temperature: request[:temperature],
+            timeout: request[:timeout],
+            schema: schema_payload,
+            on_accounting: ->(facts) { accounting = facts },
+            provider_usage: provider_usage
+          )
           attempt_id = @id_generator.call
           started_at = Time.now.utc
           emitted = false
@@ -102,7 +116,9 @@ module AgentHarness
             stream: request[:stream] == true,
             timeout: request[:timeout],
             cancellation: request[:cancellation],
-            schema: schema_payload
+            schema: schema_payload,
+            on_accounting: ->(facts) { accounting = facts },
+            prepared_chat: prepared_chat
           ) do |event|
             event = normalize_stream_event(event)
             emitted = true if output_event?(event)
@@ -112,18 +128,23 @@ module AgentHarness
           end
           raise RubyLLM::CancelledError unless active?
 
-          success(candidate, attempt_id, started_at, adapter_result)
+          success(candidate, attempt_id, started_at, adapter_result, accounting)
         rescue ObserverError
           raise
         rescue => error
-          failure(candidate, attempt_id, started_at, classify(error), partial: emitted, usage: streamed_usage)
+          return failed_result(classify(error), candidate) unless attempt_id
+
+          failure(candidate, attempt_id, started_at, classify(error), partial: emitted,
+            accounting: accounting || {
+              usage: streamed_usage, provider_reported: !streamed_usage.nil?
+            })
         end
 
-        def success(candidate, attempt_id, started_at, adapter_result)
+        def success(candidate, attempt_id, started_at, adapter_result, accounting)
+          accounting ||= {usage: adapter_result[:usage], provider_reported: !adapter_result[:usage].nil?}
           schema_result = normalize_schema_response(adapter_result)
           status = schema_result[:error] ? :failed : :succeeded
-          attempts << attempt_report(candidate, attempt_id, started_at, status,
-            usage: adapter_result[:usage], error: schema_result[:error])
+          append_attempt(candidate, attempt_id, started_at, status, error: schema_result[:error], **accounting)
           result = base_result(candidate).merge(
             status: status,
             content: schema_result[:content],
@@ -144,9 +165,10 @@ module AgentHarness
           SchemaResponse.new(schema_definition).call(adapter_result)
         end
 
-        def failure(candidate, attempt_id, started_at, error, partial:, usage:)
+        def failure(candidate, attempt_id, started_at, error, partial:, accounting:)
           status = failure_status(error, partial)
-          attempts << attempt_report(candidate, attempt_id, started_at, status, error: error, usage: usage)
+          error = error.merge(retryable: false) if partial
+          append_attempt(candidate, attempt_id, started_at, status, error: error, **accounting)
           result = base_result(candidate).merge(
             status: status,
             content: partial ? @partial_content.dup : "",
@@ -163,7 +185,6 @@ module AgentHarness
           return false if result[:status] == :partial
           return false unless fallback_categories.include?(result.dig(:error, :category))
           return false unless candidates[candidate_index + 1]
-          return false if attempts.length >= retry_config[:max_attempts]
 
           true
         end
@@ -192,8 +213,9 @@ module AgentHarness
         def backoff
           exponent = [attempts.length - 1, 0].max
           delay = retry_config[:base_delay_seconds] * (2**exponent)
+          delay = [delay, @last_error[:retry_after_seconds].to_f].max
           cap = retry_config[:max_delay_seconds]
-          remaining = cap&.positive? ? [delay, cap].min : delay
+          remaining = cap.nil? ? delay : [delay, cap].min
           while remaining.positive? && active?
             interval = [remaining, 0.05].min
             @sleeper.call(interval)
@@ -241,19 +263,18 @@ module AgentHarness
 
         def normalize_tool_calls(tool_calls)
           Array(tool_calls).map do |call|
-            call.merge(id: tool_id(call[:provider_id]), status: :completed)
+            id = call[:provider_id].nil? ? @id_generator.call : tool_id(call[:provider_id])
+            call.merge(id: id, status: :completed)
           end
         end
 
         def normalize_stream_event(event)
-          return event unless %i[tool_call_started tool_call_delta tool_call_completed].include?(event[:type])
+          return event unless event[:provider_id]
 
           event.merge(id: tool_id(event[:provider_id]))
         end
 
         def tool_id(provider_id)
-          return @id_generator.call unless provider_id
-
           @tool_ids[provider_id] ||= @id_generator.call
         end
 
@@ -281,8 +302,10 @@ module AgentHarness
             usage: aggregate_usage, error: error)
         end
 
-        def attempt_report(candidate, attempt_id, started_at, status, error: nil, usage: nil)
-          {
+        def append_attempt(candidate, attempt_id, started_at, status, error: nil, usage: nil, cost: nil,
+          provider_reported: false)
+          cost = cost.merge(priced_at: Time.now.utc) if cost
+          report = AttemptReport.new(
             attempt_id: attempt_id,
             request_id: request[:request_id],
             number: attempts.length + 1,
@@ -292,20 +315,22 @@ module AgentHarness
             started_at: started_at.iso8601(6),
             finished_at: Time.now.utc.iso8601(6),
             usage: usage,
-            cost: nil,
-            provider_reported: false,
+            cost: cost,
+            provider_reported: provider_reported,
             error: error
-          }
+          ).attributes
+          attempts << report
+          emit(:attempt_completed, attempt_id:, attempt: report)
         end
 
         def aggregate_usage
           reports = attempts.filter_map { |attempt| attempt[:usage] }
           return if reports.empty?
 
-          %i[input_tokens output_tokens total_tokens].to_h do |key|
+          %i[input_tokens output_tokens cache_read_tokens cache_write_tokens thinking_tokens total_tokens].to_h do |key|
             values = reports.filter_map { |usage| usage[key] }
             [key, values.empty? ? nil : values.sum]
-          end
+          end.compact
         end
 
         def classify(error)
@@ -426,6 +451,7 @@ module AgentHarness
       }.freeze
 
       NON_RETRYABLE = {
+        RubyLlmChatAdapter::MissingCredentialError => [:authentication, :invalid_credential],
         RubyLLM::UnauthorizedError => [:authentication, :invalid_credential],
         RubyLLM::ForbiddenError => [:authorization, :permission_denied],
         RubyLLM::PaymentRequiredError => [:billing, :billing_unavailable],
@@ -437,8 +463,7 @@ module AgentHarness
         JSON::ParserError => [:invalid_response, :invalid_tool_arguments],
         RubyLLM::ModelNotFoundError => [:configuration, :invalid_configuration],
         RubyLLM::ConfigurationError => [:configuration, :invalid_configuration],
-        RubyLLM::CancelledError => [:cancelled, :cancelled],
-        RubyLLM::Error => [:provider, :provider_rejected]
+        RubyLLM::CancelledError => [:cancelled, :cancelled]
       }.freeze
 
       def self.call(error)
@@ -452,9 +477,22 @@ module AgentHarness
       end
 
       def self.payload(error, category, code, retryable)
-        {category: category, code: code, retryable: retryable, message: safe_message(category, code)}
+        payload = {category: category, code: code, retryable: retryable, message: safe_message(category, code)}
+        retry_after = retry_after_seconds(error)
+        payload[:retry_after_seconds] = retry_after if retry_after
+        payload
       end
       private_class_method :payload
+
+      def self.retry_after_seconds(error)
+        return unless error.respond_to?(:response) && error.response
+
+        headers = error.response.respond_to?(:headers) ? error.response.headers : error.response[:response_headers]
+        value = headers&.find { |key, _| key.to_s.casecmp?("retry-after") }&.last
+        delay = Float(value, exception: false)
+        delay if delay&.finite? && delay >= 0
+      end
+      private_class_method :retry_after_seconds
 
       def self.safe_message(category, code)
         "Chat request failed (#{category}/#{code})"

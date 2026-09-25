@@ -87,6 +87,12 @@ module AgentHarness
       conductor.send_message(prompt, provider: provider, executor: executor, **options)
     end
 
+    # Generate embeddings for a batch of strings through a request-local RubyLLM context.
+    # @return [EmbeddingResult] vectors in input order and provider-reported batch usage
+    def embed(inputs:, model:, credentials:, dimensions: nil, **options)
+      Embeddings.new(model: model, credentials: credentials, **options).call(inputs: inputs, dimensions: dimensions)
+    end
+
     # Resolve a canonical extension definition by name or inline object.
     #
     # @param reference [Symbol, String, Extensions::Base]
@@ -456,13 +462,18 @@ require_relative "agent_harness/configuration"
 require_relative "agent_harness/command_executor"
 require_relative "agent_harness/docker_command_executor"
 require_relative "agent_harness/response"
+require_relative "agent_harness/embedding_result"
+require_relative "agent_harness/embedding_adapter"
+require_relative "agent_harness/embeddings"
 require_relative "agent_harness/token_tracker"
 require_relative "agent_harness/token_usage_tracker"
 require_relative "agent_harness/error_taxonomy"
 require_relative "agent_harness/text_transport"
 require_relative "agent_harness/openai_compatible_transport"
 require_relative "agent_harness/conversation"
+require_relative "agent_harness/api/attempt_report"
 require_relative "agent_harness/api/chat_transport"
+require_relative "agent_harness/api/schema_response"
 require_relative "agent_harness/quota_status"
 require_relative "agent_harness/authentication"
 require_relative "agent_harness/provider_health_check"

@@ -13,17 +13,19 @@ RSpec.describe AgentHarness::Api::RubyLlmChatAdapter do
       "with_schema" => nil,
       "with_max_output_tokens" => nil,
       "with_temperature" => nil,
+      "cancel" => nil,
       "generate" => response
     })
   end
   let(:context) { instance_double(RubyLLM::Context, chat: chat) }
   let(:response) do
     instance_double(RubyLLM::Message, content: "ok", model: "private-model", finish_reason: :stop,
-      tokens: nil, tool_calls: nil, raw: nil)
+      tokens: nil, tool_calls: nil)
   end
   let(:config_class) do
     Struct.new(:anthropic_api_key, :anthropic_api_base, :openai_api_key, :openai_api_base,
-      :max_retries, :request_timeout)
+      :openai_organization_id, :openai_project_id, :openai_use_system_role, :max_retries, :request_timeout,
+      :instrumenter)
   end
 
   before do
@@ -72,11 +74,11 @@ RSpec.describe AgentHarness::Api::RubyLlmChatAdapter do
       protocol: :chat_completions, assume_model_exists: true)
   end
 
-  it "passes a named strict JSON Schema through the public RubyLLM API" do
+  it "passes a named JSON Schema through the public RubyLLM API" do
     schema = {
       name: "person",
-      schema: {type: "object", properties: {name: {type: "string"}}, required: ["name"]},
-      strict: true
+      schema: {type: "object", properties: {name: {type: "string"}}},
+      strict: false
     }
 
     adapter.call(
@@ -84,67 +86,81 @@ RSpec.describe AgentHarness::Api::RubyLlmChatAdapter do
         provider: :openai, model: "private-model", protocol: :responses,
         credentials: {api_key: "request-secret"}
       },
-      messages: [{role: :user, content: "Generate a person"}], tools: [], schema: schema,
-      max_output_tokens: nil, temperature: nil, stream: false, timeout: nil, cancellation: nil
+      messages: [], tools: [], schema: schema, max_output_tokens: nil,
+      temperature: nil, stream: false, timeout: nil, cancellation: nil
     )
 
     expect(chat).to have_received(:with_schema).with(schema)
   end
 
-  it "normalizes a Responses API refusal without exposing its wire shape" do
-    raw = Struct.new(:body).new({"output" => [{"content" => [{"type" => "refusal", "refusal" => "No"}]}]})
-    allow(chat).to receive(:generate).and_return(
+  it "normalizes Responses and Chat Completions refusals" do
+    responses_raw = Struct.new(:body).new({"output" => [{"content" => [{"type" => "refusal"}]}]})
+    completions_raw = Struct.new(:body).new({"choices" => [{"message" => {"refusal" => "No"}}]})
+    messages = [responses_raw, completions_raw].map do |raw|
       instance_double(RubyLLM::Message, content: "No", model: "private-model", finish_reason: :stop,
         tokens: nil, tool_calls: nil, raw: raw)
-    )
+    end
+    allow(chat).to receive(:generate).and_return(*messages)
 
-    result = adapter.call(
-      candidate: {
-        provider: :openai, model: "private-model", protocol: :responses,
-        credentials: {api_key: "request-secret"}
-      },
-      messages: [], tools: [], schema: {type: "object"}, max_output_tokens: nil,
-      temperature: nil, stream: false, timeout: nil, cancellation: nil
-    )
+    results = %i[responses chat_completions].map do |protocol|
+      adapter.call(
+        candidate: {provider: :openai, model: "private-model", protocol: protocol,
+                    credentials: {api_key: "request-secret"}},
+        messages: [], tools: [], max_output_tokens: nil, temperature: nil,
+        stream: false, timeout: nil, cancellation: nil
+      )
+    end
 
-    expect(result).to include(content: "No", refusal: true)
+    expect(results).to all(include(content: "No", refusal: true))
   end
 
-  it "normalizes a Chat Completions refusal without exposing its wire shape" do
-    raw = Struct.new(:body).new({"choices" => [{"message" => {"content" => nil, "refusal" => "No"}}]})
-    allow(chat).to receive(:generate).and_return(
-      instance_double(RubyLLM::Message, content: nil, model: "private-model", finish_reason: :stop,
-        tokens: nil, tool_calls: nil, raw: raw)
-    )
-
-    result = adapter.call(
-      candidate: {
-        provider: :openai, model: "private-model", protocol: :chat_completions,
-        credentials: {api_key: "request-secret"}
-      },
-      messages: [], tools: [], schema: {type: "object"}, max_output_tokens: nil,
-      temperature: nil, stream: false, timeout: nil, cancellation: nil
-    )
-
-    expect(result).to include(content: "", refusal: true)
-  end
-
-  it "preserves a streamed Responses API refusal from its semantic event" do
+  it "preserves a streamed Responses refusal from its semantic event" do
     protocol = RubyLLM::Protocols::Responses.allocate
     refusal_chunk = protocol.send(:build_chunk, {
-      "type" => "response.refusal.delta", "delta" => "I cannot comply",
-      "output_index" => 0, "content_index" => 0
+      "type" => "response.refusal.delta", "delta" => "No", "output_index" => 0, "content_index" => 0
     })
-    final = final_response(content: "I cannot comply", tool_calls: {}, raw: Struct.new(:body).new(""))
+    final = instance_double(RubyLLM::Message, content: "No", model: "private-model", finish_reason: :stop,
+      tokens: nil, tool_calls: nil, raw: Struct.new(:body).new(""))
 
-    streamed_events(responses_candidate, [refusal_chunk], final)
+    streamed_events({provider: :openai, model: "private-model", protocol: :responses,
+                     credentials: {api_key: "request-secret"}}, [refusal_chunk], final)
 
-    expect(@streamed_result).to include(content: "I cannot comply", refusal: true)
+    expect(@streamed_result).to include(content: "No", refusal: true)
+  end
+
+  it "generates a non-streaming response with an inactive cancellation token" do
+    result = adapter.call(
+      candidate: {
+        provider: :openai, model: "openai-model", protocol: :responses,
+        credentials: {api_key: "request-secret"}
+      },
+      messages: [], tools: [], max_output_tokens: nil, temperature: nil,
+      stream: false, timeout: nil, cancellation: -> { false }
+    )
+
+    expect(chat).to have_received(:generate)
+    expect(result).to include(content: "ok")
+  end
+
+  it "rejects active cancellation before non-streaming generation" do
+    expect do
+      adapter.call(
+        candidate: {
+          provider: :openai, model: "openai-model", protocol: :responses,
+          credentials: {api_key: "request-secret"}
+        },
+        messages: [], tools: [], max_output_tokens: nil, temperature: nil,
+        stream: false, timeout: nil, cancellation: -> { true }
+      )
+    end.to raise_error(RubyLLM::CancelledError)
+
+    expect(chat).not_to have_received(:generate)
   end
 
   it "clears a copied global base URL when the candidate has no endpoint" do
     allow(RubyLLM).to receive(:context) do |&configuration|
-      @configured = config_class.new(nil, nil, nil, "https://global.example/v1")
+      @configured = config_class.new
+      @configured.openai_api_base = "https://global.example/v1"
       configuration.call(@configured)
       context
     end
@@ -161,9 +177,10 @@ RSpec.describe AgentHarness::Api::RubyLlmChatAdapter do
     expect(@configured.to_h).to include(openai_api_key: "request-secret", openai_api_base: nil)
   end
 
-  it "restores the harness timeout default when the request omits a timeout" do
+  it "replaces a copied global request timeout with the adapter default" do
     allow(RubyLLM).to receive(:context) do |&configuration|
-      @configured = config_class.new(nil, nil, nil, nil, nil, 1)
+      @configured = config_class.new
+      @configured.request_timeout = 5
       configuration.call(@configured)
       context
     end
@@ -178,6 +195,29 @@ RSpec.describe AgentHarness::Api::RubyLlmChatAdapter do
     )
 
     expect(@configured.request_timeout).to eq(300)
+  end
+
+  it "clears copied global OpenAI tenant and behavior settings" do
+    allow(RubyLLM).to receive(:context) do |&configuration|
+      @configured = config_class.new
+      @configured.openai_organization_id = "global-organization"
+      @configured.openai_project_id = "global-project"
+      @configured.openai_use_system_role = true
+      configuration.call(@configured)
+      context
+    end
+
+    adapter.call(
+      candidate: {
+        provider: :openai, model: "openai-model", protocol: :responses,
+        credentials: {api_key: "request-secret"}
+      },
+      messages: [], tools: [], max_output_tokens: nil, temperature: nil,
+      stream: false, timeout: nil, cancellation: nil
+    )
+
+    expect(@configured.to_h).to include(openai_organization_id: nil, openai_project_id: nil,
+      openai_use_system_role: nil)
   end
 
   it "rejects a connect timeout that RubyLLM cannot honor" do
@@ -328,6 +368,72 @@ RSpec.describe AgentHarness::Api::RubyLlmChatAdapter do
     expect(@streamed_result).to include(usage: nil)
   end
 
+  it "does not emit a chunk observed after streaming cancellation" do
+    candidate = {provider: :openai, model: "private-model", protocol: :responses,
+                 credentials: {api_key: "request-secret"}}
+    cancelled = false
+    events = []
+    allow(chat).to receive(:generate) do |&block|
+      block.call(chunk(content: "before"))
+      cancelled = true
+      block.call(chunk(content: "after"))
+    end
+
+    expect do
+      adapter.call(candidate: candidate, messages: [], tools: [], max_output_tokens: nil,
+        temperature: nil, stream: true, timeout: nil, cancellation: -> { cancelled }) do |event|
+        events << event
+      end
+    end.to raise_error(RubyLLM::CancelledError)
+
+    expect(chat).to have_received(:cancel).once
+    expect(events).to eq([{type: :text_delta, content: "before"}])
+  end
+
+  it "exposes public usage instrumentation without request content" do
+    accounting = []
+    tokens = RubyLLM::Tokens.new(input: 10, output: 2, cache_read: 4)
+    cost = RubyLLM::Cost.from_h({input: 0.001, output: 0.002, cache_read: 0.0001, total: 0.0031}, tokens: tokens)
+    allow(chat).to receive(:generate) do
+      @configured.instrumenter.instrument("chat.ruby_llm", {messages: ["private prompt"]})
+      @configured.instrumenter.instrument("usage.ruby_llm", {tokens: tokens, cost: cost})
+      response
+    end
+
+    adapter.call(candidate: {provider: :openai, model: "private-model", protocol: :responses,
+                             credentials: {api_key: "request-secret"}},
+      messages: [], tools: [], max_output_tokens: nil, temperature: nil, stream: false,
+      timeout: nil, cancellation: nil, on_accounting: ->(facts) { accounting << facts })
+
+    expect(accounting).to eq([{usage: {input_tokens: 10, output_tokens: 2, cache_read_tokens: 4,
+                                       total_tokens: 12},
+                               cost: {input: 0.001, output: 0.002, cache_read: 0.0001, total: 0.0031,
+                                      source: :estimated, currency: "USD"},
+                               provider_reported: true}])
+    expect(accounting.to_s).not_to include("private prompt", "request-secret")
+  end
+
+  it "does not treat synthetic failure zeroes as provider-reported usage" do
+    accounting = []
+    tokens = RubyLLM::Tokens.new(input: 0, output: 0)
+    cost = RubyLLM::Cost.new(tokens: tokens)
+    allow(chat).to receive(:generate) do
+      @configured.instrumenter.instrument("usage.ruby_llm", {status: :failed, tokens: tokens, cost: cost})
+      raise Faraday::ConnectionFailed, "connection failed"
+    end
+
+    expect do
+      adapter.call(candidate: {provider: :openai, model: "private-model", protocol: :responses,
+                               credentials: {api_key: "request-secret"}},
+        messages: [], tools: [], max_output_tokens: nil, temperature: nil, stream: false,
+        timeout: nil, cancellation: nil, on_accounting: ->(facts) { accounting << facts })
+    end.to raise_error(Faraday::ConnectionFailed)
+
+    expect(accounting).to contain_exactly(hash_including(
+      usage: {input_tokens: 0, output_tokens: 0, total_tokens: 0}, provider_reported: false
+    ))
+  end
+
   private
 
   def chunk(content: nil, tool_calls: nil, input_tokens: nil, output_tokens: nil)
@@ -339,14 +445,9 @@ RSpec.describe AgentHarness::Api::RubyLlmChatAdapter do
     RubyLLM::ToolCall.new(id: id, name: name, arguments: arguments || {})
   end
 
-  def final_response(content: "", tool_calls: {}, tokens: nil, raw: nil)
+  def final_response(content: "", tool_calls: {}, tokens: nil)
     RubyLLM::Message.new(role: :assistant, content: content, model: "private-model",
-      finish_reason: :tool_calls, tool_calls: tool_calls, tokens: tokens, raw: raw)
-  end
-
-  def responses_candidate
-    {provider: :openai, model: "private-model", protocol: :responses,
-     credentials: {api_key: "request-secret"}}
+      finish_reason: :tool_calls, tool_calls: tool_calls, tokens: tokens)
   end
 
   def streamed_events(candidate, chunks, final_response)

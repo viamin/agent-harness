@@ -24,23 +24,35 @@ module AgentHarness
     # Translates the normalized public chat values to RubyLLM public objects.
     class RubyLlmChatAdapter
       class UnsupportedOptionError < StandardError; end
-
-      DEFAULT_REQUEST_TIMEOUT_SECONDS = 300
+      class MissingCredentialError < StandardError; end
 
       PROVIDER_CONFIG = {
         anthropic: %i[anthropic_api_key anthropic_api_base],
         openai: %i[openai_api_key openai_api_base]
       }.freeze
+      DEFAULT_REQUEST_TIMEOUT = 300
+      OPENAI_UNSUPPLIED_CONFIG = %i[openai_organization_id openai_project_id openai_use_system_role].freeze
 
       def call(candidate:, messages:, tools:, max_output_tokens:, temperature:, stream:, timeout:, cancellation:,
-        schema: nil, &on_event)
-        context = build_context(candidate, timeout)
-        chat = context.chat(model: candidate[:model], provider: candidate[:provider], protocol: ruby_llm_protocol(candidate),
-          assume_model_exists: true)
-        configure_chat(chat, candidate, messages, tools, max_output_tokens, temperature, schema)
-        response, streamed_refusal = generate(chat, stream, cancellation, &on_event)
+        schema: nil, on_accounting: nil, prepared_chat: nil, &on_event)
+        provider_usage_reported = false
+        chat = prepared_chat || prepare(candidate:, messages:, tools:, max_output_tokens:, temperature:, timeout:,
+          schema:, on_accounting:, provider_usage: -> { provider_usage_reported })
+        response, streamed_refusal = generate(chat, stream, cancellation) do |event|
+          provider_usage_reported = true if event[:type] == :usage_updated
+          on_event&.call(event)
+        end
         emit_completed_tool_calls(response, &on_event) if stream
         normalize_response(response, streamed_refusal: streamed_refusal)
+      end
+
+      def prepare(candidate:, messages:, tools:, max_output_tokens:, temperature:, timeout:, on_accounting: nil,
+        schema: nil, provider_usage: -> { false })
+        context = build_context(candidate, timeout, on_accounting, provider_usage)
+        context.chat(model: candidate[:model], provider: candidate[:provider], protocol: ruby_llm_protocol(candidate),
+          assume_model_exists: true).tap do |chat|
+          configure_chat(chat, candidate, messages, tools, max_output_tokens, temperature, schema)
+        end
       end
 
       # RubyLLM keys streamed tool-call chunks by a stream index while
@@ -92,17 +104,64 @@ module AgentHarness
         candidate[:protocol]
       end
 
-      def build_context(candidate, timeout)
+      def build_context(candidate, timeout, on_accounting, provider_usage)
         provider = candidate[:provider].to_sym
         config_keys = PROVIDER_CONFIG[provider]
         raise RubyLLM::ConfigurationError, "Unsupported chat provider: #{provider}" unless config_keys
+        raise MissingCredentialError, "API key is required" if candidate.dig(:credentials, :api_key).to_s.empty?
 
         RubyLLM.context do |config|
           config.public_send("#{config_keys[0]}=", candidate.dig(:credentials, :api_key))
           config.public_send("#{config_keys[1]}=", candidate[:endpoint])
+          clear_unsupplied_openai_config(config) if provider == :openai
           config.max_retries = 0
+          config.instrumenter = UsageInstrumenter.new(on_accounting, provider_usage) if on_accounting
           apply_timeout(config, timeout)
         end
+      end
+
+      # Retains only accounting instrumentation; other events may contain
+      # request content and are intentionally discarded.
+      class UsageInstrumenter
+        def initialize(callback, provider_usage)
+          @callback = callback
+          @provider_usage = provider_usage
+        end
+
+        def instrument(name, payload)
+          @callback.call(normalize(payload)) if name == "usage.ruby_llm"
+          yield(payload) if block_given?
+        end
+
+        private
+
+        def normalize(payload)
+          tokens = payload.fetch(:tokens)
+          cost = payload.fetch(:cost)
+          usage = tokens.to_h
+          usage[:total_tokens] = tokens.input + tokens.output if tokens.input && tokens.output
+          {
+            usage: usage,
+            cost: cost.total.nil? ? nil : cost.to_h.merge(source: cost_source(tokens), currency: "USD"),
+            provider_reported: provider_reported?(payload, usage)
+          }
+        end
+
+        def provider_reported?(payload, usage)
+          return false if usage.empty?
+          return true unless payload[:status]&.to_sym == :failed
+          return true if @provider_usage.call
+
+          usage.values.compact.any?(&:positive?)
+        end
+
+        def cost_source(tokens)
+          tokens.reported_cost.nil? ? :estimated : :provider_reported
+        end
+      end
+
+      def clear_unsupplied_openai_config(config)
+        OPENAI_UNSUPPLIED_CONFIG.each { |key| config.public_send("#{key}=", nil) }
       end
 
       def apply_timeout(config, timeout)
@@ -110,7 +169,7 @@ module AgentHarness
           raise UnsupportedOptionError, "RubyLLM does not support request-local connect timeouts"
         end
 
-        config.request_timeout = timeout&.dig(:read_seconds) || DEFAULT_REQUEST_TIMEOUT_SECONDS
+        config.request_timeout = timeout&.dig(:read_seconds) || DEFAULT_REQUEST_TIMEOUT
       end
 
       def configure_chat(chat, candidate, messages, tools, max_output_tokens, temperature, schema)
@@ -123,14 +182,24 @@ module AgentHarness
       end
 
       def generate(chat, stream, cancellation)
-        return [chat.generate, false] unless stream
+        return [generate_without_events(chat, cancellation), false] unless stream
 
         state = StreamState.new
         response = chat.generate do |chunk|
-          chat.cancel if cancelled?(cancellation)
+          if cancelled?(cancellation)
+            chat.cancel
+            raise RubyLLM::CancelledError
+          end
+
           stream_events(chunk, state).each { |event| yield event }
         end
         [response, state.refusal]
+      end
+
+      def generate_without_events(chat, cancellation)
+        raise RubyLLM::CancelledError if cancelled?(cancellation)
+
+        chat.generate
       end
 
       def cancelled?(token)
@@ -301,11 +370,9 @@ module AgentHarness
       end
 
       def normalize_usage(tokens)
-        input = tokens&.input
-        output = tokens&.output
-        return unless input || output
+        return unless tokens&.to_h&.any?
 
-        {input_tokens: input, output_tokens: output, total_tokens: (input && output) ? input + output : nil}
+        tokens.to_h.merge(total_tokens: (tokens.input && tokens.output) ? tokens.input + tokens.output : nil)
       end
     end
   end

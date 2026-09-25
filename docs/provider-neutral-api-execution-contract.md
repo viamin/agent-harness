@@ -8,16 +8,10 @@ usage, and optional conversation-persistence work.
 ## Status and rollout boundary
 
 RDR-072's rollout guard was **docs-only** for the design phase. The normalized
-chat and schema capabilities described below are now implemented. Other
-capabilities remain design contracts and each still needs
+chat, attempt-accounting, schema, and embedding capabilities described below
+are now implemented. Other capabilities remain design contracts and each still needs
 its own failing-first contract tests, implementation, release evidence, and
 downstream adoption evidence before a caller enables it.
-
-This delivery combines the normalized chat transport tracked by
-[#433](https://github.com/viamin/agent-harness/issues/433) with the schema
-response capability tracked by
-[#434](https://github.com/viamin/agent-harness/issues/434); it supersedes the
-separate #433 delivery rather than leaving that capability pending.
 
 Existing CLI and subscription behavior remains the default. Existing
 `TextTransport`, `OpenAICompatibleTransport`, `Conversation`, and `Response`
@@ -103,10 +97,7 @@ result = transport.call(request.merge(
   schema_name: "person",
   schema: {
     type: "object",
-    properties: {
-      name: {type: "string"},
-      age: {type: "integer"}
-    },
+    properties: {name: {type: "string"}, age: {type: "integer"}},
     required: %w[name age],
     additionalProperties: false
   }
@@ -118,25 +109,17 @@ result[:parsed]  # => {"name" => "Ada", "age" => 37}
 
 Schema operations use provider-native JSON Schema output and the same verified
 Anthropic Messages, OpenAI Responses, and OpenAI Chat Completions scopes as
-normalized chat. Provider adapters infer strictness from the schema, allowing
-schemas with optional properties; callers using a `{schema:, strict:}` envelope
-can explicitly select strictness. `schema_mode: :json_schema` is the only supported mode.
-JSON-only mode returns `unsupported/structured_output_not_supported`; it is
-not silently treated as schema enforcement.
+normalized chat. Provider adapters infer strictness from the schema; callers
+using a `{schema:, strict:}` envelope can explicitly select strictness.
+`schema_mode: :json_schema` is the only supported mode. JSON-only mode returns
+`unsupported/structured_output_not_supported`.
 
-The harness parses the exact provider text and validates it locally against
-the requested schema. It does not remove Markdown fences or repair malformed
-JSON. Invalid JSON, schema mismatch (including a missing required field),
-refusal, and output-limit truncation return non-retryable `invalid_response`
-outcomes with codes `invalid_json`, `invalid_schema`, `refusal`, and
-`truncated_output`, respectively. These results retain the original text in
-`content`, leave `parsed` as `nil`, and are never successful empty objects.
-
-This API surface does not alter existing CLI or subscription execution.
-Schema requests use request-local API-key credentials and explicit protocols;
-`AgentHarness.send_message`, CLI providers, and subscription authentication
-continue through their existing paths. Custom endpoints and headers have the
-same isolation and reserved-auth-header rules as normalized chat.
+The harness parses the exact provider text and validates it locally. It does
+not remove Markdown fences or repair malformed JSON. Invalid JSON, schema
+mismatch, refusal, and output-limit truncation return non-retryable
+`invalid_response` outcomes with codes `invalid_json`, `invalid_schema`,
+`refusal`, and `truncated_output`. They retain the original `content` and leave
+`parsed` as `nil`.
 
 ## Ownership boundary
 
@@ -218,10 +201,10 @@ Credentials, endpoint, headers, the read timeout, retry limits, and cancellation
 are request-local. Only `timeout.read_seconds` is supported; supplying a
 connection timeout returns `unsupported/unsupported_capability` before any
 provider request. Implementations MUST prevent concurrent requests from
-observing one another's credentials or headers. They MUST reject reserved
-header overrides that would conflict with the selected protocol's
-authentication. Logs and errors MUST NOT contain credentials, authorization
-headers, message bodies, tool arguments, or full provider responses.
+observing one another's credentials or headers. They MUST reject reserved header
+overrides that would conflict with the selected protocol's authentication.
+Logs and errors MUST NOT contain credentials, authorization headers, message
+bodies, tool arguments, or full provider responses.
 
 The selected candidate's provider, model, protocol, endpoint, and authentication
 mode MUST be the values actually used. The harness MUST return a configuration
@@ -391,6 +374,23 @@ Attempt reports are delivered both with the final result and through an
 observer so durable accounting can persist an attempt even when no message is
 created. Callers deduplicate on `attempt_id`. Cost identifies its source as
 provider-reported or harness-estimated; unknown cost remains `nil`.
+
+The observer receives `attempt_completed` after every physical request, with
+the same report later returned in `result[:attempts]`. Delivery is at least
+once across process recovery: consumers MUST enforce a unique key on
+`attempt_id` and treat a repeated report as an idempotent upsert, not another
+charge. `AttemptReport.from_h` restores JSON-decoded reports. Stored cost
+includes USD component amounts, `source` (`provider_reported` or `estimated`),
+and `priced_at`; restoration never consults current prices. Missing counts and
+prices remain absent/`nil`, while a reported zero remains zero. Usage may also
+include `cache_read_tokens`, `cache_write_tokens`, and `thinking_tokens`.
+
+Attempt events contain only identifiers, provider/model, outcome, normalized
+usage/cost, timestamps, and sanitized classified errors. They do not include
+prompts, messages, request headers, endpoints, or credentials. RubyLLM API chat
+requests are in this ledger. Existing CLI providers, `TextTransport`,
+`OpenAICompatibleTransport`, token trackers, embeddings, and other
+non-`Api::ChatTransport` paths remain outside it.
 
 Only errors classified `transient` are eligible for bounded request retry:
 connection failure, timeout before a partial stream, rate limit, server error,
@@ -601,12 +601,12 @@ exactly-once recovery or an off-the-shelf plain Ruby export/import mechanism.
 
 ## Current harness gaps and incremental delivery
 
-The normalized API transport now provides request-local custom headers,
-per-request read timeout/retry/cancellation, schema-constrained output, stable
-attempt IDs, per-attempt usage, partial terminal results, and classified
-outcomes for its verified scopes. Embeddings, state export/import, and broader
-provider/authentication scopes remain outstanding. `Conversation` stores
-in-memory history and provider formatters but has no serialization contract.
+The current transports already normalize basic text, tool calls, token totals,
+and some HTTP errors. They do not provide request-local custom headers,
+per-request timeout/retry/cancellation, structured output, embeddings, stable
+attempt IDs, per-attempt usage, partial terminal results, state export/import,
+or explicit capability outcomes. `Conversation` stores in-memory history and
+provider formatters but has no serialization contract.
 
 Ship capabilities independently in this order:
 
@@ -625,12 +625,47 @@ types stay behind the harness boundary.
 
 ## Compatibility and release evidence
 
-AgentHarness currently supports Ruby 3.2 and later and remains usable as a
-plain Ruby gem. RubyLLM 2.0.0 supports Ruby 3.1.3 and later and adds Faraday,
-event-stream parsing, Schematist, Marcel, and Zeitwerk runtime dependencies.
-Local response validation adds `json_schemer` and its bounded dependency set.
-A capability release must test the harness minimum Ruby version before
-downstream adoption.
+### Attempt-accounting capability evidence
+
+- Release: pending the first published version containing issue #435; a Git
+  branch or tag alone is not downstream adoption evidence.
+- Scope: normalized chat through `Api::ChatTransport` for Anthropic Messages
+  and OpenAI Responses/Chat Completions (including compatible endpoints), with
+  request-local API-key authentication. It is stacked on the normalized chat
+  capability from #433.
+- Verification: the API contract specs cover request-local credentials,
+  endpoint/header isolation, error classification, bounded non-nested retry,
+  fallback, cancellation, partial usage, cache usage, repeated identity,
+  observer redaction, and JSON reload with preserved pricing. The full upstream
+  suite and lint run on the repository's supported Ruby environment.
+- Migration: no Rails tables or migrations are loaded or required. Paid and
+  agent-image consumer versions remain unverified and MUST NOT adopt this
+  capability until their integration suites record the exact released gem and
+  image versions.
+- Retained paths: CLI/subscription providers, legacy HTTP transports,
+  embeddings, and token trackers remain outside this ledger and require
+  separate migration issues.
+
+### Schema capability release evidence
+
+- Publication: unreleased; record the first installable version before
+  downstream adoption.
+- Verified scopes: `:schema` with Anthropic Messages, OpenAI Responses, and
+  OpenAI Chat Completions using API-key authentication, including compatible
+  endpoints that explicitly select Chat Completions.
+- Contract coverage: valid and required-field schemas, classified failures,
+  bounded retries, cancellation, refusal, truncation, malformed JSON, and
+  schema mismatch.
+- Retained paths: CLI and subscription execution remain on existing provider
+  interfaces. JSON-only mode and model-specific capability discovery are not
+  migrated.
+
+AgentHarness currently supports Ruby 3.2 and later and must remain usable as a
+plain Ruby gem. RubyLLM 2.0.0 itself supports Ruby 3.1.3 and later and adds
+Faraday, event-stream parsing, Schematist, Marcel, and Zeitwerk runtime
+dependencies. Local response validation adds `json_schemer` and its bounded
+dependency set. A capability issue must test the harness minimum Ruby version
+before adoption.
 
 Rails and Active Record remain optional. Requiring `agent_harness` in a process
 without Rails MUST NOT load Active Record, connect to a database, or require
@@ -651,20 +686,3 @@ Paid issue `viamin/paid#4014` should receive this compatibility result, the
 state-restoration conclusion, the stable-ID gap, and the per-capability release
 evidence. Downstream adoption cannot proceed from this design issue closing or
 from a Git tag alone.
-
-### Schema capability release evidence
-
-- Publication: unreleased; the first installable version must be recorded here
-  before downstream adoption.
-- Verified scopes: `:schema` with Anthropic Messages, OpenAI Responses, and
-  OpenAI Chat Completions, API-key authentication, plus compatible endpoints
-  that explicitly select OpenAI Chat Completions.
-- Contract coverage: valid and required-field schemas, request-local endpoint,
-  header and credential isolation, classified failures, bounded retries,
-  cancellation, attempt accounting, refusal, truncation, malformed JSON, and
-  schema mismatch. The full upstream suite passes without Rails or a database.
-- Retained paths: all CLI and subscription execution remains on the existing
-  provider interfaces. JSON-only mode, other provider/authentication scopes,
-  and model-specific capability discovery are not migrated.
-- Downstream: no Paid or agent-image version consumes this capability yet.
-  Minimum-Ruby CI and exact consumer versions remain release gates.

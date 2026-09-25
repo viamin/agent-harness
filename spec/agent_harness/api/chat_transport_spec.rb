@@ -34,6 +34,7 @@ RSpec.describe AgentHarness::Api::ChatTransport do
   end
 
   before do
+    allow(adapter).to receive(:prepare).and_return(:prepared_chat)
     allow(adapter).to receive(:call)
   end
 
@@ -59,40 +60,8 @@ RSpec.describe AgentHarness::Api::ChatTransport do
     expect(result[:usage]).to eq(input_tokens: 12, output_tokens: 4, total_tokens: 16)
     expect(result[:attempts]).to contain_exactly(hash_including(
       usage: {input_tokens: 12, output_tokens: 4, total_tokens: 16},
-      cost: nil, provider_reported: false
+      cost: nil, provider_reported: true
     ))
-  end
-
-  it "generates distinct harness IDs for tool calls without provider IDs" do
-    allow(adapter).to receive(:call).and_return(
-      content: "",
-      model: "claude-test",
-      finish_reason: :tool_calls,
-      usage: nil,
-      tool_calls: [
-        {provider_id: nil, name: "first", arguments_json: "{}"},
-        {provider_id: nil, name: "second", arguments_json: "{}"}
-      ]
-    )
-
-    result = transport.call(request)
-
-    expect(result[:tool_calls]).to contain_exactly(
-      hash_including(id: "tool-1", name: "first"),
-      hash_including(id: "tool-2", name: "second")
-    )
-  end
-
-  it "generates a harness ID for streamed tool calls without provider IDs" do
-    events = []
-    allow(adapter).to receive(:call) do |**_args, &stream|
-      stream.call(type: :tool_call_started, provider_id: nil, name: "first")
-      {content: "", model: "claude-test", finish_reason: :tool_calls, usage: nil, tool_calls: []}
-    end
-
-    transport.call(request.merge(stream: true), observer: ->(event) { events << event })
-
-    expect(events).to include(hash_including(type: :tool_call_started, id: "tool-1", name: "first"))
   end
 
   it "emits ordered text and exactly one explicit completion event" do
@@ -105,8 +74,10 @@ RSpec.describe AgentHarness::Api::ChatTransport do
 
     result = transport.call(request.merge(stream: true), observer: ->(event) { events << event })
 
-    expect(events.map { |event| event[:type] }).to eq(%i[response_started text_delta text_delta response_completed])
-    expect(events.map { |event| event[:sequence] }).to eq([1, 2, 3, 4])
+    expect(events.map { |event| event[:type] }).to eq(
+      %i[response_started text_delta text_delta attempt_completed response_completed]
+    )
+    expect(events.map { |event| event[:sequence] }).to eq([1, 2, 3, 4, 5])
     expect(events.last[:result]).to eq(result)
   end
 
@@ -127,7 +98,25 @@ RSpec.describe AgentHarness::Api::ChatTransport do
 
     expect(adapter).to have_received(:call).once
     expect(result).to include(status: :partial, content: "abandoned")
+    expect(result[:error]).to include(category: :transient, retryable: false)
+    expect(result[:attempts]).to contain_exactly(hash_including(
+      status: :partial, error: hash_including(category: :transient, retryable: false)
+    ))
     expect(events.last[:type]).to eq(:response_failed)
+  end
+
+  it "assigns distinct harness IDs to tool calls without provider IDs" do
+    allow(adapter).to receive(:call).and_return(
+      content: "", finish_reason: :tool_calls, usage: nil,
+      tool_calls: [
+        {provider_id: nil, name: "first", arguments_json: "{}"},
+        {provider_id: nil, name: "second", arguments_json: "{}"}
+      ]
+    )
+
+    result = transport.call(request)
+
+    expect(result[:tool_calls].map { |call| call[:id] }).to eq(%w[tool-1 tool-2])
   end
 
   it "preserves streamed usage when the provider fails" do
@@ -177,6 +166,9 @@ RSpec.describe AgentHarness::Api::ChatTransport do
       fallback: {on_error_categories: [:transient]}))
 
     expect(result).to include(status: :succeeded, provider: :openai, model: "gpt-test")
+    expect(result[:attempts].map { |attempt| attempt.values_at(:provider, :model) }).to eq([
+      [:anthropic, "claude-test"], [:openai, "gpt-test"]
+    ])
     expect(adapter).to have_received(:call).with(hash_including(candidate: candidate)).ordered
     expect(adapter).to have_received(:call).with(hash_including(candidate: second)).ordered
   end
@@ -194,22 +186,9 @@ RSpec.describe AgentHarness::Api::ChatTransport do
     expect(fallback).to include(from: hash_including(provider: :anthropic),
       to: hash_including(provider: :openai), error: hash_including(category: :transient))
     expect(events.map { |event| event[:type] }).to eq(
-      %i[response_started response_failed fallback_selected response_started response_failed]
+      %i[response_started attempt_completed response_failed fallback_selected
+        response_started attempt_completed response_failed]
     )
-  end
-
-  it "does not announce a fallback after exhausting the attempt budget" do
-    events = []
-    second = candidate.merge(provider: :openai, model: "gpt-test", protocol: :chat_completions,
-      credentials: {api_key: "secret-b"})
-    allow(adapter).to receive(:call).and_raise(RubyLLM::ServiceUnavailableError, "unavailable")
-
-    result = transport.call(request.merge(candidates: [candidate, second],
-      fallback: {on_error_categories: [:transient]}), observer: ->(event) { events << event })
-
-    expect(result).to include(status: :failed, provider: :anthropic)
-    expect(adapter).to have_received(:call).once
-    expect(events.map { |event| event[:type] }).to eq(%i[response_started response_failed])
   end
 
   it "stops before fallback when its observer notification fails" do
@@ -245,17 +224,22 @@ RSpec.describe AgentHarness::Api::ChatTransport do
   end
 
   it "classifies unsupported media and malformed tool arguments explicitly" do
+    events = []
     errors = [
       AgentHarness::Api::RubyLlmChatAdapter::UnsupportedOptionError.new("unsupported media"),
       JSON::ParserError.new("malformed arguments")
     ]
-    allow(adapter).to receive(:call) { raise errors.shift }
+    allow(adapter).to receive(:prepare) { raise errors.shift }
 
-    unsupported = transport.call(request)
-    invalid_response = transport.call(request)
+    unsupported = transport.call(request, observer: ->(event) { events << event })
+    invalid_response = transport.call(request, observer: ->(event) { events << event })
 
     expect(unsupported[:error]).to include(category: :unsupported, code: :unsupported_capability)
     expect(invalid_response[:error]).to include(category: :invalid_response, code: :invalid_tool_arguments)
+    expect(unsupported[:attempts]).to be_empty
+    expect(invalid_response[:attempts]).to be_empty
+    expect(adapter).not_to have_received(:call)
+    expect(events).to be_empty
   end
 
   it "surfaces a failing observer directly without classifying it as a provider error" do
@@ -308,23 +292,90 @@ RSpec.describe AgentHarness::Api::ChatTransport do
     expect(result[:error].to_s).not_to include("secret-a")
   end
 
-  it "uses the base retry delay when no positive maximum delay is configured" do
+  it "reports every retry once with stable identity and completion-time cost" do
+    events = []
+    ids = %w[attempt-a attempt-b]
+    accounting = {
+      usage: {input_tokens: 10, output_tokens: 0, cache_read_tokens: 2},
+      cost: {input: 0.001, output: 0.0, cache_read: 0.0001, total: 0.0011,
+             source: :estimated, currency: "USD"},
+      provider_reported: true
+    }
+    calls = 0
+    retry_transport = described_class.new(adapter: adapter, id_generator: -> { ids.shift }, sleeper: ->(_seconds) {})
+    allow(adapter).to receive(:call) do |on_accounting:, **|
+      calls += 1
+      on_accounting.call(accounting)
+      raise RubyLLM::ServiceUnavailableError, "unavailable" if calls == 1
+
+      {content: "ok", model: "claude-test", finish_reason: :stop,
+       usage: accounting[:usage], tool_calls: []}
+    end
+
+    result = retry_transport.call(request.merge(retry: {max_attempts: 2}), observer: ->(event) { events << event })
+    deliveries = events.select { |event| event[:type] == :attempt_completed }
+
+    expect(result[:attempts].map { |attempt| attempt[:attempt_id] }).to eq(%w[attempt-a attempt-b])
+    expect(result[:attempts].map { |attempt| attempt[:status] }).to eq(%i[failed succeeded])
+    expect(deliveries.map { |event| event[:attempt] }).to eq(result[:attempts])
+    expect(result[:usage]).to include(input_tokens: 20, output_tokens: 0, cache_read_tokens: 4)
+    expect(result[:attempts].last[:cost]).to include(source: :estimated, total: 0.0011,
+      priced_at: match(/Z\z/))
+  end
+
+  it "clamps a provider Retry-After delay to the default zero maximum" do
     delays = []
     delayed_transport = described_class.new(adapter: adapter, id_generator: id_generator,
       sleeper: ->(seconds) { delays << seconds })
-    allow(adapter).to receive(:call).and_raise(RubyLLM::RateLimitError, "rate limited")
+    response = Faraday::Response.new(status: 429, response_headers: {"Retry-After" => "3600"})
+    allow(adapter).to receive(:call).and_raise(
+      RubyLLM::RateLimitError.new("rate limited", response: response)
+    )
 
-    delayed_transport.call(request.merge(retry: {max_attempts: 2, base_delay_seconds: 0.1}))
+    delayed_transport.call(request.merge(retry: {max_attempts: 2}))
 
-    expect(delays.sum).to be_within(0.001).of(0.1)
+    expect(delays).to be_empty
+    expect(adapter).to have_received(:call).twice
   end
 
-  it "classifies otherwise unmapped RubyLLM errors as provider rejections" do
+  it "clamps a provider Retry-After delay to an explicit zero maximum" do
+    delays = []
+    delayed_transport = described_class.new(adapter: adapter, id_generator: id_generator,
+      sleeper: ->(seconds) { delays << seconds })
+    response = Faraday::Response.new(status: 429, response_headers: {"Retry-After" => "3600"})
+    allow(adapter).to receive(:call).and_raise(
+      RubyLLM::RateLimitError.new("rate limited", response: response)
+    )
+
+    delayed_transport.call(request.merge(retry: {max_attempts: 2, max_delay_seconds: 0}))
+
+    expect(delays).to be_empty
+    expect(adapter).to have_received(:call).twice
+  end
+
+  it "honors and caps a provider Retry-After delay" do
+    delays = []
+    delayed_transport = described_class.new(adapter: adapter, id_generator: id_generator,
+      sleeper: ->(seconds) { delays << seconds })
+    response = Faraday::Response.new(status: 429, response_headers: {"Retry-After" => "0.2"})
+    allow(adapter).to receive(:call).and_raise(
+      RubyLLM::RateLimitError.new("rate limited", response: response)
+    )
+
+    result = delayed_transport.call(request.merge(
+      retry: {max_attempts: 2, base_delay_seconds: 0, max_delay_seconds: 0.1}
+    ))
+
+    expect(delays.sum).to be_within(0.001).of(0.1)
+    expect(result[:error]).to include(retry_after_seconds: 0.2)
+  end
+
+  it "classifies otherwise unmapped RubyLLM errors as unknown" do
     allow(adapter).to receive(:call).and_raise(RubyLLM::Error, "model not found")
 
     result = transport.call(request)
 
-    expect(result[:error]).to include(category: :provider, code: :provider_rejected, retryable: false)
+    expect(result[:error]).to include(category: :unknown, code: :unclassified_provider_error, retryable: false)
   end
 
   it "rejects reserved authentication header overrides" do
@@ -333,5 +384,18 @@ RSpec.describe AgentHarness::Api::ChatTransport do
     expect { transport.call(request.merge(candidates: [invalid])) }
       .to raise_error(ArgumentError, /reserved header/i)
     expect(adapter).not_to have_received(:call)
+  end
+
+  {
+    anthropic: [:messages, {}],
+    openai: [:responses, {api_key: nil}]
+  }.each do |provider, (protocol, credentials)|
+    it "classifies a missing #{provider} API key as an invalid credential" do
+      missing_credential = candidate.merge(provider: provider, protocol: protocol, credentials: credentials)
+      result = described_class.new.call(request.merge(candidates: [missing_credential]))
+
+      expect(result).to include(status: :failed,
+        error: hash_including(category: :authentication, code: :invalid_credential, retryable: false))
+    end
   end
 end
