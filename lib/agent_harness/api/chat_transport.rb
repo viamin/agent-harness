@@ -88,6 +88,7 @@ module AgentHarness
           attempt_id = @id_generator.call
           started_at = Time.now.utc
           emitted = false
+          streamed_usage = nil
           emit(:response_started, attempt_id:, candidate: candidate_identity(candidate))
 
           adapter_result = @adapter.call(
@@ -102,6 +103,7 @@ module AgentHarness
           ) do |event|
             event = normalize_stream_event(event)
             emitted = true if output_event?(event)
+            streamed_usage = event.except(:type) if event[:type] == :usage_updated
             accumulate(event)
             emit(event.fetch(:type), attempt_id:, **event.except(:type))
           end
@@ -111,7 +113,7 @@ module AgentHarness
         rescue ObserverError
           raise
         rescue => error
-          failure(candidate, attempt_id, started_at, classify(error), partial: emitted)
+          failure(candidate, attempt_id, started_at, classify(error), partial: emitted, usage: streamed_usage)
         end
 
         def success(candidate, attempt_id, started_at, adapter_result)
@@ -128,15 +130,15 @@ module AgentHarness
           result
         end
 
-        def failure(candidate, attempt_id, started_at, error, partial:)
+        def failure(candidate, attempt_id, started_at, error, partial:, usage:)
           status = failure_status(error, partial)
-          attempts << attempt_report(candidate, attempt_id, started_at, status, error: error)
+          attempts << attempt_report(candidate, attempt_id, started_at, status, error: error, usage: usage)
           result = base_result(candidate).merge(
             status: status,
             content: partial ? @partial_content.dup : "",
             tool_calls: partial_tool_calls,
             finish_reason: nil,
-            usage: nil,
+            usage: aggregate_usage,
             error: error
           )
           emit((status == :cancelled) ? :response_cancelled : :response_failed, attempt_id:, result: result)
@@ -253,13 +255,13 @@ module AgentHarness
 
         def failed_result(error, candidate)
           base_result(candidate).merge(status: :failed, content: "", tool_calls: [], finish_reason: nil,
-            usage: nil, error: error)
+            usage: aggregate_usage, error: error)
         end
 
         def cancelled_result(candidate = candidates.first)
           error = {category: :cancelled, code: :cancelled, retryable: false, message: "Request cancelled"}
           base_result(candidate).merge(status: :cancelled, content: "", tool_calls: [], finish_reason: nil,
-            usage: nil, error: error)
+            usage: aggregate_usage, error: error)
         end
 
         def attempt_report(candidate, attempt_id, started_at, status, error: nil, usage: nil)

@@ -98,6 +98,37 @@ RSpec.describe AgentHarness::Api::ChatTransport do
     expect(events.last[:type]).to eq(:response_failed)
   end
 
+  it "preserves streamed usage when the provider fails" do
+    events = []
+    usage = {input_tokens: 12, output_tokens: 3, total_tokens: 15}
+    allow(adapter).to receive(:call) do |**_args, &stream|
+      stream.call(type: :usage_updated, input_tokens: 12, output_tokens: nil, total_tokens: nil)
+      stream.call(type: :usage_updated, **usage)
+      raise RubyLLM::ServiceUnavailableError, "unavailable"
+    end
+
+    result = transport.call(request.merge(stream: true), observer: ->(event) { events << event })
+
+    expect(result).to include(status: :failed, usage: usage)
+    expect(result[:attempts]).to contain_exactly(hash_including(status: :failed, usage: usage))
+    expect(events.last).to include(type: :response_failed, result: hash_including(usage: usage))
+  end
+
+  it "preserves streamed usage when the provider cancels" do
+    events = []
+    usage = {input_tokens: 12, output_tokens: 1, total_tokens: 13}
+    allow(adapter).to receive(:call) do |**_args, &stream|
+      stream.call(type: :usage_updated, **usage)
+      raise RubyLLM::CancelledError
+    end
+
+    result = transport.call(request.merge(stream: true), observer: ->(event) { events << event })
+
+    expect(result).to include(status: :cancelled, usage: usage)
+    expect(result[:attempts]).to contain_exactly(hash_including(status: :cancelled, usage: usage))
+    expect(events.last).to include(type: :response_cancelled, result: hash_including(usage: usage))
+  end
+
   it "falls back with isolated candidate credentials before retrying" do
     second = candidate.merge(provider: :openai, model: "gpt-test", protocol: :chat_completions,
       endpoint: "https://compatible.example/v1", headers: {"X-Route" => "tenant-b"},
