@@ -74,7 +74,7 @@ module AgentHarness
 
         RubyLLM.context do |config|
           config.public_send("#{config_keys[0]}=", candidate.dig(:credentials, :api_key))
-          config.public_send("#{config_keys[1]}=", candidate[:endpoint]) if candidate[:endpoint]
+          config.public_send("#{config_keys[1]}=", candidate[:endpoint])
           config.max_retries = 0
           apply_timeout(config, timeout)
         end

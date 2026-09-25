@@ -175,7 +175,8 @@ module AgentHarness
         def backoff
           exponent = [attempts.length - 1, 0].max
           delay = retry_config[:base_delay_seconds] * (2**exponent)
-          remaining = [delay, retry_config[:max_delay_seconds]].min
+          cap = retry_config[:max_delay_seconds]
+          remaining = cap&.positive? ? [delay, cap].min : delay
           while remaining.positive? && active?
             interval = [remaining, 0.05].min
             @sleeper.call(interval)
@@ -383,7 +384,8 @@ module AgentHarness
         JSON::ParserError => [:invalid_response, :invalid_tool_arguments],
         RubyLLM::ModelNotFoundError => [:configuration, :invalid_configuration],
         RubyLLM::ConfigurationError => [:configuration, :invalid_configuration],
-        RubyLLM::CancelledError => [:cancelled, :cancelled]
+        RubyLLM::CancelledError => [:cancelled, :cancelled],
+        RubyLLM::Error => [:provider, :provider_rejected]
       }.freeze
 
       def self.call(error)

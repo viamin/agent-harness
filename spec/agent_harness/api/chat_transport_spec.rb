@@ -231,6 +231,25 @@ RSpec.describe AgentHarness::Api::ChatTransport do
     expect(result[:error].to_s).not_to include("secret-a")
   end
 
+  it "uses the base retry delay when no positive maximum delay is configured" do
+    delays = []
+    delayed_transport = described_class.new(adapter: adapter, id_generator: id_generator,
+      sleeper: ->(seconds) { delays << seconds })
+    allow(adapter).to receive(:call).and_raise(RubyLLM::RateLimitError, "rate limited")
+
+    delayed_transport.call(request.merge(retry: {max_attempts: 2, base_delay_seconds: 0.1}))
+
+    expect(delays.sum).to be_within(0.001).of(0.1)
+  end
+
+  it "classifies otherwise unmapped RubyLLM errors as provider rejections" do
+    allow(adapter).to receive(:call).and_raise(RubyLLM::Error, "model not found")
+
+    result = transport.call(request)
+
+    expect(result[:error]).to include(category: :provider, code: :provider_rejected, retryable: false)
+  end
+
   it "rejects reserved authentication header overrides" do
     invalid = candidate.merge(headers: {"x-api-key" => "other-secret"})
 
