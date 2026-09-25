@@ -638,9 +638,15 @@ support from an issue, branch, or Git tag.
 
 All four are plain-Ruby capabilities. They load without Rails or Active Record,
 create no tables, and require no migration. The runtime floor is Ruby 3.2 and
-RubyLLM 2.x. Agent Harness uses RubyLLM's public context, chat, message, tool,
-token and cost APIs; it does not prepend modules into RubyLLM, call private
-methods, or require a downstream monkey patch.
+RubyLLM 2.x. The four released versions above still pin `ruby_llm = 2.0.0` and
+prepend the private `AgentHarness::Api::RubyLlmResponsesStreamingRefusal`
+module into `RubyLLM::Protocols::Responses` process-wide. The prepend-free,
+public-API-only boundary (RubyLLM's public context, chat, message, tool, token
+and cost APIs only; no private method calls, no downstream monkey patch, and a
+loosened `ruby_llm ~> 2.0` dependency) lands in the first release published
+after [#437](https://github.com/viamin/agent-harness/issues/437); record that
+version here once it exists, because support must not be inferred from an
+issue, branch, or Git tag.
 
 ### Migration examples and limits
 
@@ -662,10 +668,13 @@ methods, or require a downstream monkey patch.
   accounting, workflow recovery and runner changes.
 - **Schema (`>= 0.43.0`):** set `operation: :schema`, `schema_mode:
   :json_schema`, and provide a named JSON Schema. The harness preserves the
-  provider text and validates it locally. Schema streaming is explicitly
-  unsupported because RubyLLM 2.0.0 does not publicly expose refusal event
-  semantics; use a non-streaming schema request. JSON-only mode, schema repair,
-  and model-specific capability discovery are also unsupported.
+  provider text and validates it locally; use a non-streaming schema request.
+  JSON-only mode, schema repair, and model-specific capability discovery are
+  also unsupported. Rejection of streamed schema requests
+  (`unsupported/structured_output_not_supported`) and removal of the private
+  RubyLLM streaming-refusal shim land in the first release published after
+  this change; the released `0.43.0` still contains that shim and executes
+  streamed schema requests.
 
 For every migration, run the consumer contract suite with tenant-specific
 credentials and headers, custom endpoints, auth and transient failures,
