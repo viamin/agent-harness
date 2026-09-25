@@ -9,9 +9,12 @@ usage, and optional conversation-persistence work.
 
 RDR-072's rollout guard was **docs-only** for the design phase. The normalized
 chat, attempt-accounting, schema, and embedding capabilities described below
-are now implemented. Other capabilities remain design contracts and each still needs
-its own failing-first contract tests, implementation, release evidence, and
-downstream adoption evidence before a caller enables it.
+are now implemented. The resumable-loop delegation evaluation is also
+complete: it closed with a **retained-loop outcome** (see "Resumable-loop
+delegation evaluation"), so no loop runtime was added. Other capabilities
+remain design contracts and each still needs its own failing-first contract
+tests, implementation, release evidence, and downstream adoption evidence
+before a caller enables it.
 
 Existing CLI and subscription behavior remains the default. Existing
 `TextTransport`, `OpenAICompatibleTransport`, `Conversation`, and `Response`
@@ -553,6 +556,7 @@ records.
 | Attempt usage | `usage.ruby_llm` per physical attempt | Useful facts, but the public payload has no stable attempt ID; harness must add one |
 | Plain Ruby resume | transcript can be reconstructed manually | No documented state export/import API; implement normalized export/import outside RubyLLM |
 | Rails resume | `acts_as_chat` transcript plus supporting records | Technically restart-safe at checkpoints; at-least-once side effects remain |
+| Loop controls | `Chat#step`, `#complete`, `#run_tools`, `#approve`, `#deny`, `Tool.requires_approval`, `#cancel` | Evaluated for delegation; retained-loop outcome (see below) |
 
 ### Optional Rails supporting tables
 
@@ -591,13 +595,95 @@ historical/pending-conversation tests. Reverting the gem is not a data rollback.
 2. **Use RubyLLM tool-call and usage tables selectively.** Potentially removes
    bookkeeping, but only after stable-attempt mapping, tenant-scoped access,
    audit, and migration tests are complete.
-3. **Delegate the full loop and all supporting tables.** Not recommended now.
-   It does not yet demonstrate reduced maintenance across both repositories and
-   increases migration and recovery coupling.
+3. **Delegate the full loop and all supporting tables.** Evaluated and
+   rejected for now: the delegation review below found maintenance increases
+   across both repositories. Retaining Paid's loop over the normalized
+   transport is the completed outcome and creates no future delegation
+   obligation.
 
 The state investigation is therefore positive for checkpoint-based Rails
 restoration and normalized plain Ruby reconstruction, and negative for
 exactly-once recovery or an off-the-shelf plain Ruby export/import mechanism.
+
+## Resumable-loop delegation evaluation
+
+RDR-072 permits delegating the chat loop only when behavior is preserved and
+maintenance decreases across both repositories, counting adapters,
+persistence, and recovery code. Retaining Paid's loop over the normalized
+transport is an acceptable completed outcome. This section records the
+evaluation against RubyLLM 2.0.0's public loop controls
+(`Chat#step`, `#complete`, `#run_tools`, `#complete?`, `#awaiting_approval?`,
+`#pending_approvals`, `#approve`, `#deny`, `#cancel`, and
+`Tool.requires_approval`) and its conclusion.
+
+### Verified behaviors
+
+`spec/ruby_llm_loop_delegation_evaluation_spec.rb` drives a real
+`RubyLLM::Chat` through the public API with stubbed Anthropic Messages
+responses and pins each fact with a contract test:
+
+| Required behavior | Result | Evidence |
+| --- | --- | --- |
+| Single-step execution | Verified | `#step` advances one move; `#complete?` flips only on a final answer |
+| Mixed read/write batches | Verified | Reads without approval execute; `requires_approval` writes stay pending (`#awaiting_approval?`) |
+| Multiple pending decisions | Verified | `#pending_approvals` lists every undecided write; `#approve`/`#deny` resolve them independently |
+| Denial | Verified | A denied call receives a structured denial result and the model continues |
+| Completion | Verified | `#complete?` reports the terminal state |
+| Cancellation | Verified | `#cancel` raises `CancelledError` at the next loop checkpoint, then clears |
+| Completed tool results preserved | Verified | `#run_tools` skips calls that already carry results, so a resumed round executes only the remainder |
+
+### Gaps that fail the delegation criteria
+
+| Criterion | Finding | Evidence |
+| --- | --- | --- |
+| Stable tool IDs | `ToolCall#id` is the provider wire id verbatim; no caller-stable identity is generated, so the contract's "provider_id is not a durable application identifier" rule needs a new mapping adapter | provider-id example |
+| Iteration limits | The loop has no bound: `#complete` steps until `#complete?` or `#awaiting_approval?`, and `tool_options` exposes only choice/calls/concurrency; bounding stays caller-owned | unbounded-iteration example |
+| Restart restoration without Rails | Decisions recorded with `#approve` live in per-chat in-memory state; a plain Ruby chat rebuilt from the same messages is awaiting approval again. Durable decisions require `acts_as_chat` (Active Record), which plain Ruby consumers must not require | reconstruction example |
+| Crash recovery | Same as above: checkpoint restoration is Rails-only, so a plain Ruby consumer re-implements decision and transcript persistence | reconstruction example |
+| Runner-isolated tool execution | `Tool#execute` runs in the calling process; the loop has no dispatch boundary. Paid executes tools in runner processes under caller-owned authorization and atomic claims, so delegation needs new dispatch adapters rather than removing code | in-process execution throughout |
+| Bounded, non-nested retries | Each loop `#generate` retries beneath the caller through Faraday middleware by default (`max_retries` defaults to three), violating the single-retry-owner and shared `max_attempts` budget rules; even with retries disabled, per-step budget/fallback sequencing is absent | hidden-retry example |
+| Attempt accounting | `usage.ruby_llm` payloads carry only operation/provider/model/status/tokens/cost — no attempt or request identity — so the harness `AttemptReport` ledger with stable `attempt_id` would be bypassed | usage-payload example |
+
+### Maintenance comparison
+
+Delegating the loop would remove Paid's turn-taking mechanics (step dispatch
+and approve/deny plumbing) while keeping Paid's authorization, atomic claims,
+runner dispatch, iteration bounds, workflow recovery, durable accounting, and
+cross-process cancellation. It would add, across the two repositories:
+
+- a provider-id to stable-id mapping adapter;
+- in-process `Tool#execute` to runner-process dispatch adapters;
+- a per-step retry, shared-budget, and fallback sequencing wrapper;
+- a caller-side iteration-limit driver replacing `#complete`;
+- plain Ruby decision/transcript persistence and export/import (Rails
+  `acts_as_chat` cannot be a dependency); and
+- attempt-accounting extraction with harness-side attempt identity.
+
+The additions exceed the removals, so maintenance increases across both
+repositories and the criteria fail.
+
+### Outcome
+
+**Retained loop.** Paid keeps its conversation loop over
+`Api::ChatTransport`; the harness keeps one normalized response per call
+with bounded retries, fallback, cancellation, and the attempt ledger. Tool
+execution, approval decisions, authorization, atomic claims, iteration
+limits, and crash recovery remain caller responsibilities under the existing
+ownership boundary. No loop runtime, adapter, persistence, or release was
+added, so there is no migration cost and no consumer activation step. This
+closes the evaluation without creating a future delegation obligation.
+
+Re-evaluate only if RubyLLM later documents a public, plain-Ruby-resumable
+loop with caller-stable tool identity, an external tool-dispatch boundary, a
+bounded `#complete`, and per-attempt accounting identity; the evaluation
+spec's examples are the tripwire that detects such changes on upgrade.
+
+### Communication
+
+The retained-loop outcome, the behavior-test evidence above, and the zero
+migration cost are the message for the Paid adoption and closeout tracking
+(viamin/paid#4014 and the parent viamin/agent-harness#430). No scope beyond
+the accepted RDR-072 alternatives is requested or implied.
 
 ## Current harness gaps and incremental delivery
 
@@ -615,7 +701,8 @@ Ship capabilities independently in this order:
 3. normalized non-streaming and streaming chat transport;
 4. structured output for verified model/protocol combinations;
 5. plain Ruby state round trips; and
-6. optional Rails persistence evaluation, then loop evaluation.
+6. optional Rails persistence evaluation, then loop evaluation (closed with
+   the retained-loop outcome recorded above; no runtime change).
 
 Each implementation issue starts with failing contract tests for request-local
 credential isolation, custom endpoints/headers, unsupported outcomes,
@@ -660,6 +747,23 @@ types stay behind the harness boundary.
   interfaces. JSON-only mode and model-specific capability discovery are not
   migrated.
 
+### Loop-delegation evaluation evidence (retained loop)
+
+- Publication: none required. The evaluation changed documentation and tests
+  only; no runtime path, adapter, table, or public API was added or altered,
+  so every released agent-harness version already carries the outcome.
+- Verification: `spec/ruby_llm_loop_delegation_evaluation_spec.rb` exercises
+  only the public RubyLLM 2.0 API (pinned `ruby_llm = 2.0.0`) against stubbed
+  Anthropic Messages responses and runs with the upstream suite and lint on
+  the repository's supported Ruby environment. It records the verified loop
+  behaviors and the gaps that failed the delegation criteria.
+- Migration: none. Paid and other consumers keep their existing loops over
+  `Api::ChatTransport`; no consumer activation, feature flag, or rollout step
+  applies.
+- Retained responsibilities: documented in "Resumable-loop delegation
+  evaluation" above; loop ownership stays with Paid under RDR-072's accepted
+  alternatives.
+
 AgentHarness currently supports Ruby 3.2 and later and must remain usable as a
 plain Ruby gem. RubyLLM 2.0.0 itself supports Ruby 3.1.3 and later and adds
 Faraday, event-stream parsing, Schematist, Marcel, and Zeitwerk runtime
@@ -683,6 +787,7 @@ For every capability, release evidence must name:
 - retained paths and follow-up issues for combinations not migrated.
 
 Paid issue `viamin/paid#4014` should receive this compatibility result, the
-state-restoration conclusion, the stable-ID gap, and the per-capability release
-evidence. Downstream adoption cannot proceed from this design issue closing or
+state-restoration conclusion, the stable-ID gap, the per-capability release
+evidence, and the retained-loop outcome of the delegation evaluation.
+Downstream adoption cannot proceed from this design issue closing or
 from a Git tag alone.
