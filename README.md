@@ -65,10 +65,10 @@ result.usage   # { input_tokens: 42 }
 
 `credentials` may also be the API key string. Extra headers cannot replace the
 `Authorization` header; change credentials explicitly instead. `max_attempts`
-includes the initial request. RubyLLM performs the only retry loop: 429,
+includes the initial request. Agent Harness performs the only retry loop: 429,
 timeout/connection, and transient 5xx failures are retried up to that bound,
-while 401 and 403 responses fail immediately. `Retry-After` is honored within
-RubyLLM's bounded retry policy. A cancellation callable is checked immediately
+while 401 and 403 responses fail immediately. The harness honors `Retry-After`
+within its bounded retry policy. A cancellation callable is checked immediately
 before every physical HTTP attempt.
 
 Usage is the provider-reported total for the complete batch. When the provider
@@ -97,9 +97,9 @@ agent-harness release containing this capability:
    release evidence.
 3. Switch only the embedding call site to `AgentHarness.embed`; leave unrelated
    chat, schema, CLI, and subscription paths unchanged.
-4. Remove the downstream embedding request/parser/retry patch so RubyLLM owns
-   the single bounded retry loop. Keep durable workflow recovery and accounting
-   in the downstream application.
+4. Remove the downstream embedding request/parser/retry patch so Agent Harness
+   owns the single bounded retry loop. Keep durable workflow recovery and
+   accounting in the downstream application.
 
 The runtime dependency is Ruby 3.2 or newer and RubyLLM 2.x. No Rails database
 or RubyLLM persistence tables are required for this plain-Ruby operation.
