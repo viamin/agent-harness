@@ -315,6 +315,24 @@ authentication modes implicitly, and never replays completed tools. The
 harness MUST NOT use RubyLLM global fallback or global credential configuration
 where it could exceed this list or leak request-local configuration.
 
+Fallback takes precedence over retry when both are eligible. After a failed
+attempt, the harness MUST apply this order:
+
+1. Stop if cancellation was requested or any partial stream was exposed.
+2. If the budget has capacity, the error category is in
+   `fallback.on_error_categories`, and another candidate remains, notify the
+   observer and advance to that candidate.
+3. Otherwise, retry the current candidate only when the error is retryable and
+   the shared `max_attempts` budget has capacity.
+4. Otherwise, return the terminal error.
+
+The outbound request after either advancing or retrying consumes one physical
+attempt from the same budget. Candidates are never revisited, and a failed
+observer notification or observer cancellation stops before that request.
+Consequently, the example request attempts Anthropic once and then OpenAI after
+an eligible `transient` failure; only OpenAI can consume the remaining
+same-candidate retry budget.
+
 ## Error contract
 
 Every terminal error exposes a stable category and code, retry eligibility,
@@ -326,11 +344,43 @@ result/usage where available. Categories are:
 | `transient` | timeout, connection failure, 429, 5xx, overload | bounded |
 | `authentication` | missing or rejected credential | never |
 | `authorization` | credential lacks access | never |
-| `configuration` | invalid endpoint/header/model/request | never |
+| `billing` | inactive billing account or payment required | never |
+| `configuration` | invalid endpoint/header/model or local configuration | never |
+| `invalid_request` | malformed or semantically invalid provider request | never |
+| `context_length` | request exceeds the model context window | never |
 | `unsupported` | operation or option not implemented | never |
 | `invalid_response` | malformed JSON, schema/tool parse failure | never |
 | `cancelled` | caller cancellation | never |
 | `caller` | callback or local input failure | never |
+| `unknown` | provider failure that cannot be classified confidently | never |
+
+Adapters MUST use the following category and code mappings. A provider-specific
+status or error name may be retained as sanitized metadata, but MUST NOT replace
+these values or change fallback eligibility.
+
+| Failure | Category | Code |
+| --- | --- | --- |
+| Connection failure | `transient` | `connection_failed` |
+| Timeout before a partial stream | `transient` | `timeout` |
+| Rate limit | `transient` | `rate_limited` |
+| Provider server error | `transient` | `server_error` |
+| Service unavailable | `transient` | `service_unavailable` |
+| Provider overload | `transient` | `overloaded` |
+| Missing or rejected credential | `authentication` | `invalid_credential` |
+| Credential lacks access | `authorization` | `permission_denied` |
+| Billing account inactive or payment required | `billing` | `billing_unavailable` |
+| Invalid provider request | `invalid_request` | `invalid_request` |
+| Unsupported capability or option | `unsupported` | `unsupported_capability` |
+| Structured output violates its schema | `invalid_response` | `invalid_schema` |
+| Request exceeds the model context window | `context_length` | `context_length_exceeded` |
+| Invalid endpoint, header, model, or local request configuration | `configuration` | `invalid_configuration` |
+| Caller cancellation | `cancelled` | `cancelled` |
+
+If a failure cannot be mapped confidently, the adapter MUST return `unknown` /
+`unclassified_provider_error`, which is non-retryable, rather than guessing a
+retryable category. A timeout or other error after a partial stream retains its
+mapped category and code, but its per-error retry eligibility is `false` and the
+fallback rule above prohibits automatic replay.
 
 Provider error classes stay internal. Existing `ProviderError` is too broad to
 drive this policy and existing `ErrorTaxonomy` was designed for CLI provider
