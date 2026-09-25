@@ -43,7 +43,6 @@ module AgentHarness
       1.upto(@max_attempts) do |number|
         check_cancellation!
         result = attempt(inputs, dimensions, number, attempts)
-        check_cancellation!
         return result
       rescue RateLimitError, TimeoutError, ProviderError => e
         raise unless retryable?(e) && number < @max_attempts

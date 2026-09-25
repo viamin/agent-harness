@@ -248,4 +248,20 @@ RSpec.describe "AgentHarness embeddings" do
       .to raise_error(AgentHarness::CancelledError)
     expect(request).to have_been_requested.once
   end
+
+  it "returns a completed attempt when cancellation arrives with the response" do
+    cancelled = false
+    reports = []
+    request = stub_request(:post, embedding_url).to_return do
+      cancelled = true
+      {body: fixture("success"), headers: {"Content-Type" => "application/json"}}
+    end
+
+    result = embed(cancellation: -> { cancelled }, observer: ->(report) { reports << report })
+
+    expect(result.vectors).to eq([[0.1, 0.2], [0.3, 0.4]])
+    expect(result.attempts).to eq(reports)
+    expect(reports).to contain_exactly(include(status: :succeeded))
+    expect(request).to have_been_requested.once
+  end
 end
