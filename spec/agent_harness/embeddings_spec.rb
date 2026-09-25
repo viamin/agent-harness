@@ -128,12 +128,42 @@ RSpec.describe "AgentHarness embeddings" do
     end
   end
 
+  it "classifies other provider response errors as provider failures" do
+    stub_request(:post, embedding_url)
+      .to_return(status: 404, body: '{"error":{"message":"unknown model"}}', headers: {"Content-Type" => "application/json"})
+
+    expect { embed(max_attempts: 1) }.to raise_error(AgentHarness::ProviderError) do |error|
+      expect(error.original_error).to be_a(RubyLLM::Error)
+    end
+  end
+
   it "honors Retry-After and bounds rate-limit retries" do
     request = stub_request(:post, embedding_url)
       .to_return(status: 429, body: '{"error":{"message":"slow down"}}', headers: {"Retry-After" => "0"})
 
     expect { embed(max_attempts: 2) }.to raise_error(AgentHarness::RateLimitError)
     expect(request).to have_been_requested.twice
+  end
+
+  it "converts Retry-After seconds to an absolute reset time" do
+    now = Time.utc(2026, 9, 25, 12)
+    allow(Time).to receive(:now).and_return(now)
+    stub_request(:post, embedding_url)
+      .to_return(status: 429, body: '{"error":{"message":"slow down"}}', headers: {"Retry-After" => "60"})
+
+    expect { embed(max_attempts: 1) }.to raise_error(AgentHarness::RateLimitError) do |error|
+      expect(error.reset_time).to eq(now + 60)
+    end
+  end
+
+  it "uses an HTTP-date Retry-After value as the absolute reset time" do
+    reset_time = Time.utc(2026, 9, 25, 12, 1)
+    stub_request(:post, embedding_url)
+      .to_return(status: 429, body: '{"error":{"message":"slow down"}}', headers: {"Retry-After" => reset_time.httpdate})
+
+    expect { embed(max_attempts: 1) }.to raise_error(AgentHarness::RateLimitError) do |error|
+      expect(error.reset_time).to eq(reset_time)
+    end
   end
 
   it "classifies timeouts after bounded retries" do

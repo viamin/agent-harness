@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "ruby_llm"
+require "time"
 
 module AgentHarness
   # Provider-neutral embedding execution backed by RubyLLM.
@@ -45,6 +46,8 @@ module AgentHarness
       raise ProviderError.new(e.message, original_error: e)
     rescue Faraday::ParsingError, NoMethodError, TypeError => e
       raise MalformedEmbeddingError.new("Malformed embedding response", original_error: e)
+    rescue RubyLLM::Error => e
+      raise ProviderError.new(e.message, original_error: e)
     end
 
     private
@@ -90,8 +93,11 @@ module AgentHarness
 
     def retry_after(error)
       value = error.response&.response_headers&.[]("retry-after")
-      value && Float(value)
-    rescue ArgumentError
+      return unless value
+
+      seconds = Float(value, exception: false)
+      seconds ? Time.now + seconds : Time.httpdate(value)
+    rescue ArgumentError, TypeError
       nil
     end
 
