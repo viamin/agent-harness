@@ -7,6 +7,8 @@ module AgentHarness
   module Api
     # Translates the normalized public chat values to RubyLLM public objects.
     class RubyLlmChatAdapter
+      class UnsupportedOptionError < StandardError; end
+
       PROVIDER_CONFIG = {
         anthropic: %i[anthropic_api_key anthropic_api_base],
         openai: %i[openai_api_key openai_api_base]
@@ -79,6 +81,10 @@ module AgentHarness
       end
 
       def apply_timeout(config, timeout)
+        if timeout&.dig(:connect_seconds)
+          raise UnsupportedOptionError, "RubyLLM does not support request-local connect timeouts"
+        end
+
         seconds = timeout&.dig(:read_seconds)
         config.request_timeout = seconds if seconds
       end
@@ -138,7 +144,9 @@ module AgentHarness
         return content if content.is_a?(String) || content.nil?
 
         Array(content).map do |part|
-          raise ArgumentError, "unsupported content type: #{part[:type]}" unless part[:type].to_sym == :text
+          unless part[:type]&.to_sym == :text
+            raise UnsupportedOptionError, "unsupported content type: #{part[:type]}"
+          end
 
           part[:text].to_s
         end.join

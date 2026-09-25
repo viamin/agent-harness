@@ -71,6 +71,47 @@ RSpec.describe AgentHarness::Api::RubyLlmChatAdapter do
       protocol: :chat_completions, assume_model_exists: true)
   end
 
+  it "rejects a connect timeout that RubyLLM cannot honor" do
+    expect do
+      adapter.call(
+        candidate: {provider: :openai, model: "private-model", protocol: :responses,
+                    credentials: {api_key: "request-secret"}},
+        messages: [], tools: [], max_output_tokens: nil, temperature: nil, stream: false,
+        timeout: {connect_seconds: 5, read_seconds: 60}, cancellation: nil
+      )
+    end.to raise_error(described_class::UnsupportedOptionError, /connect timeouts/)
+
+    expect(context).not_to have_received(:chat)
+  end
+
+  it "rejects unsupported message media explicitly" do
+    expect do
+      adapter.call(
+        candidate: {provider: :openai, model: "private-model", protocol: :responses,
+                    credentials: {api_key: "request-secret"}},
+        messages: [{role: :user, content: [{type: :image_url, image_url: "https://example.test/image.png"}]}],
+        tools: [], max_output_tokens: nil, temperature: nil, stream: false, timeout: nil, cancellation: nil
+      )
+    end.to raise_error(described_class::UnsupportedOptionError, /image_url/)
+
+    expect(chat).not_to have_received(:generate)
+  end
+
+  it "raises malformed input tool arguments as a JSON parse failure" do
+    expect do
+      adapter.call(
+        candidate: {provider: :openai, model: "private-model", protocol: :responses,
+                    credentials: {api_key: "request-secret"}},
+        messages: [{role: :assistant, content: "", tool_calls: [
+          {id: "tool-1", provider_id: "call-1", name: "lookup", arguments_json: "{"}
+        ]}],
+        tools: [], max_output_tokens: nil, temperature: nil, stream: false, timeout: nil, cancellation: nil
+      )
+    end.to raise_error(JSON::ParserError)
+
+    expect(chat).not_to have_received(:generate)
+  end
+
   it "joins interleaved multi-chunk Anthropic tool calls by stream index" do
     candidate = {provider: :anthropic, model: "private-model", protocol: :messages,
                  credentials: {api_key: "request-secret"}}

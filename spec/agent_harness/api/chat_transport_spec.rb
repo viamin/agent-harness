@@ -57,6 +57,10 @@ RSpec.describe AgentHarness::Api::ChatTransport do
       {id: "tool-2", provider_id: "call-b", name: "second", arguments_json: '{"y":2}', status: :completed}
     ])
     expect(result[:usage]).to eq(input_tokens: 12, output_tokens: 4, total_tokens: 16)
+    expect(result[:attempts]).to contain_exactly(hash_including(
+      usage: {input_tokens: 12, output_tokens: 4, total_tokens: 16},
+      cost: nil, provider_reported: false
+    ))
   end
 
   it "emits ordered text and exactly one explicit completion event" do
@@ -112,6 +116,69 @@ RSpec.describe AgentHarness::Api::ChatTransport do
     expect(result).to include(status: :succeeded, provider: :openai, model: "gpt-test")
     expect(adapter).to have_received(:call).with(hash_including(candidate: candidate)).ordered
     expect(adapter).to have_received(:call).with(hash_including(candidate: second)).ordered
+  end
+
+  it "notifies the observer before advancing to a fallback candidate" do
+    events = []
+    second = candidate.merge(provider: :openai, model: "gpt-test", protocol: :chat_completions,
+      credentials: {api_key: "secret-b"})
+    allow(adapter).to receive(:call).and_raise(RubyLLM::ServiceUnavailableError, "unavailable")
+
+    transport.call(request.merge(candidates: [candidate, second], retry: {max_attempts: 2},
+      fallback: {on_error_categories: [:transient]}), observer: ->(event) { events << event })
+
+    fallback = events.find { |event| event[:type] == :fallback_selected }
+    expect(fallback).to include(from: hash_including(provider: :anthropic),
+      to: hash_including(provider: :openai), error: hash_including(category: :transient))
+    expect(events.map { |event| event[:type] }).to eq(
+      %i[response_started response_failed fallback_selected response_started response_failed]
+    )
+  end
+
+  it "stops before fallback when its observer notification fails" do
+    second = candidate.merge(provider: :openai, model: "gpt-test", protocol: :chat_completions,
+      credentials: {api_key: "secret-b"})
+    observer = lambda do |event|
+      raise "fallback vetoed" if event[:type] == :fallback_selected
+    end
+    allow(adapter).to receive(:call).and_raise(RubyLLM::ServiceUnavailableError, "unavailable")
+
+    expect do
+      transport.call(request.merge(candidates: [candidate, second], retry: {max_attempts: 2},
+        fallback: {on_error_categories: [:transient]}), observer: observer)
+    end.to raise_error(described_class::ObserverError, /fallback vetoed/)
+
+    expect(adapter).to have_received(:call).once
+  end
+
+  it "rechecks cancellation after notifying the observer about fallback" do
+    cancelled = false
+    second = candidate.merge(provider: :openai, model: "gpt-test", protocol: :chat_completions,
+      credentials: {api_key: "secret-b"})
+    observer = lambda do |event|
+      cancelled = true if event[:type] == :fallback_selected
+    end
+    allow(adapter).to receive(:call).and_raise(RubyLLM::ServiceUnavailableError, "unavailable")
+
+    result = transport.call(request.merge(candidates: [candidate, second], retry: {max_attempts: 2},
+      fallback: {on_error_categories: [:transient]}, cancellation: -> { cancelled }), observer: observer)
+
+    expect(result[:status]).to eq(:cancelled)
+    expect(adapter).to have_received(:call).once
+  end
+
+  it "classifies unsupported media and malformed tool arguments explicitly" do
+    errors = [
+      AgentHarness::Api::RubyLlmChatAdapter::UnsupportedOptionError.new("unsupported media"),
+      JSON::ParserError.new("malformed arguments")
+    ]
+    allow(adapter).to receive(:call) { raise errors.shift }
+
+    unsupported = transport.call(request)
+    invalid_response = transport.call(request)
+
+    expect(unsupported[:error]).to include(category: :unsupported, code: :unsupported_capability)
+    expect(invalid_response[:error]).to include(category: :invalid_response, code: :invalid_tool_arguments)
   end
 
   it "surfaces a failing observer directly without classifying it as a provider error" do

@@ -77,7 +77,7 @@ module AgentHarness
 
             @last_error = result[:error]
             @last_candidate = candidate
-            return result if fallback_allowed?(result, candidate_index)
+            return result if select_fallback(result, candidate_index)
             return result unless retryable?(result)
 
             backoff
@@ -115,13 +115,13 @@ module AgentHarness
         end
 
         def success(candidate, attempt_id, started_at, adapter_result)
-          attempts << attempt_report(candidate, attempt_id, started_at, :succeeded)
+          attempts << attempt_report(candidate, attempt_id, started_at, :succeeded, usage: adapter_result[:usage])
           result = base_result(candidate).merge(
             status: :succeeded,
             content: adapter_result[:content] || "",
             tool_calls: normalize_tool_calls(adapter_result[:tool_calls]),
             finish_reason: adapter_result[:finish_reason],
-            usage: adapter_result[:usage],
+            usage: aggregate_usage,
             error: nil
           )
           emit(:response_completed, attempt_id:, result: result)
@@ -148,6 +148,16 @@ module AgentHarness
           return false unless fallback_categories.include?(result.dig(:error, :category))
           return false unless candidates[candidate_index + 1]
 
+          true
+        end
+
+        def select_fallback(result, candidate_index)
+          return false unless fallback_allowed?(result, candidate_index)
+
+          next_candidate = candidates[candidate_index + 1]
+          emit(:fallback_selected, attempt_id: attempts.last[:attempt_id],
+            from: candidate_identity(candidates[candidate_index]),
+            to: candidate_identity(next_candidate), error: result[:error])
           true
         end
 
@@ -251,7 +261,7 @@ module AgentHarness
             usage: nil, error: error)
         end
 
-        def attempt_report(candidate, attempt_id, started_at, status, error: nil)
+        def attempt_report(candidate, attempt_id, started_at, status, error: nil, usage: nil)
           {
             attempt_id: attempt_id,
             request_id: request[:request_id],
@@ -261,8 +271,21 @@ module AgentHarness
             status: status,
             started_at: started_at.iso8601(6),
             finished_at: Time.now.utc.iso8601(6),
+            usage: usage,
+            cost: nil,
+            provider_reported: false,
             error: error
           }
+        end
+
+        def aggregate_usage
+          reports = attempts.filter_map { |attempt| attempt[:usage] }
+          return if reports.empty?
+
+          %i[input_tokens output_tokens total_tokens].to_h do |key|
+            values = reports.filter_map { |usage| usage[key] }
+            [key, values.empty? ? nil : values.sum]
+          end
         end
 
         def classify(error)
@@ -354,8 +377,10 @@ module AgentHarness
         RubyLLM::PaymentRequiredError => [:billing, :billing_unavailable],
         RubyLLM::ContextLengthExceededError => [:context_length, :context_length_exceeded],
         RubyLLM::BadRequestError => [:invalid_request, :invalid_request],
+        RubyLlmChatAdapter::UnsupportedOptionError => [:unsupported, :unsupported_capability],
         RubyLLM::UnsupportedServerToolError => [:unsupported, :unsupported_capability],
         RubyLLM::ToolCallParseError => [:invalid_response, :invalid_tool_arguments],
+        JSON::ParserError => [:invalid_response, :invalid_tool_arguments],
         RubyLLM::ModelNotFoundError => [:configuration, :invalid_configuration],
         RubyLLM::ConfigurationError => [:configuration, :invalid_configuration],
         RubyLLM::CancelledError => [:cancelled, :cancelled]
