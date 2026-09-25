@@ -110,6 +110,25 @@ RSpec.describe AgentHarness::Api::RubyLlmChatAdapter do
     expect(result).to include(content: "No", refusal: true)
   end
 
+  it "normalizes a Chat Completions refusal without exposing its wire shape" do
+    raw = Struct.new(:body).new({"choices" => [{"message" => {"content" => nil, "refusal" => "No"}}]})
+    allow(chat).to receive(:generate).and_return(
+      instance_double(RubyLLM::Message, content: nil, model: "private-model", finish_reason: :stop,
+        tokens: nil, tool_calls: nil, raw: raw)
+    )
+
+    result = adapter.call(
+      candidate: {
+        provider: :openai, model: "private-model", protocol: :chat_completions,
+        credentials: {api_key: "request-secret"}
+      },
+      messages: [], tools: [], schema: {type: "object"}, max_output_tokens: nil,
+      temperature: nil, stream: false, timeout: nil, cancellation: nil
+    )
+
+    expect(result).to include(content: "", refusal: true)
+  end
+
   it "clears a copied global base URL when the candidate has no endpoint" do
     allow(RubyLLM).to receive(:context) do |&configuration|
       @configured = config_class.new(nil, nil, nil, "https://global.example/v1")

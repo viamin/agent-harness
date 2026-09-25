@@ -249,12 +249,25 @@ module AgentHarness
         body = response.raw&.body
         return false unless body.is_a?(Hash)
 
+        responses_api_refusal?(body) || chat_completions_refusal?(body)
+      end
+
+      def responses_api_refusal?(body)
         Array(body["output"] || body[:output]).any? do |item|
           next false unless item.is_a?(Hash)
 
           Array(item["content"] || item[:content]).any? do |part|
             part.is_a?(Hash) && (part["type"] || part[:type]) == "refusal"
           end
+        end
+      end
+
+      def chat_completions_refusal?(body)
+        Array(body["choices"] || body[:choices]).any? do |choice|
+          next false unless choice.is_a?(Hash)
+
+          message = choice["message"] || choice[:message]
+          message.is_a?(Hash) && !(message["refusal"] || message[:refusal]).nil?
         end
       end
 
