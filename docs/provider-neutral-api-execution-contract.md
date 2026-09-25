@@ -8,8 +8,8 @@ usage, and optional conversation-persistence work.
 ## Status and rollout boundary
 
 RDR-072's rollout guard was **docs-only** for the design phase. The normalized
-chat capability described in "Shipped normalized chat surface" below is now
-implemented. Other capabilities remain design contracts and each still needs
+chat and attempt-accounting capabilities described below are now implemented
+behind `AgentHarness::Api::ChatTransport`. Other capabilities remain design contracts and each still needs
 its own failing-first contract tests, implementation, release evidence, and
 downstream adoption evidence before a caller enables it.
 
@@ -336,6 +336,23 @@ observer so durable accounting can persist an attempt even when no message is
 created. Callers deduplicate on `attempt_id`. Cost identifies its source as
 provider-reported or harness-estimated; unknown cost remains `nil`.
 
+The observer receives `attempt_completed` after every physical request, with
+the same report later returned in `result[:attempts]`. Delivery is at least
+once across process recovery: consumers MUST enforce a unique key on
+`attempt_id` and treat a repeated report as an idempotent upsert, not another
+charge. `AttemptReport.from_h` restores JSON-decoded reports. Stored cost
+includes USD component amounts, `source` (`provider_reported` or `estimated`),
+and `priced_at`; restoration never consults current prices. Missing counts and
+prices remain absent/`nil`, while a reported zero remains zero. Usage may also
+include `cache_read_tokens`, `cache_write_tokens`, and `thinking_tokens`.
+
+Attempt events contain only identifiers, provider/model, outcome, normalized
+usage/cost, timestamps, and sanitized classified errors. They do not include
+prompts, messages, request headers, endpoints, or credentials. RubyLLM API chat
+requests are in this ledger. Existing CLI providers, `TextTransport`,
+`OpenAICompatibleTransport`, token trackers, embeddings, and other
+non-`Api::ChatTransport` paths remain outside it.
+
 Only errors classified `transient` are eligible for bounded request retry:
 connection failure, timeout before a partial stream, rate limit, server error,
 service unavailable, and overload. Authentication, authorization, billing,
@@ -568,6 +585,27 @@ stable IDs, and unknown usage where applicable. Provider-specific fixtures and
 types stay behind the harness boundary.
 
 ## Compatibility and release evidence
+
+### Attempt-accounting capability evidence
+
+- Release: pending the first published version containing issue #435; a Git
+  branch or tag alone is not downstream adoption evidence.
+- Scope: normalized chat through `Api::ChatTransport` for Anthropic Messages
+  and OpenAI Responses/Chat Completions (including compatible endpoints), with
+  request-local API-key authentication. It is stacked on the normalized chat
+  capability from #433.
+- Verification: the API contract specs cover request-local credentials,
+  endpoint/header isolation, error classification, bounded non-nested retry,
+  fallback, cancellation, partial usage, cache usage, repeated identity,
+  observer redaction, and JSON reload with preserved pricing. The full upstream
+  suite and lint run on the repository's supported Ruby environment.
+- Migration: no Rails tables or migrations are loaded or required. Paid and
+  agent-image consumer versions remain unverified and MUST NOT adopt this
+  capability until their integration suites record the exact released gem and
+  image versions.
+- Retained paths: CLI/subscription providers, legacy HTTP transports,
+  embeddings, and token trackers remain outside this ledger and require
+  separate migration issues.
 
 AgentHarness currently supports Ruby 3.2 and later and must remain usable as a
 plain Ruby gem. RubyLLM 2.0.0 itself supports Ruby 3.1.3 and later, but adding it
