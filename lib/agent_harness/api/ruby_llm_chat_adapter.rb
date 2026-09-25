@@ -110,17 +110,19 @@ module AgentHarness
 
         state = StreamState.new
         chat.generate do |chunk|
-          chat.cancel if cancelled?(cancellation)
+          if cancelled?(cancellation)
+            chat.cancel
+            raise RubyLLM::CancelledError
+          end
+
           stream_events(chunk, state).each { |event| yield event }
         end
       end
 
       def generate_without_events(chat, cancellation)
-        return chat.generate unless cancellation
-
         raise RubyLLM::CancelledError if cancelled?(cancellation)
 
-        raise UnsupportedOptionError, "cancellation during non-streaming generation is unsupported"
+        chat.generate
       end
 
       def cancelled?(token)

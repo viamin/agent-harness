@@ -72,7 +72,21 @@ RSpec.describe AgentHarness::Api::RubyLlmChatAdapter do
       protocol: :chat_completions, assume_model_exists: true)
   end
 
-  it "rejects active cancellation for non-streaming generation without starting a streaming request" do
+  it "generates a non-streaming response with an inactive cancellation token" do
+    result = adapter.call(
+      candidate: {
+        provider: :openai, model: "openai-model", protocol: :responses,
+        credentials: {api_key: "request-secret"}
+      },
+      messages: [], tools: [], max_output_tokens: nil, temperature: nil,
+      stream: false, timeout: nil, cancellation: -> { false }
+    )
+
+    expect(chat).to have_received(:generate)
+    expect(result).to include(content: "ok")
+  end
+
+  it "rejects active cancellation before non-streaming generation" do
     expect do
       adapter.call(
         candidate: {
@@ -80,9 +94,9 @@ RSpec.describe AgentHarness::Api::RubyLlmChatAdapter do
           credentials: {api_key: "request-secret"}
         },
         messages: [], tools: [], max_output_tokens: nil, temperature: nil,
-        stream: false, timeout: nil, cancellation: -> { false }
+        stream: false, timeout: nil, cancellation: -> { true }
       )
-    end.to raise_error(described_class::UnsupportedOptionError, /non-streaming generation/)
+    end.to raise_error(RubyLLM::CancelledError)
 
     expect(chat).not_to have_received(:generate)
   end
@@ -276,6 +290,28 @@ RSpec.describe AgentHarness::Api::RubyLlmChatAdapter do
     streamed_events(candidate, [chunk(content: "ok")], final)
 
     expect(@streamed_result).to include(usage: nil)
+  end
+
+  it "does not emit a chunk observed after streaming cancellation" do
+    candidate = {provider: :openai, model: "private-model", protocol: :responses,
+                 credentials: {api_key: "request-secret"}}
+    cancelled = false
+    events = []
+    allow(chat).to receive(:generate) do |&block|
+      block.call(chunk(content: "before"))
+      cancelled = true
+      block.call(chunk(content: "after"))
+    end
+
+    expect do
+      adapter.call(candidate: candidate, messages: [], tools: [], max_output_tokens: nil,
+        temperature: nil, stream: true, timeout: nil, cancellation: -> { cancelled }) do |event|
+        events << event
+      end
+    end.to raise_error(RubyLLM::CancelledError)
+
+    expect(chat).to have_received(:cancel).once
+    expect(events).to eq([{type: :text_delta, content: "before"}])
   end
 
   private
