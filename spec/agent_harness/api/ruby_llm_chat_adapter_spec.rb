@@ -161,6 +161,25 @@ RSpec.describe AgentHarness::Api::RubyLlmChatAdapter do
     expect(@configured.to_h).to include(openai_api_key: "request-secret", openai_api_base: nil)
   end
 
+  it "restores the harness timeout default when the request omits a timeout" do
+    allow(RubyLLM).to receive(:context) do |&configuration|
+      @configured = config_class.new(nil, nil, nil, nil, nil, 1)
+      configuration.call(@configured)
+      context
+    end
+
+    adapter.call(
+      candidate: {
+        provider: :openai, model: "openai-model", protocol: :responses,
+        credentials: {api_key: "request-secret"}
+      },
+      messages: [], tools: [], max_output_tokens: nil, temperature: nil,
+      stream: false, timeout: nil, cancellation: nil
+    )
+
+    expect(@configured.request_timeout).to eq(300)
+  end
+
   it "rejects a connect timeout that RubyLLM cannot honor" do
     expect do
       adapter.call(

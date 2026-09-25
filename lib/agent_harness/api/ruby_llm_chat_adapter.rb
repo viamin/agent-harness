@@ -23,6 +23,8 @@ module AgentHarness
     class RubyLlmChatAdapter
       class UnsupportedOptionError < StandardError; end
 
+      DEFAULT_REQUEST_TIMEOUT_SECONDS = 300
+
       PROVIDER_CONFIG = {
         anthropic: %i[anthropic_api_key anthropic_api_base],
         openai: %i[openai_api_key openai_api_base]
@@ -106,8 +108,7 @@ module AgentHarness
           raise UnsupportedOptionError, "RubyLLM does not support request-local connect timeouts"
         end
 
-        seconds = timeout&.dig(:read_seconds)
-        config.request_timeout = seconds if seconds
+        config.request_timeout = timeout&.dig(:read_seconds) || DEFAULT_REQUEST_TIMEOUT_SECONDS
       end
 
       def configure_chat(chat, candidate, messages, tools, max_output_tokens, temperature, schema)
