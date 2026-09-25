@@ -7,18 +7,74 @@ usage, and optional conversation-persistence work.
 
 ## Status and rollout boundary
 
-This is a design contract, not a claim that the described API is implemented.
-RDR-072's rollout guard is **docs-only now**, so this change adds no runtime
-behavior or dependency. Each capability below needs its own failing-first
-contract tests, implementation, release evidence, and downstream adoption
-evidence before a caller enables it.
+RDR-072's rollout guard was **docs-only** for the design phase. The normalized
+chat capability described in "Shipped normalized chat surface" below is now
+implemented. Other capabilities remain design contracts and each still needs
+its own failing-first contract tests, implementation, release evidence, and
+downstream adoption evidence before a caller enables it.
 
 Existing CLI and subscription behavior remains the default. Existing
 `TextTransport`, `OpenAICompatibleTransport`, `Conversation`, and `Response`
-interfaces remain available, but they do not yet satisfy this contract. A
-caller must not infer support from a gem version or issue closure.
+interfaces remain available and unchanged; they are not aliases for the
+normalized API. A caller must not infer support for another capability from a
+gem version or issue closure.
 
 Normative words such as MUST and MUST NOT describe the future public boundary.
+
+## Shipped normalized chat surface
+
+`AgentHarness::Api::ChatTransport#call` implements one normalized assistant
+response while leaving the conversation loop and all application tool
+execution with the caller:
+
+```ruby
+transport = AgentHarness::Api::ChatTransport.new
+result = transport.call(request.merge(
+  operation: :chat,
+  messages: [
+    {id: "system-1", role: :system,
+     content: [{type: :text, text: "Be concise"}]},
+    {id: "user-1", role: :user,
+     content: [{type: :text, text: "Summarize this"}]}
+  ],
+  tools: [{
+    name: "lookup",
+    description: "Looks up a record",
+    input_schema: {type: "object", properties: {id: {type: "string"}}}
+  }],
+  max_output_tokens: 1_000,
+  stream: true
+), observer: ->(event) { events << event })
+```
+
+The returned value is the normalized result hash in this document. The
+observer is either callable or responds to `on_chat_event`. It receives ordered
+events with request/attempt identity and sequence numbers. This transport never
+invokes a supplied tool; callers append completed tool results to a later
+request. A failed partial stream is terminal, so its content cannot be appended
+to a fallback response and its tool calls cannot be replayed automatically.
+
+The verified scopes are Anthropic with `protocol: :messages`, OpenAI with
+`protocol: :responses` or `:chat_completions`, and OpenAI-compatible endpoints
+with `provider: :openai`, an explicit `endpoint`, and
+`protocol: :chat_completions`. Compatible endpoints that do not implement the
+Responses API must select `:chat_completions`; the transport never probes and
+silently switches protocols. Only `authentication_mode: :api_key` is currently
+supported.
+
+Credentials, endpoint, custom headers, timeout, and RubyLLM configuration are
+isolated with a request-local `RubyLLM::Context`. RubyLLM middleware retries
+are disabled; `retry.max_attempts` is the total physical-attempt limit owned by
+the harness. Authentication headers cannot be overridden by custom headers.
+`max_output_tokens` is forwarded without changing it.
+
+Unknown model IDs are allowed only because a complete provider and protocol
+are explicit in every candidate (`assume_model_exists: true` in the RubyLLM
+adapter). This skips registry validation; it does not assert that the endpoint
+supports the model. Provider rejection returns a classified failure. Custom
+endpoints retain the selected provider's wire protocol and authentication
+shape. Custom provider types, authentication modes, media content, and
+automatic protocol discovery are not supported by this capability.
 
 ## Ownership boundary
 
