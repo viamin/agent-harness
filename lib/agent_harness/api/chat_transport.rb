@@ -163,6 +163,7 @@ module AgentHarness
           return false if result[:status] == :partial
           return false unless fallback_categories.include?(result.dig(:error, :category))
           return false unless candidates[candidate_index + 1]
+          return false if attempts.length >= retry_config[:max_attempts]
 
           true
         end
@@ -352,9 +353,9 @@ module AgentHarness
           return unless schema_operation?
 
           raw = request[:schema]
-          return raw.merge(name: request[:schema_name] || raw[:name], strict: raw.fetch(:strict, true)) if raw[:schema]
+          return raw.merge(name: request[:schema_name] || raw[:name]) if raw[:schema]
 
-          {name: request[:schema_name] || raw[:title] || "response", schema: raw, strict: true}
+          {name: request[:schema_name] || raw[:title] || "response", schema: raw}
         end
 
         def schema_definition

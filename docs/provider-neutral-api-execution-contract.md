@@ -13,6 +13,12 @@ capabilities remain design contracts and each still needs
 its own failing-first contract tests, implementation, release evidence, and
 downstream adoption evidence before a caller enables it.
 
+This delivery combines the normalized chat transport tracked by
+[#433](https://github.com/viamin/agent-harness/issues/433) with the schema
+response capability tracked by
+[#434](https://github.com/viamin/agent-harness/issues/434); it supersedes the
+separate #433 delivery rather than leaving that capability pending.
+
 Existing CLI and subscription behavior remains the default. Existing
 `TextTransport`, `OpenAICompatibleTransport`, `Conversation`, and `Response`
 interfaces remain available and unchanged; they are not aliases for the
@@ -108,9 +114,11 @@ result[:content] # => '{"name":"Ada","age":37}'
 result[:parsed]  # => {"name" => "Ada", "age" => 37}
 ```
 
-Schema operations use strict JSON Schema output and the same verified
+Schema operations use provider-native JSON Schema output and the same verified
 Anthropic Messages, OpenAI Responses, and OpenAI Chat Completions scopes as
-normalized chat. `schema_mode: :json_schema` is the only supported mode.
+normalized chat. Provider adapters infer strictness from the schema, allowing
+schemas with optional properties; callers using a `{schema:, strict:}` envelope
+can explicitly select strictness. `schema_mode: :json_schema` is the only supported mode.
 JSON-only mode returns `unsupported/structured_output_not_supported`; it is
 not silently treated as schema enforcement.
 

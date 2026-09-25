@@ -69,7 +69,27 @@ RSpec.describe AgentHarness::Api::ChatTransport do
       error: nil
     )
     expect(adapter).to have_received(:call).with(hash_including(
-      schema: hash_including(name: "person", schema: schema, strict: true)
+      schema: {name: "person", schema: schema}
+    ))
+  end
+
+  it "leaves strictness unset so the provider adapter can infer it for optional properties" do
+    optional_schema = schema.merge(required: ["name"])
+
+    transport.call(request.merge(schema: optional_schema))
+
+    expect(adapter).to have_received(:call).with(hash_including(
+      schema: {name: "person", schema: optional_schema}
+    ))
+  end
+
+  it "preserves explicitly configured strictness in schema envelopes" do
+    envelope = {name: "optional-person", schema: schema.merge(required: ["name"]), strict: false}
+
+    transport.call(request.merge(schema: envelope))
+
+    expect(adapter).to have_received(:call).with(hash_including(
+      schema: hash_including(schema: envelope[:schema], strict: false)
     ))
   end
 

@@ -166,6 +166,20 @@ RSpec.describe AgentHarness::Api::ChatTransport do
     )
   end
 
+  it "does not announce a fallback after exhausting the attempt budget" do
+    events = []
+    second = candidate.merge(provider: :openai, model: "gpt-test", protocol: :chat_completions,
+      credentials: {api_key: "secret-b"})
+    allow(adapter).to receive(:call).and_raise(RubyLLM::ServiceUnavailableError, "unavailable")
+
+    result = transport.call(request.merge(candidates: [candidate, second],
+      fallback: {on_error_categories: [:transient]}), observer: ->(event) { events << event })
+
+    expect(result).to include(status: :failed, provider: :anthropic)
+    expect(adapter).to have_received(:call).once
+    expect(events.map { |event| event[:type] }).to eq(%i[response_started response_failed])
+  end
+
   it "stops before fallback when its observer notification fails" do
     second = candidate.merge(provider: :openai, model: "gpt-test", protocol: :chat_completions,
       credentials: {api_key: "secret-b"})
