@@ -25,6 +25,7 @@ RSpec.describe "AgentHarness embeddings" do
 
     expect(result.vectors).to eq([])
     expect(result.usage).to eq(input_tokens: nil)
+    expect(result.attempts).to eq([])
     expect(a_request(:post, embedding_url)).not_to have_been_made
   end
 
@@ -36,6 +37,11 @@ RSpec.describe "AgentHarness embeddings" do
     expect(result.vectors).to eq([[0.1, 0.2], [0.3, 0.4]])
     expect(result.usage).to eq(input_tokens: 7)
     expect(result.per_vector_usage).to be_nil
+    expect(result.attempts).to contain_exactly(include(
+      attempt_id: start_with("attempt_"), number: 1, provider: :openai,
+      status: :succeeded, usage: {input_tokens: 7, output_tokens: nil, total_tokens: 7},
+      provider_reported: true, error: nil
+    ))
     expect(a_request(:post, embedding_url).with do |request|
       JSON.parse(request.body) == {
         "input" => ["first", "second"], "model" => "text-embedding-3-small", "dimensions" => 2
@@ -118,14 +124,30 @@ RSpec.describe "AgentHarness embeddings" do
     end.to raise_error(ArgumentError, /Authorization/)
   end
 
-  [401, 403].each do |status|
-    it "classifies HTTP #{status} as authentication failure without retrying" do
-      request = stub_request(:post, embedding_url)
-        .to_return(status: status, body: '{"error":{"message":"denied"}}', headers: {"Content-Type" => "application/json"})
+  it "validates attempt reporting options before making a request" do
+    expect { embed(request_id: "") }.to raise_error(ArgumentError, /request_id/)
+    expect { embed(observer: Object.new) }.to raise_error(ArgumentError, /observer/)
+    expect(a_request(:post, embedding_url)).not_to have_been_made
+  end
 
-      expect { embed(max_attempts: 3) }.to raise_error(AgentHarness::AuthenticationError)
-      expect(request).to have_been_requested.once
+  it "classifies HTTP 401 as authentication failure without retrying" do
+    request = stub_request(:post, embedding_url)
+      .to_return(status: 401, body: '{"error":{"message":"denied"}}', headers: {"Content-Type" => "application/json"})
+
+    expect { embed(max_attempts: 3) }.to raise_error(AgentHarness::AuthenticationError) do |error|
+      expect([error.error_category, error.error_code]).to eq([:authentication, :invalid_credential])
     end
+    expect(request).to have_been_requested.once
+  end
+
+  it "classifies HTTP 403 as authorization failure without retrying" do
+    request = stub_request(:post, embedding_url)
+      .to_return(status: 403, body: '{"error":{"message":"denied"}}', headers: {"Content-Type" => "application/json"})
+
+    expect { embed(max_attempts: 3) }.to raise_error(AgentHarness::AuthorizationError) do |error|
+      expect([error.error_category, error.error_code]).to eq([:authorization, :permission_denied])
+    end
+    expect(request).to have_been_requested.once
   end
 
   it "classifies other provider response errors as provider failures" do
@@ -177,8 +199,28 @@ RSpec.describe "AgentHarness embeddings" do
     request = stub_request(:post, embedding_url)
       .to_return({status: 503}, {body: fixture("success"), headers: {"Content-Type" => "application/json"}})
 
-    expect(embed(max_attempts: 2).vectors).to eq([[0.1, 0.2], [0.3, 0.4]])
+    reports = []
+    result = embed(max_attempts: 2, request_id: "embedding-request", observer: ->(report) { reports << report })
+
+    expect(result.vectors).to eq([[0.1, 0.2], [0.3, 0.4]])
+    expect(result.attempts).to eq(reports)
+    expect(reports.map { |report| report[:status] }).to eq([:failed, :succeeded])
+    expect(reports.map { |report| report[:number] }).to eq([1, 2])
+    expect(reports.map { |report| report[:request_id] }).to eq(%w[embedding-request embedding-request])
+    expect(reports.map { |report| report[:attempt_id] }.uniq.length).to eq(2)
+    expect(reports.first[:error]).to eq(category: :transient, code: :service_unavailable)
     expect(request).to have_been_requested.twice
+  end
+
+  it "reports terminal failed attempts to the observer" do
+    reports = []
+    stub_request(:post, embedding_url)
+      .to_return(status: 401, body: '{"error":{"message":"denied"}}', headers: {"Content-Type" => "application/json"})
+
+    expect { embed(observer: ->(report) { reports << report }) }.to raise_error(AgentHarness::AuthenticationError)
+    expect(reports).to contain_exactly(include(
+      status: :failed, error: {category: :authentication, code: :invalid_credential}
+    ))
   end
 
   it "stops before a cancelled attempt" do

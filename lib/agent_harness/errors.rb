@@ -68,10 +68,24 @@ module AgentHarness
 
   # Authentication errors
   class AuthenticationError < Error
-    attr_reader :provider
+    attr_reader :provider, :error_category, :error_code
 
-    def initialize(message = nil, provider: nil, **kwargs)
+    def initialize(message = nil, provider: nil, error_category: :authentication, error_code: :invalid_credential, **kwargs)
       @provider = provider
+      @error_category = error_category
+      @error_code = error_code
+      super(message, **kwargs)
+    end
+  end
+
+  # Raised when valid credentials do not grant access to the requested resource.
+  class AuthorizationError < Error
+    attr_reader :provider, :error_category, :error_code
+
+    def initialize(message = nil, provider: nil, error_category: :authorization, error_code: :permission_denied, **kwargs)
+      @provider = provider
+      @error_category = error_category
+      @error_code = error_code
       super(message, **kwargs)
     end
   end
