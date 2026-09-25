@@ -118,8 +118,9 @@ module AgentHarness
       def generate_without_events(chat, cancellation)
         return chat.generate unless cancellation
 
-        chat.cancel if cancelled?(cancellation)
-        chat.generate { chat.cancel if cancelled?(cancellation) }
+        raise RubyLLM::CancelledError if cancelled?(cancellation)
+
+        raise UnsupportedOptionError, "cancellation during non-streaming generation is unsupported"
       end
 
       def cancelled?(token)

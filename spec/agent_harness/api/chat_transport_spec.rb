@@ -275,12 +275,12 @@ RSpec.describe AgentHarness::Api::ChatTransport do
     expect(delays.sum).to be_within(0.001).of(0.1)
   end
 
-  it "classifies otherwise unmapped RubyLLM errors as provider rejections" do
+  it "classifies otherwise unmapped RubyLLM errors as unknown" do
     allow(adapter).to receive(:call).and_raise(RubyLLM::Error, "model not found")
 
     result = transport.call(request)
 
-    expect(result[:error]).to include(category: :provider, code: :provider_rejected, retryable: false)
+    expect(result[:error]).to include(category: :unknown, code: :unclassified_provider_error, retryable: false)
   end
 
   it "rejects reserved authentication header overrides" do

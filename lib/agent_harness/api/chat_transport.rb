@@ -388,8 +388,7 @@ module AgentHarness
         JSON::ParserError => [:invalid_response, :invalid_tool_arguments],
         RubyLLM::ModelNotFoundError => [:configuration, :invalid_configuration],
         RubyLLM::ConfigurationError => [:configuration, :invalid_configuration],
-        RubyLLM::CancelledError => [:cancelled, :cancelled],
-        RubyLLM::Error => [:provider, :provider_rejected]
+        RubyLLM::CancelledError => [:cancelled, :cancelled]
       }.freeze
 
       def self.call(error)

@@ -72,26 +72,19 @@ RSpec.describe AgentHarness::Api::RubyLlmChatAdapter do
       protocol: :chat_completions, assume_model_exists: true)
   end
 
-  it "cancels non-streaming generation when its token flips in flight" do
-    cancelled = false
-    cancellation = -> { cancelled }
-    allow(chat).to receive(:generate) do |&on_chunk|
-      cancelled = true
-      on_chunk.call(chunk(content: "partial"))
-      response
-    end
+  it "rejects active cancellation for non-streaming generation without starting a streaming request" do
+    expect do
+      adapter.call(
+        candidate: {
+          provider: :openai, model: "openai-model", protocol: :responses,
+          credentials: {api_key: "request-secret"}
+        },
+        messages: [], tools: [], max_output_tokens: nil, temperature: nil,
+        stream: false, timeout: nil, cancellation: -> { false }
+      )
+    end.to raise_error(described_class::UnsupportedOptionError, /non-streaming generation/)
 
-    result = adapter.call(
-      candidate: {
-        provider: :openai, model: "openai-model", protocol: :responses,
-        credentials: {api_key: "request-secret"}
-      },
-      messages: [], tools: [], max_output_tokens: nil, temperature: nil,
-      stream: false, timeout: nil, cancellation: cancellation
-    )
-
-    expect(chat).to have_received(:cancel).once
-    expect(result).to include(content: "ok", model: "private-model")
+    expect(chat).not_to have_received(:generate)
   end
 
   it "clears a copied global base URL when the candidate has no endpoint" do
