@@ -152,7 +152,6 @@ module AgentHarness
         end
 
         def failure(candidate, attempt_id, started_at, error, partial:, accounting:)
-          error = error.merge(retryable: false) if partial
           status = failure_status(error, partial)
           error = error.merge(retryable: false) if partial
           append_attempt(candidate, attempt_id, started_at, status, error: error, **accounting)
