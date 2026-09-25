@@ -338,6 +338,27 @@ RSpec.describe AgentHarness::Api::RubyLlmChatAdapter do
     expect(accounting.to_s).not_to include("private prompt", "request-secret")
   end
 
+  it "does not treat synthetic failure zeroes as provider-reported usage" do
+    accounting = []
+    tokens = RubyLLM::Tokens.new(input: 0, output: 0)
+    cost = RubyLLM::Cost.new(tokens: tokens)
+    allow(chat).to receive(:generate) do
+      @configured.instrumenter.instrument("usage.ruby_llm", {status: :failed, tokens: tokens, cost: cost})
+      raise Faraday::ConnectionFailed, "connection failed"
+    end
+
+    expect do
+      adapter.call(candidate: {provider: :openai, model: "private-model", protocol: :responses,
+                               credentials: {api_key: "request-secret"}},
+        messages: [], tools: [], max_output_tokens: nil, temperature: nil, stream: false,
+        timeout: nil, cancellation: nil, on_accounting: ->(facts) { accounting << facts })
+    end.to raise_error(Faraday::ConnectionFailed)
+
+    expect(accounting).to contain_exactly(hash_including(
+      usage: {input_tokens: 0, output_tokens: 0, total_tokens: 0}, provider_reported: false
+    ))
+  end
+
   private
 
   def chunk(content: nil, tool_calls: nil, input_tokens: nil, output_tokens: nil)

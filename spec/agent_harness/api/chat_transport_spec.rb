@@ -34,6 +34,7 @@ RSpec.describe AgentHarness::Api::ChatTransport do
   end
 
   before do
+    allow(adapter).to receive(:prepare).and_return(:prepared_chat)
     allow(adapter).to receive(:call)
   end
 
@@ -223,17 +224,22 @@ RSpec.describe AgentHarness::Api::ChatTransport do
   end
 
   it "classifies unsupported media and malformed tool arguments explicitly" do
+    events = []
     errors = [
       AgentHarness::Api::RubyLlmChatAdapter::UnsupportedOptionError.new("unsupported media"),
       JSON::ParserError.new("malformed arguments")
     ]
-    allow(adapter).to receive(:call) { raise errors.shift }
+    allow(adapter).to receive(:prepare) { raise errors.shift }
 
-    unsupported = transport.call(request)
-    invalid_response = transport.call(request)
+    unsupported = transport.call(request, observer: ->(event) { events << event })
+    invalid_response = transport.call(request, observer: ->(event) { events << event })
 
     expect(unsupported[:error]).to include(category: :unsupported, code: :unsupported_capability)
     expect(invalid_response[:error]).to include(category: :invalid_response, code: :invalid_tool_arguments)
+    expect(unsupported[:attempts]).to be_empty
+    expect(invalid_response[:attempts]).to be_empty
+    expect(adapter).not_to have_received(:call)
+    expect(events).to be_empty
   end
 
   it "surfaces a failing observer directly without classifying it as a provider error" do

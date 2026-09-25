@@ -86,11 +86,22 @@ module AgentHarness
         end
 
         def perform_attempt(candidate)
+          accounting = nil
+          provider_usage = -> { !streamed_usage.nil? }
+          prepared_chat = @adapter.prepare(
+            candidate: candidate,
+            messages: request[:messages],
+            tools: request[:tools] || [],
+            max_output_tokens: request[:max_output_tokens],
+            temperature: request[:temperature],
+            timeout: request[:timeout],
+            on_accounting: ->(facts) { accounting = facts },
+            provider_usage: provider_usage
+          )
           attempt_id = @id_generator.call
           started_at = Time.now.utc
           emitted = false
           streamed_usage = nil
-          accounting = nil
           emit(:response_started, attempt_id:, candidate: candidate_identity(candidate))
 
           adapter_result = @adapter.call(
@@ -102,7 +113,8 @@ module AgentHarness
             stream: request[:stream] == true,
             timeout: request[:timeout],
             cancellation: request[:cancellation],
-            on_accounting: ->(facts) { accounting = facts }
+            on_accounting: ->(facts) { accounting = facts },
+            prepared_chat: prepared_chat
           ) do |event|
             event = normalize_stream_event(event)
             emitted = true if output_event?(event)
@@ -116,6 +128,8 @@ module AgentHarness
         rescue ObserverError
           raise
         rescue => error
+          return failed_result(classify(error), candidate) unless attempt_id
+
           failure(candidate, attempt_id, started_at, classify(error), partial: emitted,
             accounting: accounting || {
               usage: streamed_usage, provider_reported: !streamed_usage.nil?
