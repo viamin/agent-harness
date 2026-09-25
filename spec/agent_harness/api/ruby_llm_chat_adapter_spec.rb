@@ -23,7 +23,8 @@ RSpec.describe AgentHarness::Api::RubyLlmChatAdapter do
   end
   let(:config_class) do
     Struct.new(:anthropic_api_key, :anthropic_api_base, :openai_api_key, :openai_api_base,
-      :openai_organization_id, :openai_project_id, :openai_use_system_role, :max_retries, :request_timeout)
+      :openai_organization_id, :openai_project_id, :openai_use_system_role, :max_retries, :request_timeout,
+      :instrumenter)
   end
 
   before do
@@ -312,6 +313,29 @@ RSpec.describe AgentHarness::Api::RubyLlmChatAdapter do
 
     expect(chat).to have_received(:cancel).once
     expect(events).to eq([{type: :text_delta, content: "before"}])
+  end
+
+  it "exposes public usage instrumentation without request content" do
+    accounting = []
+    tokens = RubyLLM::Tokens.new(input: 10, output: 2, cache_read: 4)
+    cost = RubyLLM::Cost.from_h({input: 0.001, output: 0.002, cache_read: 0.0001, total: 0.0031}, tokens: tokens)
+    allow(chat).to receive(:generate) do
+      @configured.instrumenter.instrument("chat.ruby_llm", {messages: ["private prompt"]})
+      @configured.instrumenter.instrument("usage.ruby_llm", {tokens: tokens, cost: cost})
+      response
+    end
+
+    adapter.call(candidate: {provider: :openai, model: "private-model", protocol: :responses,
+                             credentials: {api_key: "request-secret"}},
+      messages: [], tools: [], max_output_tokens: nil, temperature: nil, stream: false,
+      timeout: nil, cancellation: nil, on_accounting: ->(facts) { accounting << facts })
+
+    expect(accounting).to eq([{usage: {input_tokens: 10, output_tokens: 2, cache_read_tokens: 4,
+                                       total_tokens: 12},
+                               cost: {input: 0.001, output: 0.002, cache_read: 0.0001, total: 0.0031,
+                                      source: :estimated, currency: "USD"},
+                               provider_reported: true}])
+    expect(accounting.to_s).not_to include("private prompt", "request-secret")
   end
 
   private

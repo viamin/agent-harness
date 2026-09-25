@@ -2,6 +2,7 @@
 
 require "securerandom"
 require "ruby_llm"
+require_relative "attempt_report"
 require_relative "ruby_llm_chat_adapter"
 
 module AgentHarness
@@ -89,6 +90,7 @@ module AgentHarness
           started_at = Time.now.utc
           emitted = false
           streamed_usage = nil
+          accounting = nil
           emit(:response_started, attempt_id:, candidate: candidate_identity(candidate))
 
           adapter_result = @adapter.call(
@@ -99,7 +101,8 @@ module AgentHarness
             temperature: request[:temperature],
             stream: request[:stream] == true,
             timeout: request[:timeout],
-            cancellation: request[:cancellation]
+            cancellation: request[:cancellation],
+            on_accounting: ->(facts) { accounting = facts }
           ) do |event|
             event = normalize_stream_event(event)
             emitted = true if output_event?(event)
@@ -109,15 +112,19 @@ module AgentHarness
           end
           raise RubyLLM::CancelledError unless active?
 
-          success(candidate, attempt_id, started_at, adapter_result)
+          success(candidate, attempt_id, started_at, adapter_result, accounting)
         rescue ObserverError
           raise
         rescue => error
-          failure(candidate, attempt_id, started_at, classify(error), partial: emitted, usage: streamed_usage)
+          failure(candidate, attempt_id, started_at, classify(error), partial: emitted,
+            accounting: accounting || {
+              usage: streamed_usage, provider_reported: !streamed_usage.nil?
+            })
         end
 
-        def success(candidate, attempt_id, started_at, adapter_result)
-          attempts << attempt_report(candidate, attempt_id, started_at, :succeeded, usage: adapter_result[:usage])
+        def success(candidate, attempt_id, started_at, adapter_result, accounting)
+          accounting ||= {usage: adapter_result[:usage], provider_reported: !adapter_result[:usage].nil?}
+          append_attempt(candidate, attempt_id, started_at, :succeeded, **accounting)
           result = base_result(candidate).merge(
             status: :succeeded,
             content: adapter_result[:content] || "",
@@ -130,10 +137,10 @@ module AgentHarness
           result
         end
 
-        def failure(candidate, attempt_id, started_at, error, partial:, usage:)
+        def failure(candidate, attempt_id, started_at, error, partial:, accounting:)
           status = failure_status(error, partial)
           error = error.merge(retryable: false) if partial
-          attempts << attempt_report(candidate, attempt_id, started_at, status, error: error, usage: usage)
+          append_attempt(candidate, attempt_id, started_at, status, error: error, **accounting)
           result = base_result(candidate).merge(
             status: status,
             content: partial ? @partial_content.dup : "",
@@ -265,8 +272,10 @@ module AgentHarness
             usage: aggregate_usage, error: error)
         end
 
-        def attempt_report(candidate, attempt_id, started_at, status, error: nil, usage: nil)
-          {
+        def append_attempt(candidate, attempt_id, started_at, status, error: nil, usage: nil, cost: nil,
+          provider_reported: false)
+          cost = cost.merge(priced_at: Time.now.utc) if cost
+          report = AttemptReport.new(
             attempt_id: attempt_id,
             request_id: request[:request_id],
             number: attempts.length + 1,
@@ -276,20 +285,22 @@ module AgentHarness
             started_at: started_at.iso8601(6),
             finished_at: Time.now.utc.iso8601(6),
             usage: usage,
-            cost: nil,
-            provider_reported: false,
+            cost: cost,
+            provider_reported: provider_reported,
             error: error
-          }
+          ).attributes
+          attempts << report
+          emit(:attempt_completed, attempt_id:, attempt: report)
         end
 
         def aggregate_usage
           reports = attempts.filter_map { |attempt| attempt[:usage] }
           return if reports.empty?
 
-          %i[input_tokens output_tokens total_tokens].to_h do |key|
+          %i[input_tokens output_tokens cache_read_tokens cache_write_tokens thinking_tokens total_tokens].to_h do |key|
             values = reports.filter_map { |usage| usage[key] }
             [key, values.empty? ? nil : values.sum]
-          end
+          end.compact
         end
 
         def classify(error)

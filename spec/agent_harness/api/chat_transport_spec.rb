@@ -59,7 +59,7 @@ RSpec.describe AgentHarness::Api::ChatTransport do
     expect(result[:usage]).to eq(input_tokens: 12, output_tokens: 4, total_tokens: 16)
     expect(result[:attempts]).to contain_exactly(hash_including(
       usage: {input_tokens: 12, output_tokens: 4, total_tokens: 16},
-      cost: nil, provider_reported: false
+      cost: nil, provider_reported: true
     ))
   end
 
@@ -73,8 +73,10 @@ RSpec.describe AgentHarness::Api::ChatTransport do
 
     result = transport.call(request.merge(stream: true), observer: ->(event) { events << event })
 
-    expect(events.map { |event| event[:type] }).to eq(%i[response_started text_delta text_delta response_completed])
-    expect(events.map { |event| event[:sequence] }).to eq([1, 2, 3, 4])
+    expect(events.map { |event| event[:type] }).to eq(
+      %i[response_started text_delta text_delta attempt_completed response_completed]
+    )
+    expect(events.map { |event| event[:sequence] }).to eq([1, 2, 3, 4, 5])
     expect(events.last[:result]).to eq(result)
   end
 
@@ -147,6 +149,9 @@ RSpec.describe AgentHarness::Api::ChatTransport do
       fallback: {on_error_categories: [:transient]}))
 
     expect(result).to include(status: :succeeded, provider: :openai, model: "gpt-test")
+    expect(result[:attempts].map { |attempt| attempt.values_at(:provider, :model) }).to eq([
+      [:anthropic, "claude-test"], [:openai, "gpt-test"]
+    ])
     expect(adapter).to have_received(:call).with(hash_including(candidate: candidate)).ordered
     expect(adapter).to have_received(:call).with(hash_including(candidate: second)).ordered
   end
@@ -164,7 +169,8 @@ RSpec.describe AgentHarness::Api::ChatTransport do
     expect(fallback).to include(from: hash_including(provider: :anthropic),
       to: hash_including(provider: :openai), error: hash_including(category: :transient))
     expect(events.map { |event| event[:type] }).to eq(
-      %i[response_started response_failed fallback_selected response_started response_failed]
+      %i[response_started attempt_completed response_failed fallback_selected
+        response_started attempt_completed response_failed]
     )
   end
 
@@ -262,6 +268,37 @@ RSpec.describe AgentHarness::Api::ChatTransport do
     expect(adapter).to have_received(:call).twice
     expect(result[:error]).to include(category: :transient, code: :rate_limited, retryable: true)
     expect(result[:error].to_s).not_to include("secret-a")
+  end
+
+  it "reports every retry once with stable identity and completion-time cost" do
+    events = []
+    ids = %w[attempt-a attempt-b]
+    accounting = {
+      usage: {input_tokens: 10, output_tokens: 0, cache_read_tokens: 2},
+      cost: {input: 0.001, output: 0.0, cache_read: 0.0001, total: 0.0011,
+             source: :estimated, currency: "USD"},
+      provider_reported: true
+    }
+    calls = 0
+    retry_transport = described_class.new(adapter: adapter, id_generator: -> { ids.shift }, sleeper: ->(_seconds) {})
+    allow(adapter).to receive(:call) do |on_accounting:, **|
+      calls += 1
+      on_accounting.call(accounting)
+      raise RubyLLM::ServiceUnavailableError, "unavailable" if calls == 1
+
+      {content: "ok", model: "claude-test", finish_reason: :stop,
+       usage: accounting[:usage], tool_calls: []}
+    end
+
+    result = retry_transport.call(request.merge(retry: {max_attempts: 2}), observer: ->(event) { events << event })
+    deliveries = events.select { |event| event[:type] == :attempt_completed }
+
+    expect(result[:attempts].map { |attempt| attempt[:attempt_id] }).to eq(%w[attempt-a attempt-b])
+    expect(result[:attempts].map { |attempt| attempt[:status] }).to eq(%i[failed succeeded])
+    expect(deliveries.map { |event| event[:attempt] }).to eq(result[:attempts])
+    expect(result[:usage]).to include(input_tokens: 20, output_tokens: 0, cache_read_tokens: 4)
+    expect(result[:attempts].last[:cost]).to include(source: :estimated, total: 0.0011,
+      priced_at: match(/Z\z/))
   end
 
   it "uses the base retry delay when no positive maximum delay is configured" do

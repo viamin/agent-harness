@@ -16,8 +16,9 @@ module AgentHarness
       }.freeze
       OPENAI_UNSUPPLIED_CONFIG = %i[openai_organization_id openai_project_id openai_use_system_role].freeze
 
-      def call(candidate:, messages:, tools:, max_output_tokens:, temperature:, stream:, timeout:, cancellation:, &on_event)
-        context = build_context(candidate, timeout)
+      def call(candidate:, messages:, tools:, max_output_tokens:, temperature:, stream:, timeout:, cancellation:,
+        on_accounting: nil, &on_event)
+        context = build_context(candidate, timeout, on_accounting)
         chat = context.chat(model: candidate[:model], provider: candidate[:provider], protocol: ruby_llm_protocol(candidate),
           assume_model_exists: true)
         configure_chat(chat, candidate, messages, tools, max_output_tokens, temperature)
@@ -69,7 +70,7 @@ module AgentHarness
         candidate[:protocol]
       end
 
-      def build_context(candidate, timeout)
+      def build_context(candidate, timeout, on_accounting)
         provider = candidate[:provider].to_sym
         config_keys = PROVIDER_CONFIG[provider]
         raise RubyLLM::ConfigurationError, "Unsupported chat provider: #{provider}" unless config_keys
@@ -80,7 +81,39 @@ module AgentHarness
           config.public_send("#{config_keys[1]}=", candidate[:endpoint])
           clear_unsupplied_openai_config(config) if provider == :openai
           config.max_retries = 0
+          config.instrumenter = UsageInstrumenter.new(on_accounting) if on_accounting
           apply_timeout(config, timeout)
+        end
+      end
+
+      # Retains only accounting instrumentation; other events may contain
+      # request content and are intentionally discarded.
+      class UsageInstrumenter
+        def initialize(callback)
+          @callback = callback
+        end
+
+        def instrument(name, payload)
+          @callback.call(normalize(payload)) if name == "usage.ruby_llm"
+          yield(payload) if block_given?
+        end
+
+        private
+
+        def normalize(payload)
+          tokens = payload.fetch(:tokens)
+          cost = payload.fetch(:cost)
+          usage = tokens.to_h
+          usage[:total_tokens] = tokens.input + tokens.output if tokens.input && tokens.output
+          {
+            usage: usage,
+            cost: cost.total.nil? ? nil : cost.to_h.merge(source: cost_source(tokens), currency: "USD"),
+            provider_reported: usage.any?
+          }
+        end
+
+        def cost_source(tokens)
+          tokens.reported_cost.nil? ? :estimated : :provider_reported
         end
       end
 
@@ -262,11 +295,9 @@ module AgentHarness
       end
 
       def normalize_usage(tokens)
-        input = tokens&.input
-        output = tokens&.output
-        return unless input || output
+        return unless tokens&.to_h&.any?
 
-        {input_tokens: input, output_tokens: output, total_tokens: (input && output) ? input + output : nil}
+        tokens.to_h.merge(total_tokens: (tokens.input && tokens.output) ? tokens.input + tokens.output : nil)
       end
     end
   end
