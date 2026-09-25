@@ -290,4 +290,17 @@ RSpec.describe AgentHarness::Api::ChatTransport do
       .to raise_error(ArgumentError, /reserved header/i)
     expect(adapter).not_to have_received(:call)
   end
+
+  {
+    anthropic: [:messages, {}],
+    openai: [:responses, {api_key: nil}]
+  }.each do |provider, (protocol, credentials)|
+    it "classifies a missing #{provider} API key as an invalid credential" do
+      missing_credential = candidate.merge(provider: provider, protocol: protocol, credentials: credentials)
+      result = described_class.new.call(request.merge(candidates: [missing_credential]))
+
+      expect(result).to include(status: :failed,
+        error: hash_including(category: :authentication, code: :invalid_credential, retryable: false))
+    end
+  end
 end

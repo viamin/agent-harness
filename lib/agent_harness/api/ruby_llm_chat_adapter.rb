@@ -8,6 +8,7 @@ module AgentHarness
     # Translates the normalized public chat values to RubyLLM public objects.
     class RubyLlmChatAdapter
       class UnsupportedOptionError < StandardError; end
+      class MissingCredentialError < StandardError; end
 
       PROVIDER_CONFIG = {
         anthropic: %i[anthropic_api_key anthropic_api_base],
@@ -72,6 +73,7 @@ module AgentHarness
         provider = candidate[:provider].to_sym
         config_keys = PROVIDER_CONFIG[provider]
         raise RubyLLM::ConfigurationError, "Unsupported chat provider: #{provider}" unless config_keys
+        raise MissingCredentialError, "API key is required" if candidate.dig(:credentials, :api_key).to_s.empty?
 
         RubyLLM.context do |config|
           config.public_send("#{config_keys[0]}=", candidate.dig(:credentials, :api_key))

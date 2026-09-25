@@ -376,6 +376,7 @@ module AgentHarness
       }.freeze
 
       NON_RETRYABLE = {
+        RubyLlmChatAdapter::MissingCredentialError => [:authentication, :invalid_credential],
         RubyLLM::UnauthorizedError => [:authentication, :invalid_credential],
         RubyLLM::ForbiddenError => [:authorization, :permission_denied],
         RubyLLM::PaymentRequiredError => [:billing, :billing_unavailable],
