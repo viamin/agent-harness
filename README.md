@@ -39,6 +39,71 @@ puts response.output
 response = AgentHarness.send_message("Explain this code", provider: :cursor)
 ```
 
+## Native Embeddings
+
+`AgentHarness.embed` sends a whole input batch through RubyLLM and returns one
+vector per input, in the same order. Credentials, endpoint, headers, timeout,
+and retry limits are request-local; they do not change `RubyLLM.config` or the
+CLI/subscription provider configuration.
+
+```ruby
+result = AgentHarness.embed(
+  inputs: ["first document", "second document"],
+  model: "text-embedding-3-small",
+  dimensions: 512,
+  endpoint: "https://api.openai.com/v1", # optional OpenAI-compatible base URL
+  credentials: {api_key: ENV.fetch("EMBEDDING_API_KEY")},
+  headers: {"X-Tenant-ID" => tenant.external_id},
+  timeout: 30,
+  max_attempts: 3,
+  cancellation: -> { request_cancelled? }
+)
+
+result.vectors # one vector for each input
+result.usage   # { input_tokens: 42 }
+```
+
+`credentials` may also be the API key string. Extra headers cannot replace the
+`Authorization` header; change credentials explicitly instead. `max_attempts`
+includes the initial request. RubyLLM performs the only retry loop: 429,
+timeout/connection, and transient 5xx failures are retried up to that bound,
+while 401 and 403 responses fail immediately. `Retry-After` is honored within
+RubyLLM's bounded retry policy. A cancellation callable is checked immediately
+before every physical HTTP attempt.
+
+Usage is the provider-reported total for the complete batch. When the provider
+omits usage, `result.usage[:input_tokens]` remains `nil`. The harness does not
+estimate usage or allocate a batch total across vectors, so
+`result.per_vector_usage` is always `nil`.
+
+Authentication failures raise `AgentHarness::AuthenticationError`, exhausted
+rate limits raise `AgentHarness::RateLimitError`, timeouts raise
+`AgentHarness::TimeoutError`, transient provider failures raise
+`AgentHarness::ProviderError`, cancellations raise
+`AgentHarness::CancelledError`, and incomplete or invalid vector batches raise
+`AgentHarness::MalformedEmbeddingError`. Empty input returns an empty result
+without contacting the provider.
+
+### Migrating from Paid transport patches
+
+This operation replaces downstream host/container embedding transport
+extensions for OpenAI-compatible direct and proxy endpoints. After adopting an
+agent-harness release containing this capability:
+
+1. Run the downstream embedding contract suite against both the direct provider
+   and proxy endpoint, including tenant-specific credentials and headers.
+2. Verify the released gem artifact includes `AgentHarness.embed` and record the
+   passing artifact version or digest. Issue closure or a Git tag alone is not
+   release evidence.
+3. Switch only the embedding call site to `AgentHarness.embed`; leave unrelated
+   chat, schema, CLI, and subscription paths unchanged.
+4. Remove the downstream embedding request/parser/retry patch so RubyLLM owns
+   the single bounded retry loop. Keep durable workflow recovery and accounting
+   in the downstream application.
+
+The runtime dependency is Ruby 3.2 or newer and RubyLLM 2.x. No Rails database
+or RubyLLM persistence tables are required for this plain-Ruby operation.
+
 ## Configuration
 
 ### Ruby DSL

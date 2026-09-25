@@ -15,6 +15,9 @@ module AgentHarness
   # Provider-related errors
   class ProviderError < Error; end
 
+  # Raised when an embedding provider response cannot satisfy the batch contract.
+  class MalformedEmbeddingError < ProviderError; end
+
   class ProviderInstallationError < ProviderError
     attr_reader :provider, :error_category
 
@@ -38,6 +41,9 @@ module AgentHarness
   class IdleTimeoutError < TimeoutError; end
 
   class CommandExecutionError < Error; end
+
+  # Raised when a caller cancels a request before a transport attempt.
+  class CancelledError < Error; end
 
   # Rate limiting and circuit breaker errors
   class RateLimitError < Error

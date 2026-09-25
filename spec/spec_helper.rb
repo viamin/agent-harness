@@ -10,6 +10,7 @@ if ENV["COVERAGE"] == "1" || ENV["SIMPLECOV"] == "1"
 end
 
 require "agent_harness"
+require "webmock/rspec"
 
 # When collecting coverage, load all library files so SimpleCov includes every line
 if ENV["COVERAGE"] == "1" || ENV["SIMPLECOV"] == "1" || ENV["CI"]
