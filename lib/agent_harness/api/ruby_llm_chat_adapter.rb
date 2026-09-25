@@ -5,8 +5,10 @@ require "ruby_llm"
 
 module AgentHarness
   module Api
-    # RubyLLM 2.0 flattens Responses API refusal deltas into ordinary text
-    # chunks. Preserve the semantic event type so the adapter can normalize it.
+    # RubyLLM 2.0.0 flattens Responses API refusal deltas into ordinary text
+    # chunks and offers no public access to their event type. The gemspec pins
+    # that exact release so this compatibility shim cannot silently outlive the
+    # private parser shape it targets. Remove it when RubyLLM exposes refusals.
     module RubyLlmResponsesStreamingRefusal
       module RefusalChunk; end
 
