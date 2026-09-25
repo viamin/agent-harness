@@ -18,6 +18,12 @@ module AgentHarness
       }.freeze
       DEFAULT_RETRY = {max_attempts: 1, base_delay_seconds: 0, max_delay_seconds: 0}.freeze
 
+      # Raised when the caller's observer fails. Observer bugs stay outside
+      # provider error classification, abort the in-flight request, and are
+      # never re-invoked with a synthetic terminal event.
+      class ObserverError < StandardError
+      end
+
       def initialize(adapter: RubyLlmChatAdapter.new, id_generator: -> { SecureRandom.uuid }, sleeper: Kernel.method(:sleep))
         @adapter = adapter
         @id_generator = id_generator
@@ -102,6 +108,8 @@ module AgentHarness
           raise RubyLLM::CancelledError unless active?
 
           success(candidate, attempt_id, started_at, adapter_result)
+        rescue ObserverError
+          raise
         rescue => error
           failure(candidate, attempt_id, started_at, classify(error), partial: emitted)
         end
@@ -168,9 +176,16 @@ module AgentHarness
         def emit(type, attempt_id:, **payload)
           @sequence += 1
           event = payload.merge(type: type, request_id: request[:request_id], attempt_id: attempt_id, sequence: @sequence)
-          return unless @observer
+          deliver(event) if @observer
+        end
 
+        # Observer exceptions are caller bugs, not provider failures: they
+        # abort the in-flight request and surface directly instead of being
+        # classified or retried as provider errors.
+        def deliver(event)
           @observer.respond_to?(:on_chat_event) ? @observer.on_chat_event(event) : @observer.call(event)
+        rescue => error
+          raise ObserverError, "chat observer failed: #{error.class} #{error.message}", error.backtrace
         end
 
         def accumulate(event)

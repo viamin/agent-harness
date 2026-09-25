@@ -22,6 +22,41 @@ module AgentHarness
         normalize_response(response)
       end
 
+      # RubyLLM keys streamed tool-call chunks by a stream index while
+      # continuation chunks carry no call id, so correlation state must live
+      # between chunks. Also remembers the latest cumulative token counts so
+      # duplicate cumulative reports are not re-emitted.
+      class StreamState
+        attr_accessor :input_tokens, :output_tokens
+
+        def initialize
+          @provider_id_by_key = {}
+          @started_ids = {}
+          @latest_provider_id = nil
+          @input_tokens = nil
+          @output_tokens = nil
+        end
+
+        # Links a stream chunk key to its provider call id, returning true
+        # only the first time +provider_id+ is seen.
+        def start(stream_key, provider_id)
+          @provider_id_by_key[stream_key] = provider_id unless stream_key.nil?
+          @latest_provider_id = provider_id
+          return false if @started_ids.key?(provider_id)
+
+          @started_ids[provider_id] = true
+        end
+
+        def provider_id(stream_key)
+          stream_key.nil? ? @latest_provider_id : @provider_id_by_key[stream_key]
+        end
+
+        def usage
+          total = (input_tokens + output_tokens) if input_tokens && output_tokens
+          {input_tokens: input_tokens, output_tokens: output_tokens, total_tokens: total}
+        end
+      end
+
       private
 
       def ruby_llm_protocol(candidate)
@@ -59,10 +94,10 @@ module AgentHarness
       def generate(chat, stream, cancellation)
         return chat.generate unless stream
 
-        started_tools = {}
+        state = StreamState.new
         chat.generate do |chunk|
           chat.cancel if cancelled?(cancellation)
-          stream_events(chunk, started_tools).each { |event| yield event }
+          stream_events(chunk, state).each { |event| yield event }
         end
       end
 
@@ -120,18 +155,64 @@ module AgentHarness
         end.new
       end
 
-      def stream_events(chunk, started_tools)
+      def stream_events(chunk, state)
+        [text_event(chunk), *tool_call_events(chunk, state), usage_event(chunk, state)].compact
+      end
+
+      def text_event(chunk)
+        {type: :text_delta, content: chunk.content} unless chunk.content.nil? || chunk.content.empty?
+      end
+
+      def tool_call_events(chunk, state)
+        return [] unless chunk.tool_calls
+
+        chunk.tool_calls.flat_map { |stream_key, call| call_events(stream_key, call, state) }
+      end
+
+      # Continuation chunks have a nil id and carry the provider's raw JSON
+      # fragment as arguments; they join the call that started their key.
+      def call_events(stream_key, call, state)
+        provider_id = call.id || state.provider_id(stream_key)
+        return [] unless provider_id
+
         events = []
-        events << {type: :text_delta, content: chunk.content} unless chunk.content.nil? || chunk.content.empty?
-        Array(chunk.tool_calls&.values).each do |call|
-          unless started_tools[call.id]
-            events << {type: :tool_call_started, provider_id: call.id, name: call.name}
-            started_tools[call.id] = true
-          end
-          events << {type: :tool_call_delta, provider_id: call.id, name: call.name,
-                     arguments_json: JSON.generate(call.arguments || {})}
+        if state.start(stream_key, provider_id)
+          events << {type: :tool_call_started, provider_id: provider_id, name: call.name}
         end
+        fragment = argument_fragment(call.arguments)
+        events << {type: :tool_call_delta, provider_id: provider_id, arguments_json: fragment} if fragment
         events
+      end
+
+      # Deltas stay appendable JSON text; a start chunk may instead carry a
+      # complete parsed Hash, which becomes JSON once.
+      def argument_fragment(arguments)
+        case arguments
+        when String then arguments.empty? ? nil : arguments
+        when Hash then arguments.empty? ? nil : JSON.generate(arguments)
+        end
+      end
+
+      def usage_event(chunk, state)
+        return unless cumulative_usage_changed?(chunk, state)
+
+        {type: :usage_updated, **state.usage}
+      end
+
+      def cumulative_usage_changed?(chunk, state)
+        tokens = chunk.tokens
+        return false unless tokens
+
+        changed = false
+        if tokens.input && tokens.input != state.input_tokens
+          state.input_tokens = tokens.input
+          changed = true
+        end
+        if tokens.output && tokens.output != state.output_tokens
+          state.output_tokens = tokens.output
+          changed = true
+        end
+        changed
       end
 
       def emit_completed_tool_calls(response)
@@ -155,12 +236,11 @@ module AgentHarness
       end
 
       def normalize_usage(tokens)
-        return unless tokens
+        input = tokens&.input
+        output = tokens&.output
+        return unless input || output
 
-        input = tokens.input
-        output = tokens.output
-        total = (input + output) if input && output
-        {input_tokens: input, output_tokens: output, total_tokens: total}
+        {input_tokens: input, output_tokens: output, total_tokens: (input && output) ? input + output : nil}
       end
     end
   end

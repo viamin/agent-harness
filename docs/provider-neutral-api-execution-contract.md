@@ -54,6 +54,14 @@ invokes a supplied tool; callers append completed tool results to a later
 request. A failed partial stream is terminal, so its content cannot be appended
 to a fallback response and its tool calls cannot be replayed automatically.
 
+Streamed tool-call arguments are emitted as raw, appendable JSON fragments
+correlated to one `tool_call_started` event per provider call, and cumulative
+provider token counts are emitted as deduplicated `usage_updated` events. An
+observer that raises aborts the in-flight request and surfaces as
+`AgentHarness::Api::ChatTransport::ObserverError` with the original failure as
+its `cause`; it is never classified as a provider error, never retried, and the
+failed observer is not invoked again.
+
 The verified scopes are Anthropic with `protocol: :messages`, OpenAI with
 `protocol: :responses` or `:chat_completions`, and OpenAI-compatible endpoints
 with `provider: :openai`, an explicit `endpoint`, and

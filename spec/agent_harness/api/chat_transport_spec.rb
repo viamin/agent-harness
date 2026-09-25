@@ -114,6 +114,37 @@ RSpec.describe AgentHarness::Api::ChatTransport do
     expect(adapter).to have_received(:call).with(hash_including(candidate: second)).ordered
   end
 
+  it "surfaces a failing observer directly without classifying it as a provider error" do
+    received = []
+    invocations = 0
+    observer = ->(event) do
+      invocations += 1
+      raise "observer bug" if event[:type] == :text_delta
+
+      received << event
+    end
+    allow(adapter).to receive(:call) do |**_args, &stream|
+      stream.call(type: :text_delta, content: "hel")
+      raise "the observer failure should have aborted the in-flight chat"
+    end
+
+    expect { transport.call(request.merge(stream: true), observer: observer) }
+      .to raise_error(described_class::ObserverError) { |error| expect(error.cause.message).to eq("observer bug") }
+
+    expect(adapter).to have_received(:call).once
+    expect(invocations).to eq(2)
+    expect(received.map { |event| event[:type] }).to eq(%i[response_started])
+  end
+
+  it "raises before any outbound request when the observer fails on response_started" do
+    observer = ->(_event) { raise "observer bug" }
+
+    expect { transport.call(request.merge(stream: true), observer: observer) }
+      .to raise_error(described_class::ObserverError, /observer bug/)
+
+    expect(adapter).not_to have_received(:call)
+  end
+
   it "cancels before making an outbound request" do
     cancellation = -> { true }
 
