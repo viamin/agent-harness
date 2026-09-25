@@ -122,6 +122,26 @@ RSpec.describe AgentHarness::Api::RubyLlmChatAdapter do
     expect(@configured.to_h).to include(openai_api_key: "request-secret", openai_api_base: nil)
   end
 
+  it "replaces a copied global request timeout with the adapter default" do
+    allow(RubyLLM).to receive(:context) do |&configuration|
+      @configured = config_class.new
+      @configured.request_timeout = 5
+      configuration.call(@configured)
+      context
+    end
+
+    adapter.call(
+      candidate: {
+        provider: :openai, model: "openai-model", protocol: :responses,
+        credentials: {api_key: "request-secret"}
+      },
+      messages: [], tools: [], max_output_tokens: nil, temperature: nil,
+      stream: false, timeout: nil, cancellation: nil
+    )
+
+    expect(@configured.request_timeout).to eq(300)
+  end
+
   it "clears copied global OpenAI tenant and behavior settings" do
     allow(RubyLLM).to receive(:context) do |&configuration|
       @configured = config_class.new

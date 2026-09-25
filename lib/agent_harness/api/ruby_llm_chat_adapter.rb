@@ -14,6 +14,7 @@ module AgentHarness
         anthropic: %i[anthropic_api_key anthropic_api_base],
         openai: %i[openai_api_key openai_api_base]
       }.freeze
+      DEFAULT_REQUEST_TIMEOUT = 300
       OPENAI_UNSUPPLIED_CONFIG = %i[openai_organization_id openai_project_id openai_use_system_role].freeze
 
       def call(candidate:, messages:, tools:, max_output_tokens:, temperature:, stream:, timeout:, cancellation:,
@@ -146,8 +147,7 @@ module AgentHarness
           raise UnsupportedOptionError, "RubyLLM does not support request-local connect timeouts"
         end
 
-        seconds = timeout&.dig(:read_seconds)
-        config.request_timeout = seconds if seconds
+        config.request_timeout = timeout&.dig(:read_seconds) || DEFAULT_REQUEST_TIMEOUT
       end
 
       def configure_chat(chat, candidate, messages, tools, max_output_tokens, temperature)
