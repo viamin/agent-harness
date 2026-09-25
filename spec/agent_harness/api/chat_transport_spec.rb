@@ -95,6 +95,8 @@ RSpec.describe AgentHarness::Api::ChatTransport do
 
     expect(adapter).to have_received(:call).once
     expect(result).to include(status: :partial, content: "abandoned")
+    expect(result[:error]).to include(category: :transient, retryable: false)
+    expect(result[:attempts]).to contain_exactly(hash_including(error: hash_including(retryable: false)))
     expect(events.last[:type]).to eq(:response_failed)
   end
 

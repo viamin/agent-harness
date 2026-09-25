@@ -132,6 +132,7 @@ module AgentHarness
 
         def failure(candidate, attempt_id, started_at, error, partial:, usage:)
           status = failure_status(error, partial)
+          error = error.merge(retryable: false) if partial
           attempts << attempt_report(candidate, attempt_id, started_at, status, error: error, usage: usage)
           result = base_result(candidate).merge(
             status: status,
