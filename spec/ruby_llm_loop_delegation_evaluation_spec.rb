@@ -2,8 +2,6 @@
 
 require "spec_helper"
 
-Encoding.default_external = Encoding::UTF_8
-
 # RubyLLM derives tool names from class names (EvaluationReadTool ->
 # "evaluation_read"), so the evaluation tools need named classes.
 class EvaluationReadTool < RubyLLM::Tool
@@ -26,6 +24,14 @@ end
 # delegation evaluation must be revisited before adopting loop controls.
 RSpec.describe "RubyLLM 2.0 loop controls (RDR-072 delegation evaluation)" do
   let(:messages_url) { "https://api.anthropic.com/v1/messages" }
+
+  around do |example|
+    previous_encoding = Encoding.default_external
+    Encoding.default_external = Encoding::UTF_8
+    example.run
+  ensure
+    Encoding.default_external = previous_encoding
+  end
 
   def tool_round(*calls)
     {id: "msg_#{calls.map { |call| call[:id] }.join}", type: "message", role: "assistant", model: "claude-test",
