@@ -717,7 +717,7 @@ capability. Pin the capability's minimum version during migration; do not infer
 support from an issue, branch, or Git tag.
 
 | Capability | First installable version | Contract / delivery | Install check |
-|---|---:|---:|---|
+| --- | ---: | ---: | --- |
 | Native embeddings | `0.40.0` | [#432](https://github.com/viamin/agent-harness/issues/432) / [#439](https://github.com/viamin/agent-harness/issues/439) | `gem install agent-harness -v 0.40.0` |
 | Normalized chat, tools, and streaming | `0.41.0` | [#434](https://github.com/viamin/agent-harness/issues/434) / [#441](https://github.com/viamin/agent-harness/issues/441) | `gem install agent-harness -v 0.41.0` |
 | Attempt usage and cost | `0.42.0` | [#435](https://github.com/viamin/agent-harness/issues/435) / [#443](https://github.com/viamin/agent-harness/issues/443) | `gem install agent-harness -v 0.42.0` |
