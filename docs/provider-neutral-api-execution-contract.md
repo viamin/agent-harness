@@ -288,16 +288,21 @@ stream, and before returning success. It stops further attempts and returns a
 cancelled terminal outcome with any partial usage. Cancellation does not prove
 that the provider stopped processing or billing the request.
 
-There is exactly one retry owner. If RubyLLM backs an operation, its retry
-middleware MUST receive `max_retries: max_attempts - 1` when no attempt has yet
-occurred, because RubyLLM counts only retries while this contract counts the
-initial request. Thus `max_attempts: 1` maps to `max_retries: 0`; adapters MUST
-NOT forward `max_attempts` unchanged. If control returns to RubyLLM after an
-earlier physical attempt, the adapter uses the remaining total budget and MUST
-NOT let retry or fallback middleware reset it. The harness MUST NOT wrap
-RubyLLM in another retry loop. Existing conductor retry/provider switching is
-not part of an API request's internal retry budget and MUST be disabled or
-bypassed for a migrated scope.
+The harness owns the complete attempt sequence; there is exactly one retry
+owner. RubyLLM's Faraday retry middleware resends the current candidate inside
+the transport before a classified error can return to the harness, so
+middleware-driven retries cannot honor the fallback-first order below and would
+spend the shared budget on one candidate invisibly to the observer. An adapter
+backed by RubyLLM MUST therefore disable its retry middleware with
+`max_retries: 0`, overriding the default three retries, so that one adapter
+call performs exactly one physical outbound request. The harness then issues
+one adapter call per attempt — initial, retry, or fallback — and applies the
+shared `max_attempts` budget, cancellation checks, backoff, and provider
+`retry-after` between calls. No component may retry beneath the harness, and
+the harness MUST NOT delegate this sequencing to middleware or another nested
+loop. Existing conductor retry/provider switching is not part of an API
+request's internal retry budget and MUST be disabled or bypassed for a
+migrated scope.
 
 ## Caller-controlled fallback
 
@@ -422,8 +427,8 @@ records.
 | Embeddings | `RubyLLM.embed` and normalized vectors/usage | Candidate first capability; persistence remains in Paid |
 | Custom headers | `with_headers` | Candidate; contract-test merging and secret redaction |
 | Endpoint/credentials | provider configuration | Global mutable configuration is unsuitable; require request-local isolation or an upstream-supported client boundary |
-| Retries | Faraday retry middleware, default three retries | Configure as the sole bounded retry owner with `max_retries: max_attempts - 1`; never nest it |
-| Fallback | `with_fallbacks` and callbacks | Use only if exact caller candidates and credentials can be preserved |
+| Retries | Faraday retry middleware, default three retries | Disable with `max_retries: 0` so one call is one physical attempt; the harness sequences bounded retry and fallback itself; never nest |
+| Fallback | `with_fallbacks` and callbacks | Harness sequences candidates per call; `with_fallbacks` usable only if exact candidates, credentials, and per-advance observer control are preserved |
 | Cancellation | chat cancellation and `CancelledError` | Adapt to the common token and retain partial stream state |
 | Attempt usage | `usage.ruby_llm` per physical attempt | Useful facts, but the public payload has no stable attempt ID; harness must add one |
 | Plain Ruby resume | transcript can be reconstructed manually | No documented state export/import API; implement normalized export/import outside RubyLLM |
