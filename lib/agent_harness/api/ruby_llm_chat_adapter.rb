@@ -104,13 +104,20 @@ module AgentHarness
       end
 
       def generate(chat, stream, cancellation)
-        return chat.generate unless stream
+        return generate_without_events(chat, cancellation) unless stream
 
         state = StreamState.new
         chat.generate do |chunk|
           chat.cancel if cancelled?(cancellation)
           stream_events(chunk, state).each { |event| yield event }
         end
+      end
+
+      def generate_without_events(chat, cancellation)
+        return chat.generate unless cancellation
+
+        chat.cancel if cancelled?(cancellation)
+        chat.generate { chat.cancel if cancelled?(cancellation) }
       end
 
       def cancelled?(token)

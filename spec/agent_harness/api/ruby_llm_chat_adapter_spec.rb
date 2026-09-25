@@ -12,6 +12,7 @@ RSpec.describe AgentHarness::Api::RubyLlmChatAdapter do
       "with_headers" => nil,
       "with_max_output_tokens" => nil,
       "with_temperature" => nil,
+      "cancel" => nil,
       "generate" => response
     })
   end
@@ -69,6 +70,28 @@ RSpec.describe AgentHarness::Api::RubyLlmChatAdapter do
       openai_api_base: "https://compatible.example/v1", max_retries: 0)
     expect(context).to have_received(:chat).with(model: "compatible-model", provider: :openai,
       protocol: :chat_completions, assume_model_exists: true)
+  end
+
+  it "cancels non-streaming generation when its token flips in flight" do
+    cancelled = false
+    cancellation = -> { cancelled }
+    allow(chat).to receive(:generate) do |&on_chunk|
+      cancelled = true
+      on_chunk.call(chunk(content: "partial"))
+      response
+    end
+
+    result = adapter.call(
+      candidate: {
+        provider: :openai, model: "openai-model", protocol: :responses,
+        credentials: {api_key: "request-secret"}
+      },
+      messages: [], tools: [], max_output_tokens: nil, temperature: nil,
+      stream: false, timeout: nil, cancellation: cancellation
+    )
+
+    expect(chat).to have_received(:cancel).once
+    expect(result).to include(content: "ok", model: "private-model")
   end
 
   it "clears a copied global base URL when the candidate has no endpoint" do
