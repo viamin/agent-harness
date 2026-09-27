@@ -1,5 +1,5 @@
 # frozen_string_literal: true
 
 module AgentHarness
-  VERSION = "0.44.2"
+  VERSION = "0.44.3"
 end
