@@ -7,6 +7,14 @@
 * add runner model compatibility contract (`AgentHarness.model_compatibility`) with structured `ModelCompatibility::Result` outcomes. Codex exposes static facts for CLI-gated models (e.g. `gpt-5.5` requires Codex CLI `>= 0.116.0`), a baseline supported-model list, supported auth modes, and a `DEFAULT_COMPATIBLE_MODEL_ID` fallback so downstream orchestrators can validate tier/model assignments before scheduling agent runs ([#259](https://github.com/viamin/agent-harness/issues/259)).
 * **auth:** add provider-owned PKCE code-exchange API for Claude OAuth (`AgentHarness::Authentication.exchange_code`). Takes an authorization code plus PKCE verifier (and `redirect_uri`/`client_id`), posts an `authorization_code` grant to the Claude token endpoint, and persists the resulting access/refresh tokens in the native `claudeAiOauth` shape. Adds `exchange_code_supported?` and a `code_exchange` key to `auth_capabilities` ([#266](https://github.com/viamin/agent-harness/issues/266)).
 
+## [0.44.3](https://github.com/viamin/agent-harness/compare/agent-harness/v0.44.2...agent-harness/v0.44.3) (2026-09-27)
+
+
+### Bug Fixes
+
+* **deps-dev:** bump @kilocode/cli from 7.7.3 to 7.7.12 in /vendor/pins/kilocode ([#452](https://github.com/viamin/agent-harness/issues/452)) ([05d5f57](https://github.com/viamin/agent-harness/commit/05d5f5746d91883233152057adb55b2c0c57bcac))
+* **deps-dev:** bump opencode-ai from 1.18.31 to 1.18.32 in /vendor/pins/opencode ([#455](https://github.com/viamin/agent-harness/issues/455)) ([22c0633](https://github.com/viamin/agent-harness/commit/22c0633a220cc203ea9f66ee1942242dac943ba5))
+
 ## [0.44.2](https://github.com/viamin/agent-harness/compare/agent-harness/v0.44.1...agent-harness/v0.44.2) (2026-09-27)
 
 
