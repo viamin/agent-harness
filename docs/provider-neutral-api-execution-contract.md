@@ -802,10 +802,19 @@ is complete, not deferred delegation.
 Downstream adoption is tracked in
 [viamin/paid#4014](https://github.com/viamin/paid/issues/4014); preservation of
 Codex subscription discovery/recovery during dependency adoption is tracked in
-[viamin/paid#3995](https://github.com/viamin/paid/issues/3995). Close parent
-[agent-harness#430](https://github.com/viamin/agent-harness/issues/430) only
-after those consumers record their exact host/image artifacts and passing
-integration evidence for every scope they enable.
+[viamin/paid#3995](https://github.com/viamin/paid/issues/3995). The retained
+upstream scope is complete through
+[agent-harness#437](https://github.com/viamin/agent-harness/issues/437), so
+parent [agent-harness#430](https://github.com/viamin/agent-harness/issues/430)
+can close from that evidence. Closing the upstream epic does not authorize a
+downstream migration: each consumer must still record its exact host/image
+artifacts and passing integration evidence for every scope it enables.
+
+The public-API-only chat boundary remains unreleased at this closeout. Until
+the compatibility table names its first published version, consumers must not
+infer that boundary from #437, #430, a branch, or a Git tag. This publication
+gate limits downstream adoption; it does not reopen the completed upstream
+implementation and retained-loop evaluation.
 
 ### Loop-delegation evaluation evidence (retained loop)
 
