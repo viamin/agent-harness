@@ -11,6 +11,13 @@
 
 * close the RDR-072 upstream epic from #437's retained-scope evidence while keeping unpublished capabilities and downstream adoption behind their explicit release and integration gates ([#430](https://github.com/viamin/agent-harness/issues/430)).
 
+## [0.44.8](https://github.com/viamin/agent-harness/compare/agent-harness/v0.44.7...agent-harness/v0.44.8) (2026-10-04)
+
+
+### Bug Fixes
+
+* **deps-dev:** bump @kilocode/cli from 7.7.12 to 7.8.3 in /vendor/pins/kilocode ([#463](https://github.com/viamin/agent-harness/issues/463)) ([e19fbc3](https://github.com/viamin/agent-harness/commit/e19fbc373cc688860dd1cdec511cd63c86a6f40e))
+
 ## [0.44.7](https://github.com/viamin/agent-harness/compare/agent-harness/v0.44.6...agent-harness/v0.44.7) (2026-10-04)
 
 
