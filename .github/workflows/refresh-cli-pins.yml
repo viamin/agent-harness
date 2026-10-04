@@ -44,7 +44,7 @@ jobs:
           fetch-depth: 0
 
       - name: Set up Ruby
-        uses: ruby/setup-ruby@762794c140bbeda0f1224786aa33b4b46783a6c1
+        uses: ruby/setup-ruby@14594264cd68ce8a2345dd349bc3d138a4ef85c8
         with:
           # bundler-cache runs bundle install and restores the gem cache,
           # the same setup .github/workflows/sync-cli-pins.yml uses.
