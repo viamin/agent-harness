@@ -325,7 +325,7 @@ RSpec.describe AgentHarness do
       expect(contract).to include(
         source: :npm,
         package_name: "@oh-my-pi/pi-coding-agent",
-        version: "18.3.0",
+        version: "18.4.9",
         binary_name: "omp"
       )
 
@@ -388,8 +388,8 @@ RSpec.describe AgentHarness do
       installation = metadata.dig(:runtime, :installation)
       expect(installation).to include(
         package_name: "@oh-my-pi/pi-coding-agent",
-        default_version: "18.3.0",
-        resolved_version: "18.3.0",
+        default_version: "18.4.9",
+        resolved_version: "18.4.9",
         binary_name: "omp"
       )
 
