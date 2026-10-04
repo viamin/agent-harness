@@ -11,6 +11,13 @@
 
 * close the RDR-072 upstream epic from #437's retained-scope evidence while keeping unpublished capabilities and downstream adoption behind their explicit release and integration gates ([#430](https://github.com/viamin/agent-harness/issues/430)).
 
+## [0.44.6](https://github.com/viamin/agent-harness/compare/agent-harness/v0.44.5...agent-harness/v0.44.6) (2026-10-04)
+
+
+### Bug Fixes
+
+* **deps-dev:** bump opencode-ai from 1.18.32 to 1.18.34 in /vendor/pins/opencode ([#465](https://github.com/viamin/agent-harness/issues/465)) ([f2197b9](https://github.com/viamin/agent-harness/commit/f2197b9c97ac8376822c9688607d5fde760acb24))
+
 ## [0.44.5](https://github.com/viamin/agent-harness/compare/agent-harness/v0.44.4...agent-harness/v0.44.5) (2026-10-04)
 
 
