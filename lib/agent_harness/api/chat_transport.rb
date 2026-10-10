@@ -89,6 +89,7 @@ module AgentHarness
 
         def perform_attempt(candidate)
           accounting = nil
+          streamed_usage = nil
           provider_usage = -> { !streamed_usage.nil? }
           prepared_chat = @adapter.prepare(
             candidate: candidate,
@@ -104,7 +105,6 @@ module AgentHarness
           attempt_id = @id_generator.call
           started_at = Time.now.utc
           emitted = false
-          streamed_usage = nil
           emit(:response_started, attempt_id:, candidate: candidate_identity(candidate))
 
           adapter_result = @adapter.call(
