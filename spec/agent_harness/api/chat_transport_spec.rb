@@ -292,6 +292,22 @@ RSpec.describe AgentHarness::Api::ChatTransport do
     expect(result[:error].to_s).not_to include("secret-a")
   end
 
+  it "preserves rate-limit classification when failed usage is reported" do
+    allow(adapter).to receive(:prepare) do |provider_usage:, **|
+      {provider_usage: provider_usage}
+    end
+    allow(adapter).to receive(:call) do |prepared_chat:, **, &stream|
+      stream.call(type: :usage_updated, input_tokens: 10, output_tokens: 0, total_tokens: 10)
+      prepared_chat.fetch(:provider_usage).call
+      raise RubyLLM::RateLimitError, "rate limited"
+    end
+
+    result = transport.call(request.merge(stream: true))
+
+    expect(result[:error]).to include(category: :transient, code: :rate_limited)
+    expect(result[:usage]).to eq(input_tokens: 10, output_tokens: 0, total_tokens: 10)
+  end
+
   it "reports every retry once with stable identity and completion-time cost" do
     events = []
     ids = %w[attempt-a attempt-b]
