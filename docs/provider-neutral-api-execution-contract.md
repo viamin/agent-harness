@@ -642,7 +642,7 @@ responses and pins each fact with a contract test:
 | Crash recovery | Same as above: checkpoint restoration is Rails-only, so a plain Ruby consumer re-implements decision and transcript persistence | reconstruction example |
 | Runner-isolated tool execution | `Tool#execute` runs in the calling process; the loop has no dispatch boundary. Paid executes tools in runner processes under caller-owned authorization and atomic claims, so delegation needs new dispatch adapters rather than removing code | in-process execution throughout |
 | Bounded, non-nested retries | Each loop `#generate` retries beneath the caller through Faraday middleware by default (`max_retries` defaults to three), violating the single-retry-owner and shared `max_attempts` budget rules; even with retries disabled, per-step budget/fallback sequencing is absent | hidden-retry example |
-| Attempt accounting | `usage.ruby_llm` payloads carry only operation/provider/model/status/tokens/cost — no attempt or request identity — so the harness `AttemptReport` ledger with stable `attempt_id` would be bypassed | usage-payload example |
+| Attempt accounting | `usage.ruby_llm` payloads carry operation/provider/model/status/tokens/cost and optional owner metadata, but no attempt or request identity — so the harness `AttemptReport` ledger with stable `attempt_id` would be bypassed | usage-payload example |
 
 ### Maintenance comparison
 
