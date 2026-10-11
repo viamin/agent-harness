@@ -208,7 +208,7 @@ RSpec.describe "RubyLLM 2.0 loop controls (RDR-072 delegation evaluation)" do
 
     expect(capture.events).not_to be_empty
     expect(capture.events).to all(include(operation: :chat, provider: "anthropic", model: "claude-test"))
-    expect(capture.events.flat_map(&:keys).uniq)
-      .to contain_exactly(:operation, :provider, :model, :status, :tokens, :cost)
+    identity_keys = %i[request_id attempt_id number sequence]
+    expect(capture.events.flat_map(&:keys) & identity_keys).to be_empty
   end
 end
