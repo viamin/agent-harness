@@ -11,6 +11,13 @@
 
 * close the RDR-072 upstream epic from #437's retained-scope evidence while keeping unpublished capabilities and downstream adoption behind their explicit release and integration gates ([#430](https://github.com/viamin/agent-harness/issues/430)).
 
+## [0.44.12](https://github.com/viamin/agent-harness/compare/agent-harness/v0.44.11...agent-harness/v0.44.12) (2026-10-11)
+
+
+### Bug Fixes
+
+* **deps-dev:** bump @oh-my-pi/pi-coding-agent from 18.4.9 to 18.8.6 in /vendor/pins/omp ([#477](https://github.com/viamin/agent-harness/issues/477)) ([b5e264c](https://github.com/viamin/agent-harness/commit/b5e264cd7fcedea80d9112252e99487828fecfc1))
+
 ## [0.44.11](https://github.com/viamin/agent-harness/compare/agent-harness/v0.44.10...agent-harness/v0.44.11) (2026-10-11)
 
 
