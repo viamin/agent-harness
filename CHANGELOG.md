@@ -11,6 +11,13 @@
 
 * close the RDR-072 upstream epic from #437's retained-scope evidence while keeping unpublished capabilities and downstream adoption behind their explicit release and integration gates ([#430](https://github.com/viamin/agent-harness/issues/430)).
 
+## [0.44.15](https://github.com/viamin/agent-harness/compare/agent-harness/v0.44.14...agent-harness/v0.44.15) (2026-10-19)
+
+
+### Dependencies
+
+* **deps:** bump the minor-updates group with 2 updates ([#487](https://github.com/viamin/agent-harness/issues/487)) ([52d2c6d](https://github.com/viamin/agent-harness/commit/52d2c6d026917e0987f5d4c535b9e8c6370b93ef))
+
 ## [0.44.14](https://github.com/viamin/agent-harness/compare/agent-harness/v0.44.13...agent-harness/v0.44.14) (2026-10-11)
 
 
