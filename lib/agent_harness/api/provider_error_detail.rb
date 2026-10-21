@@ -7,6 +7,7 @@ module AgentHarness
     module ProviderErrorDetail
       MAX_LENGTH = 1_000
       REDACTED = "[REDACTED]"
+      REDACTED_URL = "[REDACTED URL]"
       SENSITIVE_SECTION = /(?:\b(?:request|response)\s+body\b|\b(?:headers?|messages?|conversation|prompt)\s*[:=]).*\z/i
       SENSITIVE_VALUE = /\b(?:authorization|x-api-key|api[_-]?key|access[_-]?token|secret)\b\s*[:=]\s*[^\s,;]+/i
       BEARER_TOKEN = /\b(?:bearer|basic)\s+[a-z0-9._~+\/-]+=*/i
@@ -19,7 +20,7 @@ module AgentHarness
         message = normalized(error.message)
         return if message.empty? || raw_response_body?(error, message) || structured_body?(message)
 
-        sanitize(message)[0, MAX_LENGTH].strip
+        truncate(sanitize(message))
       end
 
       def normalized(value)
@@ -47,9 +48,26 @@ module AgentHarness
           .gsub(BEARER_TOKEN, REDACTED)
           .gsub(SENSITIVE_VALUE, REDACTED)
           .gsub(PROVIDER_TOKEN, REDACTED)
-          .gsub(URL, "[REDACTED URL]")
+          .gsub(URL, REDACTED_URL)
       end
       private_class_method :sanitize
+
+      # Sanitizing the full message before truncating keeps partial secrets at
+      # the boundary redacted; when the cut would split a redaction marker, the
+      # slice grows so the marker is always emitted whole.
+      def truncate(sanitized)
+        return sanitized if sanitized.length <= MAX_LENGTH
+
+        cut = sanitized[0, MAX_LENGTH]
+        marker_start = cut.rindex("[")
+        return cut.strip if marker_start.nil?
+
+        marker = [REDACTED_URL, REDACTED].find { |candidate| sanitized[marker_start..].start_with?(candidate) }
+        return cut.strip if marker.nil? || marker_start + marker.length <= MAX_LENGTH
+
+        sanitized[0, marker_start + marker.length].strip
+      end
+      private_class_method :truncate
     end
   end
 end
