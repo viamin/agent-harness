@@ -34,6 +34,6 @@ RSpec.describe AgentHarness::Api::ProviderErrorDetail do
     detail = detail_for("#{"a" * 950} Authorization: token-1 keep listening b" * 3)
 
     expect(detail.length).to be <= described_class::MAX_LENGTH + 13
-    expect(detail).not_to match(/\[REDACTED[^]]*\z/)
+    expect(detail).not_to match(/\[REDACTED[^\]]*\z/)
   end
 end

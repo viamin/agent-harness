@@ -494,8 +494,9 @@ these values or change fallback eligibility. The normalized `message` may append
 bounded, actionable detail for request, capability, configuration, and
 response-shape failures. Such detail MUST redact credentials, headers, request
 bodies, conversation content, and URLs, and MUST never copy an unparsed provider
-response body. Attempt reports retain the same sanitized error object as the
-public result.
+response body or a message derived from one. Parser diagnostics are also omitted
+because they can quote request or conversation content. Attempt reports retain
+the same sanitized error object as the public result.
 
 | Failure | Category | Code |
 | --- | --- | --- |

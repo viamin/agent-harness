@@ -18,7 +18,7 @@ module AgentHarness
 
       def call(error)
         message = normalized(error.message)
-        return if message.empty? || raw_response_body?(error, message) || structured_body?(message)
+        return if message.empty? || untrusted_source?(error) || structured_body?(message)
 
         truncate(sanitize(message))
       end
@@ -29,13 +29,13 @@ module AgentHarness
       end
       private_class_method :normalized
 
-      def raw_response_body?(error, message)
-        return false unless error.respond_to?(:response)
-
-        body = error.response&.body
-        body.is_a?(String) && normalized(body) == message
+      # Provider responses and parser diagnostics can quote request or conversation
+      # content. Redaction cannot prove that arbitrary prose from either source is
+      # safe, so only locally constructed error messages are eligible for detail.
+      def untrusted_source?(error)
+        error.is_a?(JSON::ParserError) || (error.respond_to?(:response) && !error.response.nil?)
       end
-      private_class_method :raw_response_body?
+      private_class_method :untrusted_source?
 
       def structured_body?(message)
         message.start_with?("{", "[", "<")
