@@ -294,6 +294,74 @@ RSpec.describe AgentHarness::Api::ChatTransport do
     expect(result[:error].to_s).not_to include("secret-a")
   end
 
+  it "preserves sanitized actionable provider details in the result and attempt report" do
+    detail = "Function tools with reasoning_effort are not supported for gpt-5.6-luna in /v1/chat/completions. " \
+      "To use function tools, use /v1/responses or set reasoning_effort to 'none'."
+    body = JSON.generate(error: {message: detail})
+    error = RubyLLM::BadRequestError.new(detail, response: Faraday::Response.new(status: 400, body: body))
+    allow(adapter).to receive(:call).and_raise(error)
+
+    result = transport.call(request)
+
+    expect(result[:error]).to include(category: :invalid_request, code: :invalid_request, retryable: false)
+    expect(result[:error][:message]).to include(detail)
+    expect(result[:attempts]).to contain_exactly(hash_including(error: result[:error]))
+  end
+
+  it "does not expose a caller-controlled unsupported content type" do
+    secret = "patient-diagnosis-HIV"
+    allow(adapter).to receive(:prepare).and_raise(
+      AgentHarness::Api::RubyLlmChatAdapter::UnsupportedOptionError,
+      "unsupported content type: #{secret}"
+    )
+
+    result = transport.call(request)
+
+    expect(result[:error][:message]).to eq("Chat request failed (unsupported/unsupported_capability)")
+    expect(result.to_s).not_to include(secret)
+  end
+
+  it "does not expose an extracted provider message that echoes conversation content" do
+    secret = "patient diagnosis: HIV"
+    body = JSON.generate(error: {message: "Invalid messages[0].content: #{secret}"})
+    response = Faraday::Response.new(status: 400, body: body)
+    error = RubyLLM::BadRequestError.new("Invalid messages[0].content: #{secret}", response: response)
+    allow(adapter).to receive(:call).and_raise(error)
+
+    result = transport.call(request)
+
+    expect(result[:error][:message]).to eq("Chat request failed (invalid_request/invalid_request)")
+    expect(result[:attempts]).to contain_exactly(hash_including(error: result[:error]))
+    expect(result.to_s).not_to include(secret)
+  end
+
+  it "does not expose parser diagnostics that quote malformed tool arguments" do
+    secret = 'patient diagnosis: HIV"'
+    allow(adapter).to receive(:prepare).and_raise(JSON::ParserError, "unexpected token at '#{secret}'")
+
+    result = transport.call(request)
+
+    expect(result[:error][:message]).to eq("Chat request failed (invalid_response/invalid_tool_arguments)")
+    expect(result.to_s).not_to include(secret)
+  end
+
+  it "does not expose malformed non-JSON provider response bodies" do
+    body = "upstream failed; request body: secret conversation; Authorization: Bearer very-secret-token"
+    response = Faraday::Response.new(status: 400, body: body)
+    allow(adapter).to receive(:call).and_raise(RubyLLM::BadRequestError.new(nil, response: response))
+
+    result = transport.call(request)
+
+    expect(result[:error]).to eq(
+      category: :invalid_request,
+      code: :invalid_request,
+      retryable: false,
+      message: "Chat request failed (invalid_request/invalid_request)"
+    )
+    expect(result[:attempts]).to contain_exactly(hash_including(error: result[:error]))
+    expect(result.to_s).not_to include("secret conversation", "very-secret-token")
+  end
+
   it "preserves rate-limit classification when failed usage is reported" do
     allow(adapter).to receive(:prepare) do |provider_usage:, **|
       {provider_usage: provider_usage}
