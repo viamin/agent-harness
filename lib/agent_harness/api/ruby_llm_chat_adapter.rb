@@ -26,8 +26,8 @@ module AgentHarness
           provider_usage_reported = true if event[:type] == :usage_updated
           on_event&.call(event)
         end
-        emit_completed_tool_calls(response, &on_event) if stream
-        normalize_response(response)
+        emit_completed_tool_calls(response, &on_event) if stream && on_event
+        normalize_response(response, candidate)
       end
 
       def prepare(candidate:, messages:, tools:, max_output_tokens:, temperature:, timeout:, on_accounting: nil,
@@ -71,6 +71,66 @@ module AgentHarness
         def usage
           total = (input_tokens + output_tokens) if input_tokens && output_tokens
           {input_tokens: input_tokens, output_tokens: output_tokens, total_tokens: total}
+        end
+      end
+
+      # Captures the opaque Responses output items that continue a turn.
+      # RubyLLM exposes the provider output only when it kept it: an
+      # unstreamed call parses the response body, and a streamed one keeps the
+      # output for namespaced calls and server tools. A streamed turn that used
+      # plain function calls leaves neither, so its replay items are rebuilt
+      # from the reasoning signature and tool calls the stream accumulator
+      # retained, in the same shape the Responses protocol itself replays.
+      class ResponsesOutput
+        def self.from(message)
+          new(message).items
+        end
+
+        def initialize(message)
+          @message = message
+        end
+
+        def items
+          retained_output || replay_items
+        end
+
+        private
+
+        def retained_output
+          [parsed_body_output, @message.raw_content].find { |output| output.is_a?(Array) && output.any? }
+        end
+
+        # A streamed response's raw is the Faraday response, whose body the
+        # adapter empties, so only an unstreamed body is a parsed Hash here.
+        def parsed_body_output
+          body = @message.raw&.body
+          body["output"] if body.is_a?(Hash)
+        end
+
+        def replay_items
+          [reasoning_item, message_item, *function_call_items].compact
+        end
+
+        def reasoning_item
+          thinking = @message.thinking
+          return unless thinking&.signature
+
+          summary = thinking.text.to_s.empty? ? [] : [{type: "summary_text", text: thinking.text}]
+          {"type" => "reasoning", "summary" => summary, "encrypted_content" => thinking.signature}
+        end
+
+        def message_item
+          content = @message.content.to_s
+          return if content.strip.empty?
+
+          {"role" => "assistant", "content" => [{"type" => "output_text", "text" => content}]}
+        end
+
+        def function_call_items
+          Array(@message.tool_calls&.values).map do |call|
+            {"type" => "function_call", "call_id" => call.id, "name" => call.name,
+             "arguments" => JSON.generate(call.arguments || {})}
+          end
         end
       end
 
@@ -200,12 +260,26 @@ module AgentHarness
       def apply_provider_state(message, state, candidate)
         return unless state
 
-        unless candidate[:provider].to_sym == :openai && candidate[:protocol].to_sym == :responses &&
-            state[:protocol]&.to_sym == :responses && state[:output].is_a?(Array)
+        validate_provider_state(state, candidate)
+        message[:raw_content] = state[:output]
+      end
+
+      # Provider state crosses a caller-owned boundary, so anything the
+      # selected protocol cannot replay as an assistant turn is rejected here
+      # rather than sent: an empty item list would drop the message content and
+      # its tool calls from the request.
+      def validate_provider_state(state, candidate)
+        unless responses_protocol?(candidate) && state[:protocol]&.to_sym == :responses
           raise UnsupportedOptionError, "provider state does not match the selected protocol"
         end
 
-        message[:raw_content] = state[:output]
+        return if state[:output].is_a?(Array) && state[:output].any?
+
+        raise UnsupportedOptionError, "provider state must carry at least one Responses output item"
+      end
+
+      def responses_protocol?(candidate)
+        candidate[:provider].to_s == "openai" && candidate[:protocol].to_s == "responses"
       end
 
       def tool_id_map(messages)
@@ -313,23 +387,25 @@ module AgentHarness
         end
       end
 
-      def normalize_response(response)
+      def normalize_response(response, candidate)
         {
           content: response.content || "",
           model: response.model,
           finish_reason: response.finish_reason,
           usage: normalize_usage(response.tokens),
           tool_calls: Array(response.tool_calls&.values).map { |call| normalize_tool_call(call) },
-          provider_state: responses_provider_state(response),
+          provider_state: provider_state(response, candidate),
           refusal: refusal?(response)
         }
       end
 
-      def responses_provider_state(response)
-        return unless response.respond_to?(:raw)
+      # Only the Responses protocol carries opaque continuation state; other
+      # protocols replay a turn from the normalized messages alone.
+      def provider_state(response, candidate)
+        return unless responses_protocol?(candidate)
 
-        output = response.raw&.body&.fetch("output", nil)
-        {protocol: :responses, output: output} if output.is_a?(Array) && output.any?
+        output = ResponsesOutput.from(response)
+        {protocol: :responses, output: output} if output.any?
       end
 
       def refusal?(response)

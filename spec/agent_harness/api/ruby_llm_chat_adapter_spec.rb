@@ -20,7 +20,11 @@ RSpec.describe AgentHarness::Api::RubyLlmChatAdapter do
   let(:context) { instance_double(RubyLLM::Context, chat: chat) }
   let(:response) do
     instance_double(RubyLLM::Message, content: "ok", model: "private-model", finish_reason: :stop,
-      tokens: nil, tool_calls: nil, raw: nil)
+      tokens: nil, tool_calls: nil, raw: nil, raw_content: nil, thinking: nil)
+  end
+  let(:lookup_tools) do
+    [{name: "lookup", description: "Look up an integer",
+      input_schema: {type: "object", properties: {id: {type: "integer"}}, required: ["id"]}}]
   end
   let(:config_class) do
     Struct.new(:anthropic_api_key, :anthropic_api_base, :openai_api_key, :openai_api_base,
@@ -98,7 +102,7 @@ RSpec.describe AgentHarness::Api::RubyLlmChatAdapter do
     completions_raw = Struct.new(:body).new({"choices" => [{"message" => {"refusal" => "No"}}]})
     messages = [responses_raw, completions_raw].map do |raw|
       instance_double(RubyLLM::Message, content: "No", model: "private-model", finish_reason: :stop,
-        tokens: nil, tool_calls: nil, raw: raw)
+        tokens: nil, tool_calls: nil, raw: raw, raw_content: nil, thinking: nil)
     end
     allow(chat).to receive(:generate).and_return(*messages)
 
@@ -261,16 +265,14 @@ RSpec.describe AgentHarness::Api::RubyLlmChatAdapter do
       {"type" => "function_call", "call_id" => "call-1", "name" => "lookup", "arguments" => '{"id":7}'}
     ]
     first_response = instance_double(RubyLLM::Message, content: "", model: "gpt-5.6-luna",
-      finish_reason: :tool_calls, tokens: nil,
+      finish_reason: :tool_calls, tokens: nil, raw_content: nil, thinking: nil,
       tool_calls: {"call-1" => tool_call(id: "call-1", name: "lookup", arguments: {"id" => 7})},
       raw: Struct.new(:body).new({"output" => output}))
     allow(chat).to receive(:generate).and_return(first_response, response)
     candidate = {provider: :openai, model: "gpt-5.6-luna", protocol: :responses,
                  credentials: {api_key: "request-secret"}}
-    tools = [{name: "lookup", description: "Look up an integer",
-              input_schema: {type: "object", properties: {id: {type: "integer"}}, required: ["id"]}}]
 
-    first = adapter.call(candidate: candidate, messages: [{role: :user, content: "Find 7"}], tools: tools,
+    first = adapter.call(candidate: candidate, messages: [{role: :user, content: "Find 7"}], tools: lookup_tools,
       max_output_tokens: nil, temperature: nil, stream: false, timeout: nil, cancellation: nil)
     adapter.call(candidate: candidate, messages: [
       {role: :user, content: "Find 7"},
@@ -278,7 +280,7 @@ RSpec.describe AgentHarness::Api::RubyLlmChatAdapter do
         {id: "tool-1", provider_id: "call-1", name: "lookup", arguments_json: '{"id":7}'}
       ]},
       {role: :tool, content: "seven", tool_call_id: "tool-1"}
-    ], tools: tools, max_output_tokens: nil, temperature: nil, stream: false, timeout: nil, cancellation: nil)
+    ], tools: lookup_tools, max_output_tokens: nil, temperature: nil, stream: false, timeout: nil, cancellation: nil)
 
     expect(first[:provider_state]).to eq(protocol: :responses, output: output)
     expect(chat).to have_received(:with_tools).twice
@@ -289,6 +291,88 @@ RSpec.describe AgentHarness::Api::RubyLlmChatAdapter do
     ])
   end
 
+  # A streamed response keeps the Faraday response, whose body the adapter
+  # empties, and RubyLLM retains no output for plain function calls, so the
+  # continuation state has to come from the accumulated message.
+  it "round-trips streamed Responses output for a reasoning tool continuation" do
+    output = [
+      {"type" => "reasoning", "summary" => [], "encrypted_content" => "opaque-reasoning"},
+      {"type" => "function_call", "call_id" => "call-1", "name" => "lookup", "arguments" => '{"id":7}'}
+    ]
+    streamed = streamed_message(
+      thinking: RubyLLM::Thinking.build(text: nil, signature: "opaque-reasoning"),
+      tool_calls: {"call-1" => tool_call(id: "call-1", name: "lookup", arguments: {"id" => 7})}
+    )
+    allow(chat).to receive(:generate) do |&block|
+      block.call(chunk(tool_calls: {0 => tool_call(id: "call-1", name: "lookup", arguments: "")}))
+      block.call(chunk(tool_calls: {0 => tool_call(arguments: '{"id":7}')}))
+      streamed
+    end
+    candidate = {provider: :openai, model: "gpt-5.6-luna", protocol: :responses,
+                 credentials: {api_key: "request-secret"}}
+
+    first = adapter.call(candidate: candidate, messages: [{role: :user, content: "Find 7"}], tools: lookup_tools,
+      max_output_tokens: nil, temperature: nil, stream: true, timeout: nil, cancellation: nil)
+    adapter.call(candidate: candidate, messages: [
+      {role: :user, content: "Find 7"},
+      {role: :assistant, content: "", provider_state: first[:provider_state], tool_calls: [
+        {id: "tool-1", provider_id: "call-1", name: "lookup", arguments_json: '{"id":7}'}
+      ]},
+      {role: :tool, content: "seven", tool_call_id: "tool-1"}
+    ], tools: lookup_tools, max_output_tokens: nil, temperature: nil, stream: true, timeout: nil, cancellation: nil)
+
+    expect(streamed.raw.body).to be_nil
+    expect(first[:provider_state]).to eq(protocol: :responses, output: output)
+    expect(chat).to have_received(:messages=).with([
+      {role: :user, content: "Find 7"},
+      hash_including(role: :assistant, raw_content: output),
+      {role: :tool, content: "seven", tool_call_id: "call-1"}
+    ])
+  end
+
+  it "captures streamed Responses output from an unparsed streaming body" do
+    allow(chat).to receive(:generate).and_return(
+      streamed_message(body: "data: {\"type\":\"response.completed\"}\n\n", content: "Looking that up",
+        tool_calls: {"call-1" => tool_call(id: "call-1", name: "lookup", arguments: {"id" => 7})})
+    )
+
+    result = adapter.call(candidate: {provider: :openai, model: "gpt-5.6-luna", protocol: :responses,
+                                      credentials: {api_key: "request-secret"}},
+      messages: [], tools: [], max_output_tokens: nil, temperature: nil, stream: true, timeout: nil, cancellation: nil)
+
+    expect(result[:provider_state]).to eq(protocol: :responses, output: [
+      {"role" => "assistant", "content" => [{"type" => "output_text", "text" => "Looking that up"}]},
+      {"type" => "function_call", "call_id" => "call-1", "name" => "lookup", "arguments" => '{"id":7}'}
+    ])
+  end
+
+  it "prefers the Responses output RubyLLM retained over rebuilt replay items" do
+    output = [{"type" => "function_call", "call_id" => "call-1", "name" => "lookup", "namespace" => "orders",
+               "arguments" => '{"id":7}'}]
+    allow(chat).to receive(:generate).and_return(
+      streamed_message(raw_content: output,
+        tool_calls: {"call-1" => tool_call(id: "call-1", name: "lookup", arguments: {"id" => 7})})
+    )
+
+    result = adapter.call(candidate: {provider: :openai, model: "gpt-5.6-luna", protocol: :responses,
+                                      credentials: {api_key: "request-secret"}},
+      messages: [], tools: [], max_output_tokens: nil, temperature: nil, stream: true, timeout: nil, cancellation: nil)
+
+    expect(result[:provider_state]).to eq(protocol: :responses, output: output)
+  end
+
+  it "omits provider state for a protocol that replays turns without it" do
+    allow(chat).to receive(:generate).and_return(
+      streamed_message(raw_content: [{"type" => "reasoning", "encrypted_content" => "opaque-reasoning"}])
+    )
+
+    result = adapter.call(candidate: {provider: :openai, model: "compatible-model", protocol: :chat_completions,
+                                      credentials: {api_key: "request-secret"}},
+      messages: [], tools: [], max_output_tokens: nil, temperature: nil, stream: true, timeout: nil, cancellation: nil)
+
+    expect(result[:provider_state]).to be_nil
+  end
+
   it "rejects opaque provider state on a different protocol" do
     expect do
       adapter.call(candidate: {provider: :openai, model: "compatible-model", protocol: :chat_completions,
@@ -296,6 +380,15 @@ RSpec.describe AgentHarness::Api::RubyLlmChatAdapter do
         messages: [{role: :assistant, content: "", provider_state: {protocol: :responses, output: [{}]}}],
         tools: [], max_output_tokens: nil, temperature: nil, stream: false, timeout: nil, cancellation: nil)
     end.to raise_error(described_class::UnsupportedOptionError, /does not match/)
+  end
+
+  it "rejects opaque provider state that would replay no output items" do
+    expect do
+      adapter.call(candidate: {provider: :openai, model: "gpt-5.6-luna", protocol: :responses,
+                               credentials: {api_key: "request-secret"}},
+        messages: [{role: :assistant, content: "", provider_state: {protocol: :responses, output: []}}],
+        tools: [], max_output_tokens: nil, temperature: nil, stream: false, timeout: nil, cancellation: nil)
+    end.to raise_error(described_class::UnsupportedOptionError, /at least one/)
   end
 
   it "joins interleaved multi-chunk Anthropic tool calls by stream index" do
@@ -485,6 +578,13 @@ RSpec.describe AgentHarness::Api::RubyLlmChatAdapter do
   def final_response(content: "", tool_calls: {}, tokens: nil)
     RubyLLM::Message.new(role: :assistant, content: content, model: "private-model",
       finish_reason: :tool_calls, tool_calls: tool_calls, tokens: tokens)
+  end
+
+  # Shaped like the message RubyLLM builds from a stream: the Faraday response
+  # in `raw`, with a nil body because the adapter empties it.
+  def streamed_message(content: "", tool_calls: {}, thinking: nil, body: nil, raw_content: nil)
+    RubyLLM::Message.new(role: :assistant, content: content, model: "gpt-5.6-luna", finish_reason: :tool_calls,
+      tool_calls: tool_calls, thinking: thinking, raw_content: raw_content, raw: Struct.new(:body).new(body))
   end
 
   def streamed_events(candidate, chunks, final_response)
