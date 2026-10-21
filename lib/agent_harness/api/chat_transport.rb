@@ -150,6 +150,7 @@ module AgentHarness
             content: schema_result[:content],
             parsed: schema_result[:parsed],
             tool_calls: normalize_tool_calls(adapter_result[:tool_calls]),
+            provider_state: adapter_result[:provider_state],
             finish_reason: adapter_result[:finish_reason],
             usage: aggregate_usage,
             error: schema_result[:error]
