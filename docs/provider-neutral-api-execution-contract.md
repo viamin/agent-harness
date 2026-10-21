@@ -247,7 +247,10 @@ The input is an ordered array. Each message has a stable caller-owned `id`, one
 of `system`, `user`, `assistant`, or `tool` as its `role`, and an ordered
 `content` array. Content parts initially support `text`; unimplemented media
 parts produce an explicit unsupported outcome. Assistant messages MAY contain
-tool calls. Tool messages MUST reference exactly one `tool_call_id`.
+tool calls. A Responses assistant message that requests tools also carries the
+opaque `provider_state` returned by the preceding result. Consumers MUST
+persist and return that value unchanged and MUST NOT inspect or log it. Tool
+messages MUST reference exactly one `tool_call_id`.
 
 Provider-specific wire roles, system-message placement, and content block
 shapes stay behind the harness boundary. The harness MUST preserve ordering,
@@ -275,6 +278,9 @@ reference the stable ID. Redelivery or restoration MUST skip a tool call when a
 completed result for that ID exists.
 
 The transport never decides approval and never executes application tools.
+For stateless OpenAI Responses continuation, the harness uses `provider_state`
+to replay the provider's encrypted reasoning and function-call output items.
+The field is absent when the selected protocol does not require opaque state.
 
 ### Streaming
 

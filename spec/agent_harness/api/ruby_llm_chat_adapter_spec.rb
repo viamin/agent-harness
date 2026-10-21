@@ -20,7 +20,7 @@ RSpec.describe AgentHarness::Api::RubyLlmChatAdapter do
   let(:context) { instance_double(RubyLLM::Context, chat: chat) }
   let(:response) do
     instance_double(RubyLLM::Message, content: "ok", model: "private-model", finish_reason: :stop,
-      tokens: nil, tool_calls: nil)
+      tokens: nil, tool_calls: nil, raw: nil)
   end
   let(:config_class) do
     Struct.new(:anthropic_api_key, :anthropic_api_base, :openai_api_key, :openai_api_base,
@@ -253,6 +253,49 @@ RSpec.describe AgentHarness::Api::RubyLlmChatAdapter do
     end.to raise_error(JSON::ParserError)
 
     expect(chat).not_to have_received(:generate)
+  end
+
+  it "round-trips opaque Responses output for a reasoning tool continuation" do
+    output = [
+      {"type" => "reasoning", "encrypted_content" => "opaque-reasoning", "summary" => []},
+      {"type" => "function_call", "call_id" => "call-1", "name" => "lookup", "arguments" => '{"id":7}'}
+    ]
+    first_response = instance_double(RubyLLM::Message, content: "", model: "gpt-5.6-luna",
+      finish_reason: :tool_calls, tokens: nil,
+      tool_calls: {"call-1" => tool_call(id: "call-1", name: "lookup", arguments: {"id" => 7})},
+      raw: Struct.new(:body).new({"output" => output}))
+    allow(chat).to receive(:generate).and_return(first_response, response)
+    candidate = {provider: :openai, model: "gpt-5.6-luna", protocol: :responses,
+                 credentials: {api_key: "request-secret"}}
+    tools = [{name: "lookup", description: "Look up an integer",
+              input_schema: {type: "object", properties: {id: {type: "integer"}}, required: ["id"]}}]
+
+    first = adapter.call(candidate: candidate, messages: [{role: :user, content: "Find 7"}], tools: tools,
+      max_output_tokens: nil, temperature: nil, stream: false, timeout: nil, cancellation: nil)
+    adapter.call(candidate: candidate, messages: [
+      {role: :user, content: "Find 7"},
+      {role: :assistant, content: "", provider_state: first[:provider_state], tool_calls: [
+        {id: "tool-1", provider_id: "call-1", name: "lookup", arguments_json: '{"id":7}'}
+      ]},
+      {role: :tool, content: "seven", tool_call_id: "tool-1"}
+    ], tools: tools, max_output_tokens: nil, temperature: nil, stream: false, timeout: nil, cancellation: nil)
+
+    expect(first[:provider_state]).to eq(protocol: :responses, output: output)
+    expect(chat).to have_received(:with_tools).twice
+    expect(chat).to have_received(:messages=).with([
+      {role: :user, content: "Find 7"},
+      hash_including(role: :assistant, raw_content: output),
+      {role: :tool, content: "seven", tool_call_id: "call-1"}
+    ])
+  end
+
+  it "rejects opaque provider state on a different protocol" do
+    expect do
+      adapter.call(candidate: {provider: :openai, model: "compatible-model", protocol: :chat_completions,
+                               credentials: {api_key: "request-secret"}},
+        messages: [{role: :assistant, content: "", provider_state: {protocol: :responses, output: [{}]}}],
+        tools: [], max_output_tokens: nil, temperature: nil, stream: false, timeout: nil, cancellation: nil)
+    end.to raise_error(described_class::UnsupportedOptionError, /does not match/)
   end
 
   it "joins interleaved multi-chunk Anthropic tool calls by stream index" do

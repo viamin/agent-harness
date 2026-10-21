@@ -151,7 +151,7 @@ module AgentHarness
       end
 
       def configure_chat(chat, candidate, messages, tools, max_output_tokens, temperature, schema)
-        chat.messages = normalize_messages(messages)
+        chat.messages = normalize_messages(messages, candidate)
         chat.with_tools(tools.map { |tool| normalized_tool(tool) }) unless tools.empty?
         chat.with_headers(candidate[:headers] || {})
         chat.with_max_output_tokens(max_output_tokens) if max_output_tokens
@@ -185,15 +185,27 @@ module AgentHarness
         token.respond_to?(:cancelled?) ? token.cancelled? : token.call
       end
 
-      def normalize_messages(messages)
+      def normalize_messages(messages, candidate)
         stable_to_provider = tool_id_map(messages)
         messages.map do |message|
           role = message.fetch(:role).to_sym
           normalized = {role: role, content: text_content(message[:content])}
           normalized[:tool_calls] = normalize_input_tool_calls(message[:tool_calls]) if message[:tool_calls]
           normalized[:tool_call_id] = stable_to_provider.fetch(message[:tool_call_id], message[:tool_call_id]) if role == :tool
+          apply_provider_state(normalized, message[:provider_state], candidate) if role == :assistant
           normalized
         end
+      end
+
+      def apply_provider_state(message, state, candidate)
+        return unless state
+
+        unless candidate[:provider].to_sym == :openai && candidate[:protocol].to_sym == :responses &&
+            state[:protocol]&.to_sym == :responses && state[:output].is_a?(Array)
+          raise UnsupportedOptionError, "provider state does not match the selected protocol"
+        end
+
+        message[:raw_content] = state[:output]
       end
 
       def tool_id_map(messages)
@@ -308,8 +320,16 @@ module AgentHarness
           finish_reason: response.finish_reason,
           usage: normalize_usage(response.tokens),
           tool_calls: Array(response.tool_calls&.values).map { |call| normalize_tool_call(call) },
+          provider_state: responses_provider_state(response),
           refusal: refusal?(response)
         }
+      end
+
+      def responses_provider_state(response)
+        return unless response.respond_to?(:raw)
+
+        output = response.raw&.body&.fetch("output", nil)
+        {protocol: :responses, output: output} if output.is_a?(Array) && output.any?
       end
 
       def refusal?(response)

@@ -104,6 +104,55 @@ agent-harness release containing this capability:
 The runtime dependency is Ruby 3.2 or newer and RubyLLM 2.x. No Rails database
 or RubyLLM persistence tables are required for this plain-Ruby operation.
 
+## Native API chat
+
+`AgentHarness::Api::ChatTransport` supports OpenAI's Responses API explicitly.
+Select `protocol: :responses` for reasoning-capable OpenAI models used with
+function tools; this preserves the model's reasoning behavior. Do not select
+Chat Completions and do not disable reasoning or remove tools as a workaround.
+OpenAI-compatible providers that only implement Chat Completions continue to
+use `provider: :openai`, their explicit `endpoint`, and
+`protocol: :chat_completions`; Agent Harness never probes or silently changes
+the selected protocol.
+
+```ruby
+candidate = {
+  provider: :openai,
+  model: "gpt-5.6-luna",
+  protocol: :responses,
+  authentication_mode: :api_key,
+  credentials: {api_key: ENV.fetch("OPENAI_API_KEY")}
+}
+
+result = AgentHarness::Api::ChatTransport.new.call(
+  request_id: SecureRandom.uuid,
+  operation: :chat,
+  candidates: [candidate],
+  messages: [{role: :user, content: "Look up order 42"}],
+  tools: [{
+    name: "lookup_order",
+    description: "Find an order",
+    input_schema: {type: "object", properties: {id: {type: "integer"}}, required: ["id"]}
+  }],
+  stream: true,
+  retry: {max_attempts: 1}
+)
+```
+
+The harness returns tool calls without executing them. For the next request,
+append the assistant message (including `tool_calls` and `provider_state`) and
+then a tool message whose `tool_call_id` is the returned stable harness ID.
+`provider_state` is opaque protocol continuation data: persist and return it
+unchanged, and never inspect or log it. The transport maps the stable ID back
+to the provider call ID and replays the encrypted Responses reasoning item.
+
+To run the credential-gated live tool-continuation smoke test:
+
+```bash
+AGENT_HARNESS_LIVE_OPENAI=1 OPENAI_API_KEY=... \
+  bundle exec rspec spec/live/openai_responses_reasoning_spec.rb
+```
+
 ## Configuration
 
 ### Ruby DSL

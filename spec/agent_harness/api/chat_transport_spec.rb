@@ -44,6 +44,7 @@ RSpec.describe AgentHarness::Api::ChatTransport do
       model: "claude-test",
       finish_reason: :tool_calls,
       usage: {input_tokens: 12, output_tokens: 4, total_tokens: 16},
+      provider_state: {protocol: :responses, output: [{"type" => "reasoning"}]},
       tool_calls: [
         {provider_id: "call-a", name: "first", arguments_json: '{"x":1}'},
         {provider_id: "call-b", name: "second", arguments_json: '{"y":2}'}
@@ -58,6 +59,7 @@ RSpec.describe AgentHarness::Api::ChatTransport do
       {id: "tool-2", provider_id: "call-b", name: "second", arguments_json: '{"y":2}', status: :completed}
     ])
     expect(result[:usage]).to eq(input_tokens: 12, output_tokens: 4, total_tokens: 16)
+    expect(result[:provider_state]).to eq(protocol: :responses, output: [{"type" => "reasoning"}])
     expect(result[:attempts]).to contain_exactly(hash_including(
       usage: {input_tokens: 12, output_tokens: 4, total_tokens: 16},
       cost: nil, provider_reported: true
