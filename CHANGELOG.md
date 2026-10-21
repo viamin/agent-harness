@@ -12,6 +12,13 @@
 
 * close the RDR-072 upstream epic from #437's retained-scope evidence while keeping unpublished capabilities and downstream adoption behind their explicit release and integration gates ([#430](https://github.com/viamin/agent-harness/issues/430)).
 
+## [0.44.21](https://github.com/viamin/agent-harness/compare/agent-harness/v0.44.20...agent-harness/v0.44.21) (2026-10-21)
+
+
+### Bug Fixes
+
+* Support reasoning-capable OpenAI chat with function tools through Responses API ([#501](https://github.com/viamin/agent-harness/issues/501)) ([5976a89](https://github.com/viamin/agent-harness/commit/5976a89b2dacec48338eac8b2b45bc59976e4bd1))
+
 ## [0.44.20](https://github.com/viamin/agent-harness/compare/agent-harness/v0.44.19...agent-harness/v0.44.20) (2026-10-19)
 
 
