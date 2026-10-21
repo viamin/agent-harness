@@ -12,6 +12,13 @@
 
 * close the RDR-072 upstream epic from #437's retained-scope evidence while keeping unpublished capabilities and downstream adoption behind their explicit release and integration gates ([#430](https://github.com/viamin/agent-harness/issues/430)).
 
+## [0.44.22](https://github.com/viamin/agent-harness/compare/agent-harness/v0.44.21...agent-harness/v0.44.22) (2026-10-21)
+
+
+### Bug Fixes
+
+* Preserve safe actionable provider error details in API chat failures ([#502](https://github.com/viamin/agent-harness/issues/502)) ([509a877](https://github.com/viamin/agent-harness/commit/509a8773e330cdc4bccb53edfe51bafef6b8e20f))
+
 ## [0.44.21](https://github.com/viamin/agent-harness/compare/agent-harness/v0.44.20...agent-harness/v0.44.21) (2026-10-21)
 
 
