@@ -3,37 +3,26 @@
 require "spec_helper"
 
 RSpec.describe AgentHarness::Api::ProviderErrorDetail do
-  def detail_for(message)
-    described_class.call(StandardError.new(message))
+  it "accepts the structured provider tools and reasoning diagnostic" do
+    message = "Function tools with reasoning_effort are not supported for gpt-5.6-luna in /v1/chat/completions. " \
+      "To use function tools, use /v1/responses or set reasoning_effort to 'none'."
+    response = Faraday::Response.new(status: 400, body: JSON.generate(error: {message: message}))
+
+    expect(described_class.call(RubyLLM::BadRequestError.new(message, response: response))).to eq(message)
   end
 
-  it "keeps redaction markers whole when truncation splits them" do
-    detail = detail_for("#{"x" * 995} Authorization: very-secret-token-value")
+  it "rejects raw and mismatched provider response messages" do
+    response = Faraday::Response.new(status: 400, body: "upstream failed")
+    error = RubyLLM::BadRequestError.new("upstream failed", response: response)
 
-    expect(detail).to end_with("[REDACTED]")
-    expect(detail).not_to include("very-secret")
-    expect(detail.length).to be <= described_class::MAX_LENGTH + 13
+    expect(described_class.call(error)).to be_nil
   end
 
-  it "keeps redacted URL markers whole when truncation splits them" do
-    detail = detail_for("#{"y" * 989} https://tenant.example/secret-path")
+  it "rejects arbitrary local error text" do
+    error = AgentHarness::Api::RubyLlmChatAdapter::UnsupportedOptionError.new(
+      "unsupported content type: patient-diagnosis-HIV"
+    )
 
-    expect(detail).to end_with("[REDACTED URL]")
-    expect(detail).not_to include("tenant.example")
-    expect(detail.length).to be <= described_class::MAX_LENGTH + 13
-  end
-
-  it "emits at most one trailing redaction marker past the limit" do
-    detail = detail_for("#{"z" * 986} api_key=shhh-1234567890 https://a.example/x https://b.example/y")
-
-    expect(detail.scan("[").count).to eq(detail.scan("]").count)
-    expect(detail).to end_with("]")
-  end
-
-  it "truncates without extending when the boundary falls between markers" do
-    detail = detail_for("#{"a" * 950} Authorization: token-1 keep listening b" * 3)
-
-    expect(detail.length).to be <= described_class::MAX_LENGTH + 13
-    expect(detail).not_to match(/\[REDACTED[^\]]*\z/)
+    expect(described_class.call(error)).to be_nil
   end
 end

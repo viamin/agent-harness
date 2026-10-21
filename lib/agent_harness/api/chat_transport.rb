@@ -446,13 +446,7 @@ module AgentHarness
     module ErrorClassifier
       ACTIONABLE_DETAIL_ERRORS = [
         RubyLLM::BadRequestError,
-        RubyLLM::ContextLengthExceededError,
-        RubyLlmChatAdapter::UnsupportedOptionError,
-        RubyLLM::UnsupportedServerToolError,
-        RubyLLM::ToolCallParseError,
-        JSON::ParserError,
-        RubyLLM::ModelNotFoundError,
-        RubyLLM::ConfigurationError
+        RubyLlmChatAdapter::UnsupportedOptionError
       ].freeze
 
       TRANSIENT = {

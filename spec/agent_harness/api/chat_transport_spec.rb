@@ -295,20 +295,30 @@ RSpec.describe AgentHarness::Api::ChatTransport do
   end
 
   it "preserves sanitized actionable provider details in the result and attempt report" do
-    detail = "RubyLLM does not support request-local connect timeouts. " \
-      "Authorization: Bearer very-secret-token https://tenant.example/private request body: secret conversation"
-    allow(adapter).to receive(:call).and_raise(AgentHarness::Api::RubyLlmChatAdapter::UnsupportedOptionError, detail)
+    detail = "Function tools with reasoning_effort are not supported for gpt-5.6-luna in /v1/chat/completions. " \
+      "To use function tools, use /v1/responses or set reasoning_effort to 'none'."
+    body = JSON.generate(error: {message: detail})
+    error = RubyLLM::BadRequestError.new(detail, response: Faraday::Response.new(status: 400, body: body))
+    allow(adapter).to receive(:call).and_raise(error)
 
     result = transport.call(request)
 
-    expect(result[:error]).to include(category: :unsupported, code: :unsupported_capability, retryable: false)
-    expect(result[:error][:message]).to include(
-      "RubyLLM does not support request-local connect timeouts",
-      "[REDACTED]",
-      "[REDACTED URL]"
-    )
-    expect(result[:error][:message]).not_to include("very-secret-token", "tenant.example", "secret conversation")
+    expect(result[:error]).to include(category: :invalid_request, code: :invalid_request, retryable: false)
+    expect(result[:error][:message]).to include(detail)
     expect(result[:attempts]).to contain_exactly(hash_including(error: result[:error]))
+  end
+
+  it "does not expose a caller-controlled unsupported content type" do
+    secret = "patient-diagnosis-HIV"
+    allow(adapter).to receive(:prepare).and_raise(
+      AgentHarness::Api::RubyLlmChatAdapter::UnsupportedOptionError,
+      "unsupported content type: #{secret}"
+    )
+
+    result = transport.call(request)
+
+    expect(result[:error][:message]).to eq("Chat request failed (unsupported/unsupported_capability)")
+    expect(result.to_s).not_to include(secret)
   end
 
   it "does not expose an extracted provider message that echoes conversation content" do

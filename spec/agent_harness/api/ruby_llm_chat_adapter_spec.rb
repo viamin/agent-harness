@@ -40,6 +40,17 @@ RSpec.describe AgentHarness::Api::RubyLlmChatAdapter do
     end
   end
 
+  it "does not interpolate a caller-controlled unsupported content type" do
+    expect do
+      adapter.prepare(
+        candidate: {provider: :anthropic, model: "private-model", protocol: :messages,
+                    credentials: {api_key: "request-secret"}},
+        messages: [{role: :user, content: [{type: "patient-diagnosis-HIV", text: "secret"}]}],
+        tools: [], max_output_tokens: nil, temperature: nil, timeout: nil
+      )
+    end.to raise_error(described_class::UnsupportedOptionError, "unsupported content type")
+  end
+
   it "uses an isolated Anthropic context, Messages protocol, and exact output limit" do
     result = adapter.call(
       candidate: {
@@ -239,7 +250,7 @@ RSpec.describe AgentHarness::Api::RubyLlmChatAdapter do
         messages: [{role: :user, content: [{type: :image_url, image_url: "https://example.test/image.png"}]}],
         tools: [], max_output_tokens: nil, temperature: nil, stream: false, timeout: nil, cancellation: nil
       )
-    end.to raise_error(described_class::UnsupportedOptionError, /image_url/)
+    end.to raise_error(described_class::UnsupportedOptionError, "unsupported content type")
 
     expect(chat).not_to have_received(:generate)
   end

@@ -303,7 +303,7 @@ module AgentHarness
 
         Array(content).map do |part|
           unless part[:type]&.to_sym == :text
-            raise UnsupportedOptionError, "unsupported content type: #{part[:type]}"
+            raise UnsupportedOptionError, "unsupported content type"
           end
 
           part[:text].to_s
