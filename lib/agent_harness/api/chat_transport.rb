@@ -3,6 +3,7 @@
 require "securerandom"
 require "ruby_llm"
 require_relative "attempt_report"
+require_relative "provider_error_detail"
 require_relative "ruby_llm_chat_adapter"
 require_relative "schema_response"
 
@@ -443,6 +444,17 @@ module AgentHarness
     end
 
     module ErrorClassifier
+      ACTIONABLE_DETAIL_ERRORS = [
+        RubyLLM::BadRequestError,
+        RubyLLM::ContextLengthExceededError,
+        RubyLlmChatAdapter::UnsupportedOptionError,
+        RubyLLM::UnsupportedServerToolError,
+        RubyLLM::ToolCallParseError,
+        JSON::ParserError,
+        RubyLLM::ModelNotFoundError,
+        RubyLLM::ConfigurationError
+      ].freeze
+
       TRANSIENT = {
         Faraday::TimeoutError => :timeout,
         Faraday::ConnectionFailed => :connection_failed,
@@ -480,7 +492,7 @@ module AgentHarness
       end
 
       def self.payload(error, category, code, retryable)
-        payload = {category: category, code: code, retryable: retryable, message: safe_message(category, code)}
+        payload = {category: category, code: code, retryable: retryable, message: safe_message(error, category, code)}
         retry_after = retry_after_seconds(error)
         payload[:retry_after_seconds] = retry_after if retry_after
         payload
@@ -497,8 +509,12 @@ module AgentHarness
       end
       private_class_method :retry_after_seconds
 
-      def self.safe_message(category, code)
-        "Chat request failed (#{category}/#{code})"
+      def self.safe_message(error, category, code)
+        summary = "Chat request failed (#{category}/#{code})"
+        return summary unless ACTIONABLE_DETAIL_ERRORS.any? { |klass| error.is_a?(klass) }
+
+        detail = ProviderErrorDetail.call(error)
+        detail.to_s.empty? ? summary : "#{summary}: #{detail}"
       end
       private_class_method :safe_message
     end

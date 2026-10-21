@@ -294,6 +294,42 @@ RSpec.describe AgentHarness::Api::ChatTransport do
     expect(result[:error].to_s).not_to include("secret-a")
   end
 
+  it "preserves sanitized actionable provider details in the result and attempt report" do
+    detail = "Function tools with reasoning_effort are not supported for gpt-5.6-luna in /v1/chat/completions. " \
+      "To use function tools, use /v1/responses or set reasoning_effort to 'none'. " \
+      "Authorization: Bearer very-secret-token https://tenant.example/private request body: secret conversation"
+    allow(adapter).to receive(:call).and_raise(RubyLLM::BadRequestError, detail)
+
+    result = transport.call(request)
+
+    expect(result[:error]).to include(category: :invalid_request, code: :invalid_request, retryable: false)
+    expect(result[:error][:message]).to include(
+      "Function tools with reasoning_effort are not supported for gpt-5.6-luna in /v1/chat/completions",
+      "use /v1/responses or set reasoning_effort to 'none'",
+      "[REDACTED]",
+      "[REDACTED URL]"
+    )
+    expect(result[:error][:message]).not_to include("very-secret-token", "tenant.example", "secret conversation")
+    expect(result[:attempts]).to contain_exactly(hash_including(error: result[:error]))
+  end
+
+  it "does not expose malformed non-JSON provider response bodies" do
+    body = "upstream failed; request body: secret conversation; Authorization: Bearer very-secret-token"
+    response = Faraday::Response.new(status: 400, body: body)
+    allow(adapter).to receive(:call).and_raise(RubyLLM::BadRequestError.new(nil, response: response))
+
+    result = transport.call(request)
+
+    expect(result[:error]).to eq(
+      category: :invalid_request,
+      code: :invalid_request,
+      retryable: false,
+      message: "Chat request failed (invalid_request/invalid_request)"
+    )
+    expect(result[:attempts]).to contain_exactly(hash_including(error: result[:error]))
+    expect(result.to_s).not_to include("secret conversation", "very-secret-token")
+  end
+
   it "preserves rate-limit classification when failed usage is reported" do
     allow(adapter).to receive(:prepare) do |provider_usage:, **|
       {provider_usage: provider_usage}
