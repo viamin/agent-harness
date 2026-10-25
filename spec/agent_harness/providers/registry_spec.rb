@@ -336,7 +336,7 @@ RSpec.describe AgentHarness::Providers::Registry do
         package: "@kilocode/cli"
       })
       expect(contract[:binary_name]).to eq("kilo")
-      expect(contract[:default_version]).to eq("7.8.12")
+      expect(contract[:default_version]).to eq("7.8.16")
     end
 
     it "falls back to the legacy provider install contract API when needed" do
@@ -350,10 +350,10 @@ RSpec.describe AgentHarness::Providers::Registry do
     end
 
     it "forwards target selection options to the provider" do
-      contract = registry.installation_contract(:kilocode, version: "7.8.12")
+      contract = registry.installation_contract(:kilocode, version: "7.8.16")
 
       expect(contract[:install_command]).to eq(
-        ["npm", "install", "-g", "--ignore-scripts", "@kilocode/cli@7.8.12"]
+        ["npm", "install", "-g", "--ignore-scripts", "@kilocode/cli@7.8.16"]
       )
     end
 
@@ -567,12 +567,12 @@ RSpec.describe AgentHarness::Providers::Registry do
         provider: :kilocode,
         source_type: :npm,
         package_name: "@kilocode/cli",
-        default_version: "7.8.12",
-        resolved_version: "7.8.12",
-        supported_version_requirement: "= 7.8.12",
+        default_version: "7.8.16",
+        resolved_version: "7.8.16",
+        supported_version_requirement: "= 7.8.16",
         binary_name: "kilo",
-        install_command: ["npm", "install", "-g", "--ignore-scripts", "@kilocode/cli@7.8.12"],
-        install_command_string: "npm install -g --ignore-scripts @kilocode/cli@7.8.12"
+        install_command: ["npm", "install", "-g", "--ignore-scripts", "@kilocode/cli@7.8.16"],
+        install_command_string: "npm install -g --ignore-scripts @kilocode/cli@7.8.16"
       )
     end
 
