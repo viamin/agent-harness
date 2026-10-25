@@ -332,8 +332,8 @@ RSpec.describe AgentHarness do
       bun = contract.fetch(:runtime_requirements).find { |req| req[:name] == :bun }
       expect(bun).to include(
         binary_name: "bun",
-        pinned_version: "1.4.3",
-        version_requirement: ">= 1.4.3",
+        pinned_version: "1.4.4",
+        version_requirement: ">= 1.4.4",
         install_script_url: "https://bun.sh/install"
       )
     end
@@ -395,8 +395,8 @@ RSpec.describe AgentHarness do
 
       bun = installation.fetch(:runtime_requirements).find { |req| req[:name] == :bun }
       expect(bun).to include(
-        pinned_version: "1.4.3",
-        version_requirement: ">= 1.4.3"
+        pinned_version: "1.4.4",
+        version_requirement: ">= 1.4.4"
       )
     end
   end
