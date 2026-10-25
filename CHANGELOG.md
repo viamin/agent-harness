@@ -12,6 +12,13 @@
 
 * close the RDR-072 upstream epic from #437's retained-scope evidence while keeping unpublished capabilities and downstream adoption behind their explicit release and integration gates ([#430](https://github.com/viamin/agent-harness/issues/430)).
 
+## [0.44.24](https://github.com/viamin/agent-harness/compare/agent-harness/v0.44.23...agent-harness/v0.44.24) (2026-10-25)
+
+
+### Bug Fixes
+
+* **deps-dev:** bump bun from 1.4.3 to 1.4.4 in /vendor/pins/omp ([#506](https://github.com/viamin/agent-harness/issues/506)) ([28f29c4](https://github.com/viamin/agent-harness/commit/28f29c4a3a202d9e35068d65db27936e78015805))
+
 ## [0.44.23](https://github.com/viamin/agent-harness/compare/agent-harness/v0.44.22...agent-harness/v0.44.23) (2026-10-25)
 
 
