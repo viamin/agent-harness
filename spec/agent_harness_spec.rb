@@ -297,15 +297,15 @@ RSpec.describe AgentHarness do
     end
 
     it "returns versioned install metadata for providers with generic contracts" do
-      contract = AgentHarness.installation_contract(:opencode, version: "1.19.1")
+      contract = AgentHarness.installation_contract(:opencode, version: "1.19.4")
 
       expect(contract).to include(
         package_name: "opencode-ai",
-        version: "1.19.1",
+        version: "1.19.4",
         binary_name: "opencode"
       )
       expect(contract[:install_command]).to eq(
-        ["npm", "install", "-g", "--ignore-scripts", "opencode-ai@1.19.1"]
+        ["npm", "install", "-g", "--ignore-scripts", "opencode-ai@1.19.4"]
       )
     end
 
@@ -332,22 +332,22 @@ RSpec.describe AgentHarness do
       bun = contract.fetch(:runtime_requirements).find { |req| req[:name] == :bun }
       expect(bun).to include(
         binary_name: "bun",
-        pinned_version: "1.4.3",
-        version_requirement: ">= 1.4.3",
+        pinned_version: "1.4.4",
+        version_requirement: ">= 1.4.4",
         install_script_url: "https://bun.sh/install"
       )
     end
 
     it "preserves provider normalization for generic-contract version lookups" do
-      contract = AgentHarness.installation_contract(:opencode, version: " 1.19.1 ")
+      contract = AgentHarness.installation_contract(:opencode, version: " 1.19.4 ")
 
       expect(contract).to include(
         package_name: "opencode-ai",
-        version: "1.19.1",
+        version: "1.19.4",
         binary_name: "opencode"
       )
       expect(contract[:install_command]).to eq(
-        ["npm", "install", "-g", "--ignore-scripts", "opencode-ai@1.19.1"]
+        ["npm", "install", "-g", "--ignore-scripts", "opencode-ai@1.19.4"]
       )
     end
   end
@@ -395,8 +395,8 @@ RSpec.describe AgentHarness do
 
       bun = installation.fetch(:runtime_requirements).find { |req| req[:name] == :bun }
       expect(bun).to include(
-        pinned_version: "1.4.3",
-        version_requirement: ">= 1.4.3"
+        pinned_version: "1.4.4",
+        version_requirement: ">= 1.4.4"
       )
     end
   end

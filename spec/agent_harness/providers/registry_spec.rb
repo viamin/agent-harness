@@ -336,7 +336,7 @@ RSpec.describe AgentHarness::Providers::Registry do
         package: "@kilocode/cli"
       })
       expect(contract[:binary_name]).to eq("kilo")
-      expect(contract[:default_version]).to eq("7.8.12")
+      expect(contract[:default_version]).to eq("7.8.16")
     end
 
     it "falls back to the legacy provider install contract API when needed" do
@@ -350,23 +350,23 @@ RSpec.describe AgentHarness::Providers::Registry do
     end
 
     it "forwards target selection options to the provider" do
-      contract = registry.installation_contract(:kilocode, version: "7.8.12")
+      contract = registry.installation_contract(:kilocode, version: "7.8.16")
 
       expect(contract[:install_command]).to eq(
-        ["npm", "install", "-g", "--ignore-scripts", "@kilocode/cli@7.8.12"]
+        ["npm", "install", "-g", "--ignore-scripts", "@kilocode/cli@7.8.16"]
       )
     end
 
     it "forwards target selection options to providers with generic contracts" do
-      contract = registry.installation_contract(:opencode, version: "1.19.1")
+      contract = registry.installation_contract(:opencode, version: "1.19.4")
 
       expect(contract).to include(
         package_name: "opencode-ai",
-        version: "1.19.1",
+        version: "1.19.4",
         binary_name: "opencode"
       )
       expect(contract[:install_command]).to eq(
-        ["npm", "install", "-g", "--ignore-scripts", "opencode-ai@1.19.1"]
+        ["npm", "install", "-g", "--ignore-scripts", "opencode-ai@1.19.4"]
       )
       expect(contract[:requires_postinstall]).to be true
       expect(contract[:postinstall_command]).to include("raw_arch=$(uname -m)")
@@ -374,15 +374,15 @@ RSpec.describe AgentHarness::Providers::Registry do
     end
 
     it "preserves provider normalization for generic-contract version lookups" do
-      contract = registry.installation_contract(:opencode, version: " 1.19.1 ")
+      contract = registry.installation_contract(:opencode, version: " 1.19.4 ")
 
       expect(contract).to include(
         package_name: "opencode-ai",
-        version: "1.19.1",
+        version: "1.19.4",
         binary_name: "opencode"
       )
       expect(contract[:install_command]).to eq(
-        ["npm", "install", "-g", "--ignore-scripts", "opencode-ai@1.19.1"]
+        ["npm", "install", "-g", "--ignore-scripts", "opencode-ai@1.19.4"]
       )
       expect(contract[:requires_postinstall]).to be true
     end
@@ -471,7 +471,7 @@ RSpec.describe AgentHarness::Providers::Registry do
         ["uv", "tool", "install", "--force", "--python", "python3.12", "--with", "pip", "aider-chat==0.86.2"]
       )
       expect(contracts[:opencode][:install_command]).to eq(
-        ["npm", "install", "-g", "--ignore-scripts", "opencode-ai@1.19.1"]
+        ["npm", "install", "-g", "--ignore-scripts", "opencode-ai@1.19.4"]
       )
       expect(contracts[:opencode][:requires_postinstall]).to be true
       expect(contracts[:opencode][:postinstall_command]).to include("raw_arch=$(uname -m)")
@@ -567,12 +567,12 @@ RSpec.describe AgentHarness::Providers::Registry do
         provider: :kilocode,
         source_type: :npm,
         package_name: "@kilocode/cli",
-        default_version: "7.8.12",
-        resolved_version: "7.8.12",
-        supported_version_requirement: "= 7.8.12",
+        default_version: "7.8.16",
+        resolved_version: "7.8.16",
+        supported_version_requirement: "= 7.8.16",
         binary_name: "kilo",
-        install_command: ["npm", "install", "-g", "--ignore-scripts", "@kilocode/cli@7.8.12"],
-        install_command_string: "npm install -g --ignore-scripts @kilocode/cli@7.8.12"
+        install_command: ["npm", "install", "-g", "--ignore-scripts", "@kilocode/cli@7.8.16"],
+        install_command_string: "npm install -g --ignore-scripts @kilocode/cli@7.8.16"
       )
     end
 
