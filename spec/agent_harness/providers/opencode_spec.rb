@@ -298,7 +298,7 @@ RSpec.describe AgentHarness::Providers::Opencode do
           error_category: :rate_limited
         )
         expect(transport).to have_received(:call).with(hash_including(
-          timeout: 5,
+          timeout: {read_seconds: 5},
           retry: {max_attempts: 1},
           candidates: [hash_including(
             provider: :anthropic,
@@ -327,7 +327,7 @@ RSpec.describe AgentHarness::Providers::Opencode do
       end
 
       it "preserves an HTTP-date Retry-After through the MiniMax preflight" do
-        adapter = instance_double(AgentHarness::Api::RubyLlmChatAdapter)
+        adapter = AgentHarness::Api::RubyLlmChatAdapter.new
         live_transport = AgentHarness::Api::ChatTransport.new(adapter: adapter)
         live_provider = described_class.new(executor: mock_executor, preflight_transport: live_transport)
         reset_at = Time.now.utc + 120
@@ -335,7 +335,6 @@ RSpec.describe AgentHarness::Providers::Opencode do
           status: 429,
           response_headers: {"Retry-After" => reset_at.httpdate}
         )
-        allow(adapter).to receive(:prepare).and_return(:prepared_chat)
         allow(adapter).to receive(:call).and_raise(
           RubyLLM::RateLimitError.new("rate limited", response: response)
         )

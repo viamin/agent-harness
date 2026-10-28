@@ -322,7 +322,7 @@ module AgentHarness
           messages: [{role: :user, content: [{type: :text, text: "Reply with exactly OK."}]}],
           tools: [],
           max_output_tokens: 8,
-          timeout: timeout,
+          timeout: {read_seconds: timeout},
           retry: {max_attempts: 1}
         }
       end
