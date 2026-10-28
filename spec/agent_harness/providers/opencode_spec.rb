@@ -268,6 +268,119 @@ RSpec.describe AgentHarness::Providers::Opencode do
       end
     end
 
+    describe "#preflight_check" do
+      let(:transport) { instance_double(AgentHarness::Api::ChatTransport) }
+      let(:provider) { described_class.new(executor: mock_executor, preflight_transport: transport) }
+      let(:runtime) do
+        AgentHarness::ProviderRuntime.new(
+          model: "MiniMax-M3",
+          base_url: "https://api.minimax.example/anthropic",
+          api_provider: "minimax",
+          env: {"MINIMAX_API_KEY" => "secret"}
+        )
+      end
+
+      before do
+        allow(transport).to receive(:call)
+      end
+
+      it "surfaces a MiniMax HTTP 429 as a structured Token Plan rate limit" do
+        allow(transport).to receive(:call).and_return(
+          status: :failed,
+          error: {category: :transient, code: :rate_limited, retryable: true}
+        )
+
+        result = provider.preflight_check(env: runtime.env, timeout: 5, provider_runtime: runtime)
+
+        expect(result).to eq(
+          healthy: false,
+          reason: "MiniMax Token Plan rate limit reached",
+          error_category: :rate_limited
+        )
+        expect(transport).to have_received(:call).with(hash_including(
+          timeout: {read_seconds: 5},
+          retry: {max_attempts: 1},
+          candidates: [hash_including(
+            provider: :anthropic,
+            protocol: :messages,
+            model: "MiniMax-M3",
+            endpoint: "https://api.minimax.example/anthropic"
+          )]
+        ))
+      end
+
+      it "includes a reset time only when MiniMax supplies Retry-After" do
+        allow(transport).to receive(:call).and_return(
+          status: :failed,
+          error: {
+            category: :transient,
+            code: :rate_limited,
+            retryable: true,
+            retry_after_seconds: 30
+          }
+        )
+
+        before = Time.now.utc + 30
+        result = provider.preflight_check(env: runtime.env, timeout: 5, provider_runtime: runtime)
+
+        expect(result[:reset_at]).to be_between(before, Time.now.utc + 30)
+      end
+
+      it "preserves an HTTP-date Retry-After through the MiniMax preflight" do
+        adapter = AgentHarness::Api::RubyLlmChatAdapter.new
+        live_transport = AgentHarness::Api::ChatTransport.new(adapter: adapter)
+        live_provider = described_class.new(executor: mock_executor, preflight_transport: live_transport)
+        reset_at = Time.now.utc + 120
+        response = Faraday::Response.new(
+          status: 429,
+          response_headers: {"Retry-After" => reset_at.httpdate}
+        )
+        allow(adapter).to receive(:call).and_raise(
+          RubyLLM::RateLimitError.new("rate limited", response: response)
+        )
+
+        result = live_provider.preflight_check(env: runtime.env, timeout: 5, provider_runtime: runtime)
+
+        expect(result).to include(healthy: false, error_category: :rate_limited)
+        expect(result[:reset_at]).to be_within(0.1).of(Time.httpdate(reset_at.httpdate))
+      end
+
+      it "keeps successful agent text mentioning a limit healthy" do
+        allow(transport).to receive(:call).and_return(
+          status: :succeeded,
+          content: "Token Plan usage limit reached"
+        )
+
+        result = provider.preflight_check(env: runtime.env, timeout: 5, provider_runtime: runtime)
+
+        expect(result).to eq(healthy: true)
+      end
+
+      it "does not classify unrelated transport failures as rate limits" do
+        allow(transport).to receive(:call).and_return(
+          status: :failed,
+          error: {category: :transient, code: :connection_failed, retryable: true}
+        )
+
+        result = provider.preflight_check(env: runtime.env, timeout: 5, provider_runtime: runtime)
+
+        expect(result).to eq(
+          healthy: false,
+          reason: "MiniMax preflight request failed",
+          error_category: :transient
+        )
+      end
+
+      it "does not probe non-MiniMax runtimes" do
+        other_runtime = AgentHarness::ProviderRuntime.new(api_provider: "openrouter")
+
+        result = provider.preflight_check(env: {}, timeout: 5, provider_runtime: other_runtime)
+
+        expect(result).to eq(healthy: true)
+        expect(transport).not_to have_received(:call)
+      end
+    end
+
     describe "#send_message" do
       it "executes opencode run with the prompt" do
         allow(mock_executor).to receive(:execute).and_return(

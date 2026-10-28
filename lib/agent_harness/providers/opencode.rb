@@ -165,6 +165,11 @@ module AgentHarness
           .freeze
       }.freeze
 
+      def initialize(preflight_transport: Api::ChatTransport.new, **options)
+        super(**options)
+        @preflight_transport = preflight_transport
+      end
+
       def name
         "opencode"
       end
@@ -243,6 +248,21 @@ module AgentHarness
         }
       end
 
+      # OpenCode can silently retry MiniMax subscription limits until the CLI
+      # smoke timeout. Probe the same direct upstream once so callers receive a
+      # structured provider state without parsing CLI output.
+      def preflight_check(env:, timeout: 10, provider_runtime: nil)
+        runtime = ProviderRuntime.wrap(provider_runtime)
+        return {healthy: true} unless minimax_preflight?(runtime)
+
+        result = @preflight_transport.call(minimax_preflight_request(runtime, env, timeout))
+        return {healthy: true} if result[:status] == :succeeded
+
+        minimax_preflight_failure(result[:error])
+      rescue ArgumentError => e
+        {healthy: false, reason: e.message, error_category: :configuration}
+      end
+
       protected
 
       def build_command(prompt, options)
@@ -289,6 +309,58 @@ module AgentHarness
       end
 
       private
+
+      def minimax_preflight?(runtime)
+        runtime && runtime.api_provider.to_s.casecmp?("minimax")
+      end
+
+      def minimax_preflight_request(runtime, env, timeout)
+        {
+          request_id: "opencode-minimax-preflight",
+          operation: :chat,
+          candidates: [minimax_candidate(runtime, env)],
+          messages: [{role: :user, content: [{type: :text, text: "Reply with exactly OK."}]}],
+          tools: [],
+          max_output_tokens: 8,
+          timeout: {read_seconds: timeout},
+          retry: {max_attempts: 1}
+        }
+      end
+
+      def minimax_candidate(runtime, env)
+        endpoint = runtime.chat_base_url || runtime.base_url
+        model = runtime.chat_model || runtime.model
+        api_key = runtime.chat_api_key || env["MINIMAX_API_KEY"] || env["ANTHROPIC_API_KEY"]
+        raise ArgumentError, "MiniMax preflight requires an API endpoint" if endpoint.to_s.empty?
+        raise ArgumentError, "MiniMax preflight requires a model" if model.to_s.empty?
+        raise ArgumentError, "MiniMax preflight requires an API credential" if api_key.to_s.empty?
+
+        {
+          provider: :anthropic, protocol: :messages, authentication_mode: :api_key,
+          model: model, endpoint: endpoint, credentials: {api_key: api_key}
+        }
+      end
+
+      def minimax_preflight_failure(error)
+        return minimax_rate_limit_failure(error) if error&.dig(:code)&.to_sym == :rate_limited
+
+        {
+          healthy: false,
+          reason: "MiniMax preflight request failed",
+          error_category: error&.dig(:category) || :transient
+        }
+      end
+
+      def minimax_rate_limit_failure(error)
+        result = {
+          healthy: false,
+          reason: "MiniMax Token Plan rate limit reached",
+          error_category: :rate_limited
+        }
+        retry_after = error[:retry_after_seconds]
+        result[:reset_at] = Time.now.utc + retry_after if retry_after
+        result
+      end
 
       def opencode_config_payload(runtime)
         metadata = runtime.metadata

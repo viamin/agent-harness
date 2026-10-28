@@ -281,7 +281,12 @@ module AgentHarness
         # when only the host cannot reach the endpoint.
         if provider_preflight_allowed
           preflight_env = build_preflight_env(provider_instance, provider_runtime)
-          preflight = provider_instance.preflight_check(env: preflight_env, timeout: timeout)
+          preflight = run_provider_preflight(
+            provider_instance,
+            env: preflight_env,
+            timeout: timeout,
+            provider_runtime: provider_runtime
+          )
           unless preflight[:healthy]
             return build_result(
               name: provider_name,
@@ -289,7 +294,8 @@ module AgentHarness
               message: preflight[:reason] || "Preflight check failed",
               start_time: start_time,
               error_category: normalize_preflight_error_category(preflight[:error_category]),
-              check: :preflight
+              check: :preflight,
+              reset_at: preflight[:reset_at]
             )
           end
         end
@@ -483,6 +489,16 @@ module AgentHarness
       def provider_preflight_allowed?(executor:)
         effective_executor = executor || AgentHarness.configuration.command_executor
         effective_executor.is_a?(CommandExecutor) && !effective_executor.is_a?(DockerCommandExecutor)
+      end
+
+      def run_provider_preflight(provider, env:, timeout:, provider_runtime:)
+        parameters = provider.method(:preflight_check).parameters
+        accepts_runtime = parameters.any? do |type, name|
+          type == :keyrest || (%i[key keyreq].include?(type) && name == :provider_runtime)
+        end
+        options = {env: env, timeout: timeout}
+        options[:provider_runtime] = provider_runtime if accepts_runtime
+        provider.preflight_check(**options)
       end
 
       def runtime_sensitive_host_overrides?(runtime)
