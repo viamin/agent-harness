@@ -12,6 +12,13 @@
 
 * close the RDR-072 upstream epic from #437's retained-scope evidence while keeping unpublished capabilities and downstream adoption behind their explicit release and integration gates ([#430](https://github.com/viamin/agent-harness/issues/430)).
 
+## [0.44.28](https://github.com/viamin/agent-harness/compare/agent-harness/v0.44.27...agent-harness/v0.44.28) (2026-10-28)
+
+
+### Bug Fixes
+
+* **opencode:** surface MiniMax Token Plan HTTP 429 during preflight ([#518](https://github.com/viamin/agent-harness/issues/518)) ([d6f6288](https://github.com/viamin/agent-harness/commit/d6f6288f239cba6ac241edf87987bec22300a7b4))
+
 ## [0.44.27](https://github.com/viamin/agent-harness/compare/agent-harness/v0.44.26...agent-harness/v0.44.27) (2026-10-25)
 
 
