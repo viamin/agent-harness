@@ -834,7 +834,13 @@ results.each do |r|
 end
 
 # Check a single provider
-result = AgentHarness.check_provider(:claude)
+minimax_runtime = AgentHarness::ProviderRuntime.new(
+  api_provider: "minimax",
+  model: "MiniMax-M3",
+  base_url: ENV.fetch("MINIMAX_BASE_URL"),
+  env: {"MINIMAX_API_KEY" => ENV.fetch("MINIMAX_API_KEY")}
+)
+result = AgentHarness.check_provider(:opencode, provider_runtime: minimax_runtime)
 puts result[:status]  # => "ok", "degraded", or "error"
 
 # Formatted CLI output
@@ -847,8 +853,11 @@ Each result is a hash with keys:
 - `:status` — `"ok"` (all checks passed), `"degraded"` (partial issues such as unimplemented auth status), or `"error"` (provider unavailable or authentication failed)
 - `:message` — human-readable description
 - `:latency_ms` — time taken for the check in milliseconds
+- `:error_category` — structured failure category such as `:rate_limit`, `:authentication`, or `:timeout`
+- `:check` — the check that produced the result, such as `:preflight` or `:smoke_test`
+- `:reset_at` — provider-supplied rate-limit reset time when one is available; otherwise omitted
 
-Health checks run five steps per provider: registration, CLI availability, authentication, provider health status, and configuration validation. The default timeout per provider is configurable via `orchestration.health_check.timeout` (default: 5 seconds).
+Health checks cover registration, CLI availability, authentication, provider health, configuration, provider-owned preflight, and a bounded smoke test. For direct MiniMax OpenCode runtimes, preflight makes one no-retry provider request so an upstream HTTP 429 is returned as `error_category: :rate_limit` before OpenCode's smoke timeout. The default timeout per provider is configurable via `orchestration.health_check.timeout` (default: 5 seconds).
 
 ## Development
 

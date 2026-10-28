@@ -501,7 +501,8 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
             {
               healthy: false,
               reason: "API base URL is unreachable",
-              error_category: :transient
+              error_category: :transient,
+              reset_at: Time.utc(2026, 11, 1)
             }
           end
 
@@ -525,6 +526,7 @@ RSpec.describe AgentHarness::ProviderHealthCheck do
         expect(result[:message]).to eq("API base URL is unreachable")
         expect(result[:error_category]).to eq(:transient)
         expect(result[:check]).to eq(:preflight)
+        expect(result[:reset_at]).to eq(Time.utc(2026, 11, 1))
       end
     end
 
