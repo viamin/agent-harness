@@ -326,6 +326,26 @@ RSpec.describe AgentHarness::Providers::Opencode do
         expect(result[:reset_at]).to be_between(before, Time.now.utc + 30)
       end
 
+      it "preserves an HTTP-date Retry-After through the MiniMax preflight" do
+        adapter = instance_double(AgentHarness::Api::RubyLlmChatAdapter)
+        live_transport = AgentHarness::Api::ChatTransport.new(adapter: adapter)
+        live_provider = described_class.new(executor: mock_executor, preflight_transport: live_transport)
+        reset_at = Time.now.utc + 120
+        response = Faraday::Response.new(
+          status: 429,
+          response_headers: {"Retry-After" => reset_at.httpdate}
+        )
+        allow(adapter).to receive(:prepare).and_return(:prepared_chat)
+        allow(adapter).to receive(:call).and_raise(
+          RubyLLM::RateLimitError.new("rate limited", response: response)
+        )
+
+        result = live_provider.preflight_check(env: runtime.env, timeout: 5, provider_runtime: runtime)
+
+        expect(result).to include(healthy: false, error_category: :rate_limited)
+        expect(result[:reset_at]).to be_within(0.1).of(Time.httpdate(reset_at.httpdate))
+      end
+
       it "keeps successful agent text mentioning a limit healthy" do
         allow(transport).to receive(:call).and_return(
           status: :succeeded,

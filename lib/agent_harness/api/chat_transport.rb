@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "securerandom"
+require "time"
 require "ruby_llm"
 require_relative "attempt_report"
 require_relative "provider_error_detail"
@@ -499,7 +500,12 @@ module AgentHarness
         headers = error.response.respond_to?(:headers) ? error.response.headers : error.response[:response_headers]
         value = headers&.find { |key, _| key.to_s.casecmp?("retry-after") }&.last
         delay = Float(value, exception: false)
-        delay if delay&.finite? && delay >= 0
+        return delay if delay&.finite? && delay >= 0
+
+        delay = Time.httpdate(value.to_s) - Time.now
+        [delay, 0].max
+      rescue ArgumentError, TypeError
+        nil
       end
       private_class_method :retry_after_seconds
 
