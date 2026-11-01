@@ -1,0 +1,36 @@
+{
+  "status": "passed",
+  "summary": "OpenCode 1.19.5 pin, provider contract, and lockfile are synchronized; lint and the full coverage-enabled test suite pass.",
+  "acceptance_criteria": [
+    {
+      "id": "AC-1",
+      "status": "passed",
+      "verification": {
+        "kind": "unit_or_service_test",
+        "references": [
+          {
+            "locator": "spec/vendor_pins_parity_spec.rb:84",
+            "result": "passed: opencode-ai manifest pin matches the provider constant"
+          }
+        ]
+      }
+    },
+    {
+      "id": "AC-2",
+      "status": "passed",
+      "verification": {
+        "kind": "unit_or_service_test",
+        "references": [
+          {
+            "locator": "spec/agent_harness/providers/opencode_spec.rb:17",
+            "result": "passed: installation metadata and command use opencode-ai 1.19.5"
+          },
+          {
+            "locator": "bundle exec rspec (COVERAGE=1)",
+            "result": "2894 examples, 0 failures; line coverage 94.85%, branch coverage 81.63%"
+          }
+        ]
+      }
+    }
+  ]
+}
