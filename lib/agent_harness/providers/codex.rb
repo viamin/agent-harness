@@ -41,6 +41,8 @@ module AgentHarness
       MODEL_REJECTION_CACHE_TTL = 300
       MODEL_REJECTION_CACHE_LIMIT = 128
       MODEL_REJECTION_CACHE = {}
+      HTTP_RESPONSES_PROVIDER = "agent_harness_openai_http"
+      DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1"
       MODEL_REJECTION_PATTERNS = [
         /The ['"](?<model>[^'"]+)['"] model is not supported when using Codex with a ChatGPT account/i,
         /model ['"](?<model>[^'"]+)['"] is not supported.*ChatGPT account/i
@@ -142,6 +144,7 @@ module AgentHarness
         transient_error: [
           /timeout/i,
           /connection.*error/i,
+          /responses_websocket.*failed to connect/i,
           /service.*unavailable/i,
           /\b503\b/,
           /\b502\b/,
@@ -782,6 +785,10 @@ module AgentHarness
       end
 
       def send_message(prompt:, **options)
+        options = normalize_provider_runtime(options)
+        if options[:mode] == :text && api_key_request?(options[:provider_runtime])
+          options = options.merge(force_http_responses: true)
+        end
         super
       ensure
         cleanup_mcp_tempfiles!
@@ -851,7 +858,8 @@ module AgentHarness
             /failed to refresh token\b.*(?:timeout|timed.?out)/im
           ],
           transient: COMMON_ERROR_PATTERNS[:transient] + [
-            /connection.*reset/i
+            /connection.*reset/i,
+            /responses_websocket.*failed to connect/i
           ] + OAUTH_REFRESH_TRANSIENT_PATTERNS,
           auth_expired: COMMON_ERROR_PATTERNS[:auth_expired] + [
             /\b401\b/,
@@ -1075,6 +1083,8 @@ module AgentHarness
           cmd += runtime_flags unless runtime_flags.empty?
         end
 
+        cmd += http_responses_flags(runtime) if options[:force_http_responses]
+
         cmd += test_command_overrides if options[:smoke_test]
 
         cmd << prompt
@@ -1093,6 +1103,28 @@ module AgentHarness
 
       def default_timeout
         300
+      end
+
+      def api_key_request?(runtime)
+        return false if runtime&.unset_env&.include?("OPENAI_API_KEY")
+
+        key = runtime&.env&.fetch("OPENAI_API_KEY", nil) || ENV["OPENAI_API_KEY"]
+        !key.to_s.strip.empty?
+      end
+
+      def http_responses_flags(runtime)
+        provider = "model_providers.#{HTTP_RESPONSES_PROVIDER}"
+        base_url = runtime&.base_url || runtime&.env&.fetch("OPENAI_BASE_URL", nil) ||
+          ENV["OPENAI_BASE_URL"] || DEFAULT_OPENAI_BASE_URL
+
+        [
+          "--config", %(model_provider="#{HTTP_RESPONSES_PROVIDER}"),
+          "--config", %(#{provider}.name="Agent Harness OpenAI HTTPS"),
+          "--config", %(#{provider}.base_url="#{escape_toml_string(base_url)}"),
+          "--config", %(#{provider}.env_key="OPENAI_API_KEY"),
+          "--config", %(#{provider}.wire_api="responses"),
+          "--config", %(#{provider}.supports_websockets=false)
+        ]
       end
 
       private

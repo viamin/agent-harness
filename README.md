@@ -155,6 +155,20 @@ AGENT_HARNESS_LIVE_OPENAI=1 OPENAI_API_KEY=... \
 
 ## Configuration
 
+### Codex API-key text transport
+
+Codex API-key requests made with `mode: :text` automatically use an
+agent-harness-owned OpenAI Responses provider with WebSockets disabled. This
+makes disposable or externally sandboxed text runners use HTTPS immediately
+when their environment cannot establish the Responses WebSocket. The selected
+`OPENAI_API_KEY`, model, base URL, timeout, response text, and token accounting
+are preserved; callers do not need to add Codex flags or parse CLI output.
+
+The override is request-scoped and does not change normal Codex agent requests
+or subscription-authenticated sessions. `provider_runtime.base_url` (or
+`OPENAI_BASE_URL`) is copied into the HTTPS provider when present. Callers that
+need Codex's default WebSocket behavior should omit `mode: :text`.
+
 ### Ruby DSL
 
 ```ruby

@@ -635,6 +635,61 @@ RSpec.describe AgentHarness::Providers::Codex do
         expect(response.output).to eq("response output")
       end
 
+      it "uses HTTPS Responses for externally sandboxed API-key text requests" do
+        runtime = AgentHarness::ProviderRuntime.new(
+          model: "gpt-5.4",
+          env: {"OPENAI_API_KEY" => "sk-selected-key"}
+        )
+        jsonl_output = [
+          JSON.generate({"type" => "agent_message", "message" => "OK"}),
+          JSON.generate({"type" => "turn.completed", "usage" => {
+            "input_tokens" => 12,
+            "output_tokens" => 3,
+            "total_tokens" => 15
+          }})
+        ].join("\n")
+
+        expect(mock_executor).to receive(:execute) do |command, options|
+          expect(command).to include(
+            "--dangerously-bypass-approvals-and-sandbox",
+            "--model", "gpt-5.4",
+            "--config", %(model_provider="agent_harness_openai_http"),
+            "--config", "model_providers.agent_harness_openai_http.supports_websockets=false"
+          )
+          expect(options[:env]).to include("OPENAI_API_KEY" => "sk-selected-key")
+          expect(options[:timeout]).to eq(47)
+          AgentHarness::CommandExecutor::Result.new(
+            stdout: jsonl_output,
+            stderr: "",
+            exit_code: 0,
+            duration: 1.0
+          )
+        end
+
+        response = provider.send_message(
+          prompt: "Reply with OK",
+          mode: :text,
+          externally_sandboxed: true,
+          timeout: 47,
+          provider_runtime: runtime
+        )
+
+        expect(response.output).to eq("OK")
+        expect(response.model).to eq("gpt-5.4")
+        expect(response.tokens).to eq(input: 12, output: 3, total: 15)
+      end
+
+      it "leaves non-text Codex API-key requests on the configured transport" do
+        runtime = AgentHarness::ProviderRuntime.new(env: {"OPENAI_API_KEY" => "sk-selected-key"})
+
+        expect(mock_executor).to receive(:execute) do |command, _options|
+          expect(command).not_to include(%(model_provider="agent_harness_openai_http"))
+          success_result
+        end
+
+        provider.send_message(prompt: "Use tools", provider_runtime: runtime)
+      end
+
       it "preserves legitimate_exit_codes metadata on responses" do
         allow(mock_executor).to receive(:execute).and_return(success_result)
 
@@ -6409,6 +6464,29 @@ RSpec.describe AgentHarness::Providers::Codex do
       it "classifies transient errors" do
         result = described_class.classify_output_chunk("connection error: reset by peer", stream: :stderr)
         expect(result).to eq({reason: :transient_error})
+      end
+
+      it "classifies Responses WebSocket setup failures as transport failures" do
+        result = described_class.classify_output_chunk(
+          "responses_websocket: failed to connect to Responses WebSocket stage=Unknown",
+          stream: :stderr
+        )
+        expect(result).to eq({reason: :transient_error})
+      end
+
+      it "keeps Responses WebSocket failures distinct from rate limits and authentication" do
+        websocket = described_class.classify_output_chunk(
+          "responses_websocket: failed to connect to Responses WebSocket stage=Unknown",
+          stream: :stderr
+        )
+        rate_limit = described_class.classify_output_chunk("HTTP 429 Too Many Requests", stream: :stderr)
+        authentication = described_class.classify_output_chunk("HTTP 401 Unauthorized", stream: :stderr)
+
+        expect([websocket, rate_limit, authentication]).to eq([
+          {reason: :transient_error},
+          {reason: :rate_limited},
+          {reason: :auth_expired}
+        ])
       end
 
       it "classifies service unavailable as transient" do
