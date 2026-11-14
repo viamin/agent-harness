@@ -12,6 +12,13 @@
 
 * close the RDR-072 upstream epic from #437's retained-scope evidence while keeping unpublished capabilities and downstream adoption behind their explicit release and integration gates ([#430](https://github.com/viamin/agent-harness/issues/430)).
 
+## [0.44.36](https://github.com/viamin/agent-harness/compare/agent-harness/v0.44.35...agent-harness/v0.44.36) (2026-11-14)
+
+
+### Bug Fixes
+
+* **codex:** make isolated API-key text requests usable when Responses WebSocket fails ([#538](https://github.com/viamin/agent-harness/issues/538)) ([02a6d7b](https://github.com/viamin/agent-harness/commit/02a6d7bcb5de81902981edd932545cd25298a8bd))
+
 ## [0.44.35](https://github.com/viamin/agent-harness/compare/agent-harness/v0.44.34...agent-harness/v0.44.35) (2026-11-08)
 
 
