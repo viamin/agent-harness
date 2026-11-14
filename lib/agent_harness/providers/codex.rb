@@ -785,10 +785,7 @@ module AgentHarness
       end
 
       def send_message(prompt:, **options)
-        options = normalize_provider_runtime(options)
-        if options[:mode] == :text && api_key_request?(options[:provider_runtime])
-          options = options.merge(force_http_responses: true)
-        end
+        options = options.merge(force_http_responses: true) if options[:mode] == :text
         super
       ensure
         cleanup_mcp_tempfiles!
@@ -1083,7 +1080,9 @@ module AgentHarness
           cmd += runtime_flags unless runtime_flags.empty?
         end
 
-        cmd += http_responses_flags(runtime) if options[:force_http_responses]
+        if options[:force_http_responses] && api_key_request?(runtime)
+          cmd += http_responses_flags(runtime)
+        end
 
         cmd += test_command_overrides if options[:smoke_test]
 
@@ -1114,8 +1113,9 @@ module AgentHarness
 
       def http_responses_flags(runtime)
         provider = "model_providers.#{HTTP_RESPONSES_PROVIDER}"
-        base_url = runtime&.base_url || runtime&.env&.fetch("OPENAI_BASE_URL", nil) ||
-          ENV["OPENAI_BASE_URL"] || DEFAULT_OPENAI_BASE_URL
+        base_url = runtime&.base_url || runtime&.env&.fetch("OPENAI_BASE_URL", nil)
+        base_url ||= ENV["OPENAI_BASE_URL"] unless runtime&.unset_env&.include?("OPENAI_BASE_URL")
+        base_url ||= DEFAULT_OPENAI_BASE_URL
 
         [
           "--config", %(model_provider="#{HTTP_RESPONSES_PROVIDER}"),

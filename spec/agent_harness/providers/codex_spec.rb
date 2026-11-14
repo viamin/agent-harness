@@ -690,6 +690,42 @@ RSpec.describe AgentHarness::Providers::Codex do
         provider.send_message(prompt: "Use tools", provider_runtime: runtime)
       end
 
+      it "uses HTTPS Responses when a skill supplies the API key for a text request" do
+        AgentHarness::Skills.register(:api_key_text, {
+          description: "Configures API-key text requests",
+          instructions: "Answer concisely.",
+          providers: {codex: {env: {"OPENAI_API_KEY" => "sk-skill-key"}}}
+        })
+
+        expect(mock_executor).to receive(:execute) do |command, options|
+          expect(command).to include(%(model_provider="agent_harness_openai_http"))
+          expect(options[:env]).to include("OPENAI_API_KEY" => "sk-skill-key")
+          success_result
+        end
+
+        provider.send_message(prompt: "Hello", mode: :text, skills: [:api_key_text])
+      end
+
+      it "does not copy an inherited base URL that the runtime unsets" do
+        runtime = AgentHarness::ProviderRuntime.new(
+          env: {"OPENAI_API_KEY" => "sk-selected-key"},
+          unset_env: ["OPENAI_BASE_URL"]
+        )
+        allow(ENV).to receive(:[]).and_call_original
+        allow(ENV).to receive(:[]).with("OPENAI_BASE_URL").and_return("https://parent.invalid/v1")
+
+        expect(mock_executor).to receive(:execute) do |command, options|
+          expect(command).to include(
+            %(model_providers.agent_harness_openai_http.base_url="https://api.openai.com/v1")
+          )
+          expect(command).not_to include("https://parent.invalid/v1")
+          expect(options[:env]).to include("OPENAI_BASE_URL" => nil)
+          success_result
+        end
+
+        provider.send_message(prompt: "Hello", mode: :text, provider_runtime: runtime)
+      end
+
       it "preserves legitimate_exit_codes metadata on responses" do
         allow(mock_executor).to receive(:execute).and_return(success_result)
 
