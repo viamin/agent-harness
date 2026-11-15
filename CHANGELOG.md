@@ -12,6 +12,13 @@
 
 * close the RDR-072 upstream epic from #437's retained-scope evidence while keeping unpublished capabilities and downstream adoption behind their explicit release and integration gates ([#430](https://github.com/viamin/agent-harness/issues/430)).
 
+## [0.44.39](https://github.com/viamin/agent-harness/compare/agent-harness/v0.44.38...agent-harness/v0.44.39) (2026-11-15)
+
+
+### Dependencies
+
+* **deps:** bump ruby_llm from 2.1.1 to 2.2.0 in the minor-updates group across 1 directory ([#541](https://github.com/viamin/agent-harness/issues/541)) ([9cf2118](https://github.com/viamin/agent-harness/commit/9cf21182c9a6f74de2000f9e9db1ca8ff11b4e9d))
+
 ## [0.44.38](https://github.com/viamin/agent-harness/compare/agent-harness/v0.44.37...agent-harness/v0.44.38) (2026-11-15)
 
 
