@@ -18,11 +18,11 @@ class EvaluationWriteTool < RubyLLM::Tool
 end
 
 # RDR-072 resumable-loop delegation evaluation evidence. These examples pin
-# the RubyLLM 2.0 public loop behaviors the retained-loop decision in
+# the RubyLLM 2.2 public loop behaviors the retained-loop decision in
 # docs/provider-neutral-api-execution-contract.md rests on, using only the
 # public Chat/Tool API. If a RubyLLM upgrade changes one of these facts, the
 # delegation evaluation must be revisited before adopting loop controls.
-RSpec.describe "RubyLLM 2.0 loop controls (RDR-072 delegation evaluation)" do
+RSpec.describe "RubyLLM 2.2 loop controls (RDR-072 delegation evaluation)" do
   let(:messages_url) { "https://api.anthropic.com/v1/messages" }
 
   around do |example|
@@ -87,9 +87,10 @@ RSpec.describe "RubyLLM 2.0 loop controls (RDR-072 delegation evaluation)" do
     chat.generate
     chat.run_tools
 
-    expect(chat.messages.filter_map { |message| message.tool_call_id }).to eq(["toolu_read_1"])
-    expect(chat.pending_approvals.map(&:id)).to eq(["toolu_write_1"])
-    expect(chat.awaiting_approval?).to be true
+    result = chat.messages.find(&:tool_result?)
+    expect(result.tool_call_id).to eq(chat.messages[1].tool_calls.first.id)
+    expect(chat.pending_questions.map { |question| question.tool_call.provider_call_id }).to eq(["toolu_write_1"])
+    expect(chat.waiting?).to be true
   end
 
   it "resolves multiple pending decisions independently and continues after denial" do
@@ -100,16 +101,18 @@ RSpec.describe "RubyLLM 2.0 loop controls (RDR-072 delegation evaluation)" do
     )
 
     chat.generate
-    expect(chat.pending_approvals.map(&:id)).to eq(%w[toolu_write_1 toolu_write_2])
+    questions = chat.pending_questions
+    expect(questions.map { |question| question.tool_call.provider_call_id }).to eq(%w[toolu_write_1 toolu_write_2])
 
-    chat.approve("toolu_write_1")
-    chat.deny("toolu_write_2")
+    questions.first.approve
+    questions.last.decline
     final = chat.complete
 
     expect(final.content).to eq("finished")
-    denial = chat.messages.find { |message| message.tool_call_id == "toolu_write_2" }
+    calls_by_id = chat.messages.find { |message| message.tool_calls.any? }.tool_calls.to_h
+    denial = chat.messages.find { |message| calls_by_id[message.tool_call_id]&.provider_call_id == "toolu_write_2" }
     expect(denial.content).to include("denied")
-    executed = chat.messages.find { |message| message.tool_call_id == "toolu_write_1" }
+    executed = chat.messages.find { |message| calls_by_id[message.tool_call_id]&.provider_call_id == "toolu_write_1" }
     expect(executed.content).to eq("write result:1")
   end
 
@@ -124,7 +127,10 @@ RSpec.describe "RubyLLM 2.0 loop controls (RDR-072 delegation evaluation)" do
     chat.add_message(role: :tool, content: "already persisted", tool_call_id: "toolu_read_a")
     chat.run_tools
 
-    results = chat.messages.filter_map { |message| [message.tool_call_id, message.content] if message.role == :tool }
+    calls_by_id = chat.messages.find { |message| message.tool_calls.any? }.tool_calls.to_h
+    results = chat.messages.filter_map do |message|
+      [calls_by_id[message.tool_call_id]&.provider_call_id, message.content] if message.role == :tool
+    end
     expect(results).to contain_exactly(
       ["toolu_read_a", "already persisted"], ["toolu_read_b", "read result:b"]
     )
@@ -138,14 +144,15 @@ RSpec.describe "RubyLLM 2.0 loop controls (RDR-072 delegation evaluation)" do
     expect(chat.cancelled?).to be false
   end
 
-  it "keys tool-call identity on the provider wire id only" do
+  it "keeps stable local tool-call identity separate from the provider wire id" do
     chat = build_chat
     stub_messages(tool_round(id: "toolu_read_1", name: "evaluation_read"))
 
     response = chat.generate
 
-    expect(response.tool_calls.values.map(&:id)).to eq(["toolu_read_1"])
-    expect(chat.messages.last.tool_calls.values.map(&:id)).to eq(["toolu_read_1"])
+    expect(response.tool_calls.map(&:provider_call_id)).to eq(["toolu_read_1"])
+    expect(response.tool_calls.map(&:id)).to all(match(/\A[0-9a-f-]{36}\z/))
+    expect(chat.messages.last.tool_calls).to eq(response.tool_calls)
   end
 
   it "loses recorded approval decisions when a plain Ruby chat is reconstructed" do
@@ -153,14 +160,14 @@ RSpec.describe "RubyLLM 2.0 loop controls (RDR-072 delegation evaluation)" do
     stub_messages(tool_round(id: "toolu_write_1", name: "evaluation_write"), text_round("finished"))
 
     chat.generate
-    chat.approve("toolu_write_1")
-    expect(chat.awaiting_approval?).to be false
+    chat.pending_questions.first.approve
+    expect(chat.waiting?).to be false
 
     rebuilt = build_chat
     rebuilt.messages = chat.messages
 
-    expect(rebuilt.awaiting_approval?).to be true
-    expect(rebuilt.pending_approvals.map(&:id)).to eq(["toolu_write_1"])
+    expect(rebuilt.waiting?).to be true
+    expect(rebuilt.pending_questions.map { |question| question.tool_call.provider_call_id }).to eq(["toolu_write_1"])
   end
 
   it "does not bound loop iterations by itself" do
@@ -172,7 +179,7 @@ RSpec.describe "RubyLLM 2.0 loop controls (RDR-072 delegation evaluation)" do
       chat.step
       expect(chat.complete?).to be false
     end
-    expect(chat.tool_options).to eq(choice: nil, calls: nil, concurrency: nil)
+    expect(chat.tool_options).to eq(choice: nil, calls: nil, concurrency: nil, rounds: nil)
   end
 
   it "retries beneath the caller inside the delegated loop by default" do
