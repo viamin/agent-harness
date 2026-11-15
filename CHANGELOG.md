@@ -12,6 +12,13 @@
 
 * close the RDR-072 upstream epic from #437's retained-scope evidence while keeping unpublished capabilities and downstream adoption behind their explicit release and integration gates ([#430](https://github.com/viamin/agent-harness/issues/430)).
 
+## [0.44.37](https://github.com/viamin/agent-harness/compare/agent-harness/v0.44.36...agent-harness/v0.44.37) (2026-11-15)
+
+
+### Bug Fixes
+
+* **deps-dev:** bump @anthropic-ai/claude-code from 2.1.318 to 2.1.323 in /vendor/pins/claude ([#542](https://github.com/viamin/agent-harness/issues/542)) ([9131201](https://github.com/viamin/agent-harness/commit/9131201fe0a39c2c056e8b48205261384fbb6b62))
+
 ## [0.44.36](https://github.com/viamin/agent-harness/compare/agent-harness/v0.44.35...agent-harness/v0.44.36) (2026-11-14)
 
 
