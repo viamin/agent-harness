@@ -128,7 +128,7 @@ module AgentHarness
 
         def function_call_items
           Array(@message.tool_calls&.values).map do |call|
-            {"type" => "function_call", "call_id" => call.id, "name" => call.name,
+            {"type" => "function_call", "call_id" => call.provider_call_id, "name" => call.name,
              "arguments" => JSON.generate(call.arguments || {})}
           end
         end
@@ -332,13 +332,13 @@ module AgentHarness
       def tool_call_events(chunk, state)
         return [] unless chunk.tool_calls
 
-        chunk.tool_calls.flat_map { |stream_key, call| call_events(stream_key, call, state) }
+        chunk.tool_calls.to_h.flat_map { |stream_key, call| call_events(stream_key, call, state) }
       end
 
       # Continuation chunks have a nil id and carry the provider's raw JSON
       # fragment as arguments; they join the call that started their key.
       def call_events(stream_key, call, state)
-        provider_id = call.id || state.provider_id(stream_key)
+        provider_id = call.provider_call_id || state.provider_id(stream_key)
         return [] unless provider_id
 
         events = []
@@ -438,7 +438,7 @@ module AgentHarness
       end
 
       def normalize_tool_call(call)
-        {provider_id: call.id, name: call.name, arguments_json: JSON.generate(call.arguments || {})}
+        {provider_id: call.provider_call_id, name: call.name, arguments_json: JSON.generate(call.arguments || {})}
       end
 
       def normalize_usage(tokens)

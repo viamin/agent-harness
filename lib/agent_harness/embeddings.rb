@@ -94,10 +94,29 @@ module AgentHarness
       raise connection_error(e)
     rescue RubyLLM::ServerError, RubyLLM::ServiceUnavailableError, RubyLLM::OverloadedError => e
       raise ProviderError.new(e.message, original_error: e)
+    rescue RubyLLM::ConnectionError => e
+      raise TimeoutError.new(e.message, original_error: e) if e.timeout?
+
+      raise ProviderError.new(e.message, original_error: e)
     rescue Faraday::ParsingError, NoMethodError, TypeError => e
       raise MalformedEmbeddingError.new("Malformed embedding response", original_error: e)
     rescue RubyLLM::Error => e
-      raise ProviderError.new(e.message, original_error: e)
+      raise wrapped_ruby_llm_error(e, inputs.length)
+    end
+
+    def wrapped_ruby_llm_error(error, expected_count)
+      return MalformedEmbeddingError.new("Malformed embedding response", original_error: error) if malformed_batch?(error, expected_count)
+
+      ProviderError.new(error.message, original_error: error)
+    end
+
+    def malformed_batch?(error, expected_count)
+      body = error.response&.body
+      body = JSON.parse(body) if body.is_a?(String)
+      rows = body["data"] || body[:data] if body.is_a?(Hash)
+      rows.is_a?(Array) && rows.length != expected_count
+    rescue JSON::ParserError
+      false
     end
 
     def context
@@ -162,7 +181,7 @@ module AgentHarness
 
     def transient_provider_classification(error)
       original = error.original_error
-      return [:transient, :connection_failed] if original.is_a?(Faraday::ConnectionFailed)
+      return [:transient, :connection_failed] if original.is_a?(Faraday::ConnectionFailed) || original.is_a?(RubyLLM::ConnectionError)
       return [:transient, :service_unavailable] if original.is_a?(RubyLLM::ServiceUnavailableError)
       return [:transient, :overloaded] if original.is_a?(RubyLLM::OverloadedError)
 
@@ -175,7 +194,8 @@ module AgentHarness
 
     def transient_provider_error?(error)
       original = error.original_error
-      original.is_a?(Faraday::ConnectionFailed) || original.is_a?(RubyLLM::ServerError) ||
+      original.is_a?(Faraday::ConnectionFailed) || original.is_a?(RubyLLM::ConnectionError) ||
+        original.is_a?(RubyLLM::ServerError) ||
         original.is_a?(RubyLLM::ServiceUnavailableError) || original.is_a?(RubyLLM::OverloadedError)
     end
 
