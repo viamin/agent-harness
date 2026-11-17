@@ -16,9 +16,9 @@ module AgentHarness
 
       INSTALL_SCRIPT_URL = "https://cursor.com/install"
       INSTALL_TARGET_LATEST = "latest"
-      INSTALL_BUILD = "2026.03.30-a5d3e17"
-      INSTALL_SCRIPT_SHA256 = "8371988b483abec13c07c10e95cccc839da81ebf9596e430d3c90835a227cbad"
-      INSTALL_LINUX_X64_PACKAGE_SHA256 = "e0d4b611db111d2dbe76474386271bff3e1dbb2cc6ddf527f9d5d5801b2ce2a0"
+      INSTALL_BUILD = "2026.11.13-eacade1"
+      INSTALL_SCRIPT_SHA256 = "6f4990dca4569bfbc150690de91c6ac282ef6e48e7059df09ea4da9969d1a412"
+      INSTALL_LINUX_X64_PACKAGE_SHA256 = "c02e4321f20d691ee03af94d29948dc3a81c6c34e7328da7bb1afade4c75812f"
 
       class << self
         def provider_name
