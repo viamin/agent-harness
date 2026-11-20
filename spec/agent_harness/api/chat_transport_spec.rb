@@ -66,6 +66,100 @@ RSpec.describe AgentHarness::Api::ChatTransport do
     ))
   end
 
+  it "classifies an empty completed chat while retaining provider diagnostics and accounting" do
+    usage = {input_tokens: 3, output_tokens: 108, total_tokens: 111}
+    cost = {input: 0.001, output: 0.002, total: 0.003, currency: "USD", source: :provider_reported}
+    allow(adapter).to receive(:call) do |on_accounting:, **|
+      on_accounting.call(usage: usage, cost: cost, provider_reported: true)
+      {content: " \n\t", model: "claude-test", finish_reason: :stop, usage: usage, tool_calls: []}
+    end
+
+    result = transport.call(request)
+
+    expect(result).to include(
+      status: :failed, content: " \n\t", finish_reason: :stop, refusal: false,
+      usage: usage,
+      error: hash_including(category: :invalid_response, code: :empty_response, retryable: true,
+        finish_reason: :stop, refusal: false)
+    )
+    expect(result[:attempts]).to contain_exactly(hash_including(
+      status: :failed, usage: usage, provider_reported: true, finish_reason: :stop, refusal: false,
+      cost: hash_including(total: 0.003, source: :provider_reported), error: result[:error]
+    ))
+  end
+
+  it "classifies reasoning-only output without discarding safe continuation state" do
+    provider_state = {protocol: :responses, output: [{"type" => "reasoning", "id" => "reasoning-1"}]}
+    allow(adapter).to receive(:call).and_return(
+      content: "", model: "gpt-test", finish_reason: :stop, usage: nil,
+      tool_calls: [], provider_state: provider_state
+    )
+
+    result = transport.call(request)
+
+    expect(result).to include(status: :failed, provider_state: provider_state, finish_reason: :stop)
+    expect(result[:error]).to include(category: :invalid_response, code: :empty_response, retryable: true)
+  end
+
+  it "reports a refusal as an explicit non-retryable outcome" do
+    allow(adapter).to receive(:call).and_return(
+      content: "I cannot help with that", model: "claude-test", finish_reason: :content_filter,
+      refusal: true, usage: nil, tool_calls: []
+    )
+
+    result = transport.call(request.merge(retry: {max_attempts: 3}))
+
+    expect(adapter).to have_received(:call).once
+    expect(result).to include(status: :failed, content: "I cannot help with that",
+      finish_reason: :content_filter, refusal: true)
+    expect(result[:error]).to include(category: :invalid_response, code: :refusal, retryable: false,
+      finish_reason: :content_filter, refusal: true)
+    expect(result[:attempts]).to contain_exactly(hash_including(
+      status: :failed, finish_reason: :content_filter, refusal: true, error: result[:error]
+    ))
+  end
+
+  it "retains visible truncated output as partial instead of a completed answer" do
+    allow(adapter).to receive(:call).and_return(
+      content: "A useful but unfinished answer", model: "claude-test", finish_reason: :max_tokens,
+      usage: {input_tokens: 4, output_tokens: 10}, tool_calls: []
+    )
+
+    result = transport.call(request)
+
+    expect(result).to include(status: :partial, content: "A useful but unfinished answer",
+      finish_reason: :max_tokens, refusal: false)
+    expect(result[:error]).to include(category: :invalid_response, code: :truncated_output,
+      retryable: false, finish_reason: :max_tokens)
+    expect(result[:attempts]).to contain_exactly(hash_including(
+      status: :partial, finish_reason: :max_tokens, error: result[:error]
+    ))
+  end
+
+  it "fails an empty truncated response without fabricating usable output" do
+    allow(adapter).to receive(:call).and_return(
+      content: "", model: "claude-test", finish_reason: :max_tokens,
+      usage: nil, tool_calls: []
+    )
+
+    result = transport.call(request)
+
+    expect(result).to include(status: :failed, content: "", finish_reason: :max_tokens)
+    expect(result[:error]).to include(category: :invalid_response, code: :truncated_output, retryable: false)
+  end
+
+  it "retries an unusable empty response only within the caller attempt limit" do
+    allow(adapter).to receive(:call).and_return(
+      content: "", model: "claude-test", finish_reason: :stop, usage: nil, tool_calls: []
+    )
+
+    result = transport.call(request.merge(retry: {max_attempts: 2}))
+
+    expect(adapter).to have_received(:call).twice
+    expect(result[:status]).to eq(:failed)
+    expect(result[:attempts].map { |attempt| attempt[:status] }).to eq(%i[failed failed])
+  end
+
   it "emits ordered text and exactly one explicit completion event" do
     events = []
     allow(adapter).to receive(:call) do |**args, &stream|
@@ -105,6 +199,26 @@ RSpec.describe AgentHarness::Api::ChatTransport do
       status: :partial, error: hash_including(category: :transient, retryable: false)
     ))
     expect(events.last[:type]).to eq(:response_failed)
+  end
+
+  it "preserves completed and incomplete tool calls when a stream is interrupted" do
+    allow(adapter).to receive(:call) do |**_args, &stream|
+      stream.call(type: :tool_call_started, provider_id: "call-a", name: "lookup")
+      stream.call(type: :tool_call_completed, provider_id: "call-a", name: "lookup", arguments_json: '{"id":1}')
+      stream.call(type: :tool_call_started, provider_id: "call-b", name: "update")
+      stream.call(type: :tool_call_delta, provider_id: "call-b", name: "update", arguments_json: '{"id"')
+      raise RubyLLM::ServiceUnavailableError, "stream interrupted"
+    end
+
+    result = transport.call(request.merge(stream: true, retry: {max_attempts: 3}))
+
+    expect(adapter).to have_received(:call).once
+    expect(result).to include(status: :partial, content: "", finish_reason: nil)
+    expect(result[:tool_calls]).to eq([
+      {id: "tool-1", provider_id: "call-a", name: "lookup", arguments_json: '{"id":1}', status: :completed},
+      {id: "tool-2", provider_id: "call-b", name: "update", arguments_json: '{"id"', status: :incomplete}
+    ])
+    expect(result[:error]).to include(category: :transient, retryable: false)
   end
 
   it "assigns distinct harness IDs to tool calls without provider IDs" do

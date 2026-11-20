@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+### Bug Fixes
+
+* **api:** classify unusable empty chat responses, refusals, and truncations while preserving provider terminal diagnostics, partial tool state, usage, and cost ([#552](https://github.com/viamin/agent-harness/issues/552)).
+
 ### Features
 
 * support reasoning-capable OpenAI function-tool chat through the Responses API, including opaque reasoning state across tool-result continuation, streaming tool IDs and arguments, usage, cancellation, classified errors, an explicit compatible-provider protocol contract, and a gated live smoke test ([#499](https://github.com/viamin/agent-harness/issues/499)).

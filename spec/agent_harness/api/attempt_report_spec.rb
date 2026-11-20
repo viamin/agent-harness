@@ -36,4 +36,11 @@ RSpec.describe AgentHarness::Api::AttemptReport do
     expect([described_class.from_h(stored), described_class.from_h(stored)]
       .map { |report| report.to_h[:attempt_id] }).to eq(%w[attempt-1 attempt-1])
   end
+
+  it "round trips provider terminal diagnostics" do
+    stored = described_class.new(**attributes.merge(finish_reason: :content_filter, refusal: true)).to_h
+    restored = described_class.from_h(JSON.parse(JSON.generate(stored))).to_h
+
+    expect(restored).to include(finish_reason: :content_filter, refusal: true)
+  end
 end

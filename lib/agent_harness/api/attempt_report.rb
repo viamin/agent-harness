@@ -25,13 +25,14 @@ module AgentHarness
       private_class_method :symbolize
 
       def initialize(attempt_id:, request_id:, number:, provider:, model:, status:, started_at:, finished_at:,
-        usage: nil, cost: nil, provider_reported: false, error: nil)
+        usage: nil, cost: nil, provider_reported: false, finish_reason: nil, refusal: false, error: nil)
         @attributes = {
           attempt_id: attempt_id.to_s, request_id: request_id.to_s, number: number,
           provider: provider.to_sym, model: model&.to_s, status: status.to_sym,
           started_at: timestamp(started_at), finished_at: timestamp(finished_at),
           usage: normalize_usage(usage), cost: normalize_cost(cost),
-          provider_reported: provider_reported == true, error: error
+          provider_reported: provider_reported == true, finish_reason: finish_reason&.to_sym,
+          refusal: refusal == true, error: error
         }
         validate!
         deep_freeze(@attributes)
