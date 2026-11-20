@@ -861,6 +861,12 @@ puts result[:status]  # => "ok", "degraded", or "error"
 puts AgentHarness::ProviderHealthCheck.format_results(results)
 ```
 
+For OpenCode, `api_provider` identifies the backend to agent-harness preflight
+and transport logic; it is not serialized as OpenCode's `provider` config.
+Supply OpenCode provider definitions under `metadata[:config][:provider]`.
+Agent-harness preserves that provider map while applying normalized runtime
+fields such as `model` and `base_url` to their corresponding OpenCode keys.
+
 Each result is a hash with keys:
 
 - `:name` — provider name (Symbol)

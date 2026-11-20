@@ -30,7 +30,8 @@ module AgentHarness
 
     # @param model [String, nil] model identifier override
     # @param base_url [String, nil] upstream API base URL override
-    # @param api_provider [String, nil] API-compatible backend name
+    # @param api_provider [String, nil] API-compatible backend identity for routing and transport checks;
+    #   providers must not assume this is a provider-specific config-file value
     # @param env [Hash<String,String>] extra environment variables for the subprocess
     # @param flags [Array<String>] extra CLI flags to append
     # @param unset_env [Array<String>] environment variable names to remove from inherited env

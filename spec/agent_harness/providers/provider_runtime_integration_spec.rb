@@ -362,16 +362,19 @@ RSpec.describe "ProviderRuntime integration" do
             file_writes: [
               have_attributes(
                 path: "~/.config/opencode/opencode.json",
-                content: include(
-                  "\"provider\": \"openrouter\"",
-                  "\"model\": \"anthropic/claude-opus-4.1\"",
-                  "\"baseURL\": \"https://openrouter.ai/api/v1\"",
-                  "\"permission\": {",
-                  "\"external_directory\": {",
-                  "\"/tmp/**\": \"allow\"",
-                  "\"/home/agent/**\": \"allow\"",
-                  "\"theme\": \"system\""
-                ),
+                content: satisfy do |content|
+                  payload = JSON.parse(content)
+                  payload.slice("model", "baseURL", "theme") == {
+                    "model" => "anthropic/claude-opus-4.1",
+                    "baseURL" => "https://openrouter.ai/api/v1",
+                    "theme" => "system"
+                  } &&
+                    payload.dig("permission", "external_directory") == {
+                      "/tmp/**" => "allow",
+                      "/home/agent/**" => "allow"
+                    } &&
+                    !payload.key?("provider")
+                end,
                 mode: 0o600
               )
             ]
