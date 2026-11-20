@@ -12,6 +12,13 @@
 
 * close the RDR-072 upstream epic from #437's retained-scope evidence while keeping unpublished capabilities and downstream adoption behind their explicit release and integration gates ([#430](https://github.com/viamin/agent-harness/issues/430)).
 
+## [0.44.40](https://github.com/viamin/agent-harness/compare/agent-harness/v0.44.39...agent-harness/v0.44.40) (2026-11-20)
+
+
+### Bug Fixes
+
+* **opencode:** preserve provider configuration maps ([#549](https://github.com/viamin/agent-harness/issues/549)) ([0834fef](https://github.com/viamin/agent-harness/commit/0834fefed34c90c2a1c3139832c774c65a78ddf7))
+
 ## [0.44.39](https://github.com/viamin/agent-harness/compare/agent-harness/v0.44.38...agent-harness/v0.44.39) (2026-11-15)
 
 
