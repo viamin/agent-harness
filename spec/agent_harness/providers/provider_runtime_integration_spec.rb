@@ -350,7 +350,8 @@ RSpec.describe "ProviderRuntime integration" do
         api_provider: "openrouter",
         metadata: {
           config: {
-            theme: "system"
+            theme: "system",
+            provider: {openrouter: {npm: "@ai-sdk/openai-compatible"}}
           }
         }
       )
@@ -363,7 +364,9 @@ RSpec.describe "ProviderRuntime integration" do
               have_attributes(
                 path: "~/.config/opencode/opencode.json",
                 content: include(
-                  "\"provider\": \"openrouter\"",
+                  "\"provider\": {",
+                  "\"openrouter\": {",
+                  "\"npm\": \"@ai-sdk/openai-compatible\"",
                   "\"model\": \"anthropic/claude-opus-4.1\"",
                   "\"baseURL\": \"https://openrouter.ai/api/v1\"",
                   "\"permission\": {",

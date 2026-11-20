@@ -441,7 +441,6 @@ RSpec.describe AgentHarness::Providers::Opencode do
                   path: "~/.config/opencode/opencode.json",
                   content: include(
                     "\"model\": \"gpt-5.4\"",
-                    "\"provider\": \"openrouter\"",
                     "\"baseURL\": \"https://openrouter.ai/api/v1\"",
                     "\"permission\": {",
                     "\"external_directory\": {",

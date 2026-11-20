@@ -372,7 +372,9 @@ module AgentHarness
         payload = stringify_keys(config_extras)
         payload["permission"] ||= DEFAULT_PERMISSION_CONFIG
         payload["model"] = runtime.model if runtime.model
-        payload["provider"] = runtime.api_provider if runtime.api_provider
+        # api_provider identifies the upstream transport (including MiniMax
+        # preflight). OpenCode's provider field is a registry object supplied
+        # in config extras, not that transport's string identifier.
         payload["baseURL"] = runtime.base_url if runtime.base_url
         apply_default_external_directory_permission(payload)
         payload.empty? ? nil : payload

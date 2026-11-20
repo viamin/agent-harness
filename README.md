@@ -873,6 +873,12 @@ Each result is a hash with keys:
 
 Health checks cover registration, CLI availability, authentication, provider health, configuration, provider-owned preflight, and a bounded smoke test. For direct MiniMax OpenCode runtimes, preflight makes one no-retry provider request so an upstream HTTP 429 is returned as `error_category: :rate_limit` before OpenCode's smoke timeout. The default timeout per provider is configurable via `orchestration.health_check.timeout` (default: 5 seconds).
 
+For OpenCode, `ProviderRuntime#api_provider` identifies the upstream transport
+for preflight; it is not a CLI configuration field. Supply custom provider
+registrations as an object under `metadata: {config: {provider: {...}}}` and
+select the model with `model`. The provider registry and its model definitions
+are preserved when `api_provider` is also set.
+
 ## Development
 
 The proposed provider-neutral API execution boundary for embeddings, chat,
