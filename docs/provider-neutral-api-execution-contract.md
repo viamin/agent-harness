@@ -57,6 +57,45 @@ invokes a supplied tool; callers append completed tool results to a later
 request. A failed partial stream is terminal, so its content cannot be appended
 to a fallback response and its tool calls cannot be replayed automatically.
 
+### JSON wire codec
+
+`AgentHarness::Api::ChatWireCodec` is the public boundary for relaying these
+events and results through JSON. `dump_event`/`load_event` and
+`dump_result`/`load_result` produce and consume a versioned envelope. The lower
+level `to_wire(value, kind:)` and `from_wire(wire, expected_kind:)` helpers are
+available when a container protocol already owns JSON generation or parsing.
+
+For a JSONL container, write one event per line and a final result line:
+
+```ruby
+codec = AgentHarness::Api::ChatWireCodec
+result = AgentHarness::Api::ChatTransport.new.call(request) do |event|
+  output.puts(codec.dump_event(event))
+end
+output.puts(codec.dump_result(result))
+
+# In the parent process:
+record = JSON.parse(line)
+case record.fetch("kind")
+when "event" then handle_event(codec.from_wire(record, expected_kind: :event))
+when "result" then result = codec.from_wire(record, expected_kind: :result)
+end
+```
+
+Wire version `1` is the compatibility boundary. Additive object members may be
+added without changing the version; version-1 readers ignore members they do
+not own. Removing or renaming fields, changing field meaning, or adding an enum
+value requires a new wire version. Readers reject unsupported versions and
+unknown contract enums with `ChatWireCodec::ProtocolError`.
+
+The decoder has byte, nesting, and node-count limits suitable for an untrusted
+container boundary. Its errors describe only the failed contract rule and
+never echo values from the payload. It restores symbols only for documented
+contract enums and keys. In particular, `parsed`, `provider_state`, and
+`arguments_json` remain opaque: enum-looking strings inside tool arguments,
+application values, or provider continuation data stay strings. The codec does
+not load Rails, execute tools, or grant tool approval.
+
 Streamed tool-call arguments are emitted as raw, appendable JSON fragments
 correlated to one `tool_call_started` event per provider call, and cumulative
 provider token counts are emitted as deduplicated `usage_updated` events. An
