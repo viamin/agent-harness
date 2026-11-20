@@ -422,7 +422,7 @@ RSpec.describe AgentHarness::Providers::Opencode do
         provider.send_message(prompt: "Hello")
       end
 
-      it "builds runtime config bootstrap from normalized runtime fields and metadata extras" do
+      it "preserves a MiniMax provider map while applying the runtime model" do
         allow(mock_executor).to receive(:execute).and_return(
           AgentHarness::CommandExecutor::Result.new(
             stdout: "response",
@@ -432,42 +432,81 @@ RSpec.describe AgentHarness::Providers::Opencode do
           )
         )
 
-        expect(mock_executor).to receive(:execute).with(
-          ["opencode", "run", "Hello"],
-          hash_including(
-            preparation: have_attributes(
-              file_writes: [
-                have_attributes(
-                  path: "~/.config/opencode/opencode.json",
-                  content: include(
-                    "\"model\": \"gpt-5.4\"",
-                    "\"provider\": \"openrouter\"",
-                    "\"baseURL\": \"https://openrouter.ai/api/v1\"",
-                    "\"permission\": {",
-                    "\"external_directory\": {",
-                    "\"/tmp/**\": \"allow\"",
-                    "\"/home/agent/**\": \"allow\"",
-                    "\"theme\": \"system\""
-                  ),
-                  mode: 0o600
-                )
-              ]
-            )
+        expect(mock_executor).to receive(:execute) do |_command, options|
+          write = options.fetch(:preparation).file_writes.fetch(0)
+          payload = JSON.parse(write.content)
+
+          expect(payload.fetch("model")).to eq("minimax/MiniMax-M2.1")
+          expect(payload.fetch("baseURL")).to eq("https://api.minimax.io/anthropic")
+          expect(payload.fetch("theme")).to eq("system")
+          expect(payload.fetch("provider")).to eq(
+            "minimax" => {
+              "npm" => "@ai-sdk/anthropic",
+              "options" => {"baseURL" => "https://api.minimax.io/anthropic"},
+              "models" => {"MiniMax-M2.1" => {"name" => "MiniMax M2.1"}}
+            }
           )
-        )
+          AgentHarness::CommandExecutor::Result.new(stdout: "response", stderr: "", exit_code: 0, duration: 1.0)
+        end
 
         provider.send_message(
           prompt: "Hello",
           provider_runtime: {
-            model: "gpt-5.4",
-            api_provider: "openrouter",
-            base_url: "https://openrouter.ai/api/v1",
+            model: "minimax/MiniMax-M2.1",
+            api_provider: "minimax",
+            base_url: "https://api.minimax.io/anthropic",
             metadata: {
               config: {
-                theme: "system"
+                theme: "system",
+                provider: {
+                  minimax: {
+                    npm: "@ai-sdk/anthropic",
+                    options: {baseURL: "https://api.minimax.io/anthropic"},
+                    models: {"MiniMax-M2.1" => {name: "MiniMax M2.1"}}
+                  }
+                }
               }
             }
           }
+        )
+      end
+
+      it "does not serialize api_provider when metadata config is absent" do
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(stdout: "response", stderr: "", exit_code: 0, duration: 1.0)
+        )
+
+        expect(mock_executor).to receive(:execute) do |_command, options|
+          payload = JSON.parse(options.fetch(:preparation).file_writes.fetch(0).content)
+
+          expect(payload).not_to have_key("provider")
+          AgentHarness::CommandExecutor::Result.new(stdout: "response", stderr: "", exit_code: 0, duration: 1.0)
+        end
+
+        provider.send_message(prompt: "Hello", provider_runtime: {api_provider: "minimax"})
+      end
+
+      it "leaves configured provider data unchanged" do
+        configured_provider = {
+          "custom" => {
+            "npm" => "@ai-sdk/openai-compatible",
+            "options" => {"baseURL" => "https://example.test/v1", "headers" => {"X-Tenant" => "paid"}}
+          }
+        }
+        allow(mock_executor).to receive(:execute).and_return(
+          AgentHarness::CommandExecutor::Result.new(stdout: "response", stderr: "", exit_code: 0, duration: 1.0)
+        )
+
+        expect(mock_executor).to receive(:execute) do |_command, options|
+          payload = JSON.parse(options.fetch(:preparation).file_writes.fetch(0).content)
+
+          expect(payload.fetch("provider")).to eq(configured_provider)
+          AgentHarness::CommandExecutor::Result.new(stdout: "response", stderr: "", exit_code: 0, duration: 1.0)
+        end
+
+        provider.send_message(
+          prompt: "Hello",
+          provider_runtime: {metadata: {config: {provider: configured_provider}}}
         )
       end
 
