@@ -57,6 +57,18 @@ module AgentHarness
       def call
         validate_selection!
         deadline = monotonic_time + @timeout
+        Timeout.timeout(remaining_time(deadline)) { recover(deadline) }
+      rescue Timeout::Error
+        auth_error(:deadline_exceeded, "Codex credential recovery exceeded its deadline")
+      rescue JSON::ParserError
+        auth_error(:invalid_native_credentials, "Selected Codex credentials are not valid JSON")
+      rescue IOError, SocketError, SystemCallError => error
+        transport_error(error, "Codex credential recovery could not complete")
+      end
+
+      private
+
+      def recover(deadline)
         File.open(lock_path, File::RDWR | File::CREAT, 0o600) do |lock|
           acquire_lock(lock, deadline)
           original, original_bytes = read_document
@@ -67,15 +79,7 @@ module AgentHarness
           persisted_bytes = compare_and_write!(original_bytes, updated)
           {credentials: updated, metadata: native_metadata(updated, persisted_bytes)}
         end
-      rescue Timeout::Error
-        auth_error(:deadline_exceeded, "Codex credential recovery exceeded its deadline")
-      rescue JSON::ParserError
-        auth_error(:invalid_native_credentials, "Selected Codex credentials are not valid JSON")
-      rescue IOError, SocketError, SystemCallError => error
-        transport_error(error, "Codex credential recovery could not complete")
       end
-
-      private
 
       def validate_path(value)
         raise ArgumentError, "credential_path must be an absolute path" unless value.is_a?(String) && Pathname.new(value).absolute?
@@ -110,10 +114,18 @@ module AgentHarness
       end
 
       def read_document
-        bytes = File.binread(@path)
+        bytes = read_regular_file
         document = JSON.parse(bytes)
         auth_error(:invalid_native_credentials, "Selected Codex credentials must be a JSON object") unless document.is_a?(Hash)
         [document, bytes]
+      end
+
+      def read_regular_file
+        File.open(@path, File::RDONLY | File::NONBLOCK) do |file|
+          auth_error(:invalid_native_credentials, "Selected Codex credential path must be a regular file") unless file.stat.file?
+
+          file.read
+        end
       end
 
       def validate_original!(document, bytes)

@@ -537,6 +537,25 @@ RSpec.describe "Codex managed credential recovery" do
     expect(File.binread(credential_path)).to eq(before)
   end
 
+  it "rejects a blocking non-regular credential path within the recovery deadline" do
+    File.mkfifo(credential_path, 0o600)
+
+    expect(Net::HTTP).not_to receive(:new)
+    started_at = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+    expect {
+      AgentHarness.exchange_refresh_token(
+        :codex,
+        credential_path: credential_path,
+        expected_generation: "0" * 64,
+        expected_account_id: account_id,
+        timeout: 0.02
+      )
+    }.to raise_error(AgentHarness::AuthenticationError) { |error|
+      expect(error.error_code).to eq(:invalid_native_credentials)
+    }
+    expect(Process.clock_gettime(Process::CLOCK_MONOTONIC) - started_at).to be < 0.5
+  end
+
   [nil, false, [], {"https://api.openai.com/auth" => "invalid"}].each do |claims|
     it "rejects a #{claims.class} refreshed JWT payload without changing credentials" do
       write_credentials
