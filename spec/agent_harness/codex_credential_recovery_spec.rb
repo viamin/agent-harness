@@ -119,6 +119,23 @@ RSpec.describe AgentHarness::CodexCredentialRecovery do
       .to raise_error(ArgumentError, /explicit absolute path/)
   end
 
+  it "rejects unbounded deadlines" do
+    expect { recovery(timeout: 46) }.to raise_error(ArgumentError, /at most 45 seconds/)
+    expect { recovery(timeout: 0) }.to raise_error(ArgumentError, /greater than zero/)
+  end
+
+  it "does not enter a selected store while its recovery lock is held" do
+    before = File.binread(path)
+    File.open("#{path}.lock", File::RDWR | File::CREAT, 0o600) do |lock|
+      lock.flock(File::LOCK_EX)
+      expect(http).not_to receive(:request)
+      expect { recovery.call }.to raise_error(AgentHarness::AuthenticationError) { |error|
+        expect(error.error_code).to eq(:credential_store_busy)
+      }
+    end
+    expect(File.binread(path)).to eq(before)
+  end
+
   it "leaves prior material intact for missing refresh material" do
     write_credentials("tokens" => {"access_token" => "old-access", "account_id" => "acct-1"})
     before = File.binread(path)
@@ -158,6 +175,7 @@ RSpec.describe AgentHarness::CodexCredentialRecovery do
     expect { recovery.call }.to raise_error(AgentHarness::AuthenticationError) { |error|
       expect(error.error_code).to eq(:deadline_exceeded)
       expect(error.message).not_to include("synthetic secret")
+      expect(error.original_error).to be_nil
     }
     expect(File.binread(path)).to eq(before)
   end

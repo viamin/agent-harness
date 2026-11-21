@@ -7,6 +7,7 @@ require "net/http"
 require "pathname"
 require "tempfile"
 require "time"
+require "timeout"
 require "uri"
 
 module AgentHarness
@@ -35,8 +36,8 @@ module AgentHarness
       end
     rescue AuthenticationError, ArgumentError
       raise
-    rescue JSON::ParserError, IOError, SystemCallError => e
-      raise recovery_error("Codex credential store is unavailable or malformed", :invalid_credential_shape, e)
+    rescue JSON::ParserError, IOError, SystemCallError
+      raise recovery_error("Codex credential store is unavailable or malformed", :invalid_credential_shape)
     end
 
     private
@@ -109,13 +110,14 @@ module AgentHarness
       request = Net::HTTP::Post.new(ENDPOINT.path)
       request["Content-Type"] = "application/json"
       request.body = JSON.generate(grant_type: "refresh_token", refresh_token: refresh_token, client_id: CLIENT_ID)
-      parse_response(http.request(request))
+      response = Timeout.timeout(@timeout) { http.request(request) }
+      parse_response(response)
     rescue AuthenticationError
       raise
-    rescue Timeout::Error => e
-      raise recovery_error("Codex OAuth refresh deadline exceeded", :deadline_exceeded, e)
-    rescue IOError, SystemCallError => e
-      raise recovery_error("Codex OAuth refresh transport failed", :transport_failure, e)
+    rescue Timeout::Error
+      raise recovery_error("Codex OAuth refresh deadline exceeded", :deadline_exceeded)
+    rescue SocketError, OpenSSL::SSL::SSLError, Net::ProtocolError, IOError, SystemCallError
+      raise recovery_error("Codex OAuth refresh transport failed", :transport_failure)
     end
 
     def parse_response(response)
@@ -231,8 +233,8 @@ module AgentHarness
       value.is_a?(String) && !value.strip.empty?
     end
 
-    def recovery_error(message, code, original = nil)
-      AuthenticationError.new(message, provider: :codex, error_code: code, original_error: original)
+    def recovery_error(message, code)
+      AuthenticationError.new(message, provider: :codex, error_code: code)
     end
   end
 end

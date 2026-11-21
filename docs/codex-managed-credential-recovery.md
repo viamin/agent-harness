@@ -25,7 +25,8 @@ must carry a reliable expiry and must match the selected credential's account.
 Failures raise `AuthenticationError` with a safe `error_code`:
 
 - `api_key_credential`, `missing_refresh_material`, or
-  `invalid_credential_shape` for an unusable selected store;
+  `invalid_credential_shape`, `unsupported_auth_mode`, or
+  `missing_account_identity` for an unusable selected store;
 - `refresh_token_expired`, `refresh_token_reused`,
   `refresh_token_revoked`, or `invalid_refresh_token` for rejected material;
 - `deadline_exceeded`, `transport_failure`, `provider_failure`, or
@@ -67,3 +68,25 @@ tests remain the compatibility evidence. These tests do not prove live OpenAI
 acceptance. A live refresh requires separately authorized downstream material,
 an exact released gem pin, and recorded isolated cleanup; it must not be inferred
 from mocked tests.
+
+## Acceptance verification plan
+
+The implementation acceptance criteria map to the smallest credible checks as
+follows:
+
+| Criterion | Verification | Limitation |
+| --- | --- | --- |
+| AC-1: bounded refresh, native result, expiry/identity, distinct capabilities | Permanent service specs for the public capability and recovery result | Synthetic tokens and an HTTP double do not establish live provider acceptance. |
+| AC-2: explicit store, identity, and billing mode | Permanent service specs reject relative paths, API keys, alternate auth modes, and missing/mismatched identity | The caller's authorization decision is external to this library. |
+| AC-3: serialization, generation, and rotation safety | Permanent service specs inspect native fields, rotated/preserved refresh material, file mode, failure atomicity, and stale-generation rejection | A caller must retain its documented outer lease; tests cannot prove downstream lease discipline. |
+| AC-4: bounded attempts and safe error categories | Permanent service specs assert one request, deadline settings, rejection/transport/malformed categories, intact prior bytes, and sanitized errors | Provider availability and live rejection bodies are external. |
+| AC-5: compatibility and no side-effect replay | Existing Claude exchange specs plus focused public delegation specs; recovery service has no command/chat dependency | Full downstream behavior remains a release-pinned acceptance check. |
+| AC-6: LLD/EARS and meaningful coverage | This document and permanent focused specs, using only synthetic credential material | Authorized live refresh must be recorded separately and is not inferred. |
+| AC-7: released adoption and real managed credential | Human/external evidence from the containing release and Paid's isolated downstream check | Not satisfiable by repository unit tests or an unpushed local commit. |
+
+The native contract was evaluated against the repository's pinned Codex CLI
+0.149.1 source tag (`openai/codex` `rust-v0.149.1`). Its `AuthDotJson`,
+`TokenData`, refresh request, client ID, endpoint, and optional rotated-token
+handling are mirrored here. Agent Harness adds the public explicit-store,
+bounded, failure-atomic boundary required by managed callers; it does not run a
+Codex chat or login command.
