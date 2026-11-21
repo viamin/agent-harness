@@ -783,8 +783,15 @@ AgentHarness.refresh_auth_supported?(:codex)
 # => false
 
 AgentHarness.auth_capabilities(:codex)
-# => { auth_type: :api_key, auth_url: false, refresh: false }
+# => { auth_type: :api_key, auth_url: false, exchange_code: false,
+#      refresh: false, exchange: true, managed_oauth_recovery: true }
 ```
+
+Codex's `exchange` capability is the explicit, bounded managed-credential contract,
+not an interactive login or API-key refresh. See
+[Codex Managed Credential Recovery](docs/codex-managed-credential-recovery.md) for
+the required native store, generation, identity, deadline, error categories, and
+authorized live-check procedure.
 
 Provider aliases are resolved the same way as other auth APIs, so `:anthropic` reports the same capabilities as `:claude`. Unknown providers raise `AgentHarness::ProviderNotFoundError`, matching `auth_url` and `refresh_auth` provider lookup behavior.
 

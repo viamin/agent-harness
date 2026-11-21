@@ -483,4 +483,15 @@ RSpec.describe AgentHarness do
       expect(AgentHarness.refresh_auth(:claude, token: "abc")).to eq({success: true})
     end
   end
+
+  describe ".credential_metadata" do
+    it "delegates explicit native credential inspection to Authentication" do
+      metadata = {provider: :codex, account_id: "acct", generation: "a" * 64}
+      expect(AgentHarness::Authentication).to receive(:credential_metadata)
+        .with(:codex, credential_path: "/isolated/auth.json")
+        .and_return(metadata)
+
+      expect(AgentHarness.credential_metadata(:codex, credential_path: "/isolated/auth.json")).to eq(metadata)
+    end
+  end
 end

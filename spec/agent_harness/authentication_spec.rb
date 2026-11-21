@@ -603,7 +603,8 @@ RSpec.describe AgentHarness::Authentication do
         auth_url: false,
         exchange_code: false,
         refresh: false,
-        exchange: false
+        exchange: true,
+        managed_oauth_recovery: true
       )
     end
 
@@ -947,8 +948,8 @@ RSpec.describe AgentHarness::Authentication do
       expect(described_class.exchange_refresh_token_supported?(:anthropic)).to be true
     end
 
-    it "returns false for API key providers" do
-      expect(described_class.exchange_refresh_token_supported?(:codex)).to be false
+    it "returns true for Codex managed OAuth recovery despite its API-key default" do
+      expect(described_class.exchange_refresh_token_supported?(:codex)).to be true
     end
 
     it "returns false for OAuth providers without exchange implementations" do
