@@ -16,6 +16,13 @@
 
 * close the RDR-072 upstream epic from #437's retained-scope evidence while keeping unpublished capabilities and downstream adoption behind their explicit release and integration gates ([#430](https://github.com/viamin/agent-harness/issues/430)).
 
+## [0.46.1](https://github.com/viamin/agent-harness/compare/agent-harness/v0.46.0...agent-harness/v0.46.1) (2026-11-21)
+
+
+### Bug Fixes
+
+* **opencode:** preserve OpenRouter privacy routing through the actual CLI request contract ([#560](https://github.com/viamin/agent-harness/issues/560)) ([5fafcc0](https://github.com/viamin/agent-harness/commit/5fafcc0d8c8f4e8ab2ded1738d1516ae433996cb))
+
 ## [0.46.0](https://github.com/viamin/agent-harness/compare/agent-harness/v0.45.0...agent-harness/v0.46.0) (2026-11-21)
 
 
