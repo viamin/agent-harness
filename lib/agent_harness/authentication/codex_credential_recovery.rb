@@ -16,7 +16,11 @@ module AgentHarness
     class CodexCredentialRecovery
       DEFAULT_TIMEOUT = 45
       MAX_TIMEOUT = 60
+      LOCK_POLL_INTERVAL = 0.01
+      MIN_JWT_TIMESTAMP = -62_135_596_800
+      MAX_JWT_TIMESTAMP = 253_402_300_799
       DEFAULT_ENDPOINT = URI("https://auth.openai.com/oauth/token").freeze
+      APPROVED_ISSUER = URI("https://auth.openai.com").freeze
       DEFAULT_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
       CHATGPT_MODES = [nil, "chatgpt"].freeze
       PROVIDER_ERRORS = {
@@ -51,12 +55,14 @@ module AgentHarness
 
       def call
         validate_selection!
+        deadline = monotonic_time + @timeout
         File.open(lock_path, File::RDWR | File::CREAT, 0o600) do |lock|
-          lock.flock(File::LOCK_EX)
+          acquire_lock(lock, deadline)
           original, original_bytes = read_document
           validate_original!(original, original_bytes)
-          response = request_refresh(original.fetch("tokens"))
+          response = request_refresh(original.fetch("tokens"), deadline)
           updated = refreshed_document(original, response)
+          remaining_time(deadline)
           persisted_bytes = compare_and_write!(original_bytes, updated)
           {credentials: updated, metadata: native_metadata(updated, persisted_bytes)}
         end
@@ -77,11 +83,20 @@ module AgentHarness
       end
 
       def validate_timeout(value)
-        unless value.is_a?(Numeric) && value.positive? && value <= MAX_TIMEOUT
+        unless finite_number?(value) && value.positive? && value <= MAX_TIMEOUT
           raise ArgumentError, "timeout must be greater than zero and at most #{MAX_TIMEOUT} seconds"
         end
 
         value
+      end
+
+      def acquire_lock(lock, deadline)
+        loop do
+          remaining = remaining_time(deadline)
+          return if lock.flock(File::LOCK_EX | File::LOCK_NB)
+
+          IO.select(nil, nil, nil, [remaining, LOCK_POLL_INTERVAL].min)
+        end
       end
 
       def validate_selection!
@@ -113,7 +128,7 @@ module AgentHarness
         auth_error(:invalid_native_credentials, "Selected Codex credentials have no access token") unless non_blank?(tokens["access_token"])
       end
 
-      def request_refresh(tokens)
+      def request_refresh(tokens, deadline)
         endpoint, client_id = authority(tokens)
         request = Net::HTTP::Post.new(endpoint)
         request.content_type = "application/json"
@@ -124,8 +139,9 @@ module AgentHarness
           refresh_reason: "unauthorized"
         )
 
-        response = Timeout.timeout(@timeout) { http_for(endpoint).request(request) }
-        parse_response(response)
+        remaining = remaining_time(deadline)
+        response = Timeout.timeout(remaining) { http_for(endpoint, remaining).request(request) }
+        parse_response(response).tap { remaining_time(deadline) }
       rescue Timeout::Error
         raise
       rescue IOError, SocketError, SystemCallError => error
@@ -138,7 +154,7 @@ module AgentHarness
 
         issuer = URI(provenance["issuer"].to_s)
         client_id = provenance["client_id"]
-        unless issuer.is_a?(URI::HTTPS) && issuer.host && non_blank?(client_id)
+        unless issuer == APPROVED_ISSUER && non_blank?(client_id)
           auth_error(:invalid_native_credentials, "Selected Codex OAuth provenance is malformed")
         end
         [URI("#{issuer.to_s.delete_suffix("/")}/oauth/token"), client_id]
@@ -146,12 +162,12 @@ module AgentHarness
         auth_error(:invalid_native_credentials, "Selected Codex OAuth provenance is malformed")
       end
 
-      def http_for(endpoint)
+      def http_for(endpoint, timeout)
         http = @http_factory.new(endpoint.host, endpoint.port)
         http.use_ssl = true
-        http.open_timeout = [@timeout, 10].min
-        http.read_timeout = @timeout
-        http.write_timeout = @timeout if http.respond_to?(:write_timeout=)
+        http.open_timeout = [timeout, 10].min
+        http.read_timeout = timeout
+        http.write_timeout = timeout if http.respond_to?(:write_timeout=)
         http
       end
 
@@ -185,14 +201,18 @@ module AgentHarness
 
       def assert_response_identity!(token, require_expiry: true)
         claims = jwt_claims(token)
-        identity = claims.dig("https://api.openai.com/auth", "chatgpt_account_id")
+        auth_claim = claims["https://api.openai.com/auth"]
+        if !auth_claim.nil? && !auth_claim.is_a?(Hash)
+          auth_error(:malformed_response, "Codex OAuth authority returned an unusable access token")
+        end
+        identity = auth_claim&.fetch("chatgpt_account_id", nil)
         unless identity == @expected_account_id
           auth_error(:identity_mismatch, "Refreshed Codex credentials do not match the authorized identity")
         end
-        if require_expiry && (!claims["exp"].is_a?(Numeric) || Time.at(claims["exp"]).utc <= @clock.now)
+        if require_expiry && ((expiry = timestamp(claims["exp"])).nil? || expiry <= @clock.now)
           auth_error(:malformed_response, "Codex OAuth authority returned an access token without a usable expiry")
         end
-      rescue JSON::ParserError, ArgumentError
+      rescue JSON::ParserError, ArgumentError, TypeError
         auth_error(:malformed_response, "Codex OAuth authority returned an unusable access token")
       end
 
@@ -230,8 +250,7 @@ module AgentHarness
       end
 
       def jwt_expiry(token)
-        exp = jwt_claims(token)["exp"]
-        Time.at(exp).utc if exp.is_a?(Numeric)
+        timestamp(jwt_claims(token)["exp"])
       rescue JSON::ParserError, ArgumentError, TypeError
         nil
       end
@@ -240,8 +259,32 @@ module AgentHarness
         parts = token.to_s.split(".")
         raise ArgumentError unless parts.length == 3 && parts.all? { |part| !part.empty? }
 
-        JSON.parse(Base64.urlsafe_decode64(parts[1].ljust((parts[1].length + 3) / 4 * 4, "=")))
+        claims = JSON.parse(Base64.urlsafe_decode64(parts[1].ljust((parts[1].length + 3) / 4 * 4, "=")))
+        raise TypeError unless claims.is_a?(Hash)
+
+        claims
       end
+
+      def timestamp(value)
+        return unless finite_number?(value) && value.between?(MIN_JWT_TIMESTAMP, MAX_JWT_TIMESTAMP)
+
+        Time.at(value).utc
+      rescue RangeError
+        nil
+      end
+
+      def finite_number?(value)
+        value.is_a?(Numeric) && !value.is_a?(Complex) && (!value.respond_to?(:finite?) || value.finite?)
+      end
+
+      def remaining_time(deadline)
+        remaining = deadline - monotonic_time
+        raise Timeout::Error unless remaining.positive?
+
+        remaining
+      end
+
+      def monotonic_time = Process.clock_gettime(Process::CLOCK_MONOTONIC)
 
       def provider_error_message(category)
         {

@@ -18,6 +18,11 @@ RSpec.describe "Codex managed credential recovery" do
     "header.#{payload}.signature"
   end
 
+  def jwt_payload(json)
+    payload = Base64.urlsafe_encode64(json, padding: false)
+    "header.#{payload}.signature"
+  end
+
   def native_credentials(refresh_token: "refresh-old", access_token: nil)
     access_token ||= jwt("exp" => expires_at, "https://api.openai.com/auth" => {
       "chatgpt_account_id" => account_id,
@@ -108,6 +113,27 @@ RSpec.describe "Codex managed credential recovery" do
     }
   end
 
+  [nil, false, [], {"https://api.openai.com/auth" => "invalid"}].each do |claims|
+    it "safely inspects a #{claims.class} JWT payload" do
+      write_credentials(native_credentials(access_token: jwt(claims)))
+
+      metadata = AgentHarness.credential_metadata(:codex, credential_path: credential_path)
+
+      expect(metadata).to include(expires_at: nil, expired: nil)
+    end
+  end
+
+  ["1e999", (10**100).to_s].each do |expiry|
+    it "safely inspects an unusable numeric expiry" do
+      claims = %({"exp":#{expiry},"https://api.openai.com/auth":{"chatgpt_account_id":"#{account_id}"}})
+      write_credentials(native_credentials(access_token: jwt_payload(claims)))
+
+      metadata = AgentHarness.credential_metadata(:codex, credential_path: credential_path)
+
+      expect(metadata).to include(expires_at: nil, expired: nil)
+    end
+  end
+
   it "atomically preserves native shape and rotated reusable material" do
     write_credentials
     original_generation = generation
@@ -180,6 +206,28 @@ RSpec.describe "Codex managed credential recovery" do
       )
     }.to raise_error(AgentHarness::AuthenticationError) { |error|
       expect(error.error_code).to eq(:missing_refresh_material)
+    }
+  end
+
+  it "rejects unapproved OAuth provenance without contacting its authority" do
+    credentials = native_credentials
+    credentials.fetch("tokens")["oauth_provenance"] = {
+      "issuer" => "https://attacker.example",
+      "client_id" => "untrusted-client"
+    }
+    write_credentials(credentials)
+
+    expect(Net::HTTP).not_to receive(:new)
+    expect {
+      AgentHarness.exchange_refresh_token(
+        :codex,
+        credential_path: credential_path,
+        expected_generation: generation,
+        expected_account_id: account_id
+      )
+    }.to raise_error(AgentHarness::AuthenticationError) { |error|
+      expect(error.error_code).to eq(:invalid_native_credentials)
+      expect(error.message).not_to include("attacker.example", "untrusted-client")
     }
   end
 
@@ -319,6 +367,71 @@ RSpec.describe "Codex managed credential recovery" do
       expect(error.error_code).to eq(:deadline_exceeded)
     }
     expect(File.binread(credential_path)).to eq(before)
+  end
+
+  it "bounds lock contention with the recovery deadline" do
+    write_credentials
+    before = File.binread(credential_path)
+
+    File.open("#{credential_path}.lock", File::RDWR | File::CREAT, 0o600) do |lock|
+      lock.flock(File::LOCK_EX)
+      started_at = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+
+      expect {
+        AgentHarness.exchange_refresh_token(
+          :codex,
+          credential_path: credential_path,
+          expected_generation: generation,
+          expected_account_id: account_id,
+          timeout: 0.02
+        )
+      }.to raise_error(AgentHarness::AuthenticationError) { |error|
+        expect(error.error_code).to eq(:deadline_exceeded)
+      }
+      expect(Process.clock_gettime(Process::CLOCK_MONOTONIC) - started_at).to be < 0.5
+    end
+    expect(File.binread(credential_path)).to eq(before)
+  end
+
+  [nil, false, [], {"https://api.openai.com/auth" => "invalid"}].each do |claims|
+    it "rejects a #{claims.class} refreshed JWT payload without changing credentials" do
+      write_credentials
+      before = File.binread(credential_path)
+      stub_exchange(body: {"access_token" => jwt(claims)})
+
+      expect {
+        AgentHarness.exchange_refresh_token(
+          :codex,
+          credential_path: credential_path,
+          expected_generation: generation,
+          expected_account_id: account_id
+        )
+      }.to raise_error(AgentHarness::AuthenticationError) { |error|
+        expect(error.error_code).to eq(:malformed_response)
+      }
+      expect(File.binread(credential_path)).to eq(before)
+    end
+  end
+
+  ["1e999", (10**100).to_s].each do |expiry|
+    it "rejects an unusable refreshed numeric expiry without changing credentials" do
+      write_credentials
+      before = File.binread(credential_path)
+      claims = %({"exp":#{expiry},"https://api.openai.com/auth":{"chatgpt_account_id":"#{account_id}"}})
+      stub_exchange(body: {"access_token" => jwt_payload(claims)})
+
+      expect {
+        AgentHarness.exchange_refresh_token(
+          :codex,
+          credential_path: credential_path,
+          expected_generation: generation,
+          expected_account_id: account_id
+        )
+      }.to raise_error(AgentHarness::AuthenticationError) { |error|
+        expect(error.error_code).to eq(:malformed_response)
+      }
+      expect(File.binread(credential_path)).to eq(before)
+    end
   end
 
   it "requires an explicit path, generation, identity, and finite deadline" do

@@ -27,8 +27,9 @@ and updated token-free `metadata`.
 The call never searches `HOME` or `CODEX_HOME`, imports host credentials, changes
 shared configuration, runs Codex, or replays a coding request. `auth_mode` must be
 ChatGPT OAuth; API-key material is rejected as `unsupported_credential_type`.
-OAuth provenance already recorded by Codex is retained and used. Legacy native
-material without provenance uses Codex's public CLI authority and client ID.
+OAuth provenance already recorded by Codex is retained and used only when it names
+the approved `https://auth.openai.com` issuer. Legacy native material without
+provenance uses Codex's public CLI authority and client ID.
 
 The adjacent `auth.json.lock` serializes cooperating refreshers. The implementation
 also compares the selected generation before exchange and the exact original bytes
