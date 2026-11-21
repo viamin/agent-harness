@@ -57,11 +57,14 @@ RSpec.describe "OpenCode privacy routing integration" do
 
     Dir.mktmpdir("opencode-privacy-home") do |home|
       endpoint = "http://127.0.0.1:#{server.local_address.ip_port}/api/v1"
-      overrides = {metadata: {config: {provider: {openrouter: {options: {baseURL: endpoint}}}}}}
+      overrides = {metadata: {config: {provider: {openrouter: {
+        models: {"openai/gpt-4o-mini" => {}},
+        options: {baseURL: endpoint}
+      }}}}}
       _stdout, stderr, status = decode_config(home, plan_config(overrides))
       expect(status).to be_success, stderr
 
-      provider.send_message(
+      response = provider.send_message(
         prompt: "Reply with OK",
         timeout: 60,
         provider_runtime: runtime(
@@ -69,6 +72,7 @@ RSpec.describe "OpenCode privacy routing integration" do
           **overrides
         )
       )
+      expect(response).to be_success
 
       request = Timeout.timeout(5) { requests.pop }
       body = JSON.parse(request.fetch(:body))
