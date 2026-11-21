@@ -194,7 +194,11 @@ module AgentHarness
           tool_use: false,
           json_mode: false,
           mcp: false,
-          dangerous_mode: false
+          dangerous_mode: false,
+          privacy_routing: {
+            provider: "openrouter",
+            policies: {zdr: [true], data_collection: ["deny"]}
+          }
         }
       end
 
@@ -370,11 +374,68 @@ module AgentHarness
         end
 
         payload = stringify_keys(config_extras)
+        apply_openrouter_privacy_routing!(payload, runtime)
         payload["permission"] ||= DEFAULT_PERMISSION_CONFIG
         payload["model"] = runtime.model if runtime.model
         payload["baseURL"] = runtime.base_url if runtime.base_url
         apply_default_external_directory_permission(payload)
         payload.empty? ? nil : payload
+      end
+
+      def apply_openrouter_privacy_routing!(payload, runtime)
+        legacy_policy = extract_legacy_openrouter_privacy!(payload)
+        policy = runtime.privacy_routing || legacy_policy
+        return unless policy
+
+        validate_matching_privacy_policies!(runtime.privacy_routing, legacy_policy)
+        validate_openrouter_privacy_route!(runtime)
+        validate_openrouter_privacy_policy!(policy)
+        materialize_openrouter_privacy!(payload)
+      end
+
+      def validate_matching_privacy_policies!(runtime_policy, legacy_policy)
+        return unless runtime_policy && legacy_policy
+        return if stringify_keys(runtime_policy) == stringify_keys(legacy_policy)
+
+        raise ConfigurationError, "Conflicting OpenCode OpenRouter privacy routing policies"
+      end
+
+      def extract_legacy_openrouter_privacy!(payload)
+        entry = payload.dig("provider", "openrouter")
+        return unless entry.is_a?(Hash)
+
+        keys = %w[zdr data_collection]
+        return unless keys.any? { |key| entry.key?(key) }
+
+        keys.to_h { |key| [key, entry.delete(key)] }
+      end
+
+      def validate_openrouter_privacy_route!(runtime)
+        supported = runtime.api_provider.to_s.casecmp?("openrouter") &&
+          runtime.model.to_s.start_with?("openrouter/")
+        return if supported
+
+        raise ConfigurationError, "OpenCode privacy routing is only supported for OpenRouter models"
+      end
+
+      def validate_openrouter_privacy_policy!(policy)
+        return if stringify_keys(policy) == {"zdr" => true, "data_collection" => "deny"}
+
+        raise ConfigurationError, "Unsupported OpenCode OpenRouter privacy routing policy"
+      end
+
+      def materialize_openrouter_privacy!(payload)
+        providers = payload["provider"] ||= {}
+        openrouter = providers["openrouter"] ||= {}
+        options = openrouter["options"] ||= {}
+        extra_body = options["extraBody"] ||= {}
+        routing = extra_body["provider"] ||= {}
+        required = {"zdr" => true, "data_collection" => "deny"}
+        unless routing.merge(required) == required.merge(routing)
+          raise ConfigurationError, "OpenCode OpenRouter privacy routing conflicts with provider options"
+        end
+
+        routing.merge!(required)
       end
 
       def apply_default_external_directory_permission(payload)
@@ -421,7 +482,11 @@ module AgentHarness
 
       def stringify_keys(hash)
         hash.each_with_object({}) do |(key, value), result|
-          result[key.to_s] = value
+          result[key.to_s] = case value
+          when Hash then stringify_keys(value)
+          when Array then value.map { |entry| entry.is_a?(Hash) ? stringify_keys(entry) : entry }
+          else value
+          end
         end
       end
     end

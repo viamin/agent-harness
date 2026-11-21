@@ -10,6 +10,7 @@ RSpec.describe AgentHarness::ProviderRuntime do
         env: {"API_KEY" => "sk-123"},
         flags: ["--verbose"],
         metadata: {tier: "premium"},
+        privacy_routing: {zdr: true, data_collection: "deny"},
         chat_tools: [{type: "function", function: {name: "lookup_weather"}}]
       )
 
@@ -19,6 +20,7 @@ RSpec.describe AgentHarness::ProviderRuntime do
       expect(runtime.env).to eq("API_KEY" => "sk-123")
       expect(runtime.flags).to eq(["--verbose"])
       expect(runtime.metadata).to eq(tier: "premium")
+      expect(runtime.privacy_routing).to eq(zdr: true, data_collection: "deny")
       expect(runtime.chat_tools).to eq([{type: "function", function: {name: "lookup_weather"}}])
     end
 
@@ -30,6 +32,7 @@ RSpec.describe AgentHarness::ProviderRuntime do
       expect(runtime.env).to eq({})
       expect(runtime.flags).to eq([])
       expect(runtime.metadata).to eq({})
+      expect(runtime.privacy_routing).to be_nil
     end
 
     it "normalizes blank string overrides to nil" do
@@ -149,6 +152,11 @@ RSpec.describe AgentHarness::ProviderRuntime do
     it "raises ArgumentError when metadata is not a Hash" do
       expect { described_class.new(metadata: "bad") }
         .to raise_error(ArgumentError, /metadata must be a Hash/)
+    end
+
+    it "raises ArgumentError when privacy_routing is not a Hash" do
+      expect { described_class.new(privacy_routing: "zdr") }
+        .to raise_error(ArgumentError, /privacy_routing must be a Hash or nil/)
     end
 
     it "raises ArgumentError when chat_tools is not an Array" do
@@ -295,6 +303,10 @@ RSpec.describe AgentHarness::ProviderRuntime do
       expect(described_class.new(metadata: {a: 1})).not_to be_empty
     end
 
+    it "returns false when privacy routing is set" do
+      expect(described_class.new(privacy_routing: {zdr: true})).not_to be_empty
+    end
+
     it "returns false when unset_env is set" do
       expect(described_class.new(unset_env: ["OPENAI_BASE_URL"])).not_to be_empty
     end
@@ -313,6 +325,7 @@ RSpec.describe AgentHarness::ProviderRuntime do
         env: {"SKILL_ENV" => "1"},
         flags: ["--from-skill"],
         metadata: {skill: true},
+        privacy_routing: {zdr: true, data_collection: "deny"},
         chat_tools: [{type: "function", function: {name: "skill_tool"}}]
       )
       override = described_class.new(
@@ -329,6 +342,7 @@ RSpec.describe AgentHarness::ProviderRuntime do
       expect(merged.env).to eq("SKILL_ENV" => "1", "USER_ENV" => "1")
       expect(merged.flags).to eq(["--from-skill", "--from-user"])
       expect(merged.metadata).to eq(skill: true, user: true)
+      expect(merged.privacy_routing).to eq(zdr: true, data_collection: "deny")
       expect(merged.chat_tools).to eq([
         {type: "function", function: {name: "skill_tool"}},
         {type: "function", function: {name: "user_tool"}}
