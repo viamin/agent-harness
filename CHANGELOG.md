@@ -16,6 +16,13 @@
 
 * close the RDR-072 upstream epic from #437's retained-scope evidence while keeping unpublished capabilities and downstream adoption behind their explicit release and integration gates ([#430](https://github.com/viamin/agent-harness/issues/430)).
 
+## [0.45.0](https://github.com/viamin/agent-harness/compare/agent-harness/v0.44.41...agent-harness/v0.45.0) (2026-11-21)
+
+
+### Features
+
+* **api:** provide a public JSON codec for chat transport events and results ([#555](https://github.com/viamin/agent-harness/issues/555)) ([7cfe3cb](https://github.com/viamin/agent-harness/commit/7cfe3cb1303014d51d8855e814657685e21dffbe))
+
 ## [0.44.41](https://github.com/viamin/agent-harness/compare/agent-harness/v0.44.40...agent-harness/v0.44.41) (2026-11-21)
 
 
