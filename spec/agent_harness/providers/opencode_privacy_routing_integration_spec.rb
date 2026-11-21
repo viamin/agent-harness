@@ -88,10 +88,13 @@ RSpec.describe "OpenCode privacy routing integration" do
     Thread.new do
       loop do
         socket = server.accept
-        request = read_request(socket)
-        requests << request if request[:method] == "POST"
-        socket.write(loopback_response)
-        socket.close
+        begin
+          request = read_request(socket)
+          requests << request if request[:method] == "POST"
+          socket.write(loopback_response(request))
+        ensure
+          socket.close
+        end
       end
     rescue IOError, Errno::EBADF
       nil
@@ -109,8 +112,15 @@ RSpec.describe "OpenCode privacy routing integration" do
     {method: method, path: path, body: body, authorization: headers["authorization"]}
   end
 
-  def loopback_response
+  def loopback_response(request)
+    return model_discovery_response if request[:method] == "GET"
+
     body = JSON.generate(error: {message: "request captured", type: "invalid_request_error"})
     "HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nContent-Length: #{body.bytesize}\r\nConnection: close\r\n\r\n#{body}"
+  end
+
+  def model_discovery_response
+    body = JSON.generate(object: "list", data: [{id: "openai/gpt-4o-mini", object: "model"}])
+    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: #{body.bytesize}\r\nConnection: close\r\n\r\n#{body}"
   end
 end
