@@ -227,18 +227,36 @@ module AgentHarness
       def compare_and_write!(original_bytes, updated)
         dir = File.dirname(@path)
         tempfile = Tempfile.new(".auth", dir)
+        snapshot = Tempfile.new(".auth-snapshot", dir)
+        snapshot_path = snapshot.path
         persisted_bytes = JSON.pretty_generate(updated)
         begin
           tempfile.write(persisted_bytes)
           tempfile.close
           File.chmod(0o600, tempfile.path)
-          current_bytes = File.binread(@path)
-          auth_error(:concurrent_update, "Selected Codex credentials changed during recovery") unless current_bytes == original_bytes
+          snapshot.close!
+          File.link(@path, snapshot_path)
+          verify_generation!(snapshot_path, original_bytes)
           File.rename(tempfile.path, @path)
+          restore_concurrent_in_place_write!(snapshot_path, original_bytes)
         ensure
           tempfile.close!
+          File.unlink(snapshot_path) if File.exist?(snapshot_path)
         end
         persisted_bytes
+      end
+
+      def verify_generation!(path, original_bytes)
+        return if File.binread(path) == original_bytes
+
+        auth_error(:concurrent_update, "Selected Codex credentials changed during recovery")
+      end
+
+      def restore_concurrent_in_place_write!(snapshot_path, original_bytes)
+        return if File.binread(snapshot_path) == original_bytes
+
+        File.rename(snapshot_path, @path)
+        auth_error(:concurrent_update, "Selected Codex credentials changed during recovery")
       end
 
       def native_metadata(document, bytes)

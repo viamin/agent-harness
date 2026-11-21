@@ -32,11 +32,13 @@ the approved `https://auth.openai.com` issuer. Legacy native material without
 provenance uses Codex's public CLI authority and client ID.
 
 The adjacent `auth.json.lock` serializes cooperating refreshers. The implementation
-also compares the selected generation before exchange and the exact original bytes
-before an atomic mode-`0600` rename. Thus a caller keeps its outer lease boundary,
-while an uncooperative concurrent harvest cannot be overwritten. Missing response
-tokens retain the prior native value, including a reusable refresh token; returned
-rotated tokens are preserved.
+also compares the selected generation before exchange and snapshots the selected
+inode at commit. An in-place write entering immediately before the atomic mode-`0600`
+rename is detected and restored. Callers must keep their outer lease boundary, and
+all supported writers must honor that lease or the adjacent lock; POSIX pathnames do
+not provide compare-and-swap against arbitrary atomic renames by uncooperative
+writers. Missing response tokens retain the prior native value, including a reusable
+refresh token; returned rotated tokens are preserved.
 
 The deadline must be positive and no more than 60 seconds. There is exactly one
 provider request and no coding/tool request. `AuthenticationError#error_code`

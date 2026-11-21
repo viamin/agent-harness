@@ -284,6 +284,37 @@ RSpec.describe "Codex managed credential recovery" do
     expect(JSON.parse(File.read(credential_path)).dig("tokens", "refresh_token")).to eq("newer-refresh")
   end
 
+  it "restores an in-place write that enters immediately before the rename" do
+    write_credentials
+    selected_generation = generation
+    newer = native_credentials(refresh_token: "newer-refresh")
+    newer_bytes = JSON.generate(newer)
+    stub_exchange
+    original_rename = File.method(:rename)
+    injected = false
+    allow(File).to receive(:rename).and_call_original
+    allow(File).to receive(:rename) do |source, destination|
+      if !injected && File.basename(source).start_with?(".auth") && !File.basename(source).start_with?(".auth-snapshot")
+        injected = true
+        File.write(credential_path, newer_bytes)
+      end
+      original_rename.call(source, destination)
+    end
+
+    expect {
+      AgentHarness.exchange_refresh_token(
+        :codex,
+        credential_path: credential_path,
+        expected_generation: selected_generation,
+        expected_account_id: account_id
+      )
+    }.to raise_error(AgentHarness::AuthenticationError) { |error|
+      expect(error.error_code).to eq(:concurrent_update)
+    }
+    expect(injected).to be true
+    expect(File.binread(credential_path)).to eq(newer_bytes)
+  end
+
   {
     "refresh_token_expired" => :refresh_token_expired,
     "refresh_token_reused" => :refresh_token_reused,
