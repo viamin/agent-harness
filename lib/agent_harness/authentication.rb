@@ -47,14 +47,17 @@ module AgentHarness
         provider = resolve_provider(provider_name)
         canonical_name = Providers::Registry.instance.canonical_name(provider_name)
         flow_supported = claude_oauth_flow_provider?(provider_name, canonical_name)
+        codex_exchange = canonical_name == :codex
 
-        {
+        capabilities = {
           auth_type: provider.auth_type,
           auth_url: flow_supported,
           exchange_code: flow_supported,
           refresh: flow_supported,
-          exchange: flow_supported
+          exchange: flow_supported || codex_exchange
         }
+        capabilities[:exchange_requires] = [:credentials_path] if codex_exchange
+        capabilities
       end
 
       # Check whether OAuth URL generation is supported for a provider.
@@ -180,9 +183,9 @@ module AgentHarness
 
       # Exchange a stored refresh token for a fresh access token (and rotated refresh token).
       #
-      # Reads the refresh token from the provider's credentials store, posts it to the
-      # OAuth token endpoint, persists the rotated tokens, and returns the credential
-      # in native claudeAiOauth shape.
+      # Reads the refresh token from the provider's explicitly selected credentials
+      # store, posts it to the OAuth token endpoint, persists rotated tokens, and
+      # returns credentials in the provider's native shape.
       #
       # Serializes through a file lock so that concurrent callers do not race on a
       # single-use/rotating refresh token.  If the token server reports that the
@@ -190,22 +193,26 @@ module AgentHarness
       # +AuthenticationError+ so the caller can trigger a full re-auth.
       #
       # @param provider_name [Symbol] the provider name
-      # @return [Hash] credential in claudeAiOauth shape:
-      #   +{ claudeAiOauth: { accessToken:, refreshToken:, expiresAt: } }+
+      # @param credentials_path [String, nil] absolute Codex auth.json path
+      # @param timeout [Numeric] maximum Codex network wait, at most 45 seconds
+      # @return [Hash] native credential and metadata
       # @raise [UnsupportedAuthFlowError] if provider doesn't support token exchange
       # @raise [AuthenticationError] if the refresh token is missing, reused, or exchange fails
-      def exchange_refresh_token(provider_name)
+      def exchange_refresh_token(provider_name, credentials_path: nil, timeout: 30)
         provider_name = provider_name.to_sym
         provider = resolve_provider(provider_name)
 
-        unless provider.auth_type == :oauth
+        canonical_name = Providers::Registry.instance.canonical_name(provider_name)
+        unless provider.auth_type == :oauth || canonical_name == :codex
           raise UnsupportedAuthFlowError,
             "Provider #{provider_name} uses #{provider.auth_type} auth and does not support token exchange"
         end
 
-        case provider_name
-        when :claude, :anthropic
+        case canonical_name
+        when :claude
           exchange_claude_refresh_token
+        when :codex
+          CodexCredentialRecovery.new(credentials_path: credentials_path, timeout: timeout).call
         else
           raise UnsupportedAuthFlowError,
             "Token exchange is not yet implemented for provider #{provider_name}"

@@ -783,8 +783,32 @@ AgentHarness.refresh_auth_supported?(:codex)
 # => false
 
 AgentHarness.auth_capabilities(:codex)
-# => { auth_type: :api_key, auth_url: false, refresh: false }
+# => { auth_type: :api_key, auth_url: false, exchange_code: false,
+#      refresh: false, exchange: true, exchange_requires: [:credentials_path] }
 ```
+
+Codex's managed ChatGPT OAuth recovery is deliberately separate from its
+API-key route. A caller must select an absolute native `auth.json` path; the
+harness never imports the host's default Codex credentials:
+
+```ruby
+if AgentHarness.exchange_refresh_token_supported?(:codex)
+  recovery = AgentHarness.exchange_refresh_token(
+    :codex,
+    credentials_path: "/run/paid/leases/credential-42/auth.json",
+    timeout: 30
+  )
+  # recovery includes :credentials in native Codex shape plus :expires_at,
+  # :account_id, :generation, and :auth_mode (:subscription).
+end
+```
+
+The call performs one refresh request, uses an adjacent lock, atomically
+replaces the selected file only if its original generation is still current,
+and preserves rotated refresh material and unknown native fields. Failures are
+`AuthenticationError`s with actionable `error_code` values; messages never
+contain token material or raw provider responses. Callers must continue to
+hold their existing lease for the selected credential through this call.
 
 Provider aliases are resolved the same way as other auth APIs, so `:anthropic` reports the same capabilities as `:claude`. Unknown providers raise `AgentHarness::ProviderNotFoundError`, matching `auth_url` and `refresh_auth` provider lookup behavior.
 

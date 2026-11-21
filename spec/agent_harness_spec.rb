@@ -439,6 +439,22 @@ RSpec.describe AgentHarness do
     end
   end
 
+  describe ".exchange_refresh_token" do
+    it "forwards an explicitly selected Codex store and deadline" do
+      expect(AgentHarness::Authentication).to receive(:exchange_refresh_token).with(
+        :codex,
+        credentials_path: "/managed/codex/auth.json",
+        timeout: 12
+      ).and_return(account_id: "acct-1")
+
+      expect(AgentHarness.exchange_refresh_token(
+        :codex,
+        credentials_path: "/managed/codex/auth.json",
+        timeout: 12
+      )).to eq(account_id: "acct-1")
+    end
+  end
+
   describe ".auth_url_supported?" do
     it "delegates to Authentication module" do
       expect(AgentHarness::Authentication).to receive(:auth_url_supported?).with(:claude).and_return(true)

@@ -597,13 +597,14 @@ RSpec.describe AgentHarness::Authentication do
       )
     end
 
-    it "returns unsupported OAuth flows for API key providers" do
+    it "reports Codex API-key auth separately from managed OAuth exchange" do
       expect(described_class.auth_capabilities(:codex)).to eq(
         auth_type: :api_key,
         auth_url: false,
         exchange_code: false,
         refresh: false,
-        exchange: false
+        exchange: true,
+        exchange_requires: [:credentials_path]
       )
     end
 
@@ -947,8 +948,14 @@ RSpec.describe AgentHarness::Authentication do
       expect(described_class.exchange_refresh_token_supported?(:anthropic)).to be true
     end
 
-    it "returns false for API key providers" do
-      expect(described_class.exchange_refresh_token_supported?(:codex)).to be false
+    it "advertises bounded native exchange for Codex separately from API-key refresh" do
+      expect(described_class.exchange_refresh_token_supported?(:codex)).to be true
+      expect(described_class.refresh_auth_supported?(:codex)).to be false
+      expect(described_class.auth_capabilities(:codex)).to include(
+        auth_type: :api_key,
+        exchange: true,
+        exchange_requires: [:credentials_path]
+      )
     end
 
     it "returns false for OAuth providers without exchange implementations" do

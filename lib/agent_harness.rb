@@ -381,11 +381,13 @@ module AgentHarness
 
     # Exchange a stored refresh token for a fresh access token
     # @param provider_name [Symbol] the provider name
-    # @return [Hash] credential in claudeAiOauth shape
+    # @param credentials_path [String, nil] explicit native Codex store path
+    # @param timeout [Numeric] bounded Codex exchange timeout
+    # @return [Hash] provider-native credential and metadata
     # @raise [UnsupportedAuthFlowError] if provider doesn't support token exchange
     # @raise [AuthenticationError] if the refresh token is missing, reused, or exchange fails
-    def exchange_refresh_token(provider_name)
-      Authentication.exchange_refresh_token(provider_name)
+    def exchange_refresh_token(provider_name, credentials_path: nil, timeout: 30)
+      Authentication.exchange_refresh_token(provider_name, credentials_path: credentials_path, timeout: timeout)
     end
 
     # Check health of all configured providers.
@@ -478,6 +480,7 @@ require_relative "agent_harness/quota_status"
 require_relative "agent_harness/authentication"
 require_relative "agent_harness/provider_health_check"
 require_relative "agent_harness/release_registry"
+require_relative "agent_harness/codex_credential_recovery"
 require_relative "agent_harness/dependency_updater"
 require_relative "agent_harness/model_compatibility"
 
