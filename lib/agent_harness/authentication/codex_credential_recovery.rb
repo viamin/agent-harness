@@ -190,7 +190,11 @@ module AgentHarness
 
       def provider_error_code(body)
         parsed = JSON.parse(body)
-        parsed.is_a?(Hash) && (parsed["error"] || parsed["code"])
+        return unless parsed.is_a?(Hash)
+
+        error = parsed["error"]
+        error = error["code"] if error.is_a?(Hash)
+        error || parsed["code"]
       rescue JSON::ParserError, TypeError
         nil
       end

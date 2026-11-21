@@ -344,6 +344,33 @@ RSpec.describe "Codex managed credential recovery" do
     end
   end
 
+  {
+    "refresh_token_expired" => :refresh_token_expired,
+    "refresh_token_reused" => :refresh_token_reused,
+    "refresh_token_invalidated" => :refresh_token_revoked
+  }.each do |provider_code, category|
+    it "classifies nested #{provider_code} without leaking the provider response" do
+      write_credentials
+      before = File.binread(credential_path)
+      stub_exchange(status: 400, body: {
+        "error" => {"code" => provider_code, "message" => "secret response refresh-old"}
+      })
+
+      expect {
+        AgentHarness.exchange_refresh_token(
+          :codex,
+          credential_path: credential_path,
+          expected_generation: generation,
+          expected_account_id: account_id
+        )
+      }.to raise_error(AgentHarness::AuthenticationError) { |error|
+        expect(error.error_code).to eq(category)
+        expect(error.message).not_to include("secret response", "refresh-old", provider_code)
+      }
+      expect(File.binread(credential_path)).to eq(before)
+    end
+  end
+
   it "rejects malformed success replies and leaves prior material intact" do
     write_credentials
     before = File.binread(credential_path)
