@@ -115,8 +115,14 @@ RSpec.describe "OpenCode privacy routing integration" do
   def loopback_response(request)
     return model_discovery_response if request[:method] == "GET"
 
-    body = JSON.generate(error: {message: "request captured", type: "invalid_request_error"})
-    "HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nContent-Length: #{body.bytesize}\r\nConnection: close\r\n\r\n#{body}"
+    chunks = [
+      {id: "chatcmpl-loopback", object: "chat.completion.chunk", created: 0,
+       model: "openai/gpt-4o-mini", choices: [{index: 0, delta: {role: "assistant", content: "OK"}}]},
+      {id: "chatcmpl-loopback", object: "chat.completion.chunk", created: 0,
+       model: "openai/gpt-4o-mini", choices: [{index: 0, delta: {}, finish_reason: "stop"}]}
+    ]
+    body = chunks.map { |chunk| "data: #{JSON.generate(chunk)}\n\n" }.join + "data: [DONE]\n\n"
+    "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: #{body.bytesize}\r\nConnection: close\r\n\r\n#{body}"
   end
 
   def model_discovery_response
