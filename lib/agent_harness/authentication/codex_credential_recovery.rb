@@ -57,18 +57,25 @@ module AgentHarness
       def call
         validate_selection!
         deadline = monotonic_time + @timeout
-        Timeout.timeout(remaining_time(deadline)) { recover(deadline) }
+        committed_result = nil
+        Timeout.timeout(remaining_time(deadline), Timeout::Error) do
+          recover(deadline) { |result| committed_result = result }
+        end
       rescue Timeout::Error
+        return committed_result if committed_result
+
         auth_error(:deadline_exceeded, "Codex credential recovery exceeded its deadline")
       rescue JSON::ParserError
         auth_error(:invalid_native_credentials, "Selected Codex credentials are not valid JSON")
       rescue IOError, SocketError, SystemCallError => error
+        return committed_result if committed_result
+
         transport_error(error, "Codex credential recovery could not complete")
       end
 
       private
 
-      def recover(deadline)
+      def recover(deadline, &record_commit)
         File.open(lock_path, File::RDWR | File::CREAT, 0o600) do |lock|
           acquire_lock(lock, deadline)
           original, original_bytes = read_document
@@ -76,8 +83,7 @@ module AgentHarness
           response = request_refresh(original.fetch("tokens"), deadline)
           updated = refreshed_document(original, response)
           remaining_time(deadline)
-          persisted_bytes = compare_and_write!(original_bytes, updated)
-          {credentials: updated, metadata: native_metadata(updated, persisted_bytes)}
+          compare_and_write!(original_bytes, updated, &record_commit)
         end
       end
 
@@ -252,13 +258,15 @@ module AgentHarness
           snapshot.close!
           File.link(@path, snapshot_path)
           verify_generation!(snapshot_path, original_bytes)
-          File.rename(tempfile.path, @path)
-          restore_concurrent_in_place_write!(snapshot_path, original_bytes)
+          Thread.handle_interrupt(Timeout::Error => :never) do
+            File.rename(tempfile.path, @path)
+            restore_concurrent_in_place_write!(snapshot_path, original_bytes)
+            yield(credentials: updated, metadata: native_metadata(updated, persisted_bytes))
+          end
         ensure
           tempfile.close!
           File.unlink(snapshot_path) if File.exist?(snapshot_path)
         end
-        persisted_bytes
       end
 
       def verify_generation!(path, original_bytes)

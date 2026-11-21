@@ -315,6 +315,35 @@ RSpec.describe "Codex managed credential recovery" do
     expect(File.binread(credential_path)).to eq(newer_bytes)
   end
 
+  it "returns the committed result when the deadline fires immediately after rename" do
+    write_credentials
+    selected_generation = generation
+    stub_exchange
+    original_rename = File.method(:rename)
+    timeout_injected = false
+    allow(File).to receive(:rename).and_call_original
+    allow(File).to receive(:rename) do |source, destination|
+      original_rename.call(source, destination).tap do
+        next unless destination == credential_path && !timeout_injected
+
+        timeout_injected = true
+        Thread.current.raise(Timeout::Error)
+      end
+    end
+
+    result = AgentHarness.exchange_refresh_token(
+      :codex,
+      credential_path: credential_path,
+      expected_generation: selected_generation,
+      expected_account_id: account_id
+    )
+
+    expect(timeout_injected).to be true
+    expect(result[:metadata][:generation]).to eq(generation)
+    expect(result[:credentials]).to eq(JSON.parse(File.read(credential_path)))
+    expect(result.dig(:credentials, "tokens", "refresh_token")).to eq("refresh-rotated")
+  end
+
   {
     "refresh_token_expired" => :refresh_token_expired,
     "refresh_token_reused" => :refresh_token_reused,
