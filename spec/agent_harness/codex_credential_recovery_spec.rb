@@ -471,6 +471,28 @@ RSpec.describe "Codex managed credential recovery" do
     expect(File.binread(credential_path)).to eq(before)
   end
 
+  [Net::OpenTimeout, Net::ReadTimeout].each do |timeout_class|
+    it "classifies #{timeout_class} as a transport failure" do
+      write_credentials
+      before = File.binread(credential_path)
+      http = stub_exchange
+      allow(http).to receive(:request).and_raise(timeout_class, "synthetic refresh-old")
+
+      expect {
+        AgentHarness.exchange_refresh_token(
+          :codex,
+          credential_path: credential_path,
+          expected_generation: generation,
+          expected_account_id: account_id
+        )
+      }.to raise_error(AgentHarness::AuthenticationError) { |error|
+        expect(error.error_code).to eq(:transport_failure)
+        expect(error.message).not_to include("synthetic", "refresh-old")
+      }
+      expect(File.binread(credential_path)).to eq(before)
+    end
+  end
+
   it "classifies a deadline without changing prior material" do
     write_credentials
     before = File.binread(credential_path)

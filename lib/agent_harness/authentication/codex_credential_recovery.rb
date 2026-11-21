@@ -143,9 +143,8 @@ module AgentHarness
         remaining = remaining_time(deadline)
         response = Timeout.timeout(remaining) { http_for(endpoint, remaining).request(request) }
         parse_response(response).tap { remaining_time(deadline) }
-      rescue Timeout::Error
-        raise
-      rescue IOError, OpenSSL::SSL::SSLError, SocketError, SystemCallError => error
+      rescue Net::OpenTimeout, Net::ReadTimeout, IOError, OpenSSL::SSL::SSLError,
+        SocketError, SystemCallError => error
         transport_error(error, "Codex OAuth authority was unavailable")
       end
 
