@@ -72,6 +72,30 @@ RSpec.describe "Codex managed credential recovery" do
     http
   end
 
+  # Mocked HTTP whose successful reply lands only after +delay+ seconds, so the
+  # recovery deadline expires mid-request without any live refresh material.
+  def stub_delayed_exchange(delay:)
+    http = stub_exchange
+    response = http.request(nil)
+    allow(http).to receive(:request) do
+      sleep(delay)
+      response
+    end
+    http
+  end
+
+  # Hold the real adjacent lock, releasing it after +after+ seconds so the
+  # recovery spends part of its budget waiting on genuine lock contention.
+  def hold_lock_then_release(after:)
+    lock = File.open("#{credential_path}.lock", File::RDWR | File::CREAT, 0o600)
+    lock.flock(File::LOCK_EX)
+    Thread.new do
+      sleep(after)
+      lock.flock(File::LOCK_UN)
+      lock.close
+    end
+  end
+
   it "advertises only the implemented explicit Codex exchange" do
     expect(AgentHarness.auth_capabilities(:codex)).to include(
       auth_type: :api_key,
@@ -563,6 +587,61 @@ RSpec.describe "Codex managed credential recovery" do
       }
       expect(Process.clock_gettime(Process::CLOCK_MONOTONIC) - started_at).to be < 0.5
     end
+    expect(File.binread(credential_path)).to eq(before)
+  end
+
+  it "yields a typed deadline error, never a leaked Timeout::ExitException, when lock release and HTTP both outlast the budget" do
+    write_credentials
+    before = File.binread(credential_path)
+    stub_delayed_exchange(delay: 0.08)
+    releaser = hold_lock_then_release(after: 0.06)
+
+    begin
+      expect {
+        AgentHarness.exchange_refresh_token(
+          :codex,
+          credential_path: credential_path,
+          expected_generation: generation,
+          expected_account_id: account_id,
+          timeout: 0.1
+        )
+      }.to raise_error(AgentHarness::AuthenticationError) { |error|
+        expect(error.error_code).to eq(:deadline_exceeded)
+        serialized = "#{error.message} #{error.context.inspect}"
+        expect(serialized).not_to include("refresh-old")
+        expect(serialized).not_to include("refresh-rotated")
+      }
+    ensure
+      releaser.join
+    end
+
+    expect(File.binread(credential_path)).to eq(before)
+  end
+
+  it "yields a typed deadline error for the combined-delay case under a longer caller watchdog" do
+    write_credentials
+    before = File.binread(credential_path)
+    stub_delayed_exchange(delay: 0.08)
+    releaser = hold_lock_then_release(after: 0.06)
+
+    begin
+      expect {
+        Timeout.timeout(5, Timeout::Error) do
+          AgentHarness.exchange_refresh_token(
+            :codex,
+            credential_path: credential_path,
+            expected_generation: generation,
+            expected_account_id: account_id,
+            timeout: 0.1
+          )
+        end
+      }.to raise_error(AgentHarness::AuthenticationError) { |error|
+        expect(error.error_code).to eq(:deadline_exceeded)
+      }
+    ensure
+      releaser.join
+    end
+
     expect(File.binread(credential_path)).to eq(before)
   end
 
