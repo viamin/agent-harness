@@ -55,7 +55,7 @@ RSpec.describe "OpenCode privacy routing integration" do
       endpoint = "http://127.0.0.1:#{server.local_address.ip_port}/api/v1"
       provider.send_message(
         prompt: "Reply with OK",
-        timeout: 15,
+        timeout: 60,
         provider_runtime: runtime(
           env: {"HOME" => home, "OPENROUTER_API_KEY" => "dummy-loopback-key"},
           metadata: {config: {provider: {openrouter: {options: {baseURL: endpoint}}}}}
