@@ -145,21 +145,47 @@ module AgentHarness
         def success(candidate, attempt_id, started_at, adapter_result, accounting)
           accounting ||= {usage: adapter_result[:usage], provider_reported: !adapter_result[:usage].nil?}
           schema_result = normalize_schema_response(adapter_result)
-          status = schema_result[:error] ? :failed : :succeeded
-          append_attempt(candidate, attempt_id, started_at, status, error: schema_result[:error], **accounting)
+          outcome = terminal_outcome(adapter_result, schema_result)
+          append_attempt(candidate, attempt_id, started_at, outcome[:status], error: outcome[:error],
+            finish_reason: adapter_result[:finish_reason], refusal: adapter_result[:refusal], **accounting)
           result = base_result(candidate).merge(
-            status: status,
+            status: outcome[:status],
             content: schema_result[:content],
             parsed: schema_result[:parsed],
             tool_calls: normalize_tool_calls(adapter_result[:tool_calls]),
             provider_state: adapter_result[:provider_state],
             finish_reason: adapter_result[:finish_reason],
+            refusal: adapter_result[:refusal] == true,
             usage: aggregate_usage,
-            error: schema_result[:error]
+            error: outcome[:error]
           )
-          event = (status == :succeeded) ? :response_completed : :response_failed
+          event = (outcome[:status] == :succeeded) ? :response_completed : :response_failed
           emit(event, attempt_id:, result: result)
           result
+        end
+
+        def terminal_outcome(adapter_result, schema_result)
+          return {status: schema_result[:error] ? :failed : :succeeded, error: schema_result[:error]} if schema_operation?
+          return chat_failure(adapter_result, :refusal, partial: false) if adapter_result[:refusal]
+          if adapter_result[:finish_reason]&.to_sym == :max_tokens
+            return chat_failure(adapter_result, :truncated_output, partial: adapter_result[:content].to_s.strip != "")
+          end
+          return {status: :succeeded, error: nil} if Array(adapter_result[:tool_calls]).any?
+          return {status: :succeeded, error: nil} unless adapter_result[:content].to_s.strip.empty?
+
+          chat_failure(adapter_result, :empty_response, partial: false, retryable: true)
+        end
+
+        def chat_failure(adapter_result, code, partial:, retryable: false)
+          error = {
+            category: :invalid_response,
+            code: code,
+            retryable: retryable,
+            message: "Chat response failed (invalid_response/#{code})",
+            finish_reason: adapter_result[:finish_reason],
+            refusal: adapter_result[:refusal] == true
+          }.compact
+          {status: partial ? :partial : :failed, error: error}
         end
 
         def normalize_schema_response(adapter_result)
@@ -177,6 +203,7 @@ module AgentHarness
             content: partial ? @partial_content.dup : "",
             tool_calls: partial_tool_calls,
             finish_reason: nil,
+            refusal: false,
             usage: aggregate_usage,
             error: error
           )
@@ -296,17 +323,17 @@ module AgentHarness
 
         def failed_result(error, candidate)
           base_result(candidate).merge(status: :failed, content: "", tool_calls: [], finish_reason: nil,
-            usage: aggregate_usage, error: error)
+            refusal: false, usage: aggregate_usage, error: error)
         end
 
         def cancelled_result(candidate = candidates.first)
           error = {category: :cancelled, code: :cancelled, retryable: false, message: "Request cancelled"}
           base_result(candidate).merge(status: :cancelled, content: "", tool_calls: [], finish_reason: nil,
-            usage: aggregate_usage, error: error)
+            refusal: false, usage: aggregate_usage, error: error)
         end
 
         def append_attempt(candidate, attempt_id, started_at, status, error: nil, usage: nil, cost: nil,
-          provider_reported: false)
+          provider_reported: false, finish_reason: nil, refusal: false)
           cost = cost.merge(priced_at: Time.now.utc) if cost
           report = AttemptReport.new(
             attempt_id: attempt_id,
@@ -320,6 +347,8 @@ module AgentHarness
             usage: usage,
             cost: cost,
             provider_reported: provider_reported,
+            finish_reason: finish_reason,
+            refusal: refusal,
             error: error
           ).attributes
           attempts << report

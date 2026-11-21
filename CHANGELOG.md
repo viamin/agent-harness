@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+### Bug Fixes
+
+* **api:** classify unusable empty chat responses, refusals, and truncations while preserving provider terminal diagnostics, partial tool state, usage, and cost ([#552](https://github.com/viamin/agent-harness/issues/552)).
+
 ### Features
 
 * support reasoning-capable OpenAI function-tool chat through the Responses API, including opaque reasoning state across tool-result continuation, streaming tool IDs and arguments, usage, cancellation, classified errors, an explicit compatible-provider protocol contract, and a gated live smoke test ([#499](https://github.com/viamin/agent-harness/issues/499)).
@@ -11,6 +15,13 @@
 ### Documentation
 
 * close the RDR-072 upstream epic from #437's retained-scope evidence while keeping unpublished capabilities and downstream adoption behind their explicit release and integration gates ([#430](https://github.com/viamin/agent-harness/issues/430)).
+
+## [0.44.41](https://github.com/viamin/agent-harness/compare/agent-harness/v0.44.40...agent-harness/v0.44.41) (2026-11-21)
+
+
+### Bug Fixes
+
+* **api:** classify unusable chat outcomes ([#553](https://github.com/viamin/agent-harness/issues/553)) ([82637cd](https://github.com/viamin/agent-harness/commit/82637cd46c3db8ab4b51daffd912618fff78d750))
 
 ## [0.44.40](https://github.com/viamin/agent-harness/compare/agent-harness/v0.44.39...agent-harness/v0.44.40) (2026-11-20)
 

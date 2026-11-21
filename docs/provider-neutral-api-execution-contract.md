@@ -57,6 +57,23 @@ invokes a supplied tool; callers append completed tool results to a later
 request. A failed partial stream is terminal, so its content cannot be appended
 to a fallback response and its tool calls cannot be replayed automatically.
 
+A chat result is usable only when it contains non-whitespace user-facing text
+or at least one completed callable tool call. An otherwise successful physical
+request returns `status: :failed` with retryable
+`invalid_response/empty_response`; reasoning or opaque continuation state alone
+does not make it a completed answer. Provider refusals are explicit,
+non-retryable `invalid_response/refusal` outcomes. A provider-reported output
+limit is `invalid_response/truncated_output`: visible text is retained with
+`status: :partial`, while an empty truncation is failed. The result, terminal
+event, and attempt report retain the supported provider `finish_reason` and
+refusal flag. No stop reason is inferred when the provider supplies none.
+
+Tool-only chat responses remain successful when they contain completed calls.
+An interrupted stream retains visible text and both completed and incomplete
+tool calls with `status: :partial`; incomplete calls MUST NOT be executed.
+Schema success is determined by the locally validated parsed value and does not
+require conversational prose.
+
 ### JSON wire codec
 
 `AgentHarness::Api::ChatWireCodec` is the public boundary for relaying these
@@ -95,7 +112,6 @@ contract enums and keys. In particular, `parsed`, `provider_state`, and
 `arguments_json` remain opaque: enum-looking strings inside tool arguments,
 application values, or provider continuation data stay strings. The codec does
 not load Rails, execute tools, or grant tool approval.
-
 Streamed tool-call arguments are emitted as raw, appendable JSON fragments
 correlated to one `tool_call_started` event per provider call, and cumulative
 provider token counts are emitted as deduplicated `usage_updated` events. An
@@ -423,6 +439,12 @@ observer so durable accounting can persist an attempt even when no message is
 created. Callers deduplicate on `attempt_id`. Cost identifies its source as
 provider-reported or harness-estimated; unknown cost remains `nil`.
 
+Attempt `status` describes whether that physical request produced a usable
+operation result, not whether the provider returned a successful HTTP status.
+Consequently, an unusable empty response has a failed attempt while retaining
+the provider-reported usage and cost from the successful physical request.
+Absent usage or cost remains unknown and is never synthesized as zero.
+
 The observer receives `attempt_completed` after every physical request, with
 the same report later returned in `result[:attempts]`. Delivery is at least
 once across process recovery: consumers MUST enforce a unique key on
@@ -440,7 +462,8 @@ requests are in this ledger. Existing CLI providers, `TextTransport`,
 `OpenAICompatibleTransport`, token trackers, embeddings, and other
 non-`Api::ChatTransport` paths remain outside it.
 
-Only errors classified `transient` are eligible for bounded request retry:
+Errors classified `transient` and `invalid_response/empty_response` are
+eligible for bounded request retry:
 connection failure, timeout before a partial stream, rate limit, server error,
 service unavailable, and overload. Authentication, authorization, billing,
 invalid request, unsupported capability, invalid schema, context length,
