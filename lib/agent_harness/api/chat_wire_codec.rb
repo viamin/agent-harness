@@ -32,13 +32,13 @@ module AgentHarness
         timeout connection_failed rate_limited server_error service_unavailable overloaded
         invalid_credential permission_denied billing_unavailable context_length_exceeded invalid_request
         unsupported_capability structured_output_not_supported invalid_tool_arguments invalid_json invalid_schema
-        refusal truncated_output invalid_configuration cancelled unclassified_provider_error
+        refusal truncated_output empty_response invalid_configuration cancelled unclassified_provider_error
       ].freeze
       USAGE_KEYS = AttemptReport::USAGE_KEYS
       COST_KEYS = AttemptReport::COST_KEYS + %i[currency source priced_at]
       RESULT_KEYS = %i[
         request_id provider model protocol authentication_mode status content parsed tool_calls provider_state
-        finish_reason usage error attempts provider_request_id
+        finish_reason refusal usage error attempts provider_request_id
       ].freeze
       EVENT_KEYS = %i[
         type request_id attempt_id sequence candidate content id provider_id name arguments_json
@@ -136,6 +136,7 @@ module AgentHarness
         result[:authentication_mode] = nullable_enum(result[:authentication_mode], AUTHENTICATION_MODES,
           "result authentication mode")
         result[:finish_reason] = nullable_enum(result[:finish_reason], FINISH_REASONS, "result finish reason")
+        result[:refusal] = boolean(result[:refusal], "result refusal") if result.key?(:refusal)
         result[:usage] = decode_usage(result[:usage]) if result[:usage]
         result[:error] = decode_error(result[:error]) if result[:error]
         result[:tool_calls] = array!(result[:tool_calls], "result tool_calls").map { |call| decode_tool_call(call) }
@@ -164,14 +165,21 @@ module AgentHarness
 
       def decode_attempt(value)
         attempt = copy_keys(object!(value, "attempt"), %i[
-          attempt_id request_id number provider model status started_at finished_at usage cost provider_reported error
+          attempt_id request_id number provider model status started_at finished_at usage cost provider_reported
+          finish_reason refusal error
         ])
         attempt[:provider] = enum(attempt[:provider], PROVIDERS, "attempt provider")
         attempt[:status] = enum(attempt[:status], AttemptReport::STATUSES, "attempt status")
         attempt[:usage] = decode_usage(attempt[:usage]) if attempt[:usage]
         attempt[:cost] = decode_cost(attempt[:cost]) if attempt[:cost]
+        if attempt.key?(:finish_reason)
+          attempt[:finish_reason] = nullable_enum(attempt[:finish_reason], FINISH_REASONS, "attempt finish reason")
+        end
+        attempt[:refusal] = boolean(attempt[:refusal], "attempt refusal") if attempt.key?(:refusal)
         attempt[:error] = decode_error(attempt[:error]) if attempt[:error]
-        AttemptReport.from_h(attempt).to_h.merge(error: attempt[:error])
+        diagnostics = attempt.slice(:finish_reason, :refusal)
+        report = AttemptReport.from_h(attempt.except(:finish_reason, :refusal)).to_h
+        report.merge(diagnostics).merge(error: attempt[:error])
       rescue ArgumentError
         invalid!("invalid attempt report")
       end
@@ -187,9 +195,15 @@ module AgentHarness
       private_class_method :decode_cost
 
       def decode_error(value)
-        error = copy_keys(object!(value, "error"), %i[category code retryable message retry_after_seconds])
+        error = copy_keys(object!(value, "error"), %i[
+          category code retryable message retry_after_seconds finish_reason refusal
+        ])
         error[:category] = enum(error[:category], ERROR_CATEGORIES, "error category")
         error[:code] = enum(error[:code], ERROR_CODES, "error code")
+        if error.key?(:finish_reason)
+          error[:finish_reason] = nullable_enum(error[:finish_reason], FINISH_REASONS, "error finish reason")
+        end
+        error[:refusal] = boolean(error[:refusal], "error refusal") if error.key?(:refusal)
         error
       end
       private_class_method :decode_error
@@ -250,6 +264,12 @@ module AgentHarness
 
       def nullable_enum(value, allowed, name) = value.nil? ? nil : enum(value, allowed, name)
       private_class_method :nullable_enum
+
+      def boolean(value, name)
+        invalid!("invalid #{name}") unless value == true || value == false
+        value
+      end
+      private_class_method :boolean
 
       def required!(hash, key, name)
         invalid!("missing #{name} #{key}") if !hash.key?(key) || hash[key].nil? || hash[key] == ""

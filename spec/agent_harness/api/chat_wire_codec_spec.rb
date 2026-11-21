@@ -12,7 +12,7 @@ RSpec.describe AgentHarness::Api::ChatWireCodec do
       cost: {input: 0.0, total: 0.0, currency: "USD", source: :provider_reported,
              priced_at: "2026-11-20T10:00:01.000000Z"},
       provider_reported: true, error: nil
-    ).to_h
+    ).to_h.merge(finish_reason: :tool_calls, refusal: false)
   end
 
   let(:result) do
@@ -26,9 +26,25 @@ RSpec.describe AgentHarness::Api::ChatWireCodec do
         {id: "tool-2", provider_id: nil, name: "unfinished", arguments_json: "{\"x\":", status: :incomplete}
       ],
       provider_state: {"protocol" => "responses", "continuation" => {"status" => "completed"}},
-      finish_reason: :tool_calls, usage: {input_tokens: 0, output_tokens: nil}, error: nil,
+      finish_reason: :tool_calls, refusal: false, usage: {input_tokens: 0, output_tokens: nil}, error: nil,
       attempts: [attempt], provider_request_id: "provider-request-1"
     }
+  end
+
+  it "round trips empty responses and safe refusal diagnostics at every result level" do
+    empty_error = error(:invalid_response, :empty_response, finish_reason: :stop, refusal: false)
+    refusal_error = error(:invalid_response, :refusal, finish_reason: :content_filter, refusal: true)
+    variants = [
+      result.merge(status: :failed, content: "", finish_reason: :stop, error: empty_error,
+        attempts: [attempt.merge(finish_reason: :stop, error: empty_error)]),
+      result.merge(status: :failed, content: "", finish_reason: :content_filter, refusal: true,
+        error: refusal_error,
+        attempts: [attempt.merge(finish_reason: :content_filter, refusal: true, error: refusal_error)])
+    ]
+
+    variants.each do |value|
+      expect(described_class.load_result(described_class.dump_result(value))).to eq(value)
+    end
   end
 
   it "round trips successful, partial, failed, and cancelled results with semantic parity" do
@@ -126,9 +142,9 @@ RSpec.describe AgentHarness::Api::ChatWireCodec do
       .to raise_error(described_class::ProtocolError, "invalid chat wire payload: missing result request_id")
   end
 
-  def error(category, code, retry_after_seconds: nil)
+  def error(category, code, retry_after_seconds: nil, **diagnostics)
     value = {category: category, code: code, retryable: category == :transient,
-             message: "Chat request failed (#{category}/#{code})"}
+             message: "Chat request failed (#{category}/#{code})"}.merge(diagnostics)
     value[:retry_after_seconds] = retry_after_seconds if retry_after_seconds
     value
   end
