@@ -35,7 +35,7 @@ jobs:
 
       - name: Install pinned OpenCode CLI
         run: |
-          version="$(ruby -Ilib -ragent_harness -e 'print AgentHarness::Providers::Opencode::SUPPORTED_CLI_VERSION')"
+          version="$(bundle exec ruby -Ilib -ragent_harness -e 'print AgentHarness::Providers::Opencode::SUPPORTED_CLI_VERSION')"
           npm install -g "opencode-ai@${version}"
           test "$(opencode --version)" = "${version}"
 
