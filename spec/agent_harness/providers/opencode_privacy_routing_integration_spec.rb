@@ -68,7 +68,11 @@ RSpec.describe "OpenCode privacy routing integration" do
         prompt: "Reply with OK",
         timeout: 60,
         provider_runtime: runtime(
-          env: {"HOME" => home, "OPENROUTER_API_KEY" => "dummy-loopback-key"},
+          env: {
+            "HOME" => home,
+            "OPENCODE_CONFIG" => File.join(home, ".config/opencode/opencode.json"),
+            "OPENROUTER_API_KEY" => "dummy-loopback-key"
+          },
           **overrides
         )
       )
