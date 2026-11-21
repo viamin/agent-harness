@@ -51,7 +51,7 @@ RSpec.describe "Codex managed credential recovery" do
     Digest::SHA256.file(credential_path).hexdigest
   end
 
-  def stub_exchange(status: 200, body: nil)
+  def stub_exchange(status: 200, body: nil, raw_body: nil)
     body ||= {
       "access_token" => jwt("exp" => Time.now.to_i + 3600, "https://api.openai.com/auth" => {
         "chatgpt_account_id" => account_id,
@@ -60,7 +60,7 @@ RSpec.describe "Codex managed credential recovery" do
       "id_token" => jwt("https://api.openai.com/auth" => {"chatgpt_account_id" => account_id}),
       "refresh_token" => "refresh-rotated"
     }
-    response = instance_double(Net::HTTPResponse, code: status.to_s, body: JSON.generate(body))
+    response = instance_double(Net::HTTPResponse, code: status.to_s, body: raw_body || JSON.generate(body))
     allow(response).to receive(:is_a?).with(Net::HTTPSuccess).and_return(status.between?(200, 299))
     http = instance_double(Net::HTTP)
     allow(Net::HTTP).to receive(:new).and_return(http)
@@ -259,6 +259,31 @@ RSpec.describe "Codex managed credential recovery" do
     expect(JSON.parse(File.read(credential_path)).dig("tokens", "refresh_token")).to eq("newer-refresh")
   end
 
+  it "rechecks the generation at the atomic commit boundary" do
+    write_credentials
+    selected_generation = generation
+    newer = native_credentials(refresh_token: "newer-refresh")
+    stub_exchange
+    original_chmod = File.method(:chmod)
+    allow(File).to receive(:chmod).and_call_original
+    expect(File).to receive(:chmod).with(0o600, a_string_matching(/\.auth/)) do |mode, path|
+      File.write(credential_path, JSON.generate(newer))
+      original_chmod.call(mode, path)
+    end
+
+    expect {
+      AgentHarness.exchange_refresh_token(
+        :codex,
+        credential_path: credential_path,
+        expected_generation: selected_generation,
+        expected_account_id: account_id
+      )
+    }.to raise_error(AgentHarness::AuthenticationError) { |error|
+      expect(error.error_code).to eq(:concurrent_update)
+    }
+    expect(JSON.parse(File.read(credential_path)).dig("tokens", "refresh_token")).to eq("newer-refresh")
+  end
+
   {
     "refresh_token_expired" => :refresh_token_expired,
     "refresh_token_reused" => :refresh_token_reused,
@@ -307,6 +332,25 @@ RSpec.describe "Codex managed credential recovery" do
     expect(File.binread(credential_path)).to eq(before)
   end
 
+  it "classifies a non-JSON failure reply as provider rejection" do
+    write_credentials
+    before = File.binread(credential_path)
+    stub_exchange(status: 502, raw_body: "<html>secret refresh-old</html>")
+
+    expect {
+      AgentHarness.exchange_refresh_token(
+        :codex,
+        credential_path: credential_path,
+        expected_generation: generation,
+        expected_account_id: account_id
+      )
+    }.to raise_error(AgentHarness::AuthenticationError) { |error|
+      expect(error.error_code).to eq(:provider_rejected)
+      expect(error.message).not_to include("secret", "refresh-old")
+    }
+    expect(File.binread(credential_path)).to eq(before)
+  end
+
   it "rejects an identity change and leaves prior material intact" do
     write_credentials
     before = File.binread(credential_path)
@@ -345,6 +389,26 @@ RSpec.describe "Codex managed credential recovery" do
     }.to raise_error(AgentHarness::AuthenticationError) { |error|
       expect(error.error_code).to eq(:transport_failure)
       expect(error.message).not_to include("synthetic", "refresh-old")
+    }
+    expect(File.binread(credential_path)).to eq(before)
+  end
+
+  it "classifies TLS failures without exposing exception details" do
+    write_credentials
+    before = File.binread(credential_path)
+    http = stub_exchange
+    allow(http).to receive(:request).and_raise(OpenSSL::SSL::SSLError, "certificate secret refresh-old")
+
+    expect {
+      AgentHarness.exchange_refresh_token(
+        :codex,
+        credential_path: credential_path,
+        expected_generation: generation,
+        expected_account_id: account_id
+      )
+    }.to raise_error(AgentHarness::AuthenticationError) { |error|
+      expect(error.error_code).to eq(:transport_failure)
+      expect(error.message).not_to include("certificate", "secret", "refresh-old")
     }
     expect(File.binread(credential_path)).to eq(before)
   end

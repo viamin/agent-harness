@@ -4,6 +4,7 @@ require "base64"
 require "digest"
 require "json"
 require "net/http"
+require "openssl"
 require "pathname"
 require "tempfile"
 require "timeout"
@@ -144,7 +145,7 @@ module AgentHarness
         parse_response(response).tap { remaining_time(deadline) }
       rescue Timeout::Error
         raise
-      rescue IOError, SocketError, SystemCallError => error
+      rescue IOError, OpenSSL::SSL::SSLError, SocketError, SystemCallError => error
         transport_error(error, "Codex OAuth authority was unavailable")
       end
 
@@ -172,19 +173,26 @@ module AgentHarness
       end
 
       def parse_response(response)
-        body = JSON.parse(response.body)
         unless response.is_a?(Net::HTTPSuccess)
-          code = body.is_a?(Hash) && (body["error"] || body["code"])
+          code = provider_error_code(response.body)
           category = PROVIDER_ERRORS.fetch(code.to_s.downcase, :provider_rejected)
           auth_error(category, provider_error_message(category))
         end
+        body = JSON.parse(response.body)
         unless body.is_a?(Hash) && non_blank?(body["access_token"])
           auth_error(:malformed_response, "Codex OAuth authority returned an unusable response")
         end
 
         body
-      rescue JSON::ParserError
+      rescue JSON::ParserError, TypeError
         auth_error(:malformed_response, "Codex OAuth authority returned an unusable response")
+      end
+
+      def provider_error_code(body)
+        parsed = JSON.parse(body)
+        parsed.is_a?(Hash) && (parsed["error"] || parsed["code"])
+      rescue JSON::ParserError, TypeError
+        nil
       end
 
       def refreshed_document(original, response)
@@ -217,9 +225,6 @@ module AgentHarness
       end
 
       def compare_and_write!(original_bytes, updated)
-        current_bytes = File.binread(@path)
-        auth_error(:concurrent_update, "Selected Codex credentials changed during recovery") unless current_bytes == original_bytes
-
         dir = File.dirname(@path)
         tempfile = Tempfile.new(".auth", dir)
         persisted_bytes = JSON.pretty_generate(updated)
@@ -227,6 +232,8 @@ module AgentHarness
           tempfile.write(persisted_bytes)
           tempfile.close
           File.chmod(0o600, tempfile.path)
+          current_bytes = File.binread(@path)
+          auth_error(:concurrent_update, "Selected Codex credentials changed during recovery") unless current_bytes == original_bytes
           File.rename(tempfile.path, @path)
         ensure
           tempfile.close!
