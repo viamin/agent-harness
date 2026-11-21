@@ -25,7 +25,7 @@ module AgentHarness
   #     }
   #   )
   class ProviderRuntime
-    attr_reader :model, :base_url, :api_provider, :env, :flags, :metadata, :unset_env,
+    attr_reader :model, :base_url, :api_provider, :env, :flags, :metadata, :privacy_routing, :unset_env,
       :chat_base_url, :chat_model, :chat_api_key, :chat_max_tokens, :chat_tools
 
     # @param model [String, nil] model identifier override
@@ -36,12 +36,13 @@ module AgentHarness
     # @param flags [Array<String>] extra CLI flags to append
     # @param unset_env [Array<String>] environment variable names to remove from inherited env
     # @param metadata [Hash] arbitrary provider-specific data
+    # @param privacy_routing [Hash, nil] mandatory provider routing policy for this request
     # @param chat_base_url [String, nil] override transport base URL for chat
     # @param chat_model [String, nil] override model for chat
     # @param chat_api_key [String, nil] override API key for chat
     # @param chat_max_tokens [Integer, nil] max tokens for chat response
     # @param chat_tools [Array<Hash>, nil] default tool definitions for chat requests
-    def initialize(model: nil, base_url: nil, api_provider: nil, env: {}, flags: [], unset_env: [], metadata: {},
+    def initialize(model: nil, base_url: nil, api_provider: nil, env: {}, flags: [], unset_env: [], metadata: {}, privacy_routing: nil,
       chat_base_url: nil, chat_model: nil, chat_api_key: nil, chat_max_tokens: nil, chat_tools: nil)
       validate_optional_string!(:model, model)
       validate_optional_string!(:base_url, base_url)
@@ -82,6 +83,11 @@ module AgentHarness
         raise ArgumentError, "metadata must be a Hash (got #{metadata_hash.class})"
       end
       @metadata = metadata_hash.dup.freeze
+
+      unless privacy_routing.nil? || privacy_routing.is_a?(Hash)
+        raise ArgumentError, "privacy_routing must be a Hash or nil (got #{privacy_routing.class})"
+      end
+      @privacy_routing = privacy_routing&.dup&.freeze
 
       # Unset environment variables for the request. These are variable names that
       # should be removed from the inherited environment before the provider
@@ -134,6 +140,7 @@ module AgentHarness
       flags_val = hash_value(hash, :flags)
       unset_env_val = hash_value(hash, :unset_env)
       metadata_val = hash_value(hash, :metadata)
+      privacy_routing_val = hash_value(hash, :privacy_routing)
 
       new(
         model: hash_value(hash, :model),
@@ -143,6 +150,7 @@ module AgentHarness
         flags: flags_val.nil? ? [] : flags_val,
         unset_env: unset_env_val.nil? ? [] : unset_env_val,
         metadata: metadata_val.nil? ? {} : metadata_val,
+        privacy_routing: privacy_routing_val,
         chat_base_url: hash_value(hash, :chat_base_url),
         chat_model: hash_value(hash, :chat_model),
         chat_api_key: hash_value(hash, :chat_api_key),
@@ -170,7 +178,7 @@ module AgentHarness
     # @return [Boolean]
     def empty?
       model.nil? && base_url.nil? && api_provider.nil? &&
-        env.empty? && flags.empty? && metadata.empty? && unset_env.empty? &&
+        env.empty? && flags.empty? && metadata.empty? && privacy_routing.nil? && unset_env.empty? &&
         chat_base_url.nil? && chat_model.nil? && chat_api_key.nil? && chat_max_tokens.nil? &&
         chat_tools.nil?
     end
@@ -184,6 +192,7 @@ module AgentHarness
         flags: flags.empty? ? nil : flags.dup,
         unset_env: unset_env.empty? ? nil : unset_env.dup,
         metadata: metadata.empty? ? nil : metadata.dup,
+        privacy_routing: privacy_routing&.dup,
         chat_base_url: chat_base_url,
         chat_model: chat_model,
         chat_api_key: chat_api_key,
@@ -204,6 +213,7 @@ module AgentHarness
         flags: flags + other_runtime.flags,
         unset_env: unset_env + other_runtime.unset_env,
         metadata: metadata.merge(other_runtime.metadata),
+        privacy_routing: merge_privacy_routing(other_runtime.privacy_routing),
         chat_base_url: other_runtime.chat_base_url || chat_base_url,
         chat_model: other_runtime.chat_model || chat_model,
         chat_api_key: other_runtime.chat_api_key || chat_api_key,
@@ -222,6 +232,13 @@ module AgentHarness
     end
 
     private
+
+    def merge_privacy_routing(override)
+      return privacy_routing unless override
+      return override unless privacy_routing
+
+      privacy_routing.merge(override)
+    end
 
     def merge_chat_tools(base_tools, override_tools)
       return override_tools unless base_tools

@@ -874,6 +874,24 @@ Supply OpenCode provider definitions under `metadata[:config][:provider]`.
 Agent-harness preserves that provider map while applying normalized runtime
 fields such as `model` and `base_url` to their corresponding OpenCode keys.
 
+OpenRouter privacy routing is an explicit request requirement. Set it on the
+runtime rather than relying on raw OpenCode config fields:
+
+```ruby
+runtime = AgentHarness::ProviderRuntime.new(
+  api_provider: "openrouter",
+  model: "openrouter/anthropic/claude-sonnet-4",
+  privacy_routing: {zdr: true, data_collection: "deny"}
+)
+```
+
+For pinned OpenCode 1.x, the provider lowers this policy into OpenRouter's
+`extraBody.provider` request options. It rejects other routes or policy values
+before execution. The older
+`metadata[:config][:provider][:openrouter]` shape with direct `zdr` and
+`data_collection` keys is accepted and translated for compatibility; those
+direct keys are not themselves honored by OpenCode's config decoder.
+
 Each result is a hash with keys:
 
 - `:name` — provider name (Symbol)

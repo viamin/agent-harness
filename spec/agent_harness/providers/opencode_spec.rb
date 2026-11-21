@@ -265,6 +265,10 @@ RSpec.describe AgentHarness::Providers::Opencode do
         caps = provider.capabilities
         expect(caps[:streaming]).to be false
         expect(caps[:mcp]).to be false
+        expect(caps[:privacy_routing]).to eq(
+          provider: "openrouter",
+          policies: {zdr: [true], data_collection: ["deny"]}
+        )
       end
     end
 
@@ -382,6 +386,103 @@ RSpec.describe AgentHarness::Providers::Opencode do
     end
 
     describe "#send_message" do
+      def prepared_config(provider, runtime)
+        plan = provider.plan_execution(prompt: "Hello", provider_runtime: runtime)
+        JSON.parse(plan.fetch(:preparation).file_writes.fetch(0).content)
+      end
+
+      it "materializes the ProviderRuntime privacy contract into OpenRouter's request body options" do
+        payload = prepared_config(provider, {
+          model: "openrouter/anthropic/claude-3.5-sonnet",
+          api_provider: "openrouter",
+          privacy_routing: {zdr: true, data_collection: "deny"}
+        })
+
+        expect(payload.dig("provider", "openrouter", "options", "extraBody", "provider")).to eq(
+          "zdr" => true,
+          "data_collection" => "deny"
+        )
+      end
+
+      it "translates the downstream legacy provider entry into consumed OpenRouter options" do
+        payload = prepared_config(provider, {
+          model: "openrouter/anthropic/claude-3.5-sonnet",
+          api_provider: "openrouter",
+          metadata: {config: {provider: {openrouter: {zdr: true, data_collection: "deny"}}}}
+        })
+
+        openrouter = payload.dig("provider", "openrouter")
+        expect(openrouter).not_to include("zdr", "data_collection")
+        expect(openrouter.dig("options", "extraBody", "provider")).to eq(
+          "zdr" => true,
+          "data_collection" => "deny"
+        )
+      end
+
+      it "preserves privacy routing when the runtime model changes" do
+        privacy = {zdr: true, data_collection: "deny"}
+        models = %w[openrouter/anthropic/claude-3.5-sonnet openrouter/openai/gpt-5]
+
+        routes = models.map do |model|
+          prepared_config(provider, {
+            model: model,
+            api_provider: "openrouter",
+            privacy_routing: privacy
+          }).dig("provider", "openrouter", "options", "extraBody", "provider")
+        end
+
+        expect(routes).to all(eq("zdr" => true, "data_collection" => "deny"))
+      end
+
+      it "rejects privacy routing on a non-OpenRouter route before execution" do
+        allow(mock_executor).to receive(:execute)
+
+        expect {
+          provider.send_message(
+            prompt: "secret prompt",
+            provider_runtime: {
+              model: "openai/gpt-5",
+              api_provider: "openai",
+              env: {"OPENAI_API_KEY" => "do-not-log"},
+              privacy_routing: {zdr: true, data_collection: "deny"}
+            }
+          )
+        }.to raise_error(AgentHarness::ConfigurationError, /only supported for OpenRouter/)
+
+        expect(mock_executor).not_to have_received(:execute)
+      end
+
+      it "rejects unsupported OpenRouter privacy policies before execution without exposing values" do
+        allow(mock_executor).to receive(:execute)
+
+        expect {
+          provider.send_message(
+            prompt: "secret prompt",
+            provider_runtime: {
+              model: "openrouter/openai/gpt-5",
+              api_provider: "openrouter",
+              env: {"OPENROUTER_API_KEY" => "do-not-log"},
+              privacy_routing: {zdr: false, data_collection: "allow"}
+            }
+          )
+        }.to raise_error(AgentHarness::ConfigurationError) { |error|
+          expect(error.message).to eq("Unsupported OpenCode OpenRouter privacy routing policy")
+          expect(error.message).not_to include("do-not-log", "secret prompt", "allow")
+        }
+
+        expect(mock_executor).not_to have_received(:execute)
+      end
+
+      it "leaves ordinary non-ZDR routes unchanged" do
+        payload = prepared_config(provider, {
+          model: "openrouter/openai/gpt-5",
+          api_provider: "openrouter",
+          metadata: {config: {provider: {openrouter: {options: {timeout: 30_000}}}}}
+        })
+
+        expect(payload.dig("provider", "openrouter")).to eq("options" => {"timeout" => 30_000})
+      end
+
       it "executes opencode run with the prompt" do
         allow(mock_executor).to receive(:execute).and_return(
           AgentHarness::CommandExecutor::Result.new(
