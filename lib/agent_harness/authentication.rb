@@ -7,6 +7,8 @@ require "tempfile"
 require "time"
 require "uri"
 
+require_relative "authentication/codex_credential_recovery"
+
 module AgentHarness
   # Authentication management for CLI agent providers
   #
@@ -47,14 +49,17 @@ module AgentHarness
         provider = resolve_provider(provider_name)
         canonical_name = Providers::Registry.instance.canonical_name(provider_name)
         flow_supported = claude_oauth_flow_provider?(provider_name, canonical_name)
+        codex_recovery = canonical_name == :codex
 
-        {
+        capabilities = {
           auth_type: provider.auth_type,
           auth_url: flow_supported,
           exchange_code: flow_supported,
           refresh: flow_supported,
-          exchange: flow_supported
+          exchange: flow_supported || codex_recovery
         }
+        capabilities[:managed_oauth_recovery] = true if codex_recovery
+        capabilities
       end
 
       # Check whether OAuth URL generation is supported for a provider.
@@ -194,9 +199,14 @@ module AgentHarness
       #   +{ claudeAiOauth: { accessToken:, refreshToken:, expiresAt: } }+
       # @raise [UnsupportedAuthFlowError] if provider doesn't support token exchange
       # @raise [AuthenticationError] if the refresh token is missing, reused, or exchange fails
-      def exchange_refresh_token(provider_name)
+      def exchange_refresh_token(provider_name, **options)
         provider_name = provider_name.to_sym
         provider = resolve_provider(provider_name)
+        canonical_name = Providers::Registry.instance.canonical_name(provider_name)
+
+        if canonical_name == :codex
+          return CodexCredentialRecovery.new(**options).call
+        end
 
         unless provider.auth_type == :oauth
           raise UnsupportedAuthFlowError,
@@ -210,6 +220,19 @@ module AgentHarness
           raise UnsupportedAuthFlowError,
             "Token exchange is not yet implemented for provider #{provider_name}"
         end
+      end
+
+      # Return token-free identity, expiry, billing-mode, and generation facts for
+      # one explicitly selected native credential store.
+      def credential_metadata(provider_name, credential_path:)
+        provider_name = provider_name.to_sym
+        resolve_provider(provider_name)
+        canonical_name = Providers::Registry.instance.canonical_name(provider_name)
+        unless canonical_name == :codex
+          raise UnsupportedAuthFlowError, "Credential metadata is not implemented for provider #{provider_name}"
+        end
+
+        CodexCredentialRecovery.metadata(credential_path: credential_path)
       end
 
       private

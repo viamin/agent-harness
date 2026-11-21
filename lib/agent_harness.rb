@@ -384,8 +384,16 @@ module AgentHarness
     # @return [Hash] credential in claudeAiOauth shape
     # @raise [UnsupportedAuthFlowError] if provider doesn't support token exchange
     # @raise [AuthenticationError] if the refresh token is missing, reused, or exchange fails
-    def exchange_refresh_token(provider_name)
-      Authentication.exchange_refresh_token(provider_name)
+    def exchange_refresh_token(provider_name, **options)
+      Authentication.exchange_refresh_token(provider_name, **options)
+    end
+
+    # Inspect explicitly selected native credentials without returning token material.
+    # @param provider_name [Symbol] provider name
+    # @param credential_path [String] absolute native credential file path
+    # @return [Hash] identity, expiry, billing mode, refreshability, and generation
+    def credential_metadata(provider_name, credential_path:)
+      Authentication.credential_metadata(provider_name, credential_path: credential_path)
     end
 
     # Check health of all configured providers.
