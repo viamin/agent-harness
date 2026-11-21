@@ -22,6 +22,12 @@ RSpec.describe "OpenCode privacy routing integration" do
     plan.fetch(:preparation).file_writes.fetch(0).content
   end
 
+  def decode_config(home, config)
+    path = File.join(home, "opencode.json")
+    File.write(path, config, mode: "w", perm: 0o600)
+    Open3.capture3({"HOME" => home, "OPENCODE_CONFIG" => path}, "opencode", "debug", "config")
+  end
+
   def assert_pinned_cli!
     stdout, status = Open3.capture2("opencode", "--version")
     expect(status).to be_success
@@ -32,9 +38,7 @@ RSpec.describe "OpenCode privacy routing integration" do
     assert_pinned_cli!
 
     Dir.mktmpdir("opencode-privacy-config") do |directory|
-      path = File.join(directory, "opencode.json")
-      File.write(path, plan_config, mode: "w", perm: 0o600)
-      stdout, stderr, status = Open3.capture3({"OPENCODE_CONFIG" => path}, "opencode", "debug", "config")
+      stdout, stderr, status = decode_config(directory, plan_config)
 
       expect(status).to be_success, stderr
       decoded = JSON.parse(stdout)
@@ -53,12 +57,16 @@ RSpec.describe "OpenCode privacy routing integration" do
 
     Dir.mktmpdir("opencode-privacy-home") do |home|
       endpoint = "http://127.0.0.1:#{server.local_address.ip_port}/api/v1"
+      overrides = {metadata: {config: {provider: {openrouter: {options: {baseURL: endpoint}}}}}}
+      _stdout, stderr, status = decode_config(home, plan_config(overrides))
+      expect(status).to be_success, stderr
+
       provider.send_message(
         prompt: "Reply with OK",
         timeout: 60,
         provider_runtime: runtime(
           env: {"HOME" => home, "OPENROUTER_API_KEY" => "dummy-loopback-key"},
-          metadata: {config: {provider: {openrouter: {options: {baseURL: endpoint}}}}}
+          **overrides
         )
       )
 
