@@ -112,6 +112,13 @@ RSpec.describe AgentHarness::Api::ChatWireCodec do
     end
   end
 
+  it "counts object keys toward the from_wire byte limit" do
+    wire = JSON.parse(JSON.generate(version: 1, kind: "result", payload: result.merge(parsed: {"x" * 1_000 => "v"})))
+
+    expect { described_class.from_wire(wire, expected_kind: :result, max_bytes: 100) }
+      .to raise_error(described_class::ProtocolError, "invalid chat wire payload: content exceeds byte limit")
+  end
+
   it "rejects an empty result instead of decoding it as a success" do
     wire = JSON.generate(version: 1, kind: "result", payload: {})
 

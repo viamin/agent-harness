@@ -205,6 +205,7 @@ module AgentHarness
           nodes += 1
           invalid!("node count exceeds limit") if nodes > max_nodes
           bytes += value.bytesize if value.is_a?(String)
+          value.each_key { |key| bytes += key.bytesize if key.is_a?(String) } if value.is_a?(Hash)
           invalid!("content exceeds byte limit") if bytes > max_bytes
           children = if value.is_a?(Hash)
             value.values
