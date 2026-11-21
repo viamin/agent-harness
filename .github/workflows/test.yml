@@ -33,6 +33,12 @@ jobs:
       - name: Install dependencies
         run: bundle install --jobs 4 --retry 3
 
+      - name: Install pinned OpenCode CLI
+        run: |
+          version="$(ruby -Ilib -ragent_harness -e 'print AgentHarness::Providers::Opencode::SUPPORTED_CLI_VERSION')"
+          npm install -g "opencode-ai@${version}"
+          test "$(opencode --version)" = "${version}"
+
       - name: Run unit tests with coverage
         env:
           COVERAGE: "1"
