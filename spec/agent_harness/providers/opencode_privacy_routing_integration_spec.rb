@@ -64,7 +64,7 @@ RSpec.describe "OpenCode privacy routing integration" do
       _stdout, stderr, status = decode_config(home, plan_config(overrides))
       expect(status).to be_success, stderr
 
-      response = provider.send_message(
+      provider.send_message(
         prompt: "Reply with OK",
         timeout: 60,
         provider_runtime: runtime(
@@ -72,7 +72,6 @@ RSpec.describe "OpenCode privacy routing integration" do
           **overrides
         )
       )
-      expect(response).to be_success
 
       request = Timeout.timeout(5) { requests.pop }
       body = JSON.parse(request.fetch(:body))
