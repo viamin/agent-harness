@@ -6,6 +6,16 @@ on:
       - main
     tags:
       - "agent-harness/v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Existing immutable version to verify without publishing
+        required: true
+        default: "0.46.2"
+      sha256:
+        description: Expected SHA256 from the original publication
+        required: true
+        default: "c026bd3457a765ab599cb0446dc182f200d7797da4bb817b8ab35ca7d90ef170"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -16,7 +26,7 @@ concurrency:
 
 jobs:
   release-please:
-    if: ${{ github.ref_type == 'branch' }}
+    if: ${{ github.event_name == 'push' && github.ref_type == 'branch' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -36,7 +46,7 @@ jobs:
     name: Push gem to RubyGems.org
     runs-on: ubuntu-latest
     needs: release-please
-    if: "${{ always() && (needs.release-please.outputs.release-created == 'true' || startsWith(github.ref, 'refs/tags/agent-harness/v')) }}"
+    if: "${{ always() && (github.event_name == 'workflow_dispatch' || needs.release-please.outputs.release-created == 'true' || startsWith(github.ref, 'refs/tags/agent-harness/v')) }}"
 
     permissions:
       id-token: write # IMPORTANT: this permission is mandatory for trusted publishing
@@ -51,7 +61,47 @@ jobs:
         uses: ruby/setup-ruby@b3aaceaef7e0ee231b499e7b5f49c03fc1d32199
         with:
           bundler-cache: true
-          ruby-version: ruby
+          ruby-version: 3.4.12
+
+      - name: Build release artifact
+        if: github.event_name != 'workflow_dispatch'
+        run: bundle exec rake build
+      - name: Check for an immutable existing release
+        if: github.event_name != 'workflow_dispatch'
+        id: existing
+        shell: bash
+        run: |
+          set +e
+          bundle exec ruby script/verify_rubygems_release.rb --attempts 1 --interval 0 pkg/*.gem
+          status=$?
+          set -e
+          if [ "$status" -eq 0 ]; then
+            echo "published=true" >> "$GITHUB_OUTPUT"
+          elif [ "$status" -eq 2 ]; then
+            echo "published=false" >> "$GITHUB_OUTPUT"
+          else
+            exit "$status"
+          fi
 
       # Release
-      - uses: rubygems/release-gem@7f9650160c1a4e7989fdc9855807bdbd421d8b6b
+      - name: Publish gem with trusted publishing
+        if: github.event_name != 'workflow_dispatch' && steps.existing.outputs.published != 'true'
+        uses: rubygems/release-gem@7f9650160c1a4e7989fdc9855807bdbd421d8b6b
+        with:
+          # rubygems-await 0.5.4 calls a removed private RubyGems cache API.
+          # Verification below uses the supported public version endpoint.
+          await-release: false
+      - name: Verify published version and checksum
+        if: github.event_name != 'workflow_dispatch'
+        run: bundle exec ruby script/verify_rubygems_release.rb --attempts 30 --interval 10 pkg/*.gem
+      - name: Verify an existing immutable release without publishing
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          VERIFY_VERSION: ${{ inputs.version }}
+          VERIFY_SHA256: ${{ inputs.sha256 }}
+        run: >-
+          bundle exec ruby script/verify_rubygems_release.rb
+          --attempts 30 --interval 10
+          --name agent-harness
+          --version "$VERIFY_VERSION"
+          --sha256 "$VERIFY_SHA256"
