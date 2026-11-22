@@ -84,7 +84,7 @@ jobs:
       # Release
       - name: Publish gem with trusted publishing
         if: steps.existing.outputs.published != 'true'
-        uses: rubygems/release-gem@7f9650160c1a4e7989fdc9855807bdbd421d8b6b
+        uses: rubygems/release-gem@5c53f5308233b7c0f47411f0471b3faae6fa57b2
         with:
           # rubygems-await 0.5.4 calls a removed private RubyGems cache API.
           # Verification below uses the supported public version endpoint.
