@@ -77,11 +77,15 @@ module AgentHarness
 
       # The deadline interrupt may only fire inside the +:immediate+ region so
       # the lock file's close in File.open's ensure cannot be interrupted by a
-      # late or second Timeout::Error, guaranteeing the lock is released.
+      # late or second Timeout::Error, nor by the Timeout::ExitException a
+      # bare caller Timeout.timeout interrupts the thread with, guaranteeing
+      # the lock is released. Deferred interrupts are redelivered when the
+      # mask region exits, still inside any caller Timeout.timeout frame, so
+      # the caller's frame keeps converting ExitException to Timeout::Error.
       def recover(deadline, &record_commit)
-        Thread.handle_interrupt(Timeout::Error => :never) do
+        Thread.handle_interrupt(Timeout::Error => :never, Timeout::ExitException => :never) do
           File.open(lock_path, File::RDWR | File::CREAT, 0o600) do |lock|
-            Thread.handle_interrupt(Timeout::Error => :immediate) do
+            Thread.handle_interrupt(Timeout::Error => :immediate, Timeout::ExitException => :immediate) do
               acquire_lock(lock, deadline)
               rotate_under_lock(deadline, &record_commit)
             end
@@ -269,7 +273,10 @@ module AgentHarness
           snapshot.close!
           File.link(@path, snapshot_path)
           verify_generation!(snapshot_path, original_bytes)
-          Thread.handle_interrupt(Timeout::Error => :never) do
+          # Both interrupt forms are deferred so the committed rename, the
+          # concurrent-write restore, and the commit record stay atomic
+          # against bare caller watchdogs as well.
+          Thread.handle_interrupt(Timeout::Error => :never, Timeout::ExitException => :never) do
             File.rename(tempfile.path, @path)
             restore_concurrent_in_place_write!(snapshot_path, original_bytes)
             yield(credentials: updated, metadata: native_metadata(updated, persisted_bytes))
