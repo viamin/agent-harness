@@ -179,7 +179,7 @@ RSpec.describe "RubyLLM 2.2 loop controls (RDR-072 delegation evaluation)" do
       chat.step
       expect(chat.complete?).to be false
     end
-    expect(chat.tool_options).to eq(choice: nil, calls: nil, concurrency: nil, rounds: nil)
+    expect(chat.tool_options).to eq(choice: nil, calls: nil, concurrency: nil, rounds: nil, workers: nil)
   end
 
   it "retries beneath the caller inside the delegated loop by default" do
