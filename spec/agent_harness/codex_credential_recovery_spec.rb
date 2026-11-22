@@ -368,6 +368,38 @@ RSpec.describe "Codex managed credential recovery" do
     expect(result.dig(:credentials, "tokens", "refresh_token")).to eq("refresh-rotated")
   end
 
+  it "returns the committed result when a bare caller watchdog fires after rename" do
+    write_credentials
+    selected_generation = generation
+    stub_exchange
+    original_rename = File.method(:rename)
+    rename_completed = false
+    allow(File).to receive(:rename).and_call_original
+    allow(File).to receive(:rename) do |source, destination|
+      original_rename.call(source, destination).tap do
+        next unless destination == credential_path
+
+        rename_completed = true
+        sleep(0.18)
+      end
+    end
+
+    result = Timeout.timeout(0.1) do
+      AgentHarness.exchange_refresh_token(
+        :codex,
+        credential_path: credential_path,
+        expected_generation: selected_generation,
+        expected_account_id: account_id,
+        timeout: 1
+      )
+    end
+
+    expect(rename_completed).to be true
+    expect(result[:metadata][:generation]).to eq(generation)
+    expect(result[:credentials]).to eq(JSON.parse(File.read(credential_path)))
+    expect(result.dig(:credentials, "tokens", "refresh_token")).to eq("refresh-rotated")
+  end
+
   {
     "refresh_token_expired" => :refresh_token_expired,
     "refresh_token_reused" => :refresh_token_reused,
@@ -590,6 +622,31 @@ RSpec.describe "Codex managed credential recovery" do
     expect(File.binread(credential_path)).to eq(before)
   end
 
+  it "preserves a bare caller cancellation before commit and releases the lock" do
+    write_credentials
+    before = File.binread(credential_path)
+
+    File.open("#{credential_path}.lock", File::RDWR | File::CREAT, 0o600) do |lock|
+      lock.flock(File::LOCK_EX)
+      expect {
+        Timeout.timeout(0.02) do
+          AgentHarness.exchange_refresh_token(
+            :codex,
+            credential_path: credential_path,
+            expected_generation: generation,
+            expected_account_id: account_id,
+            timeout: 1
+          )
+        end
+      }.to raise_error(Timeout::Error, /execution expired/)
+    end
+
+    expect(File.binread(credential_path)).to eq(before)
+    File.open("#{credential_path}.lock", File::RDWR | File::CREAT, 0o600) do |probe|
+      expect(probe.flock(File::LOCK_EX | File::LOCK_NB)).to be_truthy
+    end
+  end
+
   it "yields a typed deadline error, never a leaked Timeout::ExitException, when lock release and HTTP both outlast the budget" do
     write_credentials
     before = File.binread(credential_path)
@@ -645,7 +702,7 @@ RSpec.describe "Codex managed credential recovery" do
     expect(File.binread(credential_path)).to eq(before)
   end
 
-  it "releases the lock promptly when a bare caller watchdog fires during the lock-file close" do
+  it "returns the committed result and releases the lock when a bare caller watchdog fires during lock cleanup" do
     write_credentials
     original_generation = generation
     stub_delayed_exchange(delay: 0.05)
@@ -676,20 +733,20 @@ RSpec.describe "Codex managed credential recovery" do
     # masking an unreleased flock until the promptness probe has run.
     gc_was_disabled = GC.disable
     begin
-      expect {
-        Timeout.timeout(5) do
-          AgentHarness.exchange_refresh_token(
-            :codex,
-            credential_path: credential_path,
-            expected_generation: original_generation,
-            expected_account_id: account_id,
-            timeout: 7
-          )
-        end
-      }.to raise_error(Timeout::Error, /execution expired/)
+      committed_result = Timeout.timeout(5) do
+        AgentHarness.exchange_refresh_token(
+          :codex,
+          credential_path: credential_path,
+          expected_generation: original_generation,
+          expected_account_id: account_id,
+          timeout: 7
+        )
+      end
 
       interception_armed = false
       expect(lock_closed).to be true
+      expect(committed_result.dig(:credentials, "tokens", "refresh_token")).to eq("refresh-rotated")
+      expect(committed_result[:metadata][:generation]).to eq(generation)
       prompt = File.open("#{credential_path}.lock", File::RDWR | File::CREAT, 0o600) do |probe|
         probe.flock(File::LOCK_EX | File::LOCK_NB)
       end

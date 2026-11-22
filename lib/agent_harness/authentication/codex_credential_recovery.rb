@@ -65,6 +65,10 @@ module AgentHarness
         return committed_result if committed_result
 
         auth_error(:deadline_exceeded, "Codex credential recovery exceeded its deadline")
+      rescue Timeout::ExitException
+        return committed_result if committed_result
+
+        raise
       rescue JSON::ParserError
         auth_error(:invalid_native_credentials, "Selected Codex credentials are not valid JSON")
       rescue IOError, SocketError, SystemCallError => error
