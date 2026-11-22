@@ -72,6 +72,30 @@ RSpec.describe "Codex managed credential recovery" do
     http
   end
 
+  # Mocked HTTP whose successful reply lands only after +delay+ seconds, so the
+  # recovery deadline expires mid-request without any live refresh material.
+  def stub_delayed_exchange(delay:)
+    http = stub_exchange
+    response = http.request(nil)
+    allow(http).to receive(:request) do
+      sleep(delay)
+      response
+    end
+    http
+  end
+
+  # Hold the real adjacent lock, releasing it after +after+ seconds so the
+  # recovery spends part of its budget waiting on genuine lock contention.
+  def hold_lock_then_release(after:)
+    lock = File.open("#{credential_path}.lock", File::RDWR | File::CREAT, 0o600)
+    lock.flock(File::LOCK_EX)
+    Thread.new do
+      sleep(after)
+      lock.flock(File::LOCK_UN)
+      lock.close
+    end
+  end
+
   it "advertises only the implemented explicit Codex exchange" do
     expect(AgentHarness.auth_capabilities(:codex)).to include(
       auth_type: :api_key,
@@ -564,6 +588,135 @@ RSpec.describe "Codex managed credential recovery" do
       expect(Process.clock_gettime(Process::CLOCK_MONOTONIC) - started_at).to be < 0.5
     end
     expect(File.binread(credential_path)).to eq(before)
+  end
+
+  it "yields a typed deadline error, never a leaked Timeout::ExitException, when lock release and HTTP both outlast the budget" do
+    write_credentials
+    before = File.binread(credential_path)
+    stub_delayed_exchange(delay: 0.08)
+    releaser = hold_lock_then_release(after: 0.06)
+
+    begin
+      expect {
+        AgentHarness.exchange_refresh_token(
+          :codex,
+          credential_path: credential_path,
+          expected_generation: generation,
+          expected_account_id: account_id,
+          timeout: 0.1
+        )
+      }.to raise_error(AgentHarness::AuthenticationError) { |error|
+        expect(error.error_code).to eq(:deadline_exceeded)
+        serialized = "#{error.message} #{error.context.inspect}"
+        expect(serialized).not_to include("refresh-old")
+        expect(serialized).not_to include("refresh-rotated")
+      }
+    ensure
+      releaser.join
+    end
+
+    expect(File.binread(credential_path)).to eq(before)
+  end
+
+  it "yields a typed deadline error for the combined-delay case under a longer caller watchdog" do
+    write_credentials
+    before = File.binread(credential_path)
+    stub_delayed_exchange(delay: 0.08)
+    releaser = hold_lock_then_release(after: 0.06)
+
+    begin
+      expect {
+        Timeout.timeout(5, Timeout::Error) do
+          AgentHarness.exchange_refresh_token(
+            :codex,
+            credential_path: credential_path,
+            expected_generation: generation,
+            expected_account_id: account_id,
+            timeout: 0.1
+          )
+        end
+      }.to raise_error(AgentHarness::AuthenticationError) { |error|
+        expect(error.error_code).to eq(:deadline_exceeded)
+      }
+    ensure
+      releaser.join
+    end
+
+    expect(File.binread(credential_path)).to eq(before)
+  end
+
+  it "releases the lock promptly when a bare caller watchdog fires during the lock-file close" do
+    write_credentials
+    original_generation = generation
+    stub_delayed_exchange(delay: 0.05)
+    releaser = hold_lock_then_release(after: 0.05)
+
+    # Slow only the recovery's lock-file close so the longer bare caller
+    # deadline (Timeout.timeout(5), which interrupts with Timeout::ExitException)
+    # provably fires while that close is in progress.
+    original_open = File.method(:open)
+    interception_armed = true
+    lock_closed = false
+    allow(File).to receive(:open) do |path, *rest, **kwargs, &block|
+      if interception_armed && block && path == "#{credential_path}.lock"
+        original_open.call(path, *rest, **kwargs) do |lock|
+          allow(lock).to receive(:close).and_wrap_original do |close|
+            sleep(5.3)
+            close.call
+            lock_closed = true
+          end
+          block.call(lock)
+        end
+      else
+        original_open.call(path, *rest, **kwargs, &block)
+      end
+    end
+
+    # A stranded lock descriptor is only finalized by GC, so keep GC from
+    # masking an unreleased flock until the promptness probe has run.
+    gc_was_disabled = GC.disable
+    begin
+      expect {
+        Timeout.timeout(5) do
+          AgentHarness.exchange_refresh_token(
+            :codex,
+            credential_path: credential_path,
+            expected_generation: original_generation,
+            expected_account_id: account_id,
+            timeout: 7
+          )
+        end
+      }.to raise_error(Timeout::Error, /execution expired/)
+
+      interception_armed = false
+      expect(lock_closed).to be true
+      prompt = File.open("#{credential_path}.lock", File::RDWR | File::CREAT, 0o600) do |probe|
+        probe.flock(File::LOCK_EX | File::LOCK_NB)
+      end
+      expect(prompt).to be_truthy
+    ensure
+      GC.enable unless gc_was_disabled
+      interception_armed = false
+      releaser.join
+    end
+
+    stored = JSON.parse(File.binread(credential_path))
+    expect(stored.dig("tokens", "refresh_token")).to eq("refresh-rotated")
+    expect(stored.dig("tokens", "account_id")).to eq(account_id)
+    expect(stored["caller_metadata"]).to eq("lease" => "preserve-me")
+    expect(stored["auth_mode"]).to eq("chatgpt")
+
+    resumed_at = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+    result = AgentHarness.exchange_refresh_token(
+      :codex,
+      credential_path: credential_path,
+      expected_generation: generation,
+      expected_account_id: account_id,
+      timeout: 2
+    )
+    expect(Process.clock_gettime(Process::CLOCK_MONOTONIC) - resumed_at).to be < 1.5
+    expect(result[:credentials].dig("tokens", "refresh_token")).to eq("refresh-rotated")
+    expect(result[:metadata][:generation]).to eq(generation)
   end
 
   it "rejects a blocking non-regular credential path within the recovery deadline" do
