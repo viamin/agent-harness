@@ -16,6 +16,13 @@
 
 * close the RDR-072 upstream epic from #437's retained-scope evidence while keeping unpublished capabilities and downstream adoption behind their explicit release and integration gates ([#430](https://github.com/viamin/agent-harness/issues/430)).
 
+## [0.46.2](https://github.com/viamin/agent-harness/compare/agent-harness/v0.46.1...agent-harness/v0.46.2) (2026-11-22)
+
+
+### Bug Fixes
+
+* **auth:** normalize nested Codex recovery deadline interruption ([#564](https://github.com/viamin/agent-harness/issues/564)) ([2a98dec](https://github.com/viamin/agent-harness/commit/2a98dece228117864c56001296d04b8c516432fc))
+
 ## [0.46.1](https://github.com/viamin/agent-harness/compare/agent-harness/v0.46.0...agent-harness/v0.46.1) (2026-11-21)
 
 
