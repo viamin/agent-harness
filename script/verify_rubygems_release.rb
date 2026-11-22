@@ -72,18 +72,23 @@ module AgentHarness
         raise TransportError, "RubyGems.org API transport failure (HTTP #{status})" unless status.between?(200, 299)
 
         metadata = JSON.parse(response.body)
-        remote_sha = metadata.fetch("sha")
-        unless metadata["version"] == artifact.version && remote_sha.match?(/\A[0-9a-f]{64}\z/)
+        unless supported_metadata?(metadata, artifact.version)
           raise ApiCompatibilityError, "RubyGems.org version response does not match the supported public API schema"
         end
+        remote_sha = metadata.fetch("sha")
         if remote_sha != artifact.sha256
           raise ChecksumMismatch,
             "#{artifact.name} #{artifact.version} is already published with SHA256 #{remote_sha}, not local SHA256 #{artifact.sha256}"
         end
 
         "Verified published #{artifact.name} #{artifact.version} (SHA256 #{remote_sha})"
-      rescue JSON::ParserError, KeyError, TypeError
+      rescue JSON::ParserError
         raise ApiCompatibilityError, "RubyGems.org version response does not match the supported public API schema"
+      end
+
+      def supported_metadata?(metadata, version)
+        metadata.is_a?(Hash) && metadata["version"].is_a?(String) && metadata["version"] == version &&
+          metadata["sha"].is_a?(String) && metadata["sha"].match?(/\A[0-9a-f]{64}\z/)
       end
     end
 

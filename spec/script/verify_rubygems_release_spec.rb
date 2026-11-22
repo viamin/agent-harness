@@ -56,6 +56,23 @@ RSpec.describe AgentHarness::ReleaseVerification::Verifier do
       .to raise_error(AgentHarness::ReleaseVerification::ApiCompatibilityError, /public API schema/)
   end
 
+  [
+    nil,
+    [],
+    "metadata",
+    {"version" => "0.46.2", "sha" => nil},
+    {"version" => "0.46.2", "sha" => 123},
+    {"version" => nil, "sha" => "a" * 64},
+    {"version" => 46.2, "sha" => "a" * 64}
+  ].each do |malformed_metadata|
+    it "reports malformed metadata #{malformed_metadata.inspect} as public API incompatibility" do
+      allow(client).to receive(:get).and_return(response(200, JSON.generate(malformed_metadata)))
+
+      expect { verifier.verify(artifact, attempts: 1, interval: 0) }
+        .to raise_error(AgentHarness::ReleaseVerification::ApiCompatibilityError, /public API schema/)
+    end
+  end
+
   it "distinguishes authentication failures" do
     allow(client).to receive(:get).and_return(response(403))
 

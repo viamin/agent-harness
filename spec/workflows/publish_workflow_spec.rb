@@ -23,7 +23,11 @@ RSpec.describe "the gem publication workflow" do
 
   it "provides a verification-only retry path that cannot publish the immutable release" do
     expect(workflow).to include("workflow_dispatch:", "Verify an existing immutable release without publishing")
-    expect(workflow).to include("if: github.event_name != 'workflow_dispatch' && steps.existing.outputs.published != 'true'")
+    publishing_job, verification_job = workflow.split(/^  verify-gem:/, 2)
+
+    expect(publishing_job).to include("github.event_name == 'push'", "id-token: write")
+    expect(verification_job).to include("if: github.event_name == 'workflow_dispatch'", "contents: read")
+    expect(verification_job).not_to include("id-token: write", "rubygems/release-gem")
     expect(workflow).to include("VERIFY_VERSION: ${{ inputs.version }}", "--version \"$VERIFY_VERSION\"")
   end
 end
